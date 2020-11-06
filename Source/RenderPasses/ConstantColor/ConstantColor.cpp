@@ -67,11 +67,11 @@ RenderPassReflection ConstantColor::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
-    // TODO make persistent?
     reflector.addOutput("texture", "output texture")
         .bindFlags(Resource::BindFlags::ShaderResource | Resource::BindFlags::RenderTarget)
         .format(ResourceFormat::RGBA32Float)
-        .texture2D(0, 0);
+        .texture2D(0, 0)
+        .flags(RenderPassReflection::Field::Flags::Persistent);
     return reflector;
 }
 
@@ -84,20 +84,22 @@ void ConstantColor::execute(RenderContext* pRenderContext, const RenderData& ren
         logWarning("ConstantColor::execute() - unused output texture");
         return;
     }
-
-    // TODO custom clear color
-    pRenderContext->clearTexture(pTexture.get(), mColor);
+    if(!mRendered)
+    {
+        pRenderContext->clearTexture(pTexture.get(), mColor);
+        mRendered = true;
+    }
 }
 
 void ConstantColor::renderUI(Gui::Widgets& widget)
 {
     float4 color = mColor;
     if (widget.rgbaColor("Color", color)) setColor(color);
-
 }
 
 void ConstantColor::setColor(float4 color)
 {
     mColor = color;
+    mRendered = false;
     mPassChangedCB();
 }

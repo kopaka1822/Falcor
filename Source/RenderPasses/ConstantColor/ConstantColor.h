@@ -57,4 +57,5 @@ public:
 private:
     ConstantColor() = default;
     float4 mColor = float4(1.0f);
+    bool mRendered = false;
 };
