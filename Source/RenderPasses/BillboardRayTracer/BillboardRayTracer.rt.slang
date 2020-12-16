@@ -220,49 +220,35 @@ void scatterClosestHit(
 
     VertexData v = getVertexData(hitParams, PrimitiveIndex(), attribs);
 
-    rayData.color = dot(v.normalW, -WorldRayDirection());
+    //rayData.color = dot(v.normalW, -WorldRayDirection());
 
-    //// Evaluate Falcor's material parameters at the hit point.
-    //// TODO: Implement texLOD to enable texture filtering in prepareShadingData().
-    //
-    //const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
-    //ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -WorldRayDirection(), 0.f);
-    //
-    //// Compute tangent space if it is invalid.
-    //if (!(dot(sd.T, sd.T) > 0.f))   // Note: Comparison written so that NaNs trigger
-    //{
-    //    sd.T = perp_stark(sd.N);
-    //    sd.B = cross(sd.N, sd.T);
-    //}
-    //
-    //// Add emitted light.
-    //if (kUseEmissiveLights && (kComputeDirect || rayData.pathLength > 0))
-    //{
-    //    rayData.radiance += rayData.thp * sd.emissive;
-    //}
-    //
-    //// Check whether to terminate based on max depth.
-    //if (rayData.pathLength >= kMaxBounces)
-    //{
-    //    rayData.terminated = true;
-    //    return;
-    //}
-    //
-    //// Compute ray origin for new rays spawned from the hit.
-    //float3 rayOrigin = sd.computeNewRayOrigin();
-    //
-    //// Add contribution of direct light from analytic lights.
-    //if (kUseAnalyticLights)
-    //{
-    //    float3 Lr = evalDirectAnalytic(sd, rayOrigin, rayData.sg);
-    //    rayData.radiance += rayData.thp * Lr;
-    //}
-    //
-    //// Generate scatter ray for the next path segment.
-    //// The raygen shader will continue the path based on the returned payload.
-    //generateScatterRay(sd, rayOrigin, rayData);
-    //
-    //rayData.pathLength++;
+    // Evaluate Falcor's material parameters at the hit point.
+    // TODO: Implement texLOD to enable texture filtering in prepareShadingData().
+    const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
+    ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -WorldRayDirection(), 0.f);
+
+    // Compute tangent space if it is invalid.
+    if (!(dot(sd.T, sd.T) > 0.f))   // Note: Comparison written so that NaNs trigger
+    {
+        sd.T = perp_stark(sd.N);
+        sd.B = cross(sd.N, sd.T);
+    }
+
+    rayData.color += sd.emissive;
+
+    const uint lightCount = gScene.getLightCount();
+    // forward render all light sources
+    for(uint i = 0; i < lightCount; ++i)
+    {
+        // TODO add shadow map sample
+        // Sample local light source.
+        rayData.color += evalMaterial(sd, gScene.getLight(i), /*shadow*/ 1.0).color;
+    }
+
+    // light probe
+    rayData.color += evalMaterial(sd, gScene.lightProbe).color;
+
+    // alpha for later in sd.opacity
 }
 
 /************************** Ray index 1: Shadow ray ************************ */
