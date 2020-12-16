@@ -26,32 +26,6 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 
-/** Minimal path tracer.
-
-    The purpose is to use it for validation of more complex renderers.
-    The implementation here should be kept as simple/naive as possible.
-
-    At each hit point (including the primary hit loaded from the G-buffer),
-    analytic light sources (point, directional) are sampled uniformly using
-    1 shadow ray, and 1 scatter ray is traced to sample the hemisphere.
-    At hit/miss the scatter ray includes light from emissive surface and
-    the environment map, respectively. Traversal stops at a fixed path length.
-
-    Each type of light (analytic, emissive, env map) can be individually
-    enabled/disabled from the host. This clutters the code a bit, but it is
-    important as not all other renderes may support all three light types.
-
-    The host sets the following defines:
-
-    MAX_BOUNCES         Maximum number of indirect bounces (0 means no indirect).
-    COMPUTE_DIRECT      Nonzero if direct illumination should be included.
-    USE_ANALYTIC_LIGHTS Nonzero if Falcor's analytic lights should be used.
-    USE_EMISSIVE_LIGHTS Nonzero if emissive geometry should be used as lights.
-    USE_ENV_LIGHT       Nonzero if env map is available and should be used as light source.
-    USE_ENV_BACKGROUND  Nonzero if env map is available and should be used as background.
-    is_valid_<name>     1 if optional I/O buffer with this name should be used.
-*/
-
 #include "Utils/Math/MathConstants.slangh"
 
 import Scene.Raytracing;
@@ -80,53 +54,11 @@ Texture2D<float4> gMaterialExtraParams;
 // Outputs
 RWTexture2D<float4> gOutputColor;
 
-// Static configuration based on defines set from the host.
-#define isValid(name) (is_valid_##name != 0)
-static const uint kMaxBounces = MAX_BOUNCES;
-static const bool kComputeDirect = COMPUTE_DIRECT;
-static const bool kUseAnalyticLights = USE_ANALYTIC_LIGHTS;
-static const bool kUseEmissiveLights = USE_EMISSIVE_LIGHTS;
-static const bool kUseEnvLight = USE_ENV_LIGHT;
-static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
-static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
-static const float kRayTMax = FLT_MAX;
-
 /** Payload for shadow ray.
 */
 struct ShadowRayData
 {
     bool visible;
-};
-
-/** Payload for scatter ray (80B).
-*/
-struct ScatterRayData
-{
-    float3  radiance;       ///< Accumulated outgoing radiance from path.
-    bool    terminated;     ///< Set to true when path is terminated.
-    float3  thp;            ///< Current path throughput. This is updated at each path vertex.
-    uint    pathLength;     ///< Path length in number of path segments (0 at origin, 1 at first secondary hit, etc.). Max 2^31.
-    float3  origin;         ///< Next path segment origin.
-    uint    _pad0;
-    float3  direction;      ///< Next path segment direction.
-    uint    _pad1;
-
-    SampleGenerator sg;     ///< Per-ray state for the sample generator (up to 16B).
-
-    /** Create ray payload with default parameters.
-    */
-    static ScatterRayData create(SampleGenerator sg)
-    {
-        ScatterRayData d;
-        d.terminated = false;
-        d.pathLength = 0;
-        d.radiance = float3(0, 0, 0);
-        d.thp = float3(1, 1, 1);
-        d.origin = float3(0, 0, 0);
-        d.direction = float3(0, 0, 0);
-        d.sg = sg;
-        return d;
-    }
 };
 
 struct RayPayload
@@ -135,36 +67,6 @@ struct RayPayload
     float3 color;
 };
 
-/** Helper to load the material attributes.
-*/
-MaterialParams loadMaterialParams(uint2 pixelPos)
-{
-    MaterialParams matParams;
-    matParams.diffuseOpacity = gMaterialDiffuseOpacity[pixelPos];
-    matParams.specularRoughness = gMaterialSpecularRoughness[pixelPos];
-    matParams.emissive = gMaterialEmissive[pixelPos];
-    matParams.extraParams = gMaterialExtraParams[pixelPos];
-
-    return matParams;
-}
-
-/** Returns the primary ray's direction.
-*/
-float3 getPrimaryRayDir(uint2 launchIndex, uint2 launchDim, const Camera camera)
-{
-    if (isValid(gWorldView))
-    {
-        // If we have the view vector bound as a buffer, just fetch it. No need to compute anything.
-        return -gWorldView[launchIndex].xyz;
-    }
-    else
-    {
-        // Compute the view vector. This must exactly match what the G-buffer pass is doing (jitter etc.).
-        // Note that we do not take depth-of-field into account as it would require exactly matching the
-        // sample generator between the passes, which is error prone. The host side will issue a warning instead.
-        return camera.computeRayPinhole(launchIndex, launchDim).dir;
-    }
-}
 
 /** Traces a shadow ray towards a light source.
     \param[in] origin Ray origin for the shadow ray.
@@ -193,11 +95,8 @@ bool traceShadowRay(float3 origin, float3 dir, float distance)
 void scatterMiss(inout RayPayload rayData : SV_RayPayload)
 {
     rayData.depth = gScene.camera.data.farZ;
-    if (kUseEnvLight)
-    {
-        float3 Le = gScene.envMap.eval(WorldRayDirection());
-        rayData.color += Le;
-    }
+    float3 Le = gScene.envMap.eval(WorldRayDirection());
+    rayData.color += Le;
 }
 
 [shader("anyhit")]
@@ -205,10 +104,10 @@ void scatterAnyHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    //// Alpha test for non-opaque geometry.
-    //VertexData v = getVertexData(hitParams, PrimitiveIndex(), attribs);
-    //const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
-    //if (alphaTest(v, gScene.materials[materialID], gScene.materialResources[materialID], 0.f)) IgnoreHit();
+    // Alpha test for non-opaque geometry.
+    VertexData v = getVertexData(hitParams, PrimitiveIndex(), attribs);
+    const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
+    if (alphaTest(v, gScene.materials[materialID], gScene.materialResources[materialID], 0.f)) IgnoreHit();
 }
 
 [shader("closesthit")]
@@ -271,30 +170,13 @@ void shadowAnyHit(
     if (alphaTest(v, gScene.materials[materialID], gScene.materialResources[materialID], 0.f)) IgnoreHit();
 }
 
-/** ******************************** RayGen ******************************** */
-
-/** This is the entry point for the minimal path tracer.
-
-    One path per pixel is generated, which  is traced into the scene.
-    The path tracer is written as a for-loop over path segments.
-
-    Built-in light sources (point, directional) are sampled explicitly at each
-    path vertex. The contributions from area lights (env map and mesh lights)
-    are explicitly added by the scatter ray hit/miss shaders.
-*/
 [shader("raygeneration")]
 void rayGen()
 {
     uint2 launchIndex = DispatchRaysIndex().xy;
     uint2 launchDim = DispatchRaysDimensions().xy;
 
-    float3 outColor = float3(0, 0, 0);
-
-    const float3 rayDir = getPrimaryRayDir(launchIndex, launchDim, gScene.camera);
-    const float4 worldPos = gWorldPosition[launchIndex];
-
-    outColor = 0.0;
-    worldPos.w = 0.0f;
+    float3 outColor = 0.0;
 
     // primary ray
     RayDesc ray = gScene.camera.computeRayPinhole(launchIndex, launchDim).toRayDesc();
