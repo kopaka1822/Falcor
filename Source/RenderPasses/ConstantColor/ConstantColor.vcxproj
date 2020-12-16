@@ -14,7 +14,7 @@
     <ProjectGuid>{D3F1448A-1489-4F67-9745-947ACFAAD5F2}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>ConstantColor</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.18362.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <ProjectName>ConstantColor</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
