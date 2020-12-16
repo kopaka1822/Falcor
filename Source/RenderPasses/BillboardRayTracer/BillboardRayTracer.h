@@ -28,6 +28,7 @@
 #pragma once
 #include "Falcor.h"
 #include "FalcorExperimental.h"
+#include "Utils/Sampling/SampleGenerator.h"
 
 using namespace Falcor;
 
@@ -36,23 +37,61 @@ class BillboardRayTracer : public RenderPass
 public:
     using SharedPtr = std::shared_ptr<BillboardRayTracer>;
 
-    /** Create a new render pass object.
-        \param[in] pRenderContext The render context.
-        \param[in] dict Dictionary of serialized parameters.
-        \return A new object, or an exception is thrown if creation failed.
-    */
     static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
 
-    virtual std::string getDesc() override { return "Insert pass description here"; }
+    virtual std::string getDesc() override { return "Minimal path tracer"; }
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pContext, const CompileData& compileData) override {}
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    BillboardRayTracer() = default;
+    BillboardRayTracer(const Dictionary& dict);
+    void prepareVars();
+
+    // Internal state
+    Scene::SharedPtr            mpScene;                    ///< Current scene.
+    SampleGenerator::SharedPtr  mpSampleGenerator;          ///< GPU sample generator.
+
+    // Configuration
+    uint                        mMaxBounces = 3;            ///< Max number of indirect bounces (0 = none).
+    bool                        mComputeDirect = true;      ///< Compute direct illumination (otherwise indirect only).
+
+    // Runtime data
+    uint                        mFrameCount = 0;            ///< Frame count since scene was loaded.
+    bool                        mOptionsChanged = false;
+
+    // Ray tracing program.
+    struct
+    {
+        RtProgram::SharedPtr pProgram;
+        RtProgramVars::SharedPtr pVars;
+    } mTracer;
+
+    // Scripting
+#define serialize(var) \
+    if constexpr (!loadFromDict) dict[#var] = var; \
+    else if (dict.keyExists(#var)) { if constexpr (std::is_same<decltype(var), std::string>::value) var = (const std::string &)dict[#var]; else var = dict[#var]; vars.emplace(#var); }
+
+    template<bool loadFromDict, typename DictType>
+    void serializePass(DictType& dict)
+    {
+        std::unordered_set<std::string> vars;
+
+        // Add variables here that should be serialized to/from the dictionary.
+        serialize(mMaxBounces);
+        serialize(mComputeDirect);
+
+        if constexpr (loadFromDict)
+        {
+            for (const auto& [key, value] : dict)
+            {
+                if (vars.find(key) == vars.end()) logWarning("Unknown field '" + key + "' in a PathTracer dictionary");
+            }
+        }
+    }
+#undef serialize
 };

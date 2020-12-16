@@ -6,4 +6,7 @@
   <ItemGroup>
     <ClInclude Include="BillboardRayTracer.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="BillboardRayTracer.rt.slang" />
+  </ItemGroup>
 </Project>
