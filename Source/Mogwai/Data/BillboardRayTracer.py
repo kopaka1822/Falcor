@@ -1,7 +1,7 @@
 from falcor import *
 
 def render_graph_DefaultRenderGraph():
-    g = RenderGraph('BillboardRenderGraph')
+    g = RenderGraph('DefaultRenderGraph')
     loadRenderPassLibrary('CSM.dll')
     loadRenderPassLibrary('BSDFViewer.dll')
     loadRenderPassLibrary('MinimalPathTracer.dll')
@@ -26,23 +26,13 @@ def render_graph_DefaultRenderGraph():
     loadRenderPassLibrary('ToneMapper.dll')
     loadRenderPassLibrary('Utils.dll')
     loadRenderPassLibrary('WhittedRayTracer.dll')
-    GBufferRT = createPass('GBufferRT', {'samplePattern': SamplePattern.Center, 'sampleCount': 16, 'disableAlphaTest': False, 'forceCullMode': False, 'cull': CullMode.CullBack, 'texLOD': LODMode.UseMip0})
-    g.addPass(GBufferRT, 'GBufferRT')
+    BillboardRayTracer = createPass('BillboardRayTracer')
+    g.addPass(BillboardRayTracer, 'BillboardRayTracer')
     ToneMapper = createPass('ToneMapper', {'exposureCompensation': 0.0, 'autoExposure': False, 'exposureValue': 0.0, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': ToneMapOp.Aces, 'clamp': True, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': ExposureMode.AperturePriority})
     g.addPass(ToneMapper, 'ToneMapper')
-    BillboardRayTracer = createPass('BillboardRayTracer', {'mMaxBounces': 3, 'mComputeDirect': True})
-    g.addPass(BillboardRayTracer, 'BillboardRayTracer')
     g.addEdge('BillboardRayTracer.color', 'ToneMapper.src')
-    g.addEdge('GBufferRT.posW', 'BillboardRayTracer.posW')
-    g.addEdge('GBufferRT.normW', 'BillboardRayTracer.normalW')
-    g.addEdge('GBufferRT.tangentW', 'BillboardRayTracer.tangentW')
-    g.addEdge('GBufferRT.diffuseOpacity', 'BillboardRayTracer.mtlDiffOpacity')
-    g.addEdge('GBufferRT.specRough', 'BillboardRayTracer.mtlSpecRough')
-    g.addEdge('GBufferRT.emissive', 'BillboardRayTracer.mtlEmissive')
-    g.addEdge('GBufferRT.matlExtra', 'BillboardRayTracer.mtlParams')
-    g.addEdge('GBufferRT.faceNormalW', 'BillboardRayTracer.faceNormalW')
-    g.addEdge('GBufferRT.viewW', 'BillboardRayTracer.viewW')
     g.markOutput('ToneMapper.dst')
+    g.markOutput('BillboardRayTracer.color')
     return g
 
 DefaultRenderGraph = render_graph_DefaultRenderGraph()

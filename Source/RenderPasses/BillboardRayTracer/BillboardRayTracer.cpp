@@ -47,21 +47,11 @@ namespace
     // These should be set as small as possible.
     const uint32_t kMaxPayloadSizeBytes = 80u;
     const uint32_t kMaxAttributesSizeBytes = 8u;
-    const uint32_t kMaxRecursionDepth = 2u;
-
-    const char kViewDirInput[] = "viewW";
+    const uint32_t kMaxRecursionDepth = 1u;
 
     const ChannelList kInputChannels =
     {
-        { "posW",           "gWorldPosition",             "World-space position (xyz) and foreground flag (w)"       },
-        { "normalW",        "gWorldShadingNormal",        "World-space shading normal (xyz)"                         },
-        { "tangentW",       "gWorldShadingTangent",       "World-space shading tangent (xyz) and sign (w)", true /* optional */ },
-        { "faceNormalW",    "gWorldFaceNormal",           "Face normal in world space (xyz)",                        },
-        { kViewDirInput,    "gWorldView",                 "World-space view direction (xyz)", true /* optional */    },
-        { "mtlDiffOpacity", "gMaterialDiffuseOpacity",    "Material diffuse color (xyz) and opacity (w)"             },
-        { "mtlSpecRough",   "gMaterialSpecularRoughness", "Material specular color (xyz) and roughness (w)"          },
-        { "mtlEmissive",    "gMaterialEmissive",          "Material emissive color (xyz)"                            },
-        { "mtlParams",      "gMaterialExtraParams",       "Material parameters (IoR, flags etc)"                     },
+        // TODO add shadow map here
     };
 
     const ChannelList kOutputChannels =
@@ -85,7 +75,6 @@ BillboardRayTracer::BillboardRayTracer(const Dictionary& dict)
     progDesc.addShaderLibrary(kShaderFile).setRayGen("rayGen");
     progDesc.addHitGroup(0, "scatterClosestHit", "scatterAnyHit").addMiss(0, "scatterMiss");
     progDesc.addHitGroup(1, "", "shadowAnyHit").addMiss(1, "shadowMiss");
-    progDesc.addDefine("MAX_BOUNCES", std::to_string(mMaxBounces));
     progDesc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
     mTracer.pProgram = RtProgram::create(progDesc, kMaxPayloadSizeBytes, kMaxAttributesSizeBytes);
 
@@ -140,21 +129,7 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
         mpScene->getLightCollection(pRenderContext);
     }
 
-    // Configure depth-of-field.
-    const bool useDOF = mpScene->getCamera()->getApertureRadius() > 0.f;
-    if (useDOF && renderData[kViewDirInput] == nullptr)
-    {
-        logWarning("Depth-of-field requires the '" + std::string(kViewDirInput) + "' input. Expect incorrect shading.");
-    }
-
     // Specialize program.
-    // These defines should not modify the program vars. Do not trigger program vars re-creation.
-    mTracer.pProgram->addDefine("MAX_BOUNCES", std::to_string(mMaxBounces));
-    mTracer.pProgram->addDefine("COMPUTE_DIRECT", mComputeDirect ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_ANALYTIC_LIGHTS", mpScene->useAnalyticLights() ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_ENV_LIGHT", mpScene->useEnvLight() ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     // TODO: This should be moved to a more general mechanism using Slang.
@@ -169,7 +144,6 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
     // Set constants.
     auto pVars = mTracer.pVars;
     pVars["CB"]["gFrameCount"] = mFrameCount;
-    pVars["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
 
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)
@@ -197,14 +171,6 @@ void BillboardRayTracer::renderUI(Gui::Widgets& widget)
 {
     bool dirty = false;
 
-    dirty |= widget.var("Max bounces", mMaxBounces, 0u, 1u << 16);
-    widget.tooltip("Maximum path length for indirect illumination.\n0 = direct only\n1 = one indirect bounce etc.", true);
-
-    dirty |= widget.checkbox("Evaluate direct illumination", mComputeDirect);
-    widget.tooltip("Compute direct illumination.\nIf disabled only indirect is computed (when max bounces > 0).", true);
-
-    // If rendering options that modify the output have changed, set flag to indicate that.
-    // In execute() we will pass the flag to other passes for reset of temporal data etc.
     if (dirty)
     {
         mOptionsChanged = true;

@@ -55,11 +55,7 @@ private:
     // Internal state
     Scene::SharedPtr            mpScene;                    ///< Current scene.
     SampleGenerator::SharedPtr  mpSampleGenerator;          ///< GPU sample generator.
-
-    // Configuration
-    uint                        mMaxBounces = 3;            ///< Max number of indirect bounces (0 = none).
-    bool                        mComputeDirect = true;      ///< Compute direct illumination (otherwise indirect only).
-
+    //
     // Runtime data
     uint                        mFrameCount = 0;            ///< Frame count since scene was loaded.
     bool                        mOptionsChanged = false;
@@ -82,8 +78,7 @@ private:
         std::unordered_set<std::string> vars;
 
         // Add variables here that should be serialized to/from the dictionary.
-        serialize(mMaxBounces);
-        serialize(mComputeDirect);
+        //serialize(mVarName);
 
         if constexpr (loadFromDict)
         {

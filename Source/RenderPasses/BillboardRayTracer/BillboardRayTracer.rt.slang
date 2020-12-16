@@ -30,26 +30,13 @@
 
 import Scene.Raytracing;
 import Utils.Math.MathHelpers;
-import Utils.Sampling.SampleGenerator;
 import Experimental.Scene.Material.MaterialShading;
 import Experimental.Scene.Lights.LightHelpers;
 
 cbuffer CB
 {
     uint        gFrameCount;        // Frame count since scene was loaded.
-    uint        gPRNGDimension;     // First available PRNG dimension.
 }
-
-// Inputs
-Texture2D<float4> gWorldPosition;
-Texture2D<float4> gWorldShadingNormal;
-Texture2D<float4> gWorldShadingTangent; // Optional
-Texture2D<float4> gWorldFaceNormal;
-Texture2D<float4> gWorldView; // Optional
-Texture2D<float4> gMaterialDiffuseOpacity;
-Texture2D<float4> gMaterialSpecularRoughness;
-Texture2D<float4> gMaterialEmissive;
-Texture2D<float4> gMaterialExtraParams;
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
