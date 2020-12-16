@@ -72,6 +72,7 @@ RenderPassReflection ConstantColor::reflect(const CompileData& compileData)
         .format(ResourceFormat::RGBA32Float)
         .texture2D(0, 0)
         .flags(RenderPassReflection::Field::Flags::Persistent);
+    mRendered = false;
     return reflector;
 }
 
