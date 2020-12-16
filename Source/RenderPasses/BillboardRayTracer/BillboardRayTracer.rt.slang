@@ -129,6 +129,12 @@ struct ScatterRayData
     }
 };
 
+struct RayPayload
+{
+    float depth;
+    float3 color;
+};
+
 /** Helper to load the material attributes.
 */
 MaterialParams loadMaterialParams(uint2 pixelPos)
@@ -181,141 +187,82 @@ bool traceShadowRay(float3 origin, float3 dir, float distance)
     return rayData.visible;
 }
 
-/** Traces a scatter ray based on ray parameters stored in the ray payload.
-    \param[in] rayData Describes the ray parameters. The struct is modified based on the result.
-*/
-void traceScatterRay(inout ScatterRayData rayData)
-{
-    RayDesc ray;
-    ray.Origin = rayData.origin;
-    ray.Direction = rayData.direction;
-    ray.TMin = 0.f;
-    ray.TMax = kRayTMax;
-
-    uint rayFlags = 0;      // TODO: Set cull mode from the app
-    TraceRay(gRtScene, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, rayData);
-}
-
-/** Evaluates the direct illumination from analytic lights.
-    This function samples Falcor's light list uniformly with one shadow ray.
-    \param[in] sd Shading data.
-    \param[in] rayOrigin Ray origin for the shadow ray.
-    \param[in] sg SampleGenerator object.
-    \return Outgoing radiance in view direction.
-*/
-float3 evalDirectAnalytic(const ShadingData sd, float3 rayOrigin, inout SampleGenerator sg)
-{
-    const uint lightCount = gScene.getLightCount();
-    if (lightCount == 0) return float3(0);
-
-    // Pick one of the analytic light sources randomly with equal probability.
-    const uint lightIndex = min(uint(sampleNext1D(sg) * lightCount), lightCount - 1);
-    float invPdf = lightCount; // Light selection pdf = 1.0 / lightCount.
-
-    // Sample local light source.
-    AnalyticLightSample ls;
-    bool valid = sampleLight(rayOrigin, gScene.getLight(lightIndex), sg, ls);
-
-    // Reject sample if lower hemisphere.
-    if (!valid || dot(ls.dir, sd.N) <= kMinCosTheta) return float3(0);
-
-    // Test visibility by tracing a shadow ray.
-    bool V = traceShadowRay(rayOrigin, ls.dir, ls.distance);
-    return V ? evalBSDFCosine(sd, ls.dir) * ls.Li * invPdf : float3(0);
-}
-
-/** Processes a hit point to generate a scatter ray or terminate.
-    This function generates a cosine-weighted direction over the hemisphere.
-    \param[in] sd Shading data.
-    \param[in] rayOrigin Ray origin for the new ray.
-    \param[in] rayData Ray payload.
-*/
-void generateScatterRay(const ShadingData sd, float3 rayOrigin, inout ScatterRayData rayData)
-{
-    // Generate scatter ray as cosine-weighted direction over the hemisphere.
-    float pdf = 0.f;
-    float2 u = sampleNext2D(rayData.sg);
-    float3 wi = sample_cosine_hemisphere_concentric(u, pdf);
-    wi = fromLocal(wi, sd);
-
-    rayData.origin = rayOrigin;
-    rayData.direction = wi;
-    rayData.thp *= pdf > 0.f ? evalBSDFCosine(sd, wi) / pdf : float3(0);
-}
-
 /** ********************* Ray index 0: Scatter ray ************************ */
 
 [shader("miss")]
-void scatterMiss(inout ScatterRayData rayData : SV_RayPayload)
+void scatterMiss(inout RayPayload rayData : SV_RayPayload)
 {
-    // Ray missed the scene. Mark the ray as terminated.
-    rayData.terminated = true;
-
-    // Add contribution from distant light (env map) in this direction.
-    if (kUseEnvLight && (kComputeDirect || rayData.pathLength > 0))
+    rayData.depth = gScene.camera.data.farZ;
+    if (kUseEnvLight)
     {
         float3 Le = gScene.envMap.eval(WorldRayDirection());
-        rayData.radiance += rayData.thp * Le;
+        rayData.color += Le;
     }
 }
 
 [shader("anyhit")]
 void scatterAnyHit(
     uniform HitShaderParams hitParams,
-    inout ScatterRayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
+    inout RayPayload rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    // Alpha test for non-opaque geometry.
-    VertexData v = getVertexData(hitParams, PrimitiveIndex(), attribs);
-    const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
-    if (alphaTest(v, gScene.materials[materialID], gScene.materialResources[materialID], 0.f)) IgnoreHit();
+    //// Alpha test for non-opaque geometry.
+    //VertexData v = getVertexData(hitParams, PrimitiveIndex(), attribs);
+    //const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
+    //if (alphaTest(v, gScene.materials[materialID], gScene.materialResources[materialID], 0.f)) IgnoreHit();
 }
 
 [shader("closesthit")]
 void scatterClosestHit(
     uniform HitShaderParams hitParams,
-    inout ScatterRayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
+    inout RayPayload rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    // Evaluate Falcor's material parameters at the hit point.
-    // TODO: Implement texLOD to enable texture filtering in prepareShadingData().
+    rayData.depth = RayTCurrent();
+
     VertexData v = getVertexData(hitParams, PrimitiveIndex(), attribs);
-    const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
-    ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -WorldRayDirection(), 0.f);
 
-    // Compute tangent space if it is invalid.
-    if (!(dot(sd.T, sd.T) > 0.f))   // Note: Comparison written so that NaNs trigger
-    {
-        sd.T = perp_stark(sd.N);
-        sd.B = cross(sd.N, sd.T);
-    }
+    rayData.color = dot(v.normalW, -WorldRayDirection());
 
-    // Add emitted light.
-    if (kUseEmissiveLights && (kComputeDirect || rayData.pathLength > 0))
-    {
-        rayData.radiance += rayData.thp * sd.emissive;
-    }
-
-    // Check whether to terminate based on max depth.
-    if (rayData.pathLength >= kMaxBounces)
-    {
-        rayData.terminated = true;
-        return;
-    }
-
-    // Compute ray origin for new rays spawned from the hit.
-    float3 rayOrigin = sd.computeNewRayOrigin();
-
-    // Add contribution of direct light from analytic lights.
-    if (kUseAnalyticLights)
-    {
-        float3 Lr = evalDirectAnalytic(sd, rayOrigin, rayData.sg);
-        rayData.radiance += rayData.thp * Lr;
-    }
-
-    // Generate scatter ray for the next path segment.
-    // The raygen shader will continue the path based on the returned payload.
-    generateScatterRay(sd, rayOrigin, rayData);
-
-    rayData.pathLength++;
+    //// Evaluate Falcor's material parameters at the hit point.
+    //// TODO: Implement texLOD to enable texture filtering in prepareShadingData().
+    //
+    //const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
+    //ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -WorldRayDirection(), 0.f);
+    //
+    //// Compute tangent space if it is invalid.
+    //if (!(dot(sd.T, sd.T) > 0.f))   // Note: Comparison written so that NaNs trigger
+    //{
+    //    sd.T = perp_stark(sd.N);
+    //    sd.B = cross(sd.N, sd.T);
+    //}
+    //
+    //// Add emitted light.
+    //if (kUseEmissiveLights && (kComputeDirect || rayData.pathLength > 0))
+    //{
+    //    rayData.radiance += rayData.thp * sd.emissive;
+    //}
+    //
+    //// Check whether to terminate based on max depth.
+    //if (rayData.pathLength >= kMaxBounces)
+    //{
+    //    rayData.terminated = true;
+    //    return;
+    //}
+    //
+    //// Compute ray origin for new rays spawned from the hit.
+    //float3 rayOrigin = sd.computeNewRayOrigin();
+    //
+    //// Add contribution of direct light from analytic lights.
+    //if (kUseAnalyticLights)
+    //{
+    //    float3 Lr = evalDirectAnalytic(sd, rayOrigin, rayData.sg);
+    //    rayData.radiance += rayData.thp * Lr;
+    //}
+    //
+    //// Generate scatter ray for the next path segment.
+    //// The raygen shader will continue the path based on the returned payload.
+    //generateScatterRay(sd, rayOrigin, rayData);
+    //
+    //rayData.pathLength++;
 }
 
 /************************** Ray index 1: Shadow ray ************************ */
@@ -360,65 +307,18 @@ void rayGen()
     const float3 rayDir = getPrimaryRayDir(launchIndex, launchDim, gScene.camera);
     const float4 worldPos = gWorldPosition[launchIndex];
 
-    if (worldPos.w != 0.f)  // Using w to indicate valid geometry for now
-    {
-        // Pixel represents a valid primary hit. Compute its contribution.
+    outColor = 0.0;
+    worldPos.w = 0.0f;
 
-        // Load geometry parameters from G-buffer.
-        // TODO: Load (u,v) channel if it exists.
-        float3 normal = gWorldShadingNormal[launchIndex].xyz;
-        float4 tangent = isValid(gWorldShadingTangent) ? gWorldShadingTangent[launchIndex] : float4(perp_stark(normal), 1.f);
-        float3 faceNormal = gWorldFaceNormal[launchIndex].xyz;
-        GeometryParams geoParams = prepareGeometryParams(worldPos.xyz, -rayDir, normal, tangent, faceNormal);
+    // primary ray
+    RayDesc ray = gScene.camera.computeRayPinhole(launchIndex, launchDim).toRayDesc();
 
-        // Load material parameters from G-buffer.
-        MaterialParams matParams = loadMaterialParams(launchIndex);
+    RayPayload rayData;
+    rayData.depth = 0.0;
+    rayData.color = 0.0;
+    TraceRay(gRtScene, RAY_FLAG_NONE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, rayData);
 
-        // Prepare ShadingData struct.
-        ShadingData sd = prepareShadingData(geoParams, matParams);
-
-        // Create sample generator.
-        SampleGenerator sg = SampleGenerator.create(launchIndex, gFrameCount);
-
-        // Advance the generator to the first available dimension.
-        // TODO: This is potentially expensive. We may want to store/restore the state from memory if it becomes a problem.
-        for (uint i = 0; i < gPRNGDimension; i++) sampleNext1D(sg);
-
-        // Compute ray origin for new rays spawned from the G-buffer.
-        const float3 rayOrigin = sd.computeNewRayOrigin();
-
-        if (kComputeDirect)
-        {
-            // Always output directly emitted light, independent of whether emissive materials are treated as light sources or not.
-            outColor += sd.emissive;
-
-            // Add contribution of direct light from analytic lights.
-            // Light probe and mesh lights are handled by the scatter ray hit/miss shaders.
-            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, rayOrigin, sg) : float3(0, 0, 0);
-        }
-
-        // Prepare ray payload.
-        ScatterRayData rayData = ScatterRayData.create(sg);
-
-        // Generate scatter ray.
-        generateScatterRay(sd, rayOrigin, rayData);
-
-        // Follow path into the scene and compute its total contribution.
-        for (uint depth = 0; depth <= kMaxBounces && !rayData.terminated; depth++)
-        {
-            // Trace scatter ray. If it hits geometry, the closest hit shader samples
-            // direct illumination and generates the next scatter ray.
-            traceScatterRay(rayData);
-        }
-
-        // Store contribution from scatter ray.
-        outColor += rayData.radiance;
-    }
-    else
-    {
-        // Background pixel.
-        outColor = kUseEnvBackground ? gScene.envMap.eval(rayDir) : kDefaultBackgroundColor;
-    }
+    outColor = rayData.color;
 
     gOutputColor[launchIndex] = float4(outColor, 1);
 }
