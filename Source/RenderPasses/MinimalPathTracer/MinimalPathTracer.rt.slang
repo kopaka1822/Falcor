@@ -63,7 +63,6 @@ import Experimental.Scene.Lights.LightHelpers;
 cbuffer CB
 {
     uint        gFrameCount;        // Frame count since scene was loaded.
-    uint        gPRNGDimension;     // First available PRNG dimension.
 }
 
 // Inputs

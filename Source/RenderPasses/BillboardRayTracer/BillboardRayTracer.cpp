@@ -27,6 +27,7 @@
  **************************************************************************/
 #include "BillboardRayTracer.h"
 #include "RenderGraph/RenderPassHelpers.h"
+#include "Experimental/Scene/Material/TexLODTypes.slang"
 
  // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
@@ -58,6 +59,14 @@ namespace
     {
         { "color",          "gOutputColor",               "Output color (sum of direct and indirect)"                },
     };
+
+    const Gui::DropdownList kRayFootprintModeList =
+    {
+        { (uint32_t)TexLODMode::Mip0, "Disabled" },
+        //{ (uint32_t)TexLODMode::RayCones, "Ray Cones" },
+        //{ (uint32_t)TexLODMode::RayDiffsIsotropic, "Ray diffs (isotropic)" },
+        { (uint32_t)TexLODMode::RayDiffsAnisotropic, "Ray diffs (anisotropic)" },
+    };
 };
 
 BillboardRayTracer::SharedPtr BillboardRayTracer::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -66,6 +75,8 @@ BillboardRayTracer::SharedPtr BillboardRayTracer::create(RenderContext* pRenderC
 }
 
 BillboardRayTracer::BillboardRayTracer(const Dictionary& dict)
+    :
+mFootprintMode((uint32_t)TexLODMode::RayDiffsAnisotropic)
 {
     // Deserialize pass from dictionary.
     serializePass<true>(dict);
@@ -132,9 +143,14 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
     // Specialize program.
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
-    // TODO: This should be moved to a more general mechanism using Slang.
-    mTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));
-    mTracer.pProgram->addDefines(getValidResourceDefines(kOutputChannels, renderData));
+    Program::DefineList defines;
+    defines.add(getValidResourceDefines(kInputChannels, renderData));
+    defines.add(getValidResourceDefines(kOutputChannels, renderData));
+    defines.add("RAY_FOOTPRINT_MODE", std::to_string(mFootprintMode));
+    defines.add("RAY_CONE_MODE", "0");
+    defines.add("RAY_FOOTPRINT_USE_MATERIAL_ROUGHNESS", "1");
+
+    mTracer.pProgram->addDefines(defines);
 
     // Prepare program vars. This may trigger shader compilation.
     // The program should have all necessary defines set at this point.
@@ -170,6 +186,12 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
 void BillboardRayTracer::renderUI(Gui::Widgets& widget)
 {
     bool dirty = false;
+
+    if(widget.dropdown("Ray footprint mode", kRayFootprintModeList, mFootprintMode))
+    {
+        dirty = true;
+    }
+    widget.tooltip("The ray footprint (texture LOD) mode to use.");
 
     if (dirty)
     {

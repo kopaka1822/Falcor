@@ -59,6 +59,7 @@ private:
     // Runtime data
     uint                        mFrameCount = 0;            ///< Frame count since scene was loaded.
     bool                        mOptionsChanged = false;
+    uint                        mFootprintMode;
 
     // Ray tracing program.
     struct
