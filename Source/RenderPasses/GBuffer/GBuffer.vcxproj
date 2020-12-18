@@ -29,6 +29,7 @@
     <ClCompile Include="GBuffer\GBuffer.cpp" />
     <ClCompile Include="GBuffer\GBufferRaster.cpp" />
     <ClCompile Include="GBuffer\GBufferRT.cpp" />
+    <ClCompile Include="GBuffer\GBufferRTCurves.cpp" />
     <ClCompile Include="VBuffer\VBufferRaster.cpp" />
     <ClCompile Include="VBuffer\VBufferRT.cpp" />
   </ItemGroup>
@@ -45,6 +46,7 @@
     <ClInclude Include="GBuffer\GBuffer.h" />
     <ClInclude Include="GBuffer\GBufferRaster.h" />
     <ClInclude Include="GBuffer\GBufferRT.h" />
+    <ClInclude Include="GBuffer\GBufferRTCurves.h" />
     <ClInclude Include="VBuffer\VBufferRaster.h" />
     <ClInclude Include="VBuffer\VBufferRT.h" />
   </ItemGroup>

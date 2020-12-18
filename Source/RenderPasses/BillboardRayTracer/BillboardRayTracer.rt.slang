@@ -121,8 +121,6 @@ void scatterClosestHit(
 
     // emission
     float3 color = sd.emissive;
-    // light probe
-    color += evalMaterial(sd, gScene.lightProbe).color;
 
     const uint lightCount = gScene.getLightCount();
     // forward render all light sources
