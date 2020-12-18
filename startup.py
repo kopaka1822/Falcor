@@ -38,11 +38,11 @@ def render_graph_DefaultRenderGraph():
 m.addGraph(render_graph_DefaultRenderGraph())
 
 # Scene
-m.loadScene('Arcade/Arcade.fscene')
+m.loadScene('D:/scenes/models/refract_test.fscene')
 m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True)
-m.scene.camera.position = float3(-1.143306,1.843090,2.442334)
-m.scene.camera.target = float3(-0.701423,1.486366,1.619238)
-m.scene.camera.up = float3(-0.376237,0.634521,0.675103)
+m.scene.camera.position = float3(-6.200000,3.100000,10.800000)
+m.scene.camera.target = float3(-5.600000,2.900000,9.900000)
+m.scene.camera.up = float3(0.000000,1.000000,0.000000)
 m.scene.cameraSpeed = 1.0
 
 # Window Configuration
@@ -54,6 +54,7 @@ t.time = 0
 t.framerate = 0
 # If framerate is not zero, you can use the frame property to set the start frame
 # t.frame = 0
+t.pause()
 
 # Frame Capture
 fc.outputDir = '.'

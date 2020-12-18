@@ -38,6 +38,9 @@ cbuffer CB
     uint        gFrameCount;        // Frame count since scene was loaded.
 }
 
+// early out settings
+#define TRANSMIT_EPISLON 0.02
+
 // Outputs
 RWTexture2D<float4> gOutputColor;
 
@@ -50,8 +53,10 @@ struct ShadowRayData
 
 struct RayPayload
 {
-    float depth;
-    float3 color;
+    float3 color; // [in/out] sum of all colors
+    float transmit; // [in/out] contains transmittance for the next transmitted or reflected ray
+    // TODO ray diffs
+    RayDesc nextRay; // [out] for reflection/transmittance
 };
 
 
@@ -81,9 +86,9 @@ bool traceShadowRay(float3 origin, float3 dir, float distance)
 [shader("miss")]
 void scatterMiss(inout RayPayload rayData : SV_RayPayload)
 {
-    rayData.depth = gScene.camera.data.farZ;
     float3 Le = gScene.envMap.eval(WorldRayDirection());
     rayData.color += Le;
+    rayData.transmit = 0.0;
 }
 
 [shader("anyhit")]
@@ -102,14 +107,8 @@ void scatterClosestHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    rayData.depth = RayTCurrent();
-
-    VertexData v = getVertexData(hitParams, PrimitiveIndex(), attribs);
-
-    //rayData.color = dot(v.normalW, -WorldRayDirection());
-
-    // Evaluate Falcor's material parameters at the hit point.
     // TODO: Implement texLOD to enable texture filtering in prepareShadingData().
+    VertexData v = getVertexData(hitParams, PrimitiveIndex(), attribs);
     const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
     ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -WorldRayDirection(), 0.f);
 
@@ -120,7 +119,10 @@ void scatterClosestHit(
         sd.B = cross(sd.N, sd.T);
     }
 
-    rayData.color += sd.emissive;
+    // emission
+    float3 color = sd.emissive;
+    // light probe
+    color += evalMaterial(sd, gScene.lightProbe).color;
 
     const uint lightCount = gScene.getLightCount();
     // forward render all light sources
@@ -128,13 +130,38 @@ void scatterClosestHit(
     {
         // TODO add shadow map sample
         // Sample local light source.
-        rayData.color += evalMaterial(sd, gScene.getLight(i), /*shadow*/ 1.0).color;
+        color += evalMaterial(sd, gScene.getLight(i), /*shadow*/ 1.0).color;
     }
 
-    // light probe
-    rayData.color += evalMaterial(sd, gScene.lightProbe).color;
+    // update ray payload
+    rayData.color += rayData.transmit * sd.opacity * color;
+    rayData.transmit *= (1.0 - sd.opacity);
+    //rayData.transmit = 0.0;
 
-    // alpha for later in sd.opacity
+    // TODO use impostor billboard correction (maybe make sure that it does not have the same issues)
+    // Compute ray origin for new rays spawned from the hit.
+    //rayData.nextRay.Origin = sd.computeNewRayOrigin();
+
+    // test if refractive
+    //rayData.color = sd.opacity;
+    rayData.transmit = 0.0;
+    return;
+
+    bool isRefractive = (rayData.transmit > TRANSMIT_EPISLON) && (sd.opacity < 0.6);
+    if(isRefractive) rayData.color = float3(1.0, 0.0, 0.0);
+    /*if(isRefractive)
+    {
+        rayData.nextRay.TMin = RayTCurrent();
+    }
+    else rayData.transmit = 0.0; // finish here*/
+    rayData.transmit = 0.0;
+
+    // test if reflections need to be handled
+    //if(sd.linearRoughness > 0.05) return;
+
+    //rayData.color = float3(1.0, 0.0, 0.0);
+    // TODO handle reflection/refraction
+    // use sd.eta or sd.specular
 }
 
 /************************** Ray index 1: Shadow ray ************************ */
@@ -163,17 +190,20 @@ void rayGen()
     uint2 launchIndex = DispatchRaysIndex().xy;
     uint2 launchDim = DispatchRaysDimensions().xy;
 
-    float3 outColor = 0.0;
-
     // primary ray
     RayDesc ray = gScene.camera.computeRayPinhole(launchIndex, launchDim).toRayDesc();
 
     RayPayload rayData;
-    rayData.depth = 0.0;
     rayData.color = 0.0;
-    TraceRay(gRtScene, RAY_FLAG_NONE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, rayData);
+    rayData.transmit = 1.0;
+    rayData.nextRay = ray;
 
-    outColor = rayData.color;
+    uint iteration = 0;
+    do
+    {
+        TraceRay(gRtScene, RAY_FLAG_NONE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, rayData.nextRay, rayData);
+        
+    } while(++iteration < 256 && rayData.transmit > TRANSMIT_EPISLON);
 
-    gOutputColor[launchIndex] = float4(outColor, 1);
+    gOutputColor[launchIndex] = float4(rayData.color, 1);
 }
