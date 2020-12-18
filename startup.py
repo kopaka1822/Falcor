@@ -38,12 +38,8 @@ def render_graph_DefaultRenderGraph():
 m.addGraph(render_graph_DefaultRenderGraph())
 
 # Scene
-m.loadScene('D:/scenes/models/refract_test.fscene')
+m.loadScene('D:/scenes/models/refract_test.pyscene')
 m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True)
-m.scene.camera.position = float3(-6.200000,3.100000,10.800000)
-m.scene.camera.target = float3(-5.600000,2.900000,9.900000)
-m.scene.camera.up = float3(0.000000,1.000000,0.000000)
-m.scene.cameraSpeed = 1.0
 
 # Window Configuration
 m.resizeSwapChain(1920, 1061)

@@ -40,6 +40,7 @@ cbuffer CB
 
 // early out settings
 #define TRANSMIT_EPISLON 0.02
+#define REFLECT_EPSILON 0.02
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -133,33 +134,44 @@ void scatterClosestHit(
 
     // update ray payload
     rayData.color += rayData.transmit * sd.opacity * color;
-    rayData.transmit *= (1.0 - sd.opacity);
-    //rayData.transmit = 0.0;
+    // determine actual transmittance (mix of opacity coverage and specular transmission)
+    const float transmit = sd.opacity * sd.specularTransmission + (1.0 - sd.opacity);
 
-    // TODO use impostor billboard correction (maybe make sure that it does not have the same issues)
-    // Compute ray origin for new rays spawned from the hit.
-    //rayData.nextRay.Origin = sd.computeNewRayOrigin();
+    bool isTransmittive = (rayData.transmit * transmit > TRANSMIT_EPISLON);
+    bool isReflective = dot(sd.specular, 0.33) * rayData.transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
+    const float3 reflected = reflect(WorldRayDirection(), sd.N);
 
-    // test if refractive
-    //rayData.color = sd.opacity;
-    rayData.transmit = 0.0;
-    return;
-
-    bool isRefractive = (rayData.transmit > TRANSMIT_EPISLON) && (sd.opacity < 0.6);
-    if(isRefractive) rayData.color = float3(1.0, 0.0, 0.0);
-    /*if(isRefractive)
+    if(isTransmittive)
     {
-        rayData.nextRay.TMin = RayTCurrent();
+        if(isReflective) // envmap lookup for reflection
+            rayData.color += rayData.transmit * sd.specular * gScene.envMap.eval(reflected);
+
+        rayData.transmit = transmit;
+        // TODO use origin correction
+        if(sd.IoR == 1.0) // simple transmittance
+        {
+            rayData.nextRay.Origin = WorldRayOrigin();
+            rayData.nextRay.Direction = WorldRayDirection();
+            rayData.nextRay.TMin = RayTCurrent();
+        }
+        else // refraction
+        {
+            rayData.nextRay.Origin = sd.computeNewRayOrigin(false);
+            rayData.nextRay.Direction = refract(WorldRayDirection(), sd.N, sd.eta);
+            rayData.nextRay.TMin = 0.0;
+        }
     }
-    else rayData.transmit = 0.0; // finish here*/
-    rayData.transmit = 0.0;
-
-    // test if reflections need to be handled
-    //if(sd.linearRoughness > 0.05) return;
-
-    //rayData.color = float3(1.0, 0.0, 0.0);
-    // TODO handle reflection/refraction
-    // use sd.eta or sd.specular
+    else if(isReflective)
+    {
+        rayData.transmit *= dot(sd.specular, 0.33);
+        rayData.nextRay.Origin = sd.computeNewRayOrigin();
+        rayData.nextRay.Direction = reflected;
+        rayData.nextRay.TMin = 0.0;
+    }
+    else
+    {
+        rayData.transmit = 0.0; // stop tracing rays
+    }
 }
 
 /************************** Ray index 1: Shadow ray ************************ */
@@ -199,8 +211,9 @@ void rayGen()
     uint iteration = 0;
     do
     {
-        TraceRay(gRtScene, RAY_FLAG_NONE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, rayData.nextRay, rayData);
-        
+        TraceRay(gRtScene, RAY_FLAG_CULL_NON_OPAQUE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, rayData.nextRay, rayData);
+        // set ray t max accordingly
+        rayData.nextRay.TMax = ray.TMax;
     } while(++iteration < 256 && rayData.transmit > TRANSMIT_EPISLON);
 
     gOutputColor[launchIndex] = float4(rayData.color, 1);
