@@ -550,6 +550,13 @@ namespace Falcor
         mCustomPrimitiveAABBs.push_back(aabb);
     }
 
+    void SceneBuilder::addBillboard(float3 center, float width, float height)
+    {
+        float3 radius = 0.5f * float3(width, height, width);
+        AABB aabb(center - radius, center + radius);
+        addCustomPrimitive(0, aabb);
+    }
+
     // Curves
 
     uint32_t SceneBuilder::addCurve(const Curve& curve)
@@ -2048,5 +2055,6 @@ namespace Falcor
 
         // new for custom primitives
         sceneBuilder.def("addCustomPrimitive", &SceneBuilder::addCustomPrimitive, "typeId"_a, "aabb"_a);
+        sceneBuilder.def("addBillboard", &SceneBuilder::addBillboard, "center"_a, "width"_a, "height"_a);
     }
 }

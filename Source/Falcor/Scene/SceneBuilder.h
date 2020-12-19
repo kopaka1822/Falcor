@@ -327,6 +327,13 @@ namespace Falcor
         */
         void addCustomPrimitive(uint32_t typeID, const AABB& aabb);
 
+        /** (new) Add a billboard as custom primitive (typeId = 0)
+            \param[in] center center of the billboard
+            \param[in] width of the billboard
+            \param[in] height of the billboard
+         */
+        void addBillboard(float3 center, float width, float height);
+
         // Curves
 
         /** Add a curve.
