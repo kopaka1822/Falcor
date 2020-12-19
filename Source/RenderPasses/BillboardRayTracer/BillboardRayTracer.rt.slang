@@ -174,26 +174,6 @@ void scatterClosestHit(
     }
 }
 
-/************************** Ray index 1: Shadow ray ************************ */
-
-[shader("miss")]
-void shadowMiss(inout ShadowRayData rayData : SV_RayPayload)
-{
-    // The miss shader is executed if the ray misses all geometry. Mark as visible.
-    rayData.visible = true;
-}
-
-[shader("anyhit")]
-void shadowAnyHit(
-    uniform HitShaderParams hitParams,
-    inout ShadowRayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
-{
-    // Alpha test for non-opaque geometry.
-    VertexData v = getVertexData(hitParams, PrimitiveIndex(), attribs);
-    const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
-    if (alphaTest(v, gScene.materials[materialID], gScene.materialResources[materialID], 0.f)) IgnoreHit();
-}
-
 [shader("raygeneration")]
 void rayGen()
 {
