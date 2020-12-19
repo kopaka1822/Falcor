@@ -189,13 +189,13 @@ void boxIntersect(uniform HitShaderParams hitParams)
     float rayDelta = dot(WorldRayDirection(), P - WorldRayOrigin());
     float3 closestPoint = WorldRayOrigin() + WorldRayDirection() *  rayDelta;
 
-    //const float d = distance(closestPoint, P);
-    //if(d <= bbox.radius())
-    //{
+    const float d = distance(closestPoint, P);
+    if(d <= bbox.radius() * 0.5)
+    {
         BoxIntersectionAttributes attr;
         attr.dummy = 0;
         ReportHit(rayDelta, 0, attr);
-    //}
+    }
 }
 
 [shader("anyhit")]
@@ -211,7 +211,7 @@ void boxClosestHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    rayData.color += rayData.transmit;
+    rayData.color += 1.0; //rayData.transmit;
     rayData.transmit = 0.0;
 }
 
@@ -232,7 +232,7 @@ void rayGen()
     uint iteration = 0;
     do
     {
-        TraceRay(gRtScene, RAY_FLAG_CULL_NON_OPAQUE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, rayData.nextRay, rayData);
+        TraceRay(gRtScene, RAY_FLAG_NONE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, rayData.nextRay, rayData);
         // set ray t max accordingly
         rayData.nextRay.TMax = ray.TMax;
     } while(++iteration < 256 && rayData.transmit > TRANSMIT_EPISLON);

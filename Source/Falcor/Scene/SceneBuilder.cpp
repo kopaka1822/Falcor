@@ -2045,5 +2045,8 @@ namespace Falcor
             return pSceneBuilder->addNode(node);
         }, "name"_a, "transform"_a = Transform(), "parent"_a = SceneBuilder::kInvalidNode);
         sceneBuilder.def("addMeshInstance", &SceneBuilder::addMeshInstance);
+
+        // new for custom primitives
+        sceneBuilder.def("addCustomPrimitive", &SceneBuilder::addCustomPrimitive, "typeId"_a, "aabb"_a);
     }
 }
