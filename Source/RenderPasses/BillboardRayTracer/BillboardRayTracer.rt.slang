@@ -27,11 +27,14 @@
  **************************************************************************/
 
 #include "Utils/Math/MathConstants.slangh"
+#include "Scene/Material/MaterialDefines.slangh"
 
 import Scene.Raytracing;
 import Utils.Math.MathHelpers;
 import Experimental.Scene.Material.MaterialShading;
 import Experimental.Scene.Lights.LightHelpers;
+import Scene.TextureSampler;
+import Scene.Material.MaterialData;
 
 cbuffer CB
 {
@@ -118,13 +121,6 @@ void triangleClosestHit(
     const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
     ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -WorldRayDirection(), 0.f);
 
-    // Compute tangent space if it is invalid.
-    if (!(dot(sd.T, sd.T) > 0.f))   // Note: Comparison written so that NaNs trigger
-    {
-        sd.T = perp_stark(sd.N);
-        sd.B = cross(sd.N, sd.T);
-    }
-
     // emission
     float3 color = sd.emissive;
 
@@ -151,7 +147,7 @@ void triangleClosestHit(
         if(isReflective) // envmap lookup for reflection
             rayData.color += rayData.transmit * sd.specular * gScene.envMap.eval(reflected);
 
-        rayData.transmit = transmit;
+        rayData.transmit *= transmit;
         const float3 refracted = sd.IoR == 1.0 ? WorldRayDirection() : refract(WorldRayDirection(), sd.N, sd.eta);
         rayData.nextRay.Direction = refracted;
         if(USE_REFRACTION_CORRECTION) {
@@ -220,7 +216,7 @@ void boxIntersect(uniform HitShaderParams hitParams)
         // ray intersection parameter:
 	    // origin + s * d = (X.x, X.y, 0) with X = intersection point of plane
         const float s = -origin.z / d.z;
-        if(s < RayTMin()) return;
+        if(s <= RayTMin()) return;
         const float2 X = origin.xy + s * d.xy;
 
         // check if on plane
@@ -249,8 +245,33 @@ void boxClosestHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    rayData.color += 1.0; //rayData.transmit;
-    rayData.transmit = 0.0;
+    // load material diffuse and opacity
+    //float4 color = gScene.materials[BILLBOARD_MATERIAL_ID].baseColor;
+    MaterialData md = gScene.materials[BILLBOARD_MATERIAL_ID];
+    MaterialResources mr = gScene.materialResources[BILLBOARD_MATERIAL_ID];
+
+    ExplicitLodTextureSampler explicitLOD = { 0.0 };
+    float4 color = sampleTexture(
+        mr.baseColor,
+        mr.samplerState,
+        float2(0.0, 0.0),
+        md.baseColor,
+        EXTRACT_DIFFUSE_TYPE(md.flags), explicitLOD
+    );
+
+    //gScene.materials[materialID], gScene.materialResources[materialID]
+    rayData.color += rayData.transmit * color.rgb; //rayData.transmit;
+    rayData.transmit *= (1.0 - color.a);
+
+    // copy most ray data for simple transmission
+    rayData.nextRay.Direction = WorldRayDirection();
+    if(USE_REFRACTION_CORRECTION) {
+        rayData.nextRay.Origin = WorldRayOrigin();
+        rayData.nextRay.TMin = RayTCurrent();
+    } else {
+        rayData.nextRay.Origin = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
+        rayData.nextRay.TMin = 0.0001;
+    }
 }
 
 [shader("raygeneration")]

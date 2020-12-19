@@ -71,6 +71,7 @@ private:
     bool                        mReflectionCorrection = true;
     bool                        mRefractionCorrection = true;
     bool                        mUseSphericalTexture = false;
+    uint                        mLastMaterialId = 0;
 
     // Ray tracing program.
     struct

@@ -117,6 +117,7 @@ RenderPassReflection BillboardRayTracer::reflect(const CompileData& compileData)
     addRenderPassInputs(reflector, kInputChannels);
     addRenderPassOutputs(reflector, kOutputChannels);
 
+    mOptionsChanged = true;
     return reflector;
 }
 
@@ -128,6 +129,27 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
     {
         auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
         dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
+
+        // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
+        Program::DefineList defines;
+        defines.add(getValidResourceDefines(kInputChannels, renderData));
+        defines.add(getValidResourceDefines(kOutputChannels, renderData));
+        // footprints
+        defines.add("RAY_FOOTPRINT_MODE", std::to_string(mFootprintMode));
+        defines.add("RAY_CONE_MODE", "0");
+        defines.add("RAY_FOOTPRINT_USE_MATERIAL_ROUGHNESS", "1");
+        // billboard data
+        defines.add("BILLBOARD_TYPE", std::to_string(mBillboardType));
+        defines.add("BILLBOARD_TYPE_IMPOSTOR", std::to_string((uint)BillboardType::Impostor));
+        defines.add("BILLBOARD_TYPE_PARTICLE", std::to_string((uint)BillboardType::Particle));
+        defines.add("BILLBOARD_TYPE_SPHERICAL", std::to_string((uint)BillboardType::Spherical));
+        defines.add("USE_SPHERICAL_TEXTURE", mUseSphericalTexture ? "true" : "false");
+        defines.add("USE_REFLECTION_CORRECTION", mReflectionCorrection ? "true" : "false");
+        defines.add("USE_REFRACTION_CORRECTION", mRefractionCorrection ? "true" : "false");
+        defines.add("BILLBOARD_MATERIAL_ID", std::to_string(mLastMaterialId));
+
+        mTracer.pProgram->addDefines(defines);
+
         mOptionsChanged = false;
     }
 
@@ -147,27 +169,6 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
     {
         mpScene->getLightCollection(pRenderContext);
     }
-
-    // Specialize program.
-
-    // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
-    Program::DefineList defines;
-    defines.add(getValidResourceDefines(kInputChannels, renderData));
-    defines.add(getValidResourceDefines(kOutputChannels, renderData));
-    // footprints
-    defines.add("RAY_FOOTPRINT_MODE", std::to_string(mFootprintMode));
-    defines.add("RAY_CONE_MODE", "0");
-    defines.add("RAY_FOOTPRINT_USE_MATERIAL_ROUGHNESS", "1");
-    // billboard data
-    defines.add("BILLBOARD_TYPE", std::to_string(mBillboardType));
-    defines.add("BILLBOARD_TYPE_IMPOSTOR", std::to_string((uint)BillboardType::Impostor));
-    defines.add("BILLBOARD_TYPE_PARTICLE", std::to_string((uint)BillboardType::Particle));
-    defines.add("BILLBOARD_TYPE_SPHERICAL", std::to_string((uint)BillboardType::Spherical));
-    defines.add("USE_SPHERICAL_TEXTURE", mUseSphericalTexture ? "true" : "false");
-    defines.add("USE_REFLECTION_CORRECTION", mReflectionCorrection ? "true" : "false");
-    defines.add("USE_REFRACTION_CORRECTION", mRefractionCorrection ? "true" : "false");
-
-    mTracer.pProgram->addDefines(defines);
 
     // Prepare program vars. This may trigger shader compilation.
     // The program should have all necessary defines set at this point.
@@ -237,8 +238,11 @@ void BillboardRayTracer::setScene(RenderContext* pRenderContext, const Scene::Sh
 
     if (pScene)
     {
+        mLastMaterialId = pScene->getMaterialCount() - 1;
         mTracer.pProgram->addDefines(pScene->getSceneDefines());
     }
+
+    mOptionsChanged = true;
 }
 
 void BillboardRayTracer::prepareVars()
