@@ -65,7 +65,7 @@ struct RayPayload
 
 struct BoxIntersectionAttributes
 {
-    int dummy;
+    int aabbOffset;
 };
 
 
@@ -196,7 +196,7 @@ float3x3 GetBillboardPlane(float3 normal, bool yAlign) {
 void boxIntersect(uniform HitShaderParams hitParams)
 {
     const uint aabbOffset = gScene.proceduralPrimitives[hitParams.geometryIndex].AABBOffset;
-    AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
+    const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
 
     switch(BILLBOARD_TYPE)
     {
@@ -224,7 +224,7 @@ void boxIntersect(uniform HitShaderParams hitParams)
 	    if(round && (4.0 * X.x * X.x / (dim.x * dim.x) + 4.0 * X.y  * X.y  / (dim.y * dim.y) > 1.0)) return;
 
         BoxIntersectionAttributes attr;
-        attr.dummy = 0;
+        attr.aabbOffset = aabbOffset;
         ReportHit(s, 0, attr);
 
     } break;
@@ -245,8 +245,26 @@ void boxClosestHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
+    // reconstruct billboard plane
+    const AABB bbox = gScene.proceduralPrimitiveAABBs[attribs.aabbOffset];
+    const float2 dim = bbox.extent().xy;
+    const float3 P = bbox.center();
+    const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
+    const bool round = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
+
+    // billboard plane base
+    const float3x3 planeBase = GetBillboardPlane(normalize(WorldRayOrigin() - P), yAlign);
+    const float3 position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
+    float2 texcoord;
+    texcoord.x = dot(P - position, planeBase[0]) / dim.x + 0.5;
+    texcoord.y = dot(P - position, planeBase[1]) / dim.y + 0.5;
+
+    // TODO calc ray differentials
+
     // load material diffuse and opacity
     //float4 color = gScene.materials[BILLBOARD_MATERIAL_ID].baseColor;
+    // reconstruct some billboard parameters
+
     MaterialData md = gScene.materials[BILLBOARD_MATERIAL_ID];
     MaterialResources mr = gScene.materialResources[BILLBOARD_MATERIAL_ID];
 
@@ -254,7 +272,7 @@ void boxClosestHit(
     float4 color = sampleTexture(
         mr.baseColor,
         mr.samplerState,
-        float2(0.0, 0.0),
+        texcoord,
         md.baseColor,
         EXTRACT_DIFFUSE_TYPE(md.flags), explicitLOD
     );
@@ -269,7 +287,7 @@ void boxClosestHit(
         rayData.nextRay.Origin = WorldRayOrigin();
         rayData.nextRay.TMin = RayTCurrent();
     } else {
-        rayData.nextRay.Origin = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
+        rayData.nextRay.Origin = position;
         rayData.nextRay.TMin = 0.0001;
     }
 }
