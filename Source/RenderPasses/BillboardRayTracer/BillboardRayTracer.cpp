@@ -67,6 +67,13 @@ namespace
         //{ (uint32_t)TexLODMode::RayDiffsIsotropic, "Ray diffs (isotropic)" },
         { (uint32_t)TexLODMode::RayDiffsAnisotropic, "Ray diffs (anisotropic)" },
     };
+
+    const Gui::DropdownList kBillboardTypeList =
+    {
+        { (uint32_t)BillboardRayTracer::BillboardType::Impostor, "Impostor" },
+        { (uint32_t)BillboardRayTracer::BillboardType::Particle, "Particle" },
+        { (uint32_t)BillboardRayTracer::BillboardType::Spherical, "Spherical" },
+    };
 };
 
 BillboardRayTracer::SharedPtr BillboardRayTracer::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -147,9 +154,18 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
     Program::DefineList defines;
     defines.add(getValidResourceDefines(kInputChannels, renderData));
     defines.add(getValidResourceDefines(kOutputChannels, renderData));
+    // footprints
     defines.add("RAY_FOOTPRINT_MODE", std::to_string(mFootprintMode));
     defines.add("RAY_CONE_MODE", "0");
     defines.add("RAY_FOOTPRINT_USE_MATERIAL_ROUGHNESS", "1");
+    // billboard data
+    defines.add("BILLBOARD_TYPE", std::to_string(mBillboardType));
+    defines.add("BILLBOARD_TYPE_IMPOSTOR", std::to_string((uint)BillboardType::Impostor));
+    defines.add("BILLBOARD_TYPE_PARTICLE", std::to_string((uint)BillboardType::Particle));
+    defines.add("BILLBOARD_TYPE_SPHERICAL", std::to_string((uint)BillboardType::Spherical));
+    defines.add("USE_SPHERICAL_TEXTURE", mUseSphericalTexture ? "true" : "false");
+    defines.add("USE_REFLECTION_CORRECTION", mReflectionCorrection ? "true" : "false");
+    defines.add("USE_REFRACTION_CORRECTION", mRefractionCorrection ? "true" : "false");
 
     mTracer.pProgram->addDefines(defines);
 
@@ -189,10 +205,19 @@ void BillboardRayTracer::renderUI(Gui::Widgets& widget)
     bool dirty = false;
 
     if(widget.dropdown("Ray footprint mode", kRayFootprintModeList, mFootprintMode))
-    {
         dirty = true;
-    }
     widget.tooltip("The ray footprint (texture LOD) mode to use.");
+
+    if (widget.dropdown("Billboard type", kBillboardTypeList, mBillboardType))
+        dirty = true;
+    widget.tooltip("Impostor: y-aligned, Particle: origin-oriented, Spherical: Spherical shaped volume");
+
+    if (widget.checkbox("Reflection correction", mReflectionCorrection)) dirty = true;
+    widget.tooltip("Ray origin correction for impostors and particles");
+    if (widget.checkbox("Refraction correction", mRefractionCorrection)) dirty = true;
+    widget.tooltip("Ray origin correction for impostors and particles");
+    if (mBillboardType == (uint)BillboardType::Spherical &&
+        widget.checkbox("Use spherical texture", mUseSphericalTexture)) dirty = true;
 
     if (dirty)
     {

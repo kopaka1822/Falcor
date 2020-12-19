@@ -152,31 +152,48 @@ void triangleClosestHit(
             rayData.color += rayData.transmit * sd.specular * gScene.envMap.eval(reflected);
 
         rayData.transmit = transmit;
-        // TODO use origin correction
-        if(sd.IoR == 1.0) // simple transmittance
-        {
-            rayData.nextRay.Origin = WorldRayOrigin();
-            rayData.nextRay.Direction = WorldRayDirection();
+        const float3 refracted = sd.IoR == 1.0 ? WorldRayDirection() : refract(WorldRayDirection(), sd.N, sd.eta);
+        rayData.nextRay.Direction = refracted;
+        if(USE_REFRACTION_CORRECTION) {
+            rayData.nextRay.Origin = sd.computeNewRayOrigin(false) - refracted * RayTCurrent();
             rayData.nextRay.TMin = RayTCurrent();
-        }
-        else // refraction
-        {
+        } else {
             rayData.nextRay.Origin = sd.computeNewRayOrigin(false);
-            rayData.nextRay.Direction = refract(WorldRayDirection(), sd.N, sd.eta);
             rayData.nextRay.TMin = 0.0;
         }
     }
     else if(isReflective)
     {
         rayData.transmit *= dot(sd.specular, 0.33);
-        rayData.nextRay.Origin = sd.computeNewRayOrigin();
         rayData.nextRay.Direction = reflected;
-        rayData.nextRay.TMin = 0.0;
+        if(USE_REFLECTION_CORRECTION) {
+            rayData.nextRay.Origin = sd.computeNewRayOrigin() - reflected * RayTCurrent();
+            rayData.nextRay.TMin = RayTCurrent();
+        } else {
+            rayData.nextRay.Origin = sd.computeNewRayOrigin();
+            rayData.nextRay.TMin = 0.0;
+        }
     }
     else
     {
         rayData.transmit = 0.0; // stop tracing rays
     }
+}
+
+/***************** Billboards *****************/
+
+float3x3 GetBillboardPlane(float3 normal, bool yAlign) {
+	float3x3 planeBase;
+	planeBase[2] = normal;
+	
+	// y axis alignment
+	if(yAlign) planeBase[2] = normalize(float3(planeBase[2].x, 0.0, planeBase[2].z));
+
+	float3 up = float3(0.0, 1.0, 0.0);
+	// x, y are plane tangents
+	planeBase[0] = normalize(cross(up, planeBase[2]));
+	planeBase[1] = cross(planeBase[2], planeBase[0]);
+	return planeBase;
 }
 
 [shader("intersection")]
@@ -185,16 +202,37 @@ void boxIntersect(uniform HitShaderParams hitParams)
     const uint aabbOffset = gScene.proceduralPrimitives[hitParams.geometryIndex].AABBOffset;
     AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
 
-    const float3 P = bbox.center();
-    float rayDelta = dot(WorldRayDirection(), P - WorldRayOrigin());
-    float3 closestPoint = WorldRayOrigin() + WorldRayDirection() *  rayDelta;
-
-    const float d = distance(closestPoint, P);
-    if(d <= bbox.radius() * 0.5)
+    switch(BILLBOARD_TYPE)
     {
+    case BILLBOARD_TYPE_IMPOSTOR:
+    case BILLBOARD_TYPE_PARTICLE: {
+        const float2 dim = bbox.extent().xy;
+        const float3 P = bbox.center();
+        const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
+        const bool round = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
+
+        // billboard plane base
+        const float3x3 planeBase = GetBillboardPlane(normalize(WorldRayOrigin() - P), yAlign);
+        // ray origin and direction in plane space
+        const float3 d = mul(planeBase, WorldRayDirection());
+        const float3 origin = mul(planeBase, WorldRayOrigin() - P);
+
+        // ray intersection parameter:
+	    // origin + s * d = (X.x, X.y, 0) with X = intersection point of plane
+        const float s = -origin.z / d.z;
+        if(s < RayTMin()) return;
+        const float2 X = origin.xy + s * d.xy;
+
+        // check if on plane
+        if(any(X < -0.5 * dim) || any(X > 0.5 * dim)) return;
+	    if(round && (4.0 * X.x * X.x / (dim.x * dim.x) + 4.0 * X.y  * X.y  / (dim.y * dim.y) > 1.0)) return;
+
         BoxIntersectionAttributes attr;
         attr.dummy = 0;
-        ReportHit(rayDelta, 0, attr);
+        ReportHit(s, 0, attr);
+
+    } break;
+    case BILLBOARD_TYPE_SPHERICAL: break;
     }
 }
 

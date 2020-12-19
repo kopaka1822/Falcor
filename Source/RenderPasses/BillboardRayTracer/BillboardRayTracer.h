@@ -35,6 +35,13 @@ using namespace Falcor;
 class BillboardRayTracer : public RenderPass
 {
 public:
+    enum class BillboardType
+    {
+        Impostor, // y oriented
+        Particle, // origin oriented
+        Spherical // spherical volume
+    };
+
     using SharedPtr = std::shared_ptr<BillboardRayTracer>;
 
     static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
@@ -60,6 +67,10 @@ private:
     uint                        mFrameCount = 0;            ///< Frame count since scene was loaded.
     bool                        mOptionsChanged = false;
     uint                        mFootprintMode;
+    uint                        mBillboardType = (uint)BillboardType::Impostor;
+    bool                        mReflectionCorrection = true;
+    bool                        mRefractionCorrection = true;
+    bool                        mUseSphericalTexture = false;
 
     // Ray tracing program.
     struct
