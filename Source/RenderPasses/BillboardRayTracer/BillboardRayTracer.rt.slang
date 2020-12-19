@@ -60,6 +60,11 @@ struct RayPayload
     RayDesc nextRay; // [out] for reflection/transmittance
 };
 
+struct BoxIntersectionAttributes
+{
+    int dummy;
+};
+
 
 /** Traces a shadow ray towards a light source.
     \param[in] origin Ray origin for the shadow ray.
@@ -82,10 +87,10 @@ bool traceShadowRay(float3 origin, float3 dir, float distance)
     return rayData.visible;
 }
 
-/** ********************* Ray index 0: Scatter ray ************************ */
+/** ********************* Ray index 0 ************************ */
 
 [shader("miss")]
-void scatterMiss(inout RayPayload rayData : SV_RayPayload)
+void miss(inout RayPayload rayData : SV_RayPayload)
 {
     float3 Le = gScene.envMap.eval(WorldRayDirection());
     rayData.color += Le;
@@ -93,7 +98,7 @@ void scatterMiss(inout RayPayload rayData : SV_RayPayload)
 }
 
 [shader("anyhit")]
-void scatterAnyHit(
+void triangleAnyHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
@@ -104,7 +109,7 @@ void scatterAnyHit(
 }
 
 [shader("closesthit")]
-void scatterClosestHit(
+void triangleClosestHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
@@ -172,6 +177,42 @@ void scatterClosestHit(
     {
         rayData.transmit = 0.0; // stop tracing rays
     }
+}
+
+[shader("intersection")]
+void boxIntersect(uniform HitShaderParams hitParams)
+{
+    const uint aabbOffset = gScene.proceduralPrimitives[hitParams.geometryIndex].AABBOffset;
+    AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
+
+    const float3 P = bbox.center();
+    float rayDelta = dot(WorldRayDirection(), P - WorldRayOrigin());
+    float3 closestPoint = WorldRayOrigin() + WorldRayDirection() *  rayDelta;
+
+    //const float d = distance(closestPoint, P);
+    //if(d <= bbox.radius())
+    //{
+        BoxIntersectionAttributes attr;
+        attr.dummy = 0;
+        ReportHit(rayDelta, 0, attr);
+    //}
+}
+
+[shader("anyhit")]
+void boxAnyHit(
+    uniform HitShaderParams hitParams,
+    inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
+{
+    
+}
+
+[shader("closesthit")]
+void boxClosestHit(
+    uniform HitShaderParams hitParams,
+    inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
+{
+    rayData.color += rayData.transmit;
+    rayData.transmit = 0.0;
 }
 
 [shader("raygeneration")]

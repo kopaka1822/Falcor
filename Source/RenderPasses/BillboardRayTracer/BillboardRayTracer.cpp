@@ -84,7 +84,9 @@ mFootprintMode((uint32_t)TexLODMode::RayDiffsAnisotropic)
     // Create ray tracing program.
     RtProgram::Desc progDesc;
     progDesc.addShaderLibrary(kShaderFile).setRayGen("rayGen");
-    progDesc.addHitGroup(0, "scatterClosestHit", "scatterAnyHit").addMiss(0, "scatterMiss");
+    progDesc.addHitGroup(0, "triangleClosestHit", "triangleAnyHit").addMiss(0, "miss");
+    progDesc.addIntersection(0, "boxIntersect");
+    progDesc.addAABBHitGroup(0, "boxClosestHit", "boxAnyHit");
     progDesc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
     mTracer.pProgram = RtProgram::create(progDesc, kMaxPayloadSizeBytes, kMaxAttributesSizeBytes);
 
