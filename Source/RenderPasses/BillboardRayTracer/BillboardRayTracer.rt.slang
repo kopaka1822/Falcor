@@ -28,9 +28,11 @@
 
 #include "Utils/Math/MathConstants.slangh"
 #include "Scene/Material/MaterialDefines.slangh"
+#include "Scene/Lights/Lights.slang"
 
 import Scene.Raytracing;
 import Utils.Math.MathHelpers;
+import Scene.Lights.LightData;
 import Experimental.Scene.Material.MaterialShading;
 import Experimental.Scene.Lights.LightHelpers;
 import Scene.TextureSampler;
@@ -232,6 +234,73 @@ void boxIntersect(uniform HitShaderParams hitParams)
     }
 }
 
+ShadingData getBillboardShadingData(uint aabbOffset)
+{
+    ShadingData sd = {};
+
+    // reconstruct billboard plane
+    const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
+    const float2 dim = bbox.extent().xy;
+    const float3 P = bbox.center();
+    const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
+    const bool round = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
+
+    // billboard plane base
+    const float3x3 planeBase = GetBillboardPlane(normalize(WorldRayOrigin() - P), yAlign);
+    sd.posW = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
+    sd.uv.x = dot(P - sd.posW, planeBase[0]) / dim.x + 0.5;
+    sd.uv.y = dot(P - sd.posW, planeBase[1]) / dim.y + 0.5;
+
+    // TODO calc ray differentials
+
+    MaterialData md = gScene.materials[BILLBOARD_MATERIAL_ID];
+    MaterialResources mr = gScene.materialResources[BILLBOARD_MATERIAL_ID];
+
+    ExplicitLodTextureSampler explicitLOD = { 0.0 };
+    float4 baseColor = sampleTexture(
+        mr.baseColor,
+        mr.samplerState,
+        sd.uv,
+        md.baseColor,
+        EXTRACT_DIFFUSE_TYPE(md.flags), explicitLOD
+    );
+
+    sd.V = -WorldRayDirection();
+    sd.N = planeBase[0];
+    sd.T = planeBase[1];
+    sd.B = planeBase[2];
+    sd.NdotV = dot(sd.N, sd.V);
+    if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE) sd.NdotV = 1.0;
+    sd.faceN = planeBase[0];
+    sd.frontFacing = true;
+    sd.doubleSided = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
+    sd.materialID = BILLBOARD_MATERIAL_ID;
+    sd.diffuse = baseColor.rgb;
+    sd.opacity = baseColor.a;
+    sd.specular = 0.0;
+    sd.linearRoughness = 1.0;
+    sd.ggxAlpha = 1.0;
+    sd.emissive = md.emissive * md.emissiveFactor;
+    sd.occlusion = 1.0;
+    sd.IoR = 1.0;
+    sd.metallic = 0.0;
+    sd.specularTransmission = 0.0;
+    sd.eta = 1.0;
+    sd.activeLobes = (uint)LobeType::All;
+
+    return sd;
+}
+
+float3 evalBillboardMaterial(ShadingData sd, LightData light, float shadowFactor)
+{
+    if(BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR) return evalMaterial(sd, light, shadowFactor).color;
+    // particle
+    LightSample ls = evalLight(light, sd);
+    // ignore normals => use smooth gradient of light passing through the volume
+    float occlusion = smoothstep(1.0 - sd.opacity, 1.0, (ls.NdotL + 1.0) * 0.5);
+    return ls.diffuse * sd.diffuse * occlusion;
+}
+
 [shader("anyhit")]
 void boxAnyHit(
     uniform HitShaderParams hitParams,
@@ -245,41 +314,22 @@ void boxClosestHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    // reconstruct billboard plane
-    const AABB bbox = gScene.proceduralPrimitiveAABBs[attribs.aabbOffset];
-    const float2 dim = bbox.extent().xy;
-    const float3 P = bbox.center();
-    const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
-    const bool round = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
+    ShadingData sd = getBillboardShadingData(attribs.aabbOffset);
 
-    // billboard plane base
-    const float3x3 planeBase = GetBillboardPlane(normalize(WorldRayOrigin() - P), yAlign);
-    const float3 position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
-    float2 texcoord;
-    texcoord.x = dot(P - position, planeBase[0]) / dim.x + 0.5;
-    texcoord.y = dot(P - position, planeBase[1]) / dim.y + 0.5;
+    float3 color = sd.emissive;
+    const uint lightCount = gScene.getLightCount();
 
-    // TODO calc ray differentials
-
-    // load material diffuse and opacity
-    //float4 color = gScene.materials[BILLBOARD_MATERIAL_ID].baseColor;
-    // reconstruct some billboard parameters
-
-    MaterialData md = gScene.materials[BILLBOARD_MATERIAL_ID];
-    MaterialResources mr = gScene.materialResources[BILLBOARD_MATERIAL_ID];
-
-    ExplicitLodTextureSampler explicitLOD = { 0.0 };
-    float4 color = sampleTexture(
-        mr.baseColor,
-        mr.samplerState,
-        texcoord,
-        md.baseColor,
-        EXTRACT_DIFFUSE_TYPE(md.flags), explicitLOD
-    );
+    // forward render all light sources
+    for(uint i = 0; i < lightCount; ++i)
+    {
+        // TODO add shadow map sample
+        // Sample local light source.
+        color += evalBillboardMaterial(sd, gScene.getLight(i), /*shadow*/ 1.0);
+    }
 
     //gScene.materials[materialID], gScene.materialResources[materialID]
     rayData.color += rayData.transmit * color.rgb; //rayData.transmit;
-    rayData.transmit *= (1.0 - color.a);
+    rayData.transmit *= (1.0 - sd.opacity);
 
     // copy most ray data for simple transmission
     rayData.nextRay.Direction = WorldRayDirection();
@@ -287,7 +337,7 @@ void boxClosestHit(
         rayData.nextRay.Origin = WorldRayOrigin();
         rayData.nextRay.TMin = RayTCurrent();
     } else {
-        rayData.nextRay.Origin = position;
+        rayData.nextRay.Origin = sd.posW;
         rayData.nextRay.TMin = 0.0001;
     }
 }
