@@ -266,9 +266,9 @@ ShadingData getBillboardShadingData(uint aabbOffset)
     );
 
     sd.V = -WorldRayDirection();
-    sd.N = planeBase[0];
-    sd.T = planeBase[1];
-    sd.B = planeBase[2];
+    sd.N = planeBase[2];
+    sd.T = planeBase[0];
+    sd.B = planeBase[1];
     sd.NdotV = dot(sd.N, sd.V);
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE) sd.NdotV = 1.0;
     sd.faceN = planeBase[0];
@@ -328,7 +328,8 @@ void boxClosestHit(
     }
 
     //gScene.materials[materialID], gScene.materialResources[materialID]
-    rayData.color += rayData.transmit * color.rgb; //rayData.transmit;
+    rayData.color += rayData.transmit * sd.opacity * color.rgb; //rayData.transmit;
+
     rayData.transmit *= (1.0 - sd.opacity);
 
     // copy most ray data for simple transmission

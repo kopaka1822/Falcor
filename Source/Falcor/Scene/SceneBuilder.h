@@ -375,6 +375,11 @@ namespace Falcor
         */
         uint32_t addMaterial(const Material::SharedPtr& pMaterial);
 
+        /** Replaces the material with the same name.
+            \param pNewMaterial The new material.
+        */
+        void replaceMaterial(const Material::SharedPtr& pNewMaterial);
+
         /** Request loading a material texture.
             \param[in] pMaterial Material to load texture into.
             \param[in] slot Slot to load texture into.

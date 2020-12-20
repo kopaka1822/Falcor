@@ -673,6 +673,19 @@ namespace Falcor
         return (uint32_t)mMaterials.size() - 1;
     }
 
+    void SceneBuilder::replaceMaterial(const Material::SharedPtr& pNewMaterial)
+    {
+        for (auto& pMaterial : mMaterials)
+        {
+            if (pMaterial->getName() == pNewMaterial->getName())
+            {
+                pMaterial = pNewMaterial;
+                return;
+            }
+        }
+        throw std::runtime_error("could not find material: " + pNewMaterial->getName());
+    }
+
     Material::SharedPtr SceneBuilder::getMaterial(const std::string& name) const
     {
         for (const auto& pMaterial : mMaterials)
@@ -2056,5 +2069,6 @@ namespace Falcor
         // new for custom primitives
         sceneBuilder.def("addCustomPrimitive", &SceneBuilder::addCustomPrimitive, "typeId"_a, "aabb"_a);
         sceneBuilder.def("addBillboard", &SceneBuilder::addBillboard, "center"_a, "width"_a, "height"_a);
+        sceneBuilder.def("replaceMaterial", &SceneBuilder::replaceMaterial, "pNewMaterial"_a);
     }
 }

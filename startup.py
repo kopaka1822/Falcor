@@ -29,7 +29,7 @@ def render_graph_DefaultRenderGraph():
     loadRenderPassLibrary('WhittedRayTracer.dll')
     BillboardRayTracer = createPass('BillboardRayTracer')
     g.addPass(BillboardRayTracer, 'BillboardRayTracer')
-    ToneMapper = createPass('ToneMapper', {'exposureCompensation': 0.0, 'autoExposure': False, 'exposureValue': 0.0, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': ToneMapOp.Aces, 'clamp': True, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': ExposureMode.AperturePriority})
+    ToneMapper = createPass('ToneMapper', {'exposureCompensation': 0.0, 'autoExposure': False, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': ToneMapOp.Aces, 'clamp': True, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': ExposureMode.AperturePriority})
     g.addPass(ToneMapper, 'ToneMapper')
     g.addEdge('BillboardRayTracer.color', 'ToneMapper.src')
     g.markOutput('ToneMapper.dst')
@@ -38,21 +38,25 @@ def render_graph_DefaultRenderGraph():
 m.addGraph(render_graph_DefaultRenderGraph())
 
 # Scene
-m.loadScene('D:/scenes/models/refract_test.pyscene')
-m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True)
+m.loadScene('../../../BillboardScenes/test_area/test_area.pyscene')
+m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True, useVolumes=True)
+m.scene.camera.position = float3(7.366510,1.334249,-7.701518)
+m.scene.camera.target = float3(6.477898,1.255184,-7.249726)
+m.scene.camera.up = float3(0.000000,1.000000,0.000000)
+m.scene.cameraSpeed = 1.0
 
 # Window Configuration
 m.resizeSwapChain(1920, 1061)
 m.ui = True
 
-# Time Settings
-t.time = 0
-t.framerate = 0
+# Clock Settings
+m.clock.time = 0
+m.clock.framerate = 0
 # If framerate is not zero, you can use the frame property to set the start frame
-# t.frame = 0
-t.pause()
+# m.clock.frame = 0
+m.clock.pause()
 
 # Frame Capture
-fc.outputDir = '.'
-fc.baseFilename = 'Mogwai'
+m.frameCapture.outputDir = '.'
+m.frameCapture.baseFilename = 'Mogwai'
 

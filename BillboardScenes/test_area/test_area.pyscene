@@ -1,0 +1,80 @@
+# load scene settings
+sceneBuilder.importScene('test_area.glb')
+sceneBuilder.envMap = EnvMap('BlueSky.png');
+
+# set up material
+mat = Material('Floor')
+mat.baseColor = float4(0.0, 0.139, 0.05, 1.0)
+mat.roughness = 1.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Mirror')
+mat.baseColor = float4(0.9, 0.9, 0.9, 1.0)
+mat.roughness = 0.0
+mat.metallic = 1.0
+mat.indexOfRefraction = 2.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Wall')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'bricks_color.png')
+mat.roughness = 1.0
+mat.metallic = 0.0
+mat.indexOfRefraction = 2.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Glass')
+mat.baseColor = float4(0.0, 0.0, 0.0, 1.0)
+mat.roughness = 0.0
+mat.metallic = 0.0
+mat.indexOfRefraction = 1.45
+mat.specularTransmission = 0.95
+mat.doubleSided = True
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Impostor')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'tree.png')
+mat.alphaMode = 1
+sceneBuilder.addMaterial(mat)
+
+# set up lights
+l = DirectionalLight('MainLight')
+l.intensity = float3(10.0, 10.0, 10.0)
+l.direction = float3(-0.62, -0.71, -0.31)
+sceneBuilder.addLight(l)
+
+l = DirectionalLight('AmbientLightBack')
+l.intensity = float3(2.0, 2.0, 2.0)
+l.direction = float3(0.62, 0.71, 0.31)
+sceneBuilder.addLight(l)
+
+l = DirectionalLight('AmbientLightLeft')
+l.intensity = float3(2.0, 2.0, 2.0)
+l.direction = float3(-0.62, 0.71, 0.31)
+sceneBuilder.addLight(l)
+
+l = DirectionalLight('AmbientLightRight')
+l.intensity = float3(2.0, 2.0, 2.0)
+l.direction = float3(0.62, 0.71, -0.31)
+sceneBuilder.addLight(l)
+
+# create camera
+#camera = Camera('Camera0')
+#camera.position = float3(-6.2,3.1,10.8)
+#camera.target = float3(-5.6,2.9,9.9)
+#camera.up = float3(0.0, 1.0, 0.0)
+#camera.focalLength = 24.0
+#sceneBuilder.addCamera(camera)
+#sceneBuilder.selectedCamera = camera
+
+# add billboards
+# big mirror
+sceneBuilder.addBillboard(float3(0.09, 1.0, 2.4), 1.0, 2.0)
+sceneBuilder.addBillboard(float3(0.09, 1.0, 0.4), 1.0, 2.0)
+# curved
+sceneBuilder.addBillboard(float3(-2.0, 1.0, -2.0), 1.0, 2.0)
+# glass plane
+sceneBuilder.addBillboard(float3(0.45, 1.0, -5.5), 1.0, 2.0)
+sceneBuilder.addBillboard(float3(-2.0, 1.0, -7), 1.0, 2.0)
+# glass fence
+sceneBuilder.addBillboard(float3(-0.4, 1.0, -8.6), 1.0, 2.0)
+sceneBuilder.addBillboard(float3(-1.8, 1.0, -8.6), 1.0, 2.0)
