@@ -8,5 +8,6 @@
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="BillboardRayTracer.rt.slang" />
+    <ShaderSource Include="Helper.slang" />
   </ItemGroup>
 </Project>

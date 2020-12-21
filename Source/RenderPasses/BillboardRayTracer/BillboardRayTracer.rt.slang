@@ -37,32 +37,28 @@ import Experimental.Scene.Material.MaterialShading;
 import Experimental.Scene.Lights.LightHelpers;
 import Scene.TextureSampler;
 import Scene.Material.MaterialData;
+import Scene.HitInfo;
+
+#include "Helper.slang"
 
 cbuffer CB
 {
     uint        gFrameCount;        // Frame count since scene was loaded.
 }
 
+
+
 // early out settings
-#define TRANSMIT_EPISLON 0.02
+#define TRANSMIT_EPSILON 0.02
 #define REFLECT_EPSILON 0.02
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
 
-/** Payload for shadow ray.
-*/
-struct ShadowRayData
-{
-    bool visible;
-};
-
 struct RayPayload
 {
-    float3 color; // [in/out] sum of all colors
-    float transmit; // [in/out] contains transmittance for the next transmitted or reflected ray
-    // TODO ray diffs
-    RayDesc nextRay; // [out] for reflection/transmittance
+    PackedHitInfo hit;
+    float depth;
 };
 
 struct BoxIntersectionAttributes
@@ -70,36 +66,12 @@ struct BoxIntersectionAttributes
     int aabbOffset;
 };
 
-
-/** Traces a shadow ray towards a light source.
-    \param[in] origin Ray origin for the shadow ray.
-    \param[in] dir Direction from shading point towards the light source (normalized).
-    \param[in] distance Distance to the light source.
-    \return True if light is visible, false otherwise.
-*/
-bool traceShadowRay(float3 origin, float3 dir, float distance)
-{
-    RayDesc ray;
-    ray.Origin = origin;
-    ray.Direction = dir;
-    ray.TMin = 0.f;
-    ray.TMax = distance;
-
-    ShadowRayData rayData;
-    rayData.visible = false;    // Set to true by miss shader if ray is not terminated before
-    TraceRay(gRtScene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 1 /* hitIdx */, hitProgramCount, 1 /* missIdx */, ray, rayData);
-
-    return rayData.visible;
-}
-
 /** ********************* Ray index 0 ************************ */
 
 [shader("miss")]
 void miss(inout RayPayload rayData : SV_RayPayload)
 {
-    float3 Le = gScene.envMap.eval(WorldRayDirection());
-    rayData.color += Le;
-    rayData.transmit = 0.0;
+    
 }
 
 [shader("anyhit")]
@@ -118,88 +90,28 @@ void triangleClosestHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    // TODO: Implement texLOD to enable texture filtering in prepareShadingData().
-    VertexData v = getVertexData(hitParams, PrimitiveIndex(), attribs);
-    const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
-    ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -WorldRayDirection(), 0.f);
+    rayData.depth = RayTCurrent();
+    HitInfo hit;
+    hit.type = InstanceType::TriangleMesh;
+    hit.instanceID = hitParams.getGlobalHitID();
+    hit.primitiveIndex = PrimitiveIndex();
+    hit.barycentrics = attribs.barycentrics;
+    rayData.hit = hit.encode();
 
-    // emission
-    float3 color = sd.emissive;
-
-    const uint lightCount = gScene.getLightCount();
-    // forward render all light sources
-    for(uint i = 0; i < lightCount; ++i)
-    {
-        // TODO add shadow map sample
-        // Sample local light source.
-        color += evalMaterial(sd, gScene.getLight(i), /*shadow*/ 1.0).color;
-    }
-
-    // update ray payload
-    rayData.color += rayData.transmit * sd.opacity * color;
-    // determine actual transmittance (mix of opacity coverage and specular transmission)
-    const float transmit = sd.opacity * sd.specularTransmission + (1.0 - sd.opacity);
-
-    bool isTransmittive = (rayData.transmit * transmit > TRANSMIT_EPISLON);
-    bool isReflective = dot(sd.specular, 0.33) * rayData.transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
-    const float3 reflected = reflect(WorldRayDirection(), sd.N);
-
-    if(isTransmittive)
-    {
-        if(isReflective) // envmap lookup for reflection
-            rayData.color += rayData.transmit * sd.specular * gScene.envMap.eval(reflected);
-
-        rayData.transmit *= transmit;
-        const float3 refracted = sd.IoR == 1.0 ? WorldRayDirection() : refract(WorldRayDirection(), sd.N, sd.eta);
-        rayData.nextRay.Direction = refracted;
-        if(USE_REFRACTION_CORRECTION) {
-            rayData.nextRay.Origin = sd.computeNewRayOrigin(false) - refracted * RayTCurrent();
-            rayData.nextRay.TMin = RayTCurrent();
-        } else {
-            rayData.nextRay.Origin = sd.computeNewRayOrigin(false);
-            rayData.nextRay.TMin = 0.0;
-        }
-    }
-    else if(isReflective)
-    {
-        rayData.transmit *= dot(sd.specular, 0.33);
-        rayData.nextRay.Direction = reflected;
-        if(USE_REFLECTION_CORRECTION) {
-            rayData.nextRay.Origin = sd.computeNewRayOrigin() - reflected * RayTCurrent();
-            rayData.nextRay.TMin = RayTCurrent();
-        } else {
-            rayData.nextRay.Origin = sd.computeNewRayOrigin();
-            rayData.nextRay.TMin = 0.0;
-        }
-    }
-    else
-    {
-        rayData.transmit = 0.0; // stop tracing rays
-    }
+  
+    
 }
 
 /***************** Billboards *****************/
 
-float3x3 GetBillboardPlane(float3 normal, bool yAlign) {
-	float3x3 planeBase;
-	planeBase[2] = normal;
-	
-	// y axis alignment
-	if(yAlign) planeBase[2] = normalize(float3(planeBase[2].x, 0.0, planeBase[2].z));
 
-	float3 up = float3(0.0, 1.0, 0.0);
-	// x, y are plane tangents
-	planeBase[0] = normalize(cross(up, planeBase[2]));
-	planeBase[1] = cross(planeBase[2], planeBase[0]);
-	return planeBase;
-}
 
 [shader("intersection")]
 void boxIntersect(uniform HitShaderParams hitParams)
 {
     const uint aabbOffset = gScene.proceduralPrimitives[hitParams.geometryIndex].AABBOffset;
     const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
-
+    
     switch(BILLBOARD_TYPE)
     {
     case BILLBOARD_TYPE_IMPOSTOR:
@@ -208,97 +120,30 @@ void boxIntersect(uniform HitShaderParams hitParams)
         const float3 P = bbox.center();
         const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
         const bool round = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
-
+    
         // billboard plane base
         const float3x3 planeBase = GetBillboardPlane(normalize(WorldRayOrigin() - P), yAlign);
         // ray origin and direction in plane space
         const float3 d = mul(planeBase, WorldRayDirection());
         const float3 origin = mul(planeBase, WorldRayOrigin() - P);
-
+    
         // ray intersection parameter:
 	    // origin + s * d = (X.x, X.y, 0) with X = intersection point of plane
         const float s = -origin.z / d.z;
         if(s <= RayTMin()) return;
         const float2 X = origin.xy + s * d.xy;
-
+    
         // check if on plane
         if(any(X < -0.5 * dim) || any(X > 0.5 * dim)) return;
 	    if(round && (4.0 * X.x * X.x / (dim.x * dim.x) + 4.0 * X.y  * X.y  / (dim.y * dim.y) > 1.0)) return;
-
-        BoxIntersectionAttributes attr;
-        attr.aabbOffset = aabbOffset;
-        ReportHit(s, 0, attr);
-
+    
+        BoxIntersectionAttributes attribs;
+        attribs.aabbOffset = aabbOffset;
+        ReportHit(s, 0, attribs);
+    
     } break;
     case BILLBOARD_TYPE_SPHERICAL: break;
     }
-}
-
-ShadingData getBillboardShadingData(uint aabbOffset)
-{
-    ShadingData sd = {};
-
-    // reconstruct billboard plane
-    const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
-    const float2 dim = bbox.extent().xy;
-    const float3 P = bbox.center();
-    const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
-    const bool round = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
-
-    // billboard plane base
-    const float3x3 planeBase = GetBillboardPlane(normalize(WorldRayOrigin() - P), yAlign);
-    sd.posW = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
-    sd.uv.x = dot(P - sd.posW, planeBase[0]) / dim.x + 0.5;
-    sd.uv.y = dot(P - sd.posW, planeBase[1]) / dim.y + 0.5;
-
-    // TODO calc ray differentials
-
-    MaterialData md = gScene.materials[BILLBOARD_MATERIAL_ID];
-    MaterialResources mr = gScene.materialResources[BILLBOARD_MATERIAL_ID];
-
-    ExplicitLodTextureSampler explicitLOD = { 0.0 };
-    float4 baseColor = sampleTexture(
-        mr.baseColor,
-        mr.samplerState,
-        sd.uv,
-        md.baseColor,
-        EXTRACT_DIFFUSE_TYPE(md.flags), explicitLOD
-    );
-
-    sd.V = -WorldRayDirection();
-    sd.N = planeBase[2];
-    sd.T = planeBase[0];
-    sd.B = planeBase[1];
-    sd.NdotV = dot(sd.N, sd.V);
-    if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE) sd.NdotV = 1.0;
-    sd.faceN = planeBase[0];
-    sd.frontFacing = true;
-    sd.doubleSided = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
-    sd.materialID = BILLBOARD_MATERIAL_ID;
-    sd.diffuse = baseColor.rgb;
-    sd.opacity = baseColor.a;
-    sd.specular = 0.0;
-    sd.linearRoughness = 1.0;
-    sd.ggxAlpha = 1.0;
-    sd.emissive = md.emissive * md.emissiveFactor;
-    sd.occlusion = 1.0;
-    sd.IoR = 1.0;
-    sd.metallic = 0.0;
-    sd.specularTransmission = 0.0;
-    sd.eta = 1.0;
-    sd.activeLobes = (uint)LobeType::All;
-
-    return sd;
-}
-
-float3 evalBillboardMaterial(ShadingData sd, LightData light, float shadowFactor)
-{
-    if(BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR) return evalMaterial(sd, light, shadowFactor).color;
-    // particle
-    LightSample ls = evalLight(light, sd);
-    // ignore normals => use smooth gradient of light passing through the volume
-    float occlusion = smoothstep(1.0 - sd.opacity, 1.0, (ls.NdotL + 1.0) * 0.5);
-    return ls.diffuse * sd.diffuse * occlusion;
 }
 
 [shader("anyhit")]
@@ -314,33 +159,25 @@ void boxClosestHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    ShadingData sd = getBillboardShadingData(attribs.aabbOffset);
-
-    float3 color = sd.emissive;
-    const uint lightCount = gScene.getLightCount();
-
-    // forward render all light sources
-    for(uint i = 0; i < lightCount; ++i)
-    {
-        // TODO add shadow map sample
-        // Sample local light source.
-        color += evalBillboardMaterial(sd, gScene.getLight(i), /*shadow*/ 1.0);
-    }
-
-    //gScene.materials[materialID], gScene.materialResources[materialID]
-    rayData.color += rayData.transmit * sd.opacity * color.rgb; //rayData.transmit;
-
-    rayData.transmit *= (1.0 - sd.opacity);
-
-    // copy most ray data for simple transmission
-    rayData.nextRay.Direction = WorldRayDirection();
-    if(USE_REFRACTION_CORRECTION) {
-        rayData.nextRay.Origin = WorldRayOrigin();
-        rayData.nextRay.TMin = RayTCurrent();
-    } else {
-        rayData.nextRay.Origin = sd.posW;
-        rayData.nextRay.TMin = 0.0001;
-    }
+    rayData.depth = RayTCurrent();
+    HitInfo hit;
+    hit.type = InstanceType::Curve;
+    hit.instanceID = 0;
+    hit.primitiveIndex = attribs.aabbOffset;
+    hit.barycentrics = 0.0;
+    rayData.hit = hit.encode();
+    //
+    //rayData.transmit *= (1.0 - sd.opacity);
+    //
+    //// copy most ray data for simple transmission
+    //rayData.nextRay.Direction = WorldRayDirection();
+    //if(USE_REFRACTION_CORRECTION) {
+    //    rayData.nextRay.Origin = WorldRayOrigin();
+    //    rayData.nextRay.TMin = RayTCurrent();
+    //} else {
+    //    rayData.nextRay.Origin = sd.posW;
+    //    rayData.nextRay.TMin = 0.0001;
+    //}
 }
 
 [shader("raygeneration")]
@@ -352,18 +189,90 @@ void rayGen()
     // primary ray
     RayDesc ray = gScene.camera.computeRayPinhole(launchIndex, launchDim).toRayDesc();
 
+    HitInfo hit;
     RayPayload rayData;
-    rayData.color = 0.0;
-    rayData.transmit = 1.0;
-    rayData.nextRay = ray;
+    rayData.depth = FLT_MAX;
+
+    float3 color = 0.0;
+    float transmit = 1.0;
 
     uint iteration = 0;
     do
     {
-        TraceRay(gRtScene, RAY_FLAG_NONE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, rayData.nextRay, rayData);
-        // set ray t max accordingly
-        rayData.nextRay.TMax = ray.TMax;
-    } while(++iteration < 256 && rayData.transmit > TRANSMIT_EPISLON);
+        rayData.hit = HitInfo::kInvalidIndex;
+        TraceRay(gRtScene, RAY_FLAG_NONE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, rayData);
 
-    gOutputColor[launchIndex] = float4(rayData.color, 1);
+        if(!hit.decode(rayData.hit)) break; // no geometry hit
+        
+        // unpack hit data & TODO determine ray differentials
+        VertexData v;
+        uint materialID;
+        switch(hit.getType())
+        {
+        case InstanceType::TriangleMesh: {
+            StaticVertexData triangleVertices[3];
+            v = gScene.getVertexData(hit, triangleVertices);
+            materialID = gScene.getMaterialID(hit.instanceID);
+        } break;
+        case InstanceType::Curve: { // reuse curve value for billboards in this case (curves are not handled)
+            v = getBillboardVertexData(hit.primitiveIndex, ray.Origin, ray.Origin + ray.Direction * rayData.depth);
+            materialID = BILLBOARD_MATERIAL_ID;
+        } break;
+        }
+
+        // shade
+        ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -ray.Direction, 0.f);
+        float3 curColor = sd.emissive;
+
+        // forward render all light sources
+        const uint lightCount = gScene.getLightCount();
+        for(uint i = 0; i < lightCount; ++i) // TODO add shadow map sample
+            curColor += evalMaterial(sd, gScene.getLight(i), /*shadow*/ 1.0).color;
+        
+        color += transmit * sd.opacity * curColor;
+        // determine actual transmittance (mix of opacity coverage and specular transmission)
+        const float curTransmit = sd.opacity * sd.specularTransmission + (1.0 - sd.opacity);
+
+        // prepare next ray
+        bool isTransmittive = (curTransmit * transmit > TRANSMIT_EPSILON);
+        bool isReflective = dot(sd.specular, 0.33) * transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
+        const float3 reflected = reflect(ray.Direction, sd.N);
+        
+        if(isTransmittive)
+        {
+            if(isReflective) // envmap lookup for reflection
+                color += transmit * sd.specular * gScene.envMap.eval(reflected);
+        
+            transmit *= curTransmit;
+            const float3 refracted = sd.IoR == 1.0 ? ray.Direction : refract(ray.Direction, sd.N, sd.eta);
+            ray.Direction = refracted;
+            if(USE_REFRACTION_CORRECTION) {
+                ray.Origin = sd.computeNewRayOrigin(false) - refracted * rayData.depth;
+                ray.TMin = rayData.depth;
+            } else {
+                ray.Origin = sd.computeNewRayOrigin(false);
+                ray.TMin = 0.0;
+            }
+        }
+        else if(isReflective)
+        {
+            transmit *= dot(sd.specular, 0.33);
+            ray.Direction = reflected;
+            if(USE_REFLECTION_CORRECTION) {
+                ray.Origin = sd.computeNewRayOrigin() - reflected * rayData.depth;
+                ray.TMin = rayData.depth;
+            } else {
+                ray.Origin = sd.computeNewRayOrigin();
+                ray.TMin = 0.0;
+            }
+        }
+        else transmit = 0.0; // stop tracing rays
+    } while(++iteration < 256 && transmit > TRANSMIT_EPSILON);
+
+    if(transmit > TRANSMIT_EPSILON) // sample environment map
+    {
+        color += transmit * gScene.envMap.eval(ray.Direction);
+    }
+
+    gOutputColor[launchIndex] = float4(color, 1);
 }

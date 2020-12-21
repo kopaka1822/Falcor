@@ -34,6 +34,7 @@ sceneBuilder.replaceMaterial(mat)
 mat = Material('Impostor')
 mat.loadTexture(MaterialTextureSlot.BaseColor, 'tree.png')
 mat.alphaMode = 1
+mat.indexOfRefraction = 1.0
 sceneBuilder.addMaterial(mat)
 
 # set up lights

@@ -28,6 +28,7 @@
 #include "BillboardRayTracer.h"
 #include "RenderGraph/RenderPassHelpers.h"
 #include "Experimental/Scene/Material/TexLODTypes.slang"
+#include "Scene/HitInfo.h"
 
  // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
@@ -46,7 +47,7 @@ namespace
 
     // Ray tracing settings that affect the traversal stack size.
     // These should be set as small as possible.
-    const uint32_t kMaxPayloadSizeBytes = 80u;
+    const uint32_t kMaxPayloadSizeBytes = HitInfo::kMaxPackedSizeInBytes + 4;
     const uint32_t kMaxAttributesSizeBytes = 8u;
     const uint32_t kMaxRecursionDepth = 1u;
 
