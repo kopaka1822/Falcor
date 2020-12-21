@@ -51,7 +51,7 @@ float3 evalBillboardMaterial(ShadingData sd, LightData light, float shadowFactor
 
 // imported and modified ray differentials
 #include "RenderPasses/Shared/PathTracer/RayFootprintModes.slangh"
-#if ((RAY_FOOTPRINT_MODE == RAY_FOOTPRINT_MODE_RAYDIFFS_ISO) || (RAY_FOOTPRINT_MODE == RAY_FOOTPRINT_MODE_RAYDIFFS_ANISO))
+#if (RAY_FOOTPRINT_MODE == RAY_FOOTPRINT_MODE_RAYDIFFS_ANISO)
 
 extension RayFootprint
 {
@@ -66,12 +66,11 @@ extension RayFootprint
     }
 
     [mutating]
-    void hitSurface(inout VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float3 rayOrg, float3 rayDir)
+    void hitSurface(inout VertexData v, HitInfo hit, float3 rayOrg, float3 rayDir)
     {
         // Propagate to hit point.
         float hitT = length(v.posW - rayOrg);
-        float3 geometricNormal = gScene.getFaceNormalW(hit.instanceID, hit.primitiveIndex);
-        this.rayDiff = this.rayDiff.propagate(rayOrg, rayDir, hitT, geometricNormal);   // Propagate the ray differential to the current hit point.
+        this.rayDiff = this.rayDiff.propagate(rayOrg, rayDir, hitT, v.faceNormalW);   // Propagate the ray differential to the current hit point.
     }
 
     ShadingData computeShadingData(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float3 rayOrg, float3 rayDir)
@@ -87,17 +86,37 @@ extension RayFootprint
         float3 viewDir = -rayDir;
         ShadingData sd;
         const uint materialID = gScene.getMaterialID(hit.instanceID);
-        if (RAY_FOOTPRINT_MODE == RAY_FOOTPRINT_MODE_RAYDIFFS_ISO)
-        {
-            // When using prepareShadingDataUsingRayDiffsLOD(), the texture sampler will compute a single lambda for texture LOD
-            // using the dUVdx and dUVdy.
-            sd = prepareShadingDataUsingRayDiffsLOD(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], viewDir, dUVdx, dUVdy);
-        }
-        else        // TexLODMode::RayDiffsAnisotropic.
-        {
-            // Use the dUVdx and dUVdy directly --> gives you anisotropic filtering.
-            sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], viewDir, dUVdx, dUVdy);
-        }
+        // Use the dUVdx and dUVdy directly --> gives you anisotropic filtering.
+        sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], viewDir, dUVdx, dUVdy);
+
+        return sd;
+    }
+
+    ShadingData computeBillboardShadingData(VertexData v, HitInfo hit, float3 rayOrg, float3 rayDir)
+    {
+        // TODO store data somewhere instead of recomputing
+        // reconstruct billboard plane
+        const AABB bbox = gScene.proceduralPrimitiveAABBs[hit.primitiveIndex];
+        const float2 dim = bbox.extent().xy;
+        const float3 P = bbox.center();
+        const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
+
+        // billboard plane base
+        float3x3 planeBase = GetBillboardPlane(normalize(rayOrg - P), yAlign);
+
+        // Get hit point adapted parameters.
+        float2 dUVdx, dUVdy;    // Ray differential variables for the texture lookup.
+        dUVdx.x = dot(this.rayDiff.dOdx, planeBase[0]) / dim[0];
+        dUVdx.y = dot(this.rayDiff.dOdx, planeBase[1]) / dim[1];
+        dUVdy.x = dot(this.rayDiff.dOdy, planeBase[0]) / dim[0];
+        dUVdy.y = dot(this.rayDiff.dOdy, planeBase[1]) / dim[1];
+
+        // Compute shading data.
+        float3 viewDir = -rayDir;
+        ShadingData sd;
+        const uint materialID = BILLBOARD_MATERIAL_ID;
+        // Use the dUVdx and dUVdy directly --> gives you anisotropic filtering.
+        sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], viewDir, dUVdx, dUVdy);
 
         return sd;
     }
@@ -129,7 +148,7 @@ extension RayFootprint
     }
 
     [mutating]
-    void hitSurface(inout VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float3 rayOrg, float3 rayDir)
+    void hitSurface(inout VertexData v, HitInfo hit, float3 rayOrg, float3 rayDir)
     {
     }
 
@@ -141,6 +160,12 @@ extension RayFootprint
     ShadingData computeShadingData(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float3 rayOrg, float3 rayDir)
     {
         const uint materialID = gScene.getMaterialID(hit.instanceID);
+        return prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -rayDir, 0.f);
+    }
+
+    ShadingData computeBillboardShadingData(VertexData v, HitInfo hit, float3 rayOrg, float3 rayDir)
+    {
+        const uint materialID = BILLBOARD_MATERIAL_ID;
         return prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -rayDir, 0.f);
     }
 };
@@ -159,4 +184,9 @@ extension RayFootprint
 ShadingData prepareShadingData(VertexData v, RayFootprint rayFootprint, StaticVertexData triangleVertices[3], HitInfo hit, float3 rayOrg, float3 rayDir)
 {
     return rayFootprint.computeShadingData(v, triangleVertices, hit, rayOrg, rayDir);
+}
+
+ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint, HitInfo hit, /*long version*/ float3 rayOrg,  float3 rayDir)
+{
+    return rayFootprint.computeBillboardShadingData(v, hit, rayOrg, rayDir);
 }

@@ -239,9 +239,10 @@ void rayGen()
             if(!volumeHit.decode(volumePayload.hit)) break; // finished with the volumetric part
 
             VertexData v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Origin + ray.Direction * volumePayload.depth);
-            uint materialID = BILLBOARD_MATERIAL_ID;
 
-            ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -ray.Direction, 0.f);
+            RayFootprint volumeFootprint = footprint; // copy footprint
+            volumeFootprint.hitSurface(v, volumeHit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction); // transfer to surface
+            ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumeHit, ray.Origin, ray.Direction);
             float4 curColor = shade(sd);
 
             color += transmit * curColor.rgb;
@@ -261,7 +262,7 @@ void rayGen()
         uint materialID = gScene.getMaterialID(hit.instanceID);
 
         // transfer ray differential and get shading data
-        footprint.hitSurface(v, triangleVertices, hit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction);
+        footprint.hitSurface(v, hit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction);
         ShadingData sd = prepareShadingData(v, footprint, triangleVertices, hit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction);
         float4 curColor = shade(sd);
 
