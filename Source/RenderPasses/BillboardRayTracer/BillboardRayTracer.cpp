@@ -137,7 +137,7 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
         defines.add(getValidResourceDefines(kOutputChannels, renderData));
         // footprints
         defines.add("RAY_FOOTPRINT_MODE", std::to_string(mFootprintMode));
-        defines.add("RAY_CONE_MODE", "0");
+        defines.add("RAY_CONE_MODE", "1");
         defines.add("RAY_FOOTPRINT_USE_MATERIAL_ROUGHNESS", "1");
         // billboard data
         defines.add("BILLBOARD_TYPE", std::to_string(mBillboardType));

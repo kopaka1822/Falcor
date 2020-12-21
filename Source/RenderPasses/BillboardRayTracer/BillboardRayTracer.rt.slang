@@ -29,7 +29,7 @@
 #include "Utils/Math/MathConstants.slangh"
 #include "Scene/Material/MaterialDefines.slangh"
 #include "Scene/Lights/Lights.slang"
-//#include "RenderPasses/Shared/PathTracer/RayFootprintData.slang"
+//#include "RenderPasses/Shared/PathTracer/RayFootprint.slang"
 
 import Scene.Raytracing;
 import Utils.Math.MathHelpers;
@@ -198,6 +198,8 @@ float4 shade(ShadingData sd)
     return float4(curColor, curTransmit);
 }
 
+
+
 [shader("raygeneration")]
 void rayGen()
 {
@@ -207,7 +209,8 @@ void rayGen()
     // primary ray
     RayDesc ray = gScene.camera.computeRayPinhole(launchIndex, launchDim).toRayDesc();
     ray.TMin = 0.0;
-    RayFootprint footprint;
+    RayFootprint footprint = RayFootprint.create(launchIndex, launchDim);
+
     //footprint.create();
     float3 color = 0.0;
     float transmit = 1.0;
@@ -224,6 +227,7 @@ void rayGen()
         TraceRay(gRtScene, RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, trianglePayload);
         // set max range for volume ray
         ray.TMax = trianglePayload.depth;
+        const float prevRayMin = ray.TMin;
 
         do // trace volumetric data
         {
@@ -256,8 +260,9 @@ void rayGen()
         VertexData v = gScene.getVertexData(hit, triangleVertices);
         uint materialID = gScene.getMaterialID(hit.instanceID);
 
-        // shade
-        ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -ray.Direction, 0.f);
+        // transfer ray differential and get shading data
+        footprint.hitSurface(v, triangleVertices, hit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction);
+        ShadingData sd = prepareShadingData(v, footprint, triangleVertices, hit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction);
         float4 curColor = shade(sd);
 
         color += transmit * curColor.rgb;
@@ -267,7 +272,7 @@ void rayGen()
         bool isReflective = dot(sd.specular, 0.33) * transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
         const float3 reflected = reflect(ray.Direction, sd.N);
         
-        if(isTransmittive)
+        if(isTransmittive) // transmit ray
         {
             if(isReflective) // envmap lookup for reflection
                 color += transmit * sd.specular * gScene.envMap.eval(reflected);
@@ -283,9 +288,10 @@ void rayGen()
                 ray.TMin = 0.0;
             }
         }
-        else if(isReflective)
+        else if(isReflective) // reflect ray
         {
             transmit *= dot(sd.specular, 0.33);
+            // TODO raydiff reflection
             ray.Direction = reflected;
             if(USE_REFLECTION_CORRECTION) {
                 ray.Origin = sd.computeNewRayOrigin() - reflected * trianglePayload.depth;
