@@ -103,7 +103,7 @@ extension RayFootprint
     }
 
     [mutating]
-    void bounceOnSurface(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, ShadingData sd, float3 normal, float3 rayDirIn, float3 rayDirOut, bool isSpecular, bool isTransmission)
+    void bounceOnSurface(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float3 normal, float3 rayDirIn, float3 rayDirOut, bool isTransmission)
     {
         // Check if scattered ray is refracted.
         if (isTransmission || dot(rayDirOut, normal) <= 0.0) return; // Leaves the footprint unchanged until refraction if properly handled.
@@ -134,7 +134,7 @@ extension RayFootprint
     }
 
     [mutating]
-    void bounceOnSurface(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, ShadingData sd, float3 normal, float3 rayDirIn, float3 rayDirOut, bool isSpecular, bool isTransmission)
+    void bounceOnSurface(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float3 normal, float3 rayDirIn, float3 rayDirOut, bool isTransmission)
     {
     }
 

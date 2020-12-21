@@ -279,6 +279,7 @@ void rayGen()
         
             transmit *= curColor.a;
             const float3 refracted = sd.IoR == 1.0 ? ray.Direction : refract(ray.Direction, sd.N, sd.eta);
+            footprint.bounceOnSurface(v, triangleVertices, hit, sd.N, ray.Direction, refracted, true);
             ray.Direction = refracted;
             if(USE_REFRACTION_CORRECTION) {
                 ray.Origin = sd.computeNewRayOrigin(false) - refracted * trianglePayload.depth;
@@ -291,7 +292,7 @@ void rayGen()
         else if(isReflective) // reflect ray
         {
             transmit *= dot(sd.specular, 0.33);
-            // TODO raydiff reflection
+            footprint.bounceOnSurface(v, triangleVertices, hit, sd.N, ray.Direction, reflected, false);
             ray.Direction = reflected;
             if(USE_REFLECTION_CORRECTION) {
                 ray.Origin = sd.computeNewRayOrigin() - reflected * trianglePayload.depth;
