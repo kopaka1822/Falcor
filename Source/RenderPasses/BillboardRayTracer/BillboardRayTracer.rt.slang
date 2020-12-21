@@ -29,6 +29,7 @@
 #include "Utils/Math/MathConstants.slangh"
 #include "Scene/Material/MaterialDefines.slangh"
 #include "Scene/Lights/Lights.slang"
+//#include "RenderPasses/Shared/PathTracer/RayFootprintData.slang"
 
 import Scene.Raytracing;
 import Utils.Math.MathHelpers;
@@ -38,6 +39,7 @@ import Experimental.Scene.Lights.LightHelpers;
 import Scene.TextureSampler;
 import Scene.Material.MaterialData;
 import Scene.HitInfo;
+import RenderPasses.Shared.PathTracer.RayFootprintData;
 
 #include "Helper.slang"
 
@@ -180,6 +182,22 @@ void boxClosestHit(
     //}
 }
 
+float4 shade(ShadingData sd)
+{
+    float3 curColor = sd.emissive;
+
+    // forward render all light sources
+    const uint lightCount = gScene.getLightCount();
+    for(uint i = 0; i < lightCount; ++i) // TODO add shadow map sample
+        curColor += evalMaterial(sd, gScene.getLight(i), /*shadow*/ 1.0).color;
+
+    curColor *= sd.opacity;
+    // determine actual transmittance (mix of opacity coverage and specular transmission)
+    const float curTransmit = sd.opacity * sd.specularTransmission + (1.0 - sd.opacity);
+
+    return float4(curColor, curTransmit);
+}
+
 [shader("raygeneration")]
 void rayGen()
 {
@@ -188,6 +206,8 @@ void rayGen()
 
     // primary ray
     RayDesc ray = gScene.camera.computeRayPinhole(launchIndex, launchDim).toRayDesc();
+    RayFootprint footprint;
+    //footprint.create();
 
     HitInfo hit;
     RayPayload rayData;
@@ -222,19 +242,12 @@ void rayGen()
 
         // shade
         ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -ray.Direction, 0.f);
-        float3 curColor = sd.emissive;
+        float4 curColor = shade(sd);
 
-        // forward render all light sources
-        const uint lightCount = gScene.getLightCount();
-        for(uint i = 0; i < lightCount; ++i) // TODO add shadow map sample
-            curColor += evalMaterial(sd, gScene.getLight(i), /*shadow*/ 1.0).color;
-        
-        color += transmit * sd.opacity * curColor;
-        // determine actual transmittance (mix of opacity coverage and specular transmission)
-        const float curTransmit = sd.opacity * sd.specularTransmission + (1.0 - sd.opacity);
+        color += transmit * curColor.rgb;
 
         // prepare next ray
-        bool isTransmittive = (curTransmit * transmit > TRANSMIT_EPSILON);
+        bool isTransmittive = (curColor.a * transmit > TRANSMIT_EPSILON);
         bool isReflective = dot(sd.specular, 0.33) * transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
         const float3 reflected = reflect(ray.Direction, sd.N);
         
@@ -243,7 +256,7 @@ void rayGen()
             if(isReflective) // envmap lookup for reflection
                 color += transmit * sd.specular * gScene.envMap.eval(reflected);
         
-            transmit *= curTransmit;
+            transmit *= curColor.a;
             const float3 refracted = sd.IoR == 1.0 ? ray.Direction : refract(ray.Direction, sd.N, sd.eta);
             ray.Direction = refracted;
             if(USE_REFRACTION_CORRECTION) {
