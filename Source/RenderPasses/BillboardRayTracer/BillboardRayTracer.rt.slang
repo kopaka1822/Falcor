@@ -206,39 +206,55 @@ void rayGen()
 
     // primary ray
     RayDesc ray = gScene.camera.computeRayPinhole(launchIndex, launchDim).toRayDesc();
+    ray.TMin = 0.0;
     RayFootprint footprint;
     //footprint.create();
-
-    HitInfo hit;
-    RayPayload rayData;
-    rayData.depth = FLT_MAX;
-
     float3 color = 0.0;
     float transmit = 1.0;
 
     uint iteration = 0;
     do
     {
-        rayData.hit = HitInfo::kInvalidIndex;
-        TraceRay(gRtScene, RAY_FLAG_NONE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, rayData);
+        // first trace triangles to determine depth range
+        // (only required for spherical particles, could be merged with procedural path otherwise)
+        RayPayload trianglePayload;
+        trianglePayload.depth = FLT_MAX;
+        trianglePayload.hit = HitInfo::kInvalidIndex;
+        ray.TMax = FLT_MAX;
+        TraceRay(gRtScene, RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, trianglePayload);
+        // set max range for volume ray
+        ray.TMax = trianglePayload.depth;
 
-        if(!hit.decode(rayData.hit)) break; // no geometry hit
-        
-        // unpack hit data & TODO determine ray differentials
-        VertexData v;
-        uint materialID;
-        switch(hit.getType())
+        do // trace volumetric data
         {
-        case InstanceType::TriangleMesh: {
-            StaticVertexData triangleVertices[3];
-            v = gScene.getVertexData(hit, triangleVertices);
-            materialID = gScene.getMaterialID(hit.instanceID);
-        } break;
-        case InstanceType::Curve: { // reuse curve value for billboards in this case (curves are not handled)
-            v = getBillboardVertexData(hit.primitiveIndex, ray.Origin, ray.Origin + ray.Direction * rayData.depth);
-            materialID = BILLBOARD_MATERIAL_ID;
-        } break;
-        }
+            HitInfo volumeHit;
+            RayPayload volumePayload;
+            volumePayload.hit = HitInfo::kInvalidIndex;
+            TraceRay(gRtScene, RAY_FLAG_SKIP_TRIANGLES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, volumePayload);
+            // handle volume data
+            if(!volumeHit.decode(volumePayload.hit)) break; // finished with the volumetric part
+
+            VertexData v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Origin + ray.Direction * volumePayload.depth);
+            uint materialID = BILLBOARD_MATERIAL_ID;
+
+            ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -ray.Direction, 0.f);
+            float4 curColor = shade(sd);
+
+            color += transmit * curColor.rgb;
+            transmit *= curColor.a;
+
+            // prepare next ray (TODO update ray differentials)
+            ray.TMin = volumePayload.depth;
+        } while(++iteration < 256 && transmit > TRANSMIT_EPSILON);
+
+        HitInfo hit;
+        // evaluate triangle geometry
+        if(transmit <= TRANSMIT_EPSILON || !hit.decode(trianglePayload.hit)) break;
+      
+        // unpack hit data & TODO determine ray differentials
+        StaticVertexData triangleVertices[3];
+        VertexData v = gScene.getVertexData(hit, triangleVertices);
+        uint materialID = gScene.getMaterialID(hit.instanceID);
 
         // shade
         ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -ray.Direction, 0.f);
@@ -260,8 +276,8 @@ void rayGen()
             const float3 refracted = sd.IoR == 1.0 ? ray.Direction : refract(ray.Direction, sd.N, sd.eta);
             ray.Direction = refracted;
             if(USE_REFRACTION_CORRECTION) {
-                ray.Origin = sd.computeNewRayOrigin(false) - refracted * rayData.depth;
-                ray.TMin = rayData.depth;
+                ray.Origin = sd.computeNewRayOrigin(false) - refracted * trianglePayload.depth;
+                ray.TMin = trianglePayload.depth;
             } else {
                 ray.Origin = sd.computeNewRayOrigin(false);
                 ray.TMin = 0.0;
@@ -272,8 +288,8 @@ void rayGen()
             transmit *= dot(sd.specular, 0.33);
             ray.Direction = reflected;
             if(USE_REFLECTION_CORRECTION) {
-                ray.Origin = sd.computeNewRayOrigin() - reflected * rayData.depth;
-                ray.TMin = rayData.depth;
+                ray.Origin = sd.computeNewRayOrigin() - reflected * trianglePayload.depth;
+                ray.TMin = trianglePayload.depth;
             } else {
                 ray.Origin = sd.computeNewRayOrigin();
                 ray.TMin = 0.0;
