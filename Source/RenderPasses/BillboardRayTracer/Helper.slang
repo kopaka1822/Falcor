@@ -188,5 +188,7 @@ ShadingData prepareShadingData(VertexData v, RayFootprint rayFootprint, StaticVe
 
 ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint, HitInfo hit, /*long version*/ float3 rayOrg,  float3 rayDir)
 {
-    return rayFootprint.computeBillboardShadingData(v, hit, rayOrg, rayDir);
+    ShadingData sd = rayFootprint.computeBillboardShadingData(v, hit, rayOrg, rayDir);
+    if(BILLBOARD_TYPE != BILLBOARD_TYPE_IMPOSTOR) sd.isVolume = true;
+    return sd;
 }

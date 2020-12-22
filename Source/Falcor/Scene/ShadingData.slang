@@ -63,6 +63,7 @@ struct ShadingData
 
     // Sampling/evaluation data
     uint    activeLobes;            ///< BSDF lobes to include for sampling and evaluation. See LobeType in BxDFTypes.slang.
+    bool    isVolume = false; //
 
     [mutating] void setActiveLobes(uint lobes) { activeLobes = lobes; }
 

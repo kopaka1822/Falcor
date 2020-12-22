@@ -32,7 +32,7 @@ mat.doubleSided = True
 sceneBuilder.replaceMaterial(mat)
 
 mat = Material('Particle')
-mat.loadTexture(MaterialTextureSlot.BaseColor, 'smoke.png')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'smoke_dark.png')
 mat.indexOfRefraction = 1.0
 mat.doubleSided = True
 sceneBuilder.addMaterial(mat)

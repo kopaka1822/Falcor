@@ -374,7 +374,7 @@ ShadingResult evalMaterial(ShadingData sd, LightData light, float shadowFactor)
     LightSample ls = evalLight(light, sd);
 
     // If the light doesn't hit the surface or we are viewing the surface from the back, return
-    if (ls.NdotL <= 0) return sr;
+    if (ls.NdotL <= 0 && !sd.isVolume) return sr;
     sd.NdotV = saturate(sd.NdotV);
 
     // Calculate the diffuse term
@@ -386,6 +386,12 @@ ShadingResult evalMaterial(ShadingData sd, LightData light, float shadowFactor)
     sr.specularBrdf = evalSpecularBrdf(sd, ls);
     sr.specular = ls.specular * sr.specularBrdf * ls.NdotL;
     sr.color += sr.specular;
+
+    if(sd.isVolume) // (new) quick and dirty solution to ignore normal issues for volumetric lighting
+    {
+        // just take diffuse parts without normal dot products
+        sr.color = max(abs(ls.diffuse) * sd.diffuse, 0.0);
+    }
 
     // Apply the shadow factor
     sr.color *= shadowFactor;
