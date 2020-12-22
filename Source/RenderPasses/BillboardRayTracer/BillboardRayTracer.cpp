@@ -241,6 +241,12 @@ void BillboardRayTracer::setScene(RenderContext* pRenderContext, const Scene::Sh
     {
         mLastMaterialId = pScene->getMaterialCount() - 1;
         mTracer.pProgram->addDefines(pScene->getSceneDefines());
+
+        // get last material name for hint about billboard type
+        auto matName = pScene->getMaterial(mLastMaterialId)->getName();
+        if(matName == "Impostor") mBillboardType = (uint)BillboardType::Impostor;
+        else if(matName == "Particle") mBillboardType = (uint)BillboardType::Particle;
+        else if(matName == "Spherical") mBillboardType = (uint)BillboardType::Spherical;
     }
 
     mOptionsChanged = true;
