@@ -22,32 +22,38 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 poin
     const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
     const float2 dim = bbox.extent().xy;
     const float3 P = bbox.center();
-    const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
-    //const bool round = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
 
-    // billboard plane base
-    const float3x3 planeBase = GetBillboardPlane(normalize(rayOrigin - P), yAlign);
-    v.posW = pointOnBillboard;
-    v.normalW = planeBase[2];
-    v.tangentW.xyz = planeBase[0];
-    v.tangentW.w = 1.0;
-    v.faceNormalW = planeBase[2];
-    v.coneTexLODValue = 0.0;
-    v.texC.x = dot(P - v.posW, planeBase[0]) / dim.x + 0.5;
-    v.texC.y = dot(P - v.posW, planeBase[1]) / dim.y + 0.5;
+    switch(BILLBOARD_TYPE)
+    {
+    case BILLBOARD_TYPE_IMPOSTOR:
+    case BILLBOARD_TYPE_PARTICLE: {
+        const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
+        //const bool round = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
+
+        // billboard plane base
+        const float3x3 planeBase = GetBillboardPlane(normalize(rayOrigin - P), yAlign);
+        v.posW = pointOnBillboard;
+        v.normalW = planeBase[2];
+        v.tangentW.xyz = planeBase[0];
+        v.tangentW.w = 1.0;
+        v.faceNormalW = planeBase[2];
+        v.coneTexLODValue = 0.0;
+        v.texC.x = dot(P - v.posW, planeBase[0]) / dim.x + 0.5;
+        v.texC.y = dot(P - v.posW, planeBase[1]) / dim.y + 0.5;
+    } break;
+    case BILLBOARD_TYPE_SPHERICAL: {
+        v.posW = pointOnBillboard; // closest entry point
+        v.normalW = normalize(v.posW - P);
+        v.tangentW = 0.0; // does not really matter
+        v.faceNormalW = v.normalW;
+        v.coneTexLODValue = 0.0;
+
+        v.texC.x = v.normalW.x == 0.0 ? 0.25 * sign(v.normalW.z) : atan2(v.normalW.z, v.normalW.x) / (2.0 * M_PI);
+        v.texC.y = acos(v.normalW.y) / M_PI;
+    } break;
+    }
     return v;
 }
-
-float3 evalBillboardMaterial(ShadingData sd, LightData light, float shadowFactor)
-{
-    if(BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR) return evalMaterial(sd, light, shadowFactor).color;
-    // particle
-    LightSample ls = evalLight(light, sd);
-    // ignore normals => use smooth gradient of light passing through the volume
-    float occlusion = smoothstep(1.0 - sd.opacity, 1.0, (ls.NdotL + 1.0) * 0.5);
-    return ls.diffuse * sd.diffuse * occlusion;
-}
-
 
 // imported and modified ray differentials
 #include "RenderPasses/Shared/PathTracer/RayFootprintModes.slangh"

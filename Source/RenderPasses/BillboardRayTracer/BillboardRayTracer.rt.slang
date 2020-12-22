@@ -113,13 +113,13 @@ void boxIntersect(uniform HitShaderParams hitParams)
 {
     const uint aabbOffset = gScene.proceduralPrimitives[hitParams.geometryIndex].AABBOffset;
     const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
-    
+    const float2 dim = bbox.extent().xy;
+    const float3 P = bbox.center();
+
     switch(BILLBOARD_TYPE)
     {
     case BILLBOARD_TYPE_IMPOSTOR:
     case BILLBOARD_TYPE_PARTICLE: {
-        const float2 dim = bbox.extent().xy;
-        const float3 P = bbox.center();
         const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
         const bool round = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
     
@@ -144,7 +144,20 @@ void boxIntersect(uniform HitShaderParams hitParams)
         ReportHit(s, 0, attribs);
     
     } break;
-    case BILLBOARD_TYPE_SPHERICAL: break;
+    case BILLBOARD_TYPE_SPHERICAL: {
+        const float r = 0.5 * dim.x;
+        const float rayT = dot(WorldRayDirection(), P - WorldRayOrigin());
+        const float d = length(WorldRayOrigin() + rayT * WorldRayDirection() - P);
+        if(d >= r) return;
+        const float w = sqrt(r * r - d * d);
+        const float rayTIn = max(RayTMin(), rayT - w);
+        const float ds = min(/*TMax*/ RayTCurrent(), rayT + w) - rayTIn;
+        if(ds <= 0.0) return;
+
+        BoxIntersectionAttributes attribs;
+        attribs.aabbOffset = aabbOffset;
+        ReportHit(rayTIn, 0, attribs);
+    } break;
     }
 }
 
@@ -168,18 +181,6 @@ void boxClosestHit(
     hit.primitiveIndex = attribs.aabbOffset;
     hit.barycentrics = 0.0;
     rayData.hit = hit.encode();
-    //
-    //rayData.transmit *= (1.0 - sd.opacity);
-    //
-    //// copy most ray data for simple transmission
-    //rayData.nextRay.Direction = WorldRayDirection();
-    //if(USE_REFRACTION_CORRECTION) {
-    //    rayData.nextRay.Origin = WorldRayOrigin();
-    //    rayData.nextRay.TMin = RayTCurrent();
-    //} else {
-    //    rayData.nextRay.Origin = sd.posW;
-    //    rayData.nextRay.TMin = 0.0001;
-    //}
 }
 
 float4 shade(ShadingData sd)
