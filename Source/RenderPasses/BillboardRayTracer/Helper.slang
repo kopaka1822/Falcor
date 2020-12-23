@@ -14,9 +14,10 @@ float3x3 GetBillboardPlane(float3 normal, bool yAlign) {
 	return planeBase;
 }
 
-VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 pointOnBillboard)
+VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayDirection, float rayTCurrent, float rayTMax)
 {
     VertexData v;
+    const float3 pointOnBillboard = rayOrigin + rayDirection * rayTCurrent;
 
     // reconstruct billboard plane
     const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
@@ -50,6 +51,18 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 poin
 
         v.texC.x = v.normalW.x == 0.0 ? 0.25 * sign(v.normalW.z) : atan2(v.normalW.z, v.normalW.x) / (2.0 * M_PI);
         v.texC.y = acos(v.normalW.y) / M_PI;
+        // give each bilboard a random texture rotation
+        v.texC.x += aabbOffset + 0.172;
+
+        // determine depth
+        const float r = 0.5 * dim.x;
+        const float rayT = dot(rayDirection, P - rayOrigin); // rayT to closest point inside billboard
+        const float d = length(rayOrigin + rayT * rayDirection - P); // smallest distance
+        const float w = sqrt(r * r - d * d);
+        const float ds = min(rayTMax, rayT + w) - rayTCurrent;
+
+        v.billboardDepth = ds / (2.0 * r);
+        v.billboardStrength = 1.0 - (d / r);
     } break;
     }
     return v;
@@ -196,5 +209,11 @@ ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint,
 {
     ShadingData sd = rayFootprint.computeBillboardShadingData(v, hit, rayOrg, rayDir);
     if(BILLBOARD_TYPE != BILLBOARD_TYPE_IMPOSTOR) sd.isVolume = true;
+    if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL && sd.opacity < 1.0)
+    {
+        // determine correct opacity
+        const float nt = log(1.0 - sd.opacity);
+        sd.opacity = 1.0 - exp(nt * v.billboardDepth * v.billboardStrength);
+    }
     return sd;
 }

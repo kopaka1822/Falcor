@@ -166,7 +166,11 @@ void boxAnyHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    
+    if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL)
+    {
+        // ignore hits that were already accepted in last hit TODO fix for multiple things...
+        if(RayTCurrent() <= rayData.depth) IgnoreHit();
+    }
 }
 
 [shader("closesthit")]
@@ -230,16 +234,17 @@ void rayGen()
         ray.TMax = trianglePayload.depth;
         const float prevRayMin = ray.TMin;
 
+        RayPayload volumePayload;
+        volumePayload.depth = 0.0;
         do // trace volumetric data
         {
             HitInfo volumeHit;
-            RayPayload volumePayload;
             volumePayload.hit = HitInfo::kInvalidIndex;
             TraceRay(gRtScene, RAY_FLAG_SKIP_TRIANGLES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, volumePayload);
             // handle volume data
             if(!volumeHit.decode(volumePayload.hit)) break; // finished with the volumetric part
 
-            VertexData v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Origin + ray.Direction * volumePayload.depth);
+            VertexData v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Direction, volumePayload.depth, ray.TMax);
 
             RayFootprint volumeFootprint = footprint; // copy footprint
             volumeFootprint.hitSurface(v, volumeHit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction); // transfer to surface
