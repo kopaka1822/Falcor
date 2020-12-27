@@ -14,7 +14,15 @@ float3x3 GetBillboardPlane(float3 normal, bool yAlign) {
 	return planeBase;
 }
 
-VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayDirection, float rayTCurrent, float rayTMax)
+float getSoftParticleContrast(float x)
+{
+    const float c = 2.0; // contrast in [1, 5]
+    x = saturate(x);
+    if(x <= 0.5) return 0.5 * pow(2.0 * x, c);
+    return 1.0 - 0.5 * pow(2.0 * (1.0 - x), c);
+}
+
+VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayDirection, float rayTCurrent, float rayTMin, float rayTMax)
 {
     VertexData v;
     const float3 pointOnBillboard = rayOrigin + rayDirection * rayTCurrent;
@@ -43,7 +51,12 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
         v.texC.y = dot(P - v.posW, planeBase[1]) / dim.y + 0.5;
         v.billboardStrength = 1.0;
         if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE && USE_SOFT_PARTICLES)
-            v.billboardStrength = saturate((rayTMax - rayTCurrent) * dim.x);
+        {
+            float outFade = getSoftParticleContrast((rayTMax - rayTCurrent) / dim.x);
+            float inFade = getSoftParticleContrast((rayTCurrent - rayTMin) / dim.x);
+            //float inFade = 1.0;
+            v.billboardStrength = min(outFade, inFade);
+        }
     } break;
     case BILLBOARD_TYPE_SPHERICAL: {
         v.posW = pointOnBillboard; // closest entry point

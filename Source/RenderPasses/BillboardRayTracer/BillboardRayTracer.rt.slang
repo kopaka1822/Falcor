@@ -244,7 +244,7 @@ void rayGen()
             // handle volume data
             if(!volumeHit.decode(volumePayload.hit)) break; // finished with the volumetric part
 
-            VertexData v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Direction, volumePayload.depth, ray.TMax);
+            VertexData v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Direction, volumePayload.depth, prevRayMin, ray.TMax);
 
             RayFootprint volumeFootprint = footprint; // copy footprint
             volumeFootprint.hitSurface(v, volumeHit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction); // transfer to surface
