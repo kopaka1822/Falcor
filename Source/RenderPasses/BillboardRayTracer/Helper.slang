@@ -41,6 +41,9 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
         v.coneTexLODValue = 0.0;
         v.texC.x = dot(P - v.posW, planeBase[0]) / dim.x + 0.5;
         v.texC.y = dot(P - v.posW, planeBase[1]) / dim.y + 0.5;
+        v.billboardStrength = 1.0;
+        if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE && USE_SOFT_PARTICLES)
+            v.billboardStrength = saturate((rayTMax - rayTCurrent) * dim.x);
     } break;
     case BILLBOARD_TYPE_SPHERICAL: {
         v.posW = pointOnBillboard; // closest entry point
@@ -209,6 +212,7 @@ ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint,
 {
     ShadingData sd = rayFootprint.computeBillboardShadingData(v, hit, rayOrg, rayDir);
     if(BILLBOARD_TYPE != BILLBOARD_TYPE_IMPOSTOR) sd.isVolume = true;
+    if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE) sd.opacity *= v.billboardStrength;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL && sd.opacity < 1.0)
     {
         // determine correct opacity
