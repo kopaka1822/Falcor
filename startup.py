@@ -4,18 +4,18 @@ from falcor import *
 def render_graph_DefaultRenderGraph():
     g = RenderGraph('DefaultRenderGraph')
     loadRenderPassLibrary('MinimalPathTracer.dll')
-    loadRenderPassLibrary('BSDFViewer.dll')
     loadRenderPassLibrary('AccumulatePass.dll')
+    loadRenderPassLibrary('BSDFViewer.dll')
     loadRenderPassLibrary('CSM.dll')
-    loadRenderPassLibrary('BillboardRayTracer.dll')
     loadRenderPassLibrary('Antialiasing.dll')
+    loadRenderPassLibrary('BillboardRayTracer.dll')
     loadRenderPassLibrary('DebugPasses.dll')
     loadRenderPassLibrary('BlitPass.dll')
-    loadRenderPassLibrary('GBuffer.dll')
     loadRenderPassLibrary('ConstantColor.dll')
+    loadRenderPassLibrary('GBuffer.dll')
     loadRenderPassLibrary('DepthPass.dll')
-    loadRenderPassLibrary('PixelInspectorPass.dll')
     loadRenderPassLibrary('ForwardLightingPass.dll')
+    loadRenderPassLibrary('PixelInspectorPass.dll')
     loadRenderPassLibrary('ErrorMeasurePass.dll')
     loadRenderPassLibrary('ImageLoader.dll')
     loadRenderPassLibrary('MegakernelPathTracer.dll')
@@ -38,10 +38,10 @@ def render_graph_DefaultRenderGraph():
 m.addGraph(render_graph_DefaultRenderGraph())
 
 # Scene
-m.loadScene('C:/Users/Felix/Documents/git/Falcor/BillboardScenes/test_area/test_area_particles.pyscene')
+m.loadScene('C:/Users/Felix/Documents/git/Falcor/BillboardScenes/test_area/test_area_spheres.pyscene')
 m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True, useVolumes=True)
-m.scene.camera.position = float3(4.549381,1.792685,-1.299688)
-m.scene.camera.target = float3(3.679518,1.561856,-0.863733)
+m.scene.camera.position = float3(6.804514,2.521546,-2.763845)
+m.scene.camera.target = float3(5.846595,2.311095,-2.568650)
 m.scene.camera.up = float3(0.000000,1.000000,0.000000)
 m.scene.cameraSpeed = 1.0
 

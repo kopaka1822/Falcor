@@ -67,15 +67,24 @@ sceneBuilder.addLight(l)
 #sceneBuilder.addCamera(camera)
 #sceneBuilder.selectedCamera = camera
 
-# add billboards
-# big mirror
-sceneBuilder.addBillboard(float3(0.09, 1.0, 2.4), 2.0, 2.0)
-sceneBuilder.addBillboard(float3(0.09, 1.0, 0.4), 2.0, 2.0)
-# curved
-sceneBuilder.addBillboard(float3(-2.0, 1.0, -2.0), 2.0, 2.0)
+## add billboards
+## big mirror
+#sceneBuilder.addBillboard(float3(0.09, 1.0, 2.4), 2.0, 2.0)
+#sceneBuilder.addBillboard(float3(0.09, 1.0, 0.4), 2.0, 2.0)
+## curved
+#sceneBuilder.addBillboard(float3(-2.0, 1.0, -2.0), 2.0, 2.0)
+## glass plane
+#sceneBuilder.addBillboard(float3(0.45, 1.0, -5.5), 2.0, 2.0)
+#sceneBuilder.addBillboard(float3(-2.0, 1.0, -7), 2.0, 2.0)
+## glass fence
+#sceneBuilder.addBillboard(float3(-0.4, 1.0, -8.6), 2.0, 2.0)
+#sceneBuilder.addBillboard(float3(-1.8, 1.0, -8.6), 2.0, 2.0)
+
+# left side
+sceneBuilder.addSmoke(float3(0.09, 1.0, 0.4), 2.0, 32)
+
 # glass plane
-sceneBuilder.addBillboard(float3(0.45, 1.0, -5.5), 2.0, 2.0)
-sceneBuilder.addBillboard(float3(-2.0, 1.0, -7), 2.0, 2.0)
+sceneBuilder.addSmoke(float3(0.45, 1.0, -5.5), 1.0, 16)
+
 # glass fence
-sceneBuilder.addBillboard(float3(-0.4, 1.0, -8.6), 2.0, 2.0)
-sceneBuilder.addBillboard(float3(-1.8, 1.0, -8.6), 2.0, 2.0)
+sceneBuilder.addBillboard(float3(-1.8, 0.6, -8.6), 2.0, 2.0)
