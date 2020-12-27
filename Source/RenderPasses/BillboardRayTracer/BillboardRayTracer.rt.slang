@@ -276,16 +276,19 @@ void rayGen()
 
         // prepare next ray
         bool isTransmittive = (curColor.a * transmit > TRANSMIT_EPSILON);
+        bool isInternalReflection = sd.eta > 1.0 && sd.eta * sd.eta * (1.0 - dot(sd.N, sd.V) * dot(sd.N, sd.V)) >= 1.0;
         bool isReflective = dot(sd.specular, 0.33) * transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
         const float3 reflected = reflect(ray.Direction, sd.N);
-        
+
         if(isTransmittive) // transmit ray
         {
             if(isReflective) // envmap lookup for reflection
                 color += transmit * sd.specular * gScene.envMap.eval(reflected);
         
             transmit *= curColor.a;
-            const float3 refracted = sd.IoR == 1.0 ? ray.Direction : refract(ray.Direction, sd.N, sd.eta);
+            float3 refracted = ray.Direction;
+            if(sd.IoR != 1.0 && !isInternalReflection) // workaround for internal reflection that looks good and is not too expensive (avoids back and forth bounces)
+                refracted = refract(ray.Direction, sd.N, sd.eta);
             footprint.bounceOnSurface(v, triangleVertices, hit, sd.N, ray.Direction, refracted, true);
             ray.Direction = refracted;
             if(USE_REFRACTION_CORRECTION) {
