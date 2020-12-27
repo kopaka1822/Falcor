@@ -334,6 +334,13 @@ namespace Falcor
          */
         void addBillboard(float3 center, float width, float height);
 
+        /** (new) Adds randomly distributed smoke particles to the scene
+            \param[in] center center of the billboard smoke cloud
+            \param[in] radius radius of the billboard smoke cloud
+            \param[in] particles number of particles inside the cloud
+         */
+        void addSmoke(float3 center, float radius, int particles);
+
         // Curves
 
         /** Add a curve.

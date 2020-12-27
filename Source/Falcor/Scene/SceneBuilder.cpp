@@ -557,6 +557,30 @@ namespace Falcor
         addCustomPrimitive(0, aabb);
     }
 
+    void SceneBuilder::addSmoke(float3 center, float radius, int particles)
+    {
+        // generate random particles in sphere
+        std::default_random_engine gen;
+        gen.seed(666);
+        std::uniform_real_distribution<float> posDist(-radius, radius);
+        std::uniform_real_distribution<float> radDist(0.9f, 1.1f);
+
+        const float particleRadius = std::pow(1.0f / float(particles), 1.0f / 3.0f) * radius * 1.5f;
+
+        for (int i = 0; i < particles; ++i)
+        {
+            // generate sample
+        gen_particle:
+            glm::vec3 pos(posDist(gen), posDist(gen), posDist(gen));
+            if (glm::length(pos) > radius) goto gen_particle;
+
+            // radius
+            float r = particleRadius * radDist(gen) * 2.0f;
+
+            addBillboard(pos + center, r, r);
+        }
+    }
+
     // Curves
 
     uint32_t SceneBuilder::addCurve(const Curve& curve)
@@ -2070,5 +2094,6 @@ namespace Falcor
         sceneBuilder.def("addCustomPrimitive", &SceneBuilder::addCustomPrimitive, "typeId"_a, "aabb"_a);
         sceneBuilder.def("addBillboard", &SceneBuilder::addBillboard, "center"_a, "width"_a, "height"_a);
         sceneBuilder.def("replaceMaterial", &SceneBuilder::replaceMaterial, "pNewMaterial"_a);
+        sceneBuilder.def("addSmoke", &SceneBuilder::addSmoke, "center"_a, "radius"_a, "particles"_a);
     }
 }
