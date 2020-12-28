@@ -1,4 +1,50 @@
 
+struct VolumeNode
+{
+    float depthStart;
+    float depthEnd;
+    float3 color;
+    float transmit;
+
+    // Splits the volume node at split pos (from "The Theory of OpenEXR Deep Samples" 2013)
+    void Split(out VolumeNode left, out VolumeNode right, float splitPos)
+    {
+        left.depthStart = depthStart;
+        left.depthEnd = splitPos;
+        right.depthStart = splitPos;
+        right.depthEnd = depthEnd;
+
+        float t = (splitPos - depthStart) / (depthEnd - depthStart);
+        left.transmit = pow(transmit, t);
+        right.transmit = pow(transmit, 1.0 - t);
+
+        // assume transmit < 1
+        left.color = color * (1.0 - left.transmit) / (1.0 - transmit);
+        right.color = color * (1.0 - right.transmit) / (1.0 - transmit);
+    }
+
+    // merges two volume nodes of equal length (from "The Theory of OpenEXR Deep Samples" 2013)
+    static VolumeNode Merge(VolumeNode n1, VolumeNode n2)
+    {
+        VolumeNode res;
+        res.depthStart = n1.depthStart;
+        res.depthEnd = n1.depthEnd;
+        res.transmit = n1.transmit * n2.transmit;
+
+        res.color = 0.0;
+        if(n1.transmit == 0.0) res.color += n1.color;
+        if(n2.transmit == 0.0) res.color += n2.color;
+        if(n1.transmit != 0.0 && n2.transmit != 0.0) {
+            float logn1 = log(n1.transmit);
+            float logn2 = log(n2.transmit);
+            res.color = n1.color * logn1 / (1.0 - n1.transmit);
+            res.color += n2.color * logn2 / (1.0 - n2.transmit);
+            res.color *= (1.0 - res.transmit) / (logn1 + logn2);
+        }
+
+        return res;
+    }
+};
 
 float3x3 GetBillboardPlane(float3 normal, bool yAlign) {
 	float3x3 planeBase;
