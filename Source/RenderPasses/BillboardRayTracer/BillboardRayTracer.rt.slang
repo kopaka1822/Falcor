@@ -42,7 +42,7 @@ import Scene.HitInfo;
 import RenderPasses.Shared.PathTracer.RayFootprintData;
 
 // early out settings
-#define TRANSMIT_EPSILON 0.02
+#define TRANSMIT_EPSILON 0.01
 #define REFLECT_EPSILON 0.02
 
 struct BoxIntersectionAttributes
