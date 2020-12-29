@@ -47,7 +47,7 @@ void triangleAnyHitShadow(
     const uint materialID = gScene.getMaterialID(hitParams.getGlobalHitID());
     ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -WorldRayDirection(), 0.f);
 
-    float transmit =  sd.opacity * sd.specularTransmission + (1.0 - sd.opacity);
+    float transmit = 1.0 - sd.opacity;
 
     rayData.transmit *= transmit;
     if(rayData.transmit < TRANSMIT_EPSILON)

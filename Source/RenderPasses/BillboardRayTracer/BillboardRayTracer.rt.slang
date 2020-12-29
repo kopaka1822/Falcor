@@ -201,8 +201,7 @@ float4 shade(ShadingData sd)
     }
 
     curColor *= sd.opacity;
-    // determine actual transmittance (mix of opacity coverage and specular transmission)
-    const float curTransmit = sd.opacity * sd.specularTransmission + (1.0 - sd.opacity);
+    const float curTransmit = 1.0 - sd.opacity;
 
     return float4(curColor, curTransmit);
 }
