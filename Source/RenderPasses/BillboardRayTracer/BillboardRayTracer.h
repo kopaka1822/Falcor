@@ -72,6 +72,7 @@ private:
     bool                        mRefractionCorrection = true;
     uint                        mLastMaterialId = 0;
     bool                        mSoftParticles = true;
+    bool                        mShadows = true;
 	
     // Ray tracing program.
     struct

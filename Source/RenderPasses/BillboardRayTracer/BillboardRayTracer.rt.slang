@@ -41,18 +41,17 @@ import Scene.Material.MaterialData;
 import Scene.HitInfo;
 import RenderPasses.Shared.PathTracer.RayFootprintData;
 
+// early out settings
+#define TRANSMIT_EPSILON 0.02
+#define REFLECT_EPSILON 0.02
+
 #include "Helper.slang"
+#include "Shadow.slang"
 
 cbuffer CB
 {
     uint        gFrameCount;        // Frame count since scene was loaded.
 }
-
-
-
-// early out settings
-#define TRANSMIT_EPSILON 0.02
-#define REFLECT_EPSILON 0.02
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -193,8 +192,13 @@ float4 shade(ShadingData sd)
 
     // forward render all light sources
     const uint lightCount = gScene.getLightCount();
-    for(uint i = 0; i < lightCount; ++i) // TODO add shadow map sample
-        curColor += evalMaterial(sd, gScene.getLight(i), /*shadow*/ 1.0).color;
+    for(uint i = 0; i < lightCount; ++i)
+    {
+        LightData l = gScene.getLight(i);
+        float shadowFac = 1.0;
+        if(i == 0) shadowFac = max(TraceShadowRay(sd.posW, l), 0.2);
+        curColor += evalMaterial(sd, l, shadowFac).color;
+    }
 
     curColor *= sd.opacity;
     // determine actual transmittance (mix of opacity coverage and specular transmission)

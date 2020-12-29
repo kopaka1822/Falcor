@@ -49,7 +49,7 @@ namespace
     // These should be set as small as possible.
     const uint32_t kMaxPayloadSizeBytes = HitInfo::kMaxPackedSizeInBytes + 4;
     const uint32_t kMaxAttributesSizeBytes = 8u;
-    const uint32_t kMaxRecursionDepth = 1u;
+    const uint32_t kMaxRecursionDepth = 2u;
 
     const ChannelList kInputChannels =
     {
@@ -92,10 +92,15 @@ mFootprintMode((uint32_t)TexLODMode::RayDiffsAnisotropic)
     // Create ray tracing program.
     RtProgram::Desc progDesc;
     progDesc.addShaderLibrary(kShaderFile).setRayGen("rayGen");
-    progDesc.addHitGroup(0, "triangleClosestHit", "triangleAnyHit").addMiss(0, "miss");
     progDesc.addIntersection(0, "boxIntersect");
-    progDesc.addAABBHitGroup(0, "boxClosestHit", "boxAnyHit");
     progDesc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
+    // hit group 0
+    progDesc.addHitGroup(0, "triangleClosestHit", "triangleAnyHit").addMiss(0, "miss");
+    progDesc.addAABBHitGroup(0, "boxClosestHit", "boxAnyHit");
+    // hit group 1 (shadows)
+    progDesc.addHitGroup(1, "triangleClosestHitShadow", "triangleAnyHitShadow").addMiss(1, "missShadow");
+    progDesc.addAABBHitGroup(1, "boxClosestHitShadow", "boxAnyHitShadow");
+
     mTracer.pProgram = RtProgram::create(progDesc, kMaxPayloadSizeBytes, kMaxAttributesSizeBytes);
 
     // Create a sample generator.
@@ -148,6 +153,7 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
         defines.add("USE_REFRACTION_CORRECTION", mRefractionCorrection ? "true" : "false");
         defines.add("USE_SOFT_PARTICLES", mSoftParticles ? "true" : "false");
         defines.add("BILLBOARD_MATERIAL_ID", std::to_string(mLastMaterialId));
+        defines.add("USE_SHADOWS", mShadows ? "true" : "false");
 
         mTracer.pProgram->addDefines(defines);
 
@@ -221,6 +227,8 @@ void BillboardRayTracer::renderUI(Gui::Widgets& widget)
 
     if (mBillboardType == (uint)BillboardType::Particle &&
         widget.checkbox("Soft particles", mSoftParticles)) dirty = true;
+
+    if (widget.checkbox("Shadows", mShadows)) dirty = true;
 
     if (dirty)
     {
