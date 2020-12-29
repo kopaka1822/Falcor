@@ -144,7 +144,6 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
         defines.add("BILLBOARD_TYPE_IMPOSTOR", std::to_string((uint)BillboardType::Impostor));
         defines.add("BILLBOARD_TYPE_PARTICLE", std::to_string((uint)BillboardType::Particle));
         defines.add("BILLBOARD_TYPE_SPHERICAL", std::to_string((uint)BillboardType::Spherical));
-        defines.add("USE_SPHERICAL_TEXTURE", mUseSphericalTexture ? "true" : "false");
         defines.add("USE_REFLECTION_CORRECTION", mReflectionCorrection ? "true" : "false");
         defines.add("USE_REFRACTION_CORRECTION", mRefractionCorrection ? "true" : "false");
         defines.add("USE_SOFT_PARTICLES", mSoftParticles ? "true" : "false");
@@ -222,9 +221,6 @@ void BillboardRayTracer::renderUI(Gui::Widgets& widget)
 
     if (mBillboardType == (uint)BillboardType::Particle &&
         widget.checkbox("Soft particles", mSoftParticles)) dirty = true;
-
-    if (mBillboardType == (uint)BillboardType::Spherical &&
-        widget.checkbox("Use spherical texture", mUseSphericalTexture)) dirty = true;
 
     if (dirty)
     {
