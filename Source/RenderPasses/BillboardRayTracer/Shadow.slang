@@ -26,8 +26,9 @@ float TraceShadowRay(float3 origin, LightData l)
 
     ShadowPayload rayData;    // Set to true by miss shader if ray is not terminated before
     rayData.transmit = 1.0;
-    TraceRay(gRtScene, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES,
-        0xff /* instanceInclusionMask */, 1 /* hitIdx */, hitProgramCount, 1 /* missIdx */, ray, rayData);
+    uint rayFlags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_NON_OPAQUE; // do all computations in the any-hit shader
+    if(BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR) rayFlags |= RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES; // impostors throw no shadow
+    TraceRay(gRtScene, rayFlags, 0xff /* instanceInclusionMask */, 1 /* hitIdx */, hitProgramCount, 1 /* missIdx */, ray, rayData);
 
     return rayData.transmit;
 }
@@ -73,7 +74,14 @@ void boxAnyHitShadow(
     uniform HitShaderParams hitParams,
     inout ShadowPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    // TODO
+    rayData.transmit *= pow(0.3, attribs.shadow); // hardcoded constant factor for now
+
+    if(rayData.transmit < TRANSMIT_EPSILON)
+    {
+        rayData.transmit = 0.0;
+        AcceptHitAndEndSearch();
+    }
+    IgnoreHit(); // accumulate transmittance (order independent)
 }
 
 [shader("closesthit")]

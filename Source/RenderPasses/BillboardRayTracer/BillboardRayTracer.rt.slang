@@ -45,6 +45,12 @@ import RenderPasses.Shared.PathTracer.RayFootprintData;
 #define TRANSMIT_EPSILON 0.02
 #define REFLECT_EPSILON 0.02
 
+struct BoxIntersectionAttributes
+{
+    int aabbOffset;
+    float shadow; // factor used for shadows
+};
+
 #include "Helper.slang"
 #include "Shadow.slang"
 
@@ -60,11 +66,6 @@ struct RayPayload
 {
     PackedHitInfo hit;
     float depth;
-};
-
-struct BoxIntersectionAttributes
-{
-    int aabbOffset;
 };
 
 /** ********************* Ray index 0 ************************ */
@@ -140,6 +141,7 @@ void boxIntersect(uniform HitShaderParams hitParams)
     
         BoxIntersectionAttributes attribs;
         attribs.aabbOffset = aabbOffset;
+        if(USE_SHADOWS) attribs.shadow = (1 - 2.0 * length(X) / dim.x) * getSoftParticleContrast((s - RayTMin()) / dim.x);
         ReportHit(s, 0, attribs);
     
     } break;
@@ -155,6 +157,7 @@ void boxIntersect(uniform HitShaderParams hitParams)
 
         BoxIntersectionAttributes attribs;
         attribs.aabbOffset = aabbOffset;
+        if(USE_SHADOWS) attribs.shadow = (1 - (d / r)) * (0.5 * ds / r);
         ReportHit(rayTIn, 0, attribs);
     } break;
     }
@@ -316,7 +319,7 @@ void rayGen()
             }
         }
         else transmit = 0.0; // stop tracing rays
-    } while(++iteration < 256 && transmit > TRANSMIT_EPSILON);
+    } while(++iteration < 16 && transmit > TRANSMIT_EPSILON);
 
     if(transmit > TRANSMIT_EPSILON) // sample environment map
     {

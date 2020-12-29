@@ -43,21 +43,6 @@ l.intensity = float3(10.0, 10.0, 10.0)
 l.direction = float3(-0.62, -0.71, -0.31)
 sceneBuilder.addLight(l)
 
-l = DirectionalLight('AmbientLightBack')
-l.intensity = float3(2.0, 2.0, 2.0)
-l.direction = float3(0.62, 0.71, 0.31)
-sceneBuilder.addLight(l)
-
-l = DirectionalLight('AmbientLightLeft')
-l.intensity = float3(2.0, 2.0, 2.0)
-l.direction = float3(-0.62, 0.71, 0.31)
-sceneBuilder.addLight(l)
-
-l = DirectionalLight('AmbientLightRight')
-l.intensity = float3(2.0, 2.0, 2.0)
-l.direction = float3(0.62, 0.71, -0.31)
-sceneBuilder.addLight(l)
-
 # create camera
 #camera = Camera('Camera0')
 #camera.position = float3(-6.2,3.1,10.8)

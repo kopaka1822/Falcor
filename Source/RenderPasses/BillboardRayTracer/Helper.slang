@@ -105,17 +105,6 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
         }
     } break;
     case BILLBOARD_TYPE_SPHERICAL: {
-        v.posW = pointOnBillboard; // closest entry point
-        v.normalW = normalize(v.posW - P);
-        v.tangentW = 0.0; // does not really matter
-        v.faceNormalW = v.normalW;
-        v.coneTexLODValue = 0.0;
-
-        v.texC.x = v.normalW.x == 0.0 ? 0.25 * sign(v.normalW.z) : atan2(v.normalW.z, v.normalW.x) / (2.0 * M_PI);
-        v.texC.y = acos(v.normalW.y) / M_PI;
-        // give each bilboard a random texture rotation
-        v.texC.x += aabbOffset + 0.172;
-
         // determine depth
         const float r = 0.5 * dim.x;
         const float rayT = dot(rayDirection, P - rayOrigin); // rayT to closest point inside billboard
@@ -125,6 +114,17 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
 
         v.billboardDepth = ds / (2.0 * r);
         v.billboardStrength = 1.0 - (d / r);
+
+        v.posW = pointOnBillboard; // closest entry point
+        v.normalW = normalize(rayOrigin + rayDirection * (rayT - w) - P); // direction to unclipped entry point (for consistent texture coordinates when traversing)
+        v.tangentW = 0.0; // does not really matter
+        v.faceNormalW = v.normalW;
+        v.coneTexLODValue = 0.0;
+
+        v.texC.x = v.normalW.x == 0.0 ? 0.25 * sign(v.normalW.z) : atan2(v.normalW.z, v.normalW.x) / (2.0 * M_PI);
+        v.texC.y = acos(v.normalW.y) / M_PI;
+        // give each bilboard a random texture rotation
+        v.texC.x += aabbOffset + 0.172;
     } break;
     }
     return v;
