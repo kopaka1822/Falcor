@@ -38,7 +38,7 @@ def render_graph_DefaultRenderGraph():
 m.addGraph(render_graph_DefaultRenderGraph())
 
 # Scene
-m.loadScene('C:/Users/Felix/Documents/git/Falcor/BillboardScenes/test_area/test_area_spheres.pyscene')
+m.loadScene('../BillboardScenes/test_area/test_area_spheres.pyscene')
 m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True, useVolumes=True)
 m.scene.camera.position = float3(6.804514,2.521546,-2.763845)
 m.scene.camera.target = float3(5.846595,2.311095,-2.568650)

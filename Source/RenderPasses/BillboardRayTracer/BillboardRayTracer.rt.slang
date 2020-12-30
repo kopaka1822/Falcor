@@ -209,6 +209,35 @@ float4 shade(ShadingData sd)
     return float4(curColor, curTransmit);
 }
 
+void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayFootprint footprint)
+{
+    RayPayload volumePayload;
+    volumePayload.depth = 0.0;
+    float prevRayMin = ray.TMin; // save original ray min (ray.TMin will be modified at the end of the loop)
+
+    uint iteration = 0;
+    do // trace volumetric data
+    {
+        HitInfo volumeHit;
+        volumePayload.hit = HitInfo::kInvalidIndex;
+        TraceRay(gRtScene, RAY_FLAG_SKIP_TRIANGLES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, volumePayload);
+        // handle volume data
+        if(!volumeHit.decode(volumePayload.hit)) break; // finished with the volumetric part
+
+        VertexData v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Direction, volumePayload.depth, prevRayMin, ray.TMax);
+
+        RayFootprint volumeFootprint = footprint; // copy footprint and transfer to hit surface
+        volumeFootprint.hitSurface(v, volumeHit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction); // transfer to surface
+        ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumeHit, ray.Origin, ray.Direction);
+        float4 curColor = shade(sd);
+
+        color += transmit * curColor.rgb;
+        transmit *= curColor.a;
+
+        // prepare next ray
+        ray.TMin = volumePayload.depth;
+    } while(++iteration < 64 && transmit > TRANSMIT_EPSILON);
+}
 
 
 [shader("raygeneration")]
@@ -236,33 +265,10 @@ void rayGen()
         trianglePayload.hit = HitInfo::kInvalidIndex;
         ray.TMax = FLT_MAX;
         TraceRay(gRtScene, RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, trianglePayload);
-        // set max range for volume ray
-        ray.TMax = trianglePayload.depth;
-        const float prevRayMin = ray.TMin;
 
-        RayPayload volumePayload;
-        volumePayload.depth = 0.0;
-        do // trace volumetric data
-        {
-            HitInfo volumeHit;
-            volumePayload.hit = HitInfo::kInvalidIndex;
-            TraceRay(gRtScene, RAY_FLAG_SKIP_TRIANGLES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, volumePayload);
-            // handle volume data
-            if(!volumeHit.decode(volumePayload.hit)) break; // finished with the volumetric part
-
-            VertexData v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Direction, volumePayload.depth, prevRayMin, ray.TMax);
-
-            RayFootprint volumeFootprint = footprint; // copy footprint
-            volumeFootprint.hitSurface(v, volumeHit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction); // transfer to surface
-            ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumeHit, ray.Origin, ray.Direction);
-            float4 curColor = shade(sd);
-
-            color += transmit * curColor.rgb;
-            transmit *= curColor.a;
-
-            // prepare next ray (TODO update ray differentials)
-            ray.TMin = volumePayload.depth;
-        } while(++iteration < 256 && transmit > TRANSMIT_EPSILON);
+        // handle billboards
+        ray.TMax = trianglePayload.depth; // set max range for volume ray
+        traceBillboards(color, transmit, ray, footprint);
 
         HitInfo hit;
         // evaluate triangle geometry
@@ -274,8 +280,8 @@ void rayGen()
         uint materialID = gScene.getMaterialID(hit.instanceID);
 
         // transfer ray differential and get shading data
-        footprint.hitSurface(v, hit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction);
-        ShadingData sd = prepareShadingData(v, footprint, triangleVertices, hit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction);
+        footprint.hitSurface(v, hit, /*reconstruct original ray origin*/ ray.Origin + ray.TMin * ray.Direction, ray.Direction);
+        ShadingData sd = prepareShadingData(v, footprint, triangleVertices, hit, /*reconstruct original ray origin*/ ray.Origin + ray.TMin * ray.Direction, ray.Direction);
         float4 curColor = shade(sd);
 
         color += transmit * curColor.rgb;
