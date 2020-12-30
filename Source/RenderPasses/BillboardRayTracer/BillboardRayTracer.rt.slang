@@ -166,13 +166,27 @@ void boxIntersect(uniform HitShaderParams hitParams)
 [shader("anyhit")]
 void boxAnyHit(
     uniform HitShaderParams hitParams,
-    inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
+    inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL)
-    {
-        // ignore hits that were already accepted in last hit TODO fix for multiple things...
-        if(RayTCurrent() <= rayData.depth) IgnoreHit();
-    }
+#if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
+    // do color computation here
+    VolumeNode n;
+    
+    VertexData v = getBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
+
+    RayFootprint volumeFootprint = rayData.footprint; // copy footprint and transfer to hit surface
+    volumeFootprint.hitSurface(v, /*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection()); // transfer to surface
+    ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
+    float4 curColor = shade(sd);
+    n.color = curColor.rgb;
+    n.transmit = curColor.a;
+    n.depthStart = RayTCurrent();
+
+    rayData.node.color += rayData.node.transmit * curColor.rgb;
+    rayData.node.transmit *= curColor.a;
+
+    IgnoreHit();
+#endif
 }
 
 [shader("closesthit")]
@@ -180,6 +194,7 @@ void boxClosestHit(
     uniform HitShaderParams hitParams,
     inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
+    // this shader is skipped for BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
     rayData.depth = RayTCurrent();
     HitInfo hit;
     hit.type = InstanceType::Curve;
@@ -189,25 +204,23 @@ void boxClosestHit(
     rayData.hit = hit.encode();
 }
 
-float4 shade(ShadingData sd)
+#if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
+
+void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayFootprint footprint)
 {
-    float3 curColor = sd.emissive;
+    // trace single ray and handle everything in any-hit shaders
+    VolumePayload volumePayload;
+    volumePayload.footprint = footprint;
+    volumePayload.rayTMax = ray.TMax;
+    volumePayload.node = VolumeNode.Empty();
 
-    // forward render all light sources
-    const uint lightCount = gScene.getLightCount();
-    for(uint i = 0; i < lightCount; ++i)
-    {
-        LightData l = gScene.getLight(i);
-        float shadowFac = 1.0;
-        if(i == 0) shadowFac = max(TraceShadowRay(sd.posW, l), 0.2);
-        curColor += evalMaterial(sd, l, shadowFac).color;
-    }
+    TraceRay(gRtScene, RAY_FLAG_SKIP_TRIANGLES | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, volumePayload);
 
-    curColor *= sd.opacity;
-    const float curTransmit = 1.0 - sd.opacity;
-
-    return float4(curColor, curTransmit);
+    color += transmit * volumePayload.node.color;
+    transmit *= volumePayload.node.transmit;
 }
+
+#else // BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR || BILLBOARD_TYPE_PARTICLE
 
 void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayFootprint footprint)
 {
@@ -227,8 +240,8 @@ void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayF
         VertexData v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Direction, volumePayload.depth, prevRayMin, ray.TMax);
 
         RayFootprint volumeFootprint = footprint; // copy footprint and transfer to hit surface
-        volumeFootprint.hitSurface(v, volumeHit, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction); // transfer to surface
-        ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumeHit, ray.Origin, ray.Direction);
+        volumeFootprint.hitSurface(v, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction); // transfer to surface
+        ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumeHit.primitiveIndex, ray.Origin, ray.Direction);
         float4 curColor = shade(sd);
 
         color += transmit * curColor.rgb;
@@ -239,6 +252,7 @@ void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayF
     } while(++iteration < 64 && transmit > TRANSMIT_EPSILON);
 }
 
+#endif
 
 [shader("raygeneration")]
 void rayGen()
@@ -280,7 +294,7 @@ void rayGen()
         uint materialID = gScene.getMaterialID(hit.instanceID);
 
         // transfer ray differential and get shading data
-        footprint.hitSurface(v, hit, /*reconstruct original ray origin*/ ray.Origin + ray.TMin * ray.Direction, ray.Direction);
+        footprint.hitSurface(v, /*reconstruct original ray origin*/ ray.Origin + ray.TMin * ray.Direction, ray.Direction);
         ShadingData sd = prepareShadingData(v, footprint, triangleVertices, hit, /*reconstruct original ray origin*/ ray.Origin + ray.TMin * ray.Direction, ray.Direction);
         float4 curColor = shade(sd);
 

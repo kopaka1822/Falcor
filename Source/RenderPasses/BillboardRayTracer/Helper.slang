@@ -44,7 +44,24 @@ struct VolumeNode
 
         return res;
     }
+
+    static VolumeNode Empty()
+    {
+        VolumeNode res;
+        res.depthStart = 0.0;
+        res.depthEnd = 0.0;
+        res.transmit = 1.0;
+        res.color = 0.0;
+        return res;
+    }
 };
+
+struct VolumePayload
+{
+    VolumeNode node; // 6 floats
+    float rayTMax;
+    RayFootprint footprint; // up to 12 floats
+}
 
 float3x3 GetBillboardPlane(float3 normal, bool yAlign) {
 	float3x3 planeBase;
@@ -147,7 +164,7 @@ extension RayFootprint
     }
 
     [mutating]
-    void hitSurface(inout VertexData v, HitInfo hit, float3 rayOrg, float3 rayDir)
+    void hitSurface(inout VertexData v, float3 rayOrg, float3 rayDir)
     {
         // Propagate to hit point.
         float hitT = length(v.posW - rayOrg);
@@ -173,11 +190,11 @@ extension RayFootprint
         return sd;
     }
 
-    ShadingData computeBillboardShadingData(VertexData v, HitInfo hit, float3 rayOrg, float3 rayDir)
+    ShadingData computeBillboardShadingData(VertexData v, uint aabbIndex, float3 rayOrg, float3 rayDir)
     {
         // TODO store data somewhere instead of recomputing
         // reconstruct billboard plane
-        const AABB bbox = gScene.proceduralPrimitiveAABBs[hit.primitiveIndex];
+        const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbIndex];
         const float2 dim = bbox.extent().xy;
         const float3 P = bbox.center();
         const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
@@ -229,7 +246,7 @@ extension RayFootprint
     }
 
     [mutating]
-    void hitSurface(inout VertexData v, HitInfo hit, float3 rayOrg, float3 rayDir)
+    void hitSurface(inout VertexData v, float3 rayOrg, float3 rayDir)
     {
     }
 
@@ -244,7 +261,7 @@ extension RayFootprint
         return prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -rayDir, 0.f);
     }
 
-    ShadingData computeBillboardShadingData(VertexData v, HitInfo hit, float3 rayOrg, float3 rayDir)
+    ShadingData computeBillboardShadingData(VertexData v, uint aabbIndex, float3 rayOrg, float3 rayDir)
     {
         const uint materialID = BILLBOARD_MATERIAL_ID;
         return prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -rayDir, 0.f);
@@ -267,9 +284,9 @@ ShadingData prepareShadingData(VertexData v, RayFootprint rayFootprint, StaticVe
     return rayFootprint.computeShadingData(v, triangleVertices, hit, rayOrg, rayDir);
 }
 
-ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint, HitInfo hit, /*long version*/ float3 rayOrg,  float3 rayDir)
+ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint, uint aabbIndex, /*long version*/ float3 rayOrg,  float3 rayDir)
 {
-    ShadingData sd = rayFootprint.computeBillboardShadingData(v, hit, rayOrg, rayDir);
+    ShadingData sd = rayFootprint.computeBillboardShadingData(v, aabbIndex, rayOrg, rayDir);
     if(BILLBOARD_TYPE != BILLBOARD_TYPE_IMPOSTOR) sd.isVolume = true;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE) sd.opacity *= v.billboardStrength;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL && sd.opacity < 1.0)
@@ -279,4 +296,26 @@ ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint,
         sd.opacity = 1.0 - exp(nt * v.billboardDepth * v.billboardStrength);
     }
     return sd;
+}
+
+// simple shading function that iterates though all lights and traces shadow rays for the primary light source
+// \returns rgb color and transmittance
+float4 shade(ShadingData sd)
+{
+    float3 curColor = sd.emissive;
+
+    // forward render all light sources
+    const uint lightCount = gScene.getLightCount();
+    for(uint i = 0; i < lightCount; ++i)
+    {
+        LightData l = gScene.getLight(i);
+        float shadowFac = 1.0;
+        if(i == 0) shadowFac = max(TraceShadowRay(sd.posW, l), 0.2);
+        curColor += evalMaterial(sd, l, shadowFac).color;
+    }
+
+    curColor *= sd.opacity;
+    const float curTransmit = 1.0 - sd.opacity;
+
+    return float4(curColor, curTransmit);
 }

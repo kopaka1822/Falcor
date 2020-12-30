@@ -3,6 +3,12 @@ struct ShadowPayload
     float transmit;
 };
 
+#if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
+float TraceShadowRay(float3 origin, LightData l)
+{
+    return 1.0; // TODO use ray queries for the same result
+}
+#else
 float TraceShadowRay(float3 origin, LightData l)
 {
     if(!USE_SHADOWS) return 1.0;
@@ -32,6 +38,7 @@ float TraceShadowRay(float3 origin, LightData l)
 
     return rayData.transmit;
 }
+#endif
 
 [shader("miss")]
 void missShadow(inout ShadowPayload rayData : SV_RayPayload)
