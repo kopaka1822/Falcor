@@ -49,7 +49,7 @@ namespace
     // These should be set as small as possible.
     const uint32_t kMaxPayloadSizeBytes = std::max<uint32_t>(/* default RayPayload */HitInfo::kMaxPackedSizeInBytes + 4, /* VolumePayload */18 * 5);
     const uint32_t kMaxAttributesSizeBytes = 8u;
-    const uint32_t kMaxRecursionDepth = 2u;
+    const uint32_t kMaxRecursionDepth = 1u;
 
     const ChannelList kInputChannels =
     {
@@ -97,9 +97,6 @@ mFootprintMode((uint32_t)TexLODMode::RayDiffsAnisotropic)
     // hit group 0
     progDesc.addHitGroup(0, "triangleClosestHit", "triangleAnyHit").addMiss(0, "miss");
     progDesc.addAABBHitGroup(0, "boxClosestHit", "boxAnyHit");
-    // hit group 1 (shadows)
-    progDesc.addHitGroup(1, "triangleClosestHitShadow", "triangleAnyHitShadow").addMiss(1, "missShadow");
-    progDesc.addAABBHitGroup(1, "boxClosestHitShadow", "boxAnyHitShadow");
 
     mTracer.pProgram = RtProgram::create(progDesc, kMaxPayloadSizeBytes, kMaxAttributesSizeBytes);
 

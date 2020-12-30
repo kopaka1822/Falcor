@@ -36,7 +36,7 @@ namespace Falcor
 {
     void RtProgram::Desc::init()
     {
-        mBaseDesc.setShaderModel("6_2");
+        mBaseDesc.setShaderModel("6_5");
     }
 
     RtProgram::Desc& RtProgram::Desc::addShaderLibrary(const std::string& filename)
