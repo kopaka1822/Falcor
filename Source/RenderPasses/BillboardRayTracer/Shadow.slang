@@ -55,7 +55,7 @@ float TraceShadowRay(float3 origin, LightData l)
             if(d >= r) continue; // no hit
             const float w = sqrt(r * r - d * d);
             const float rayTIn = max(ray.TMin, rayT - w);
-            const float ds = min(/*TMax*/ ray.TMax, rayT + w) - rayTIn;
+            const float ds = min(ray.TMax, rayT + w) - rayTIn;
             if(ds <= 0.0) continue;
             
             transmit *= pow(0.3, (1 - (d / r)) * (0.5 * ds / r));

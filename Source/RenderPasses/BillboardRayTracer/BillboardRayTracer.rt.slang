@@ -48,7 +48,6 @@ import RenderPasses.Shared.PathTracer.RayFootprintData;
 struct BoxIntersectionAttributes
 {
     int aabbOffset;
-    float shadow; // factor used for shadows
 };
 
 #include "Helper.slang"
@@ -99,9 +98,6 @@ void triangleClosestHit(
     hit.primitiveIndex = PrimitiveIndex();
     hit.barycentrics = attribs.barycentrics;
     rayData.hit = hit.encode();
-
-  
-    
 }
 
 /***************** Billboards *****************/
@@ -109,9 +105,9 @@ void triangleClosestHit(
 
 
 [shader("intersection")]
-void boxIntersect(uniform HitShaderParams hitParams)
+void boxIntersect()
 {
-    const uint aabbOffset = gScene.proceduralPrimitives[hitParams.geometryIndex].AABBOffset;
+    const uint aabbOffset = gScene.proceduralPrimitives[GeometryIndex()].AABBOffset;
     const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
     const float2 dim = bbox.extent().xy;
     const float3 P = bbox.center();
@@ -141,7 +137,6 @@ void boxIntersect(uniform HitShaderParams hitParams)
     
         BoxIntersectionAttributes attribs;
         attribs.aabbOffset = aabbOffset;
-        if(USE_SHADOWS) attribs.shadow = (1 - 2.0 * length(X) / dim.x) * getSoftParticleContrast((s - RayTMin()) / dim.x);
         ReportHit(s, 0, attribs);
     
     } break;
@@ -157,16 +152,13 @@ void boxIntersect(uniform HitShaderParams hitParams)
 
         BoxIntersectionAttributes attribs;
         attribs.aabbOffset = aabbOffset;
-        if(USE_SHADOWS) attribs.shadow = (1 - (d / r)) * (0.5 * ds / r);
         ReportHit(rayTIn, 0, attribs);
     } break;
     }
 }
 
 [shader("anyhit")]
-void boxAnyHit(
-    uniform HitShaderParams hitParams,
-    inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
+void boxAnyHit(inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
 #if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
     // do color computation here
@@ -190,9 +182,7 @@ void boxAnyHit(
 }
 
 [shader("closesthit")]
-void boxClosestHit(
-    uniform HitShaderParams hitParams,
-    inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
+void boxClosestHit(inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
     // this shader is skipped for BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
     rayData.depth = RayTCurrent();
@@ -273,7 +263,7 @@ void rayGen()
     do
     {
         // first trace triangles to determine depth range
-        // (only required for spherical particles, could be merged with procedural path otherwise)
+        // (only required for spherical and soft particles, could be merged with procedural path otherwise)
         RayPayload trianglePayload;
         trianglePayload.depth = FLT_MAX;
         trianglePayload.hit = HitInfo::kInvalidIndex;
@@ -281,19 +271,19 @@ void rayGen()
         TraceRay(gRtScene, RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, trianglePayload);
 
         // handle billboards
-        ray.TMax = trianglePayload.depth; // set max range for volume ray
+        ray.TMax = trianglePayload.depth; // set max range for billboard ray
         traceBillboards(color, transmit, ray, footprint);
 
-        HitInfo hit;
         // evaluate triangle geometry
+        HitInfo hit;
         if(transmit <= TRANSMIT_EPSILON || !hit.decode(trianglePayload.hit)) break;
       
-        // unpack hit data & TODO determine ray differentials
+        // unpack hit data 
         StaticVertexData triangleVertices[3];
         VertexData v = gScene.getVertexData(hit, triangleVertices);
         uint materialID = gScene.getMaterialID(hit.instanceID);
 
-        // transfer ray differential and get shading data
+        // transfer ray differentials and get shading data
         footprint.hitSurface(v, /*reconstruct original ray origin*/ ray.Origin + ray.TMin * ray.Direction, ray.Direction);
         ShadingData sd = prepareShadingData(v, footprint, triangleVertices, hit, /*reconstruct original ray origin*/ ray.Origin + ray.TMin * ray.Direction, ray.Direction);
         float4 curColor = shade(sd);
