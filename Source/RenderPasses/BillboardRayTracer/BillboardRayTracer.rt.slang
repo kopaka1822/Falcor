@@ -42,8 +42,8 @@ import Scene.HitInfo;
 import RenderPasses.Shared.PathTracer.RayFootprintData;
 
 // early out settings
-#define TRANSMIT_EPSILON 0.01
-#define REFLECT_EPSILON 0.02
+#define TRANSMIT_EPSILON 0.001
+#define REFLECT_EPSILON 0.001
 
 struct BoxIntersectionAttributes
 {
@@ -172,7 +172,7 @@ void boxAnyHit(inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttri
     float4 curColor = shade(sd);
     n.color = curColor.rgb;
     n.transmit = curColor.a;
-    if(curColor.a > 0.99) IgnoreHit(); // invisible
+    if(curColor.a > 0.999) IgnoreHit(); // invisible
     n.depthStart = RayTCurrent();
     n.depthEnd = RayTCurrent() + v.billboardDepth;
 

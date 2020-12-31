@@ -73,6 +73,7 @@ private:
     uint                        mLastMaterialId = 0;
     bool                        mSoftParticles = true;
     bool                        mShadows = true;
+    bool                        mRandomColors = false;
 	
     // Ray tracing program.
     struct

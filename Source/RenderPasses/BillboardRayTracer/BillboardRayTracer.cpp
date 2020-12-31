@@ -151,6 +151,7 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
         defines.add("USE_SOFT_PARTICLES", mSoftParticles ? "true" : "false");
         defines.add("BILLBOARD_MATERIAL_ID", std::to_string(mLastMaterialId));
         defines.add("USE_SHADOWS", mShadows ? "true" : "false");
+        defines.add("USE_RANDOM_BILLBOARD_COLORS", mRandomColors ? "true" : "false");
 
         mTracer.pProgram->addDefines(defines);
 
@@ -226,6 +227,8 @@ void BillboardRayTracer::renderUI(Gui::Widgets& widget)
         widget.checkbox("Soft particles", mSoftParticles)) dirty = true;
 
     if (widget.checkbox("Shadows", mShadows)) dirty = true;
+    if (widget.checkbox("Random Colors", mRandomColors)) dirty = true;
+    widget.tooltip("Multiplies billboard colors with some random color");
 
     if (dirty)
     {

@@ -335,12 +335,18 @@ ShadingData prepareShadingData(VertexData v, RayFootprint rayFootprint, StaticVe
     return rayFootprint.computeShadingData(v, triangleVertices, hit, rayOrg, rayDir);
 }
 
+static const float3 gRandomColors[] = {float3(1.0, 0, 0), float3(1.0, 0.1, 0.9), float3(0.1, 1, 0.1), float3(0, 1.0, 0.95), float3(1.0, 0.95, 0.0), float3(0.1, 0.1, 1)};
+
 ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint, uint aabbIndex, /*long version*/ float3 rayOrg,  float3 rayDir)
 {
     ShadingData sd = rayFootprint.computeBillboardShadingData(v, aabbIndex, rayOrg, rayDir);
     if(BILLBOARD_TYPE != BILLBOARD_TYPE_IMPOSTOR) sd.isVolume = true;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE) sd.opacity *= v.billboardStrength;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL && sd.opacity < 1.0) sd.opacity = 1.0 - pow(1.0 - sd.opacity, v.billboardStrength);
+    if(USE_RANDOM_BILLBOARD_COLORS)
+    {
+        sd.diffuse *= gRandomColors[aabbIndex % 6];
+    }
     return sd;
 }
 
