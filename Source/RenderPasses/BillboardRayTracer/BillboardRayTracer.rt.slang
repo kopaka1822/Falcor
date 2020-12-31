@@ -164,7 +164,7 @@ void boxAnyHit(inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttri
     // do color computation here
     VolumeNode n;
     
-    VertexData v = getBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
+    VertexData v = getSphericalBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
 
     RayFootprint volumeFootprint = rayData.footprint; // copy footprint and transfer to hit surface
     volumeFootprint.hitSurface(v, /*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection()); // transfer to surface
@@ -173,11 +173,13 @@ void boxAnyHit(inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttri
     n.color = curColor.rgb;
     n.transmit = curColor.a;
     n.depthStart = RayTCurrent();
+    n.depthEnd = RayTCurrent() + v.billboardDepth;
 
-    rayData.node.color += rayData.node.transmit * curColor.rgb;
-    rayData.node.transmit *= curColor.a;
-
+    if(rayData.node.IsEmpty()) rayData.node = n; // simply replace node
+    else rayData.node = VolumeNode.MergeVolumes(rayData.node, n);
+    
     IgnoreHit();
+    // TODO accept ray interval if occlusion too high?
 #endif
 }
 

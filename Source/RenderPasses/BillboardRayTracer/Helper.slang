@@ -45,6 +45,16 @@ struct VolumeNode
         return res;
     }
 
+    static VolumeNode Over(VolumeNode front, VolumeNode back)
+    {
+        VolumeNode res;
+        res.depthStart = front.depthStart;
+        res.depthEnd = back.depthEnd;
+        res.color = front.color + front.transmit * back.color;
+        res.transmit = front.transmit * back.transmit;
+        return res;
+    }
+
     static VolumeNode Empty()
     {
         VolumeNode res;
@@ -53,6 +63,41 @@ struct VolumeNode
         res.transmit = 1.0;
         res.color = 0.0;
         return res;
+    }
+
+    bool IsEmpty()
+    {
+        return depthEnd <= 0.0;
+    }
+
+    static VolumeNode MergeVolumes(VolumeNode n1, VolumeNode n2)
+    {
+        // n1 should be in front of n2
+        if(n2.depthStart < n1.depthStart)
+        {
+            VolumeNode tmp = n1;
+            n1 = n2;
+            n2 = tmp;
+        }
+
+        //return Over(n1, n2);
+
+        // do they overlap?
+        if(n1.depthEnd <= n2.depthStart) return Over(n1, n2); // no overlap => use over oparator
+
+        VolumeNode n[4];
+        // split n1 and put it into array
+        n1.Split(n[0], n[1], min(n1.depthEnd, n2.depthStart));
+        if(n2.depthEnd < n1.depthEnd) { // n2 is completely inside n1
+            n[2] = n2;
+            // split n[1] into n[1] and n[3]
+            VolumeNode tmp = n[1];
+            tmp.Split(n[1], n[3], n2.depthEnd); 
+        } else { // volumes overlap
+            n2.Split(n[2], n[3], n1.depthEnd);
+        }
+
+        return Over(Over(n[0], Merge(n[1], n[2])), n[3]);
     }
 };
 
@@ -88,62 +133,66 @@ float getSoftParticleContrast(float x)
 VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayDirection, float rayTCurrent, float rayTMin, float rayTMax)
 {
     VertexData v;
-    const float3 pointOnBillboard = rayOrigin + rayDirection * rayTCurrent;
 
     // reconstruct billboard plane
     const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
     const float2 dim = bbox.extent().xy;
     const float3 P = bbox.center();
 
-    switch(BILLBOARD_TYPE)
+    // billboard plane base
+    const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
+    const float3x3 planeBase = GetBillboardPlane(normalize(rayOrigin - P), yAlign);
+
+    v.posW = rayOrigin + rayDirection * rayTCurrent;
+    v.normalW = planeBase[2];
+    v.tangentW.xyz = planeBase[0];
+    v.tangentW.w = 1.0;
+    v.faceNormalW = planeBase[2];
+    v.coneTexLODValue = 0.0;
+    v.texC.x = dot(P - v.posW, planeBase[0]) / dim.x + 0.5;
+    v.texC.y = dot(P - v.posW, planeBase[1]) / dim.y + 0.5;
+    v.billboardStrength = 1.0;
+    if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE && USE_SOFT_PARTICLES)
     {
-    case BILLBOARD_TYPE_IMPOSTOR:
-    case BILLBOARD_TYPE_PARTICLE: {
-        const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
-        //const bool round = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
-
-        // billboard plane base
-        const float3x3 planeBase = GetBillboardPlane(normalize(rayOrigin - P), yAlign);
-        v.posW = pointOnBillboard;
-        v.normalW = planeBase[2];
-        v.tangentW.xyz = planeBase[0];
-        v.tangentW.w = 1.0;
-        v.faceNormalW = planeBase[2];
-        v.coneTexLODValue = 0.0;
-        v.texC.x = dot(P - v.posW, planeBase[0]) / dim.x + 0.5;
-        v.texC.y = dot(P - v.posW, planeBase[1]) / dim.y + 0.5;
-        v.billboardStrength = 1.0;
-        if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE && USE_SOFT_PARTICLES)
-        {
-            float outFade = getSoftParticleContrast((rayTMax - rayTCurrent) / dim.x);
-            float inFade = getSoftParticleContrast((rayTCurrent - rayTMin) / dim.x);
-            //float inFade = 1.0;
-            v.billboardStrength = min(outFade, inFade);
-        }
-    } break;
-    case BILLBOARD_TYPE_SPHERICAL: {
-        // determine depth
-        const float r = 0.5 * dim.x;
-        const float rayT = dot(rayDirection, P - rayOrigin); // rayT to closest point inside billboard
-        const float d = length(rayOrigin + rayT * rayDirection - P); // smallest distance
-        const float w = sqrt(r * r - d * d);
-        const float ds = min(rayTMax, rayT + w) - rayTCurrent;
-
-        v.billboardDepth = ds / (2.0 * r);
-        v.billboardStrength = 1.0 - (d / r);
-
-        v.posW = pointOnBillboard; // closest entry point
-        v.normalW = normalize(rayOrigin + rayDirection * (rayT - w) - P); // direction to unclipped entry point (for consistent texture coordinates when traversing)
-        v.tangentW = 0.0; // does not really matter
-        v.faceNormalW = v.normalW;
-        v.coneTexLODValue = 0.0;
-
-        v.texC.x = v.normalW.x == 0.0 ? 0.25 * sign(v.normalW.z) : atan2(v.normalW.z, v.normalW.x) / (2.0 * M_PI);
-        v.texC.y = acos(v.normalW.y) / M_PI;
-        // give each bilboard a random texture rotation
-        v.texC.x += aabbOffset + 0.172;
-    } break;
+        float outFade = getSoftParticleContrast((rayTMax - rayTCurrent) / dim.x);
+        float inFade = getSoftParticleContrast((rayTCurrent - rayTMin) / dim.x);
+        //float inFade = 1.0;
+        v.billboardStrength = min(outFade, inFade);
     }
+
+    return v;
+}
+
+VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayDirection, float rayTCurrent, float rayTMin, float rayTMax)
+{
+    VertexData v;
+
+    // reconstruct billboard plane
+    const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
+    const float2 dim = bbox.extent().xy;
+    const float3 P = bbox.center();
+
+    // determine depth
+    const float r = 0.5 * dim.x;
+    const float rayT = dot(rayDirection, P - rayOrigin); // rayT to closest point inside billboard
+    const float d = length(rayOrigin + rayT * rayDirection - P); // smallest distance
+    const float w = sqrt(r * r - d * d);
+    const float ds = min(rayTMax, rayT + w) - rayTCurrent;
+
+    v.billboardDepth = ds;
+    v.billboardStrength = (1.0 - (d / r)) * (ds / (2.0 * r));
+
+    v.posW = rayOrigin + rayDirection * rayTCurrent; // closest entry point
+    v.normalW = normalize(rayOrigin + rayDirection * (rayT - w) - P); // direction to unclipped entry point (for consistent texture coordinates when traversing)
+    v.tangentW = 0.0; // does not really matter
+    v.faceNormalW = v.normalW;
+    v.coneTexLODValue = 0.0;
+
+    v.texC.x = v.normalW.x == 0.0 ? 0.25 * sign(v.normalW.z) : atan2(v.normalW.z, v.normalW.x) / (2.0 * M_PI);
+    v.texC.y = acos(v.normalW.y) / M_PI;
+    // give each bilboard a random texture rotation
+    v.texC.x += aabbOffset + 0.172;
+
     return v;
 }
 
@@ -289,12 +338,7 @@ ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint,
     ShadingData sd = rayFootprint.computeBillboardShadingData(v, aabbIndex, rayOrg, rayDir);
     if(BILLBOARD_TYPE != BILLBOARD_TYPE_IMPOSTOR) sd.isVolume = true;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE) sd.opacity *= v.billboardStrength;
-    if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL && sd.opacity < 1.0)
-    {
-        // determine correct opacity
-        const float nt = log(1.0 - sd.opacity);
-        sd.opacity = 1.0 - exp(nt * v.billboardDepth * v.billboardStrength);
-    }
+    if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL && sd.opacity < 1.0) sd.opacity = 1.0 - pow(1.0 - sd.opacity, v.billboardStrength);
     return sd;
 }
 
