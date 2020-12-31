@@ -172,6 +172,7 @@ void boxAnyHit(inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttri
     float4 curColor = shade(sd);
     n.color = curColor.rgb;
     n.transmit = curColor.a;
+    if(curColor.a > 0.99) IgnoreHit(); // invisible
     n.depthStart = RayTCurrent();
     n.depthEnd = RayTCurrent() + v.billboardDepth;
 

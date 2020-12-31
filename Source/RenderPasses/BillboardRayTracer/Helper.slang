@@ -16,7 +16,9 @@ struct VolumeNode
 
         float t = (splitPos - depthStart) / (depthEnd - depthStart);
         left.transmit = pow(transmit, t);
+        if(t <= 0.0) left.transmit = 1.0; // handle UB of transmit = 0.0 (opaque)
         right.transmit = pow(transmit, 1.0 - t);
+        if(t >= 1.0) right.transmit = 1.0;
 
         // assume transmit < 1
         left.color = color * (1.0 - left.transmit) / (1.0 - transmit);
