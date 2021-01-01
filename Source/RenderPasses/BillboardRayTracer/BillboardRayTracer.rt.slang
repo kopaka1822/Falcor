@@ -169,7 +169,7 @@ void boxAnyHit(inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttri
     RayFootprint volumeFootprint = rayData.footprint; // copy footprint and transfer to hit surface
     volumeFootprint.hitSurface(v, /*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection()); // transfer to surface
     ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
-    float4 curColor = shade(sd);
+    float4 curColor = shade(sd, BILLBOARD_DEPTH_SHADOWS, WorldRayOrigin() + (RayTCurrent() + v.billboardDepth) * WorldRayDirection());
     n.color = curColor.rgb;
     n.transmit = curColor.a;
     if(curColor.a > 0.999) IgnoreHit(); // invisible

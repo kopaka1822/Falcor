@@ -156,8 +156,9 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
     v.billboardStrength = 1.0;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE && USE_SOFT_PARTICLES)
     {
-        float outFade = getSoftParticleContrast((rayTMax - rayTCurrent) / dim.x);
-        float inFade = getSoftParticleContrast((rayTCurrent - rayTMin) / dim.x);
+        float blendScale = 4.0 / dim.x;
+        float outFade = getSoftParticleContrast((rayTMax - rayTCurrent) * blendScale);
+        float inFade = getSoftParticleContrast((rayTCurrent - rayTMin) * blendScale);
         //float inFade = 1.0;
         v.billboardStrength = min(outFade, inFade);
     }
@@ -352,22 +353,39 @@ ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint,
 
 // simple shading function that iterates though all lights and traces shadow rays for the primary light source
 // \returns rgb color and transmittance
-float4 shade(ShadingData sd)
+float4 shade(ShadingData sd, bool useBillboardDepth = false, float3 secondShadowPos = float3(0, 0, 0))
 {
     float3 curColor = sd.emissive;
+    const float curTransmit = 1.0 - sd.opacity;
 
     // forward render all light sources
     const uint lightCount = gScene.getLightCount();
     for(uint i = 0; i < lightCount; ++i)
     {
         LightData l = gScene.getLight(i);
-        float shadowFac = 1.0;
-        if(i == 0) shadowFac = max(TraceShadowRay(sd.posW, l), 0.2);
-        curColor += evalMaterial(sd, l, shadowFac).color;
+        [branch] if(useBillboardDepth)
+        {
+            float3 color = evalMaterial(sd, l, 1.0).color;
+            if(i == 0)
+            {
+                float s1 = max(TraceShadowRay(sd.posW, l), 0.0);
+                float s2 = max(TraceShadowRay(secondShadowPos, l), 0.0);
+                //curColor += (s1 + s2) * 0.5 * color;
+                //curColor += s1 * color;
+                float t = curTransmit;
+                if(curTransmit > 0.001) curColor += color * ((t - 1) * (s1 - s2) / log(t) + s1 - s2 * t);
+                else curColor += color * s1;
+            }
+        }
+        else
+        {
+            float shadowFac = 1.0;
+            if(i == 0) shadowFac = max(TraceShadowRay(sd.posW, l), 0.2);
+            curColor += evalMaterial(sd, l, shadowFac).color;
+        }
     }
 
     curColor *= sd.opacity;
-    const float curTransmit = 1.0 - sd.opacity;
 
     return float4(curColor, curTransmit);
 }

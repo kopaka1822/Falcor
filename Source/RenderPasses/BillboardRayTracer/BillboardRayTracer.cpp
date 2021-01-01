@@ -152,6 +152,7 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
         defines.add("BILLBOARD_MATERIAL_ID", std::to_string(mLastMaterialId));
         defines.add("USE_SHADOWS", mShadows ? "true" : "false");
         defines.add("USE_RANDOM_BILLBOARD_COLORS", mRandomColors ? "true" : "false");
+        defines.add("BILLBOARD_DEPTH_SHADOWS", mDeepBillboardSamples ? "true" : "false");
 
         mTracer.pProgram->addDefines(defines);
 
@@ -225,6 +226,12 @@ void BillboardRayTracer::renderUI(Gui::Widgets& widget)
 
     if (mBillboardType == (uint)BillboardType::Particle &&
         widget.checkbox("Soft particles", mSoftParticles)) dirty = true;
+
+    if (mBillboardType == (uint)BillboardType::Spherical)
+    {
+        if(widget.checkbox("Deep billboard samples", mDeepBillboardSamples)) dirty = true;
+        widget.tooltip("Shadow samples will be taken from front- and backface of the billboard");
+    }
 
     if (widget.checkbox("Shadows", mShadows)) dirty = true;
     if (widget.checkbox("Random Colors", mRandomColors)) dirty = true;
