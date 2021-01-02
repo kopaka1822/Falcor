@@ -16,9 +16,8 @@ struct VolumeNode
 
         float t = (splitPos - depthStart) / (depthEnd - depthStart);
         left.transmit = pow(transmit, t);
-        if(t <= 0.0) left.transmit = 1.0; // handle UB of transmit = 0.0 (opaque)
         right.transmit = pow(transmit, 1.0 - t);
-        if(t >= 1.0) right.transmit = 1.0;
+        if(transmit <= 0.0) left.transmit = right.transmit = 0.0; // handle UB of transmit = 0.0 (opaque)
 
         // assume transmit < 1
         left.color = color * (1.0 - left.transmit) / (1.0 - transmit);
@@ -89,8 +88,8 @@ struct VolumeNode
 
         VolumeNode n[4];
         // split n1 and put it into array
-        n1.Split(n[0], n[1], min(n1.depthEnd, n2.depthStart));
-        if(n2.depthEnd < n1.depthEnd) { // n2 is completely inside n1
+        n1.Split(n[0], n[1], n2.depthStart);
+        if(n2.depthEnd <= n1.depthEnd) { // n2 is completely inside n1
             n[2] = n2;
             // split n[1] into n[1] and n[3]
             VolumeNode tmp = n[1];
@@ -194,7 +193,7 @@ VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, fl
     v.texC.x = v.normalW.x == 0.0 ? 0.25 * sign(v.normalW.z) : atan2(v.normalW.z, v.normalW.x) / (2.0 * M_PI);
     v.texC.y = acos(v.normalW.y) / M_PI;
     // give each bilboard a random texture rotation
-    v.texC.x += aabbOffset + 0.172;
+    v.texC.x += aabbOffset * 0.172;
 
     return v;
 }
@@ -221,6 +220,12 @@ extension RayFootprint
         // Propagate to hit point.
         float hitT = length(v.posW - rayOrg);
         this.rayDiff = this.rayDiff.propagate(rayOrg, rayDir, hitT, v.faceNormalW);   // Propagate the ray differential to the current hit point.
+    }
+
+    [mutating]
+    void hitSphere(float3 rayOrg, float3 rayDir, float3 sphereCenter, float sphereRadius)
+    {
+        this.rayDiff = this.rayDiff.propagateSphere(rayOrg, rayDir, sphereCenter, sphereRadius);   // Propagate the ray differential to the current hit point.
     }
 
     ShadingData computeShadingData(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float3 rayOrg, float3 rayDir)
@@ -251,15 +256,31 @@ extension RayFootprint
         const float3 P = bbox.center();
         const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
 
-        // billboard plane base
-        float3x3 planeBase = GetBillboardPlane(normalize(rayOrg - P), yAlign);
-
-        // Get hit point adapted parameters.
         float2 dUVdx, dUVdy;    // Ray differential variables for the texture lookup.
-        dUVdx.x = dot(this.rayDiff.dOdx, planeBase[0]) / dim[0];
-        dUVdx.y = dot(this.rayDiff.dOdx, planeBase[1]) / dim[1];
-        dUVdy.x = dot(this.rayDiff.dOdy, planeBase[0]) / dim[0];
-        dUVdy.y = dot(this.rayDiff.dOdy, planeBase[1]) / dim[1];
+        if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL)
+        {
+            const float3 d = v.normalW;
+            float3 dNdx = this.rayDiff.dOdx / dim.x;
+            float3 dNdy = this.rayDiff.dOdy / dim.x;
+
+            dUVdx.x = (-d.z * dNdx.x  + d.x * dNdx.z) / (2.0 * M_PI * (d.x * d.x + d.z * d.z));
+            dUVdx.y = -dNdx.y / (sqrt(1.0 - d.y * d.y) * M_PI);
+            dUVdy.x = (-d.z * dNdy.x  + d.x * dNdy.z) / (2.0 * M_PI * (d.x * d.x + d.z * d.z));
+            dUVdy.y = -dNdy.y / (sqrt(1.0 - d.y * d.y) * M_PI);
+        }
+        else
+        {
+            // billboard plane base
+            float3x3 planeBase = GetBillboardPlane(normalize(rayOrg - P), yAlign);
+
+            // Get hit point adapted parameters.
+            dUVdx.x = dot(this.rayDiff.dOdx, planeBase[0]) / dim[0];
+            dUVdx.y = dot(this.rayDiff.dOdx, planeBase[1]) / dim[1];
+            dUVdy.x = dot(this.rayDiff.dOdy, planeBase[0]) / dim[0];
+            dUVdy.y = dot(this.rayDiff.dOdy, planeBase[1]) / dim[1];
+        }
+
+        
 
         // Compute shading data.
         float3 viewDir = -rayDir;
@@ -300,6 +321,11 @@ extension RayFootprint
     [mutating]
     void hitSurface(inout VertexData v, float3 rayOrg, float3 rayDir)
     {
+    }
+
+    [mutating]
+    void hitSphere(float3 rayOrg, float3 rayDir, float3 sphereCenter, float sphereRadius)
+    {        
     }
 
     [mutating]

@@ -342,6 +342,37 @@ struct RayDiff
         return RayDiff.create(dodx, dody, getdDdx(), getdDdy());
     }
 
+      /** Propagate the ray differential onto a sphere
+        \param[in] P Ray origin.
+        \param[in] D Ray direction.
+        \param[in] C Center of the sphere
+        \param[in] r Radius of the Sphere
+        \return The propagated ray differential.
+    */
+    RayDiff propagateSphere(float3 P, float3 D, float3 C, float r)
+    {
+        float3 A = P + D * dot(C - P, D) - C;
+        float t = dot(C - P, D) - sqrt(r * r - dot(A, A));
+
+        // return propagate(P, D, t, normalize(P + t * D - C));
+
+        float3 dpdx = getdOdx() + t * getdDdx();    // Part of Igehy Equation 10
+        float3 dpdy = getdOdy() + t * getdDdy();
+
+        float3 dAdx = getdOdx() + getdDdx() * dot(C - P, D) + D * (-dot(getdOdx(), D) + dot(C - P, getdDdx()));
+        float3 dAdy = getdOdy() + getdDdy() * dot(C - P, D) + D * (-dot(getdOdy(), D) + dot(C - P, getdDdy()));
+        float dydx = -1.0 / sqrt(r * r - dot(A, A)) * dot(dAdx, A);
+        float dydy = -1.0 / sqrt(r * r - dot(A, A)) * dot(dAdy, A);
+
+        float dtdx = -dot(getdOdx(), D) + dot(C-P, getdDdx()) - dydx;
+        float dtdy = -dot(getdOdy(), D) + dot(C-P, getdDdy()) - dydy;
+
+        dpdx += D * dtdx;
+        dpdy += D * dtdy;
+
+        return RayDiff.create(dpdx, dpdy, getdDdx(), getdDdy());
+    }
+
     /** Create a ray differential struct.
         \param[in] dOdx The differential ray origin in x.
         \param[in] dOdy The differential ray origin in y.
