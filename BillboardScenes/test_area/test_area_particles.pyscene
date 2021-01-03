@@ -44,13 +44,14 @@ l.direction = float3(-0.62, -0.71, -0.31)
 sceneBuilder.addLight(l)
 
 # create camera
-#camera = Camera('Camera0')
-#camera.position = float3(-6.2,3.1,10.8)
-#camera.target = float3(-5.6,2.9,9.9)
-#camera.up = float3(0.0, 1.0, 0.0)
-#camera.focalLength = 24.0
-#sceneBuilder.addCamera(camera)
-#sceneBuilder.selectedCamera = camera
+camera = Camera('Camera0')
+camera.position = float3(6.804514,2.521546,-2.763845)
+camera.target = float3(5.846595,2.311095,-2.568650)
+camera.up = float3(0.0, 1.0, 0.0)
+camera.nearPlane = 0.1
+camera.farPlane = 100.0
+sceneBuilder.addCamera(camera)
+sceneBuilder.selectedCamera = camera
 
 ## add billboards
 ## big mirror

@@ -40,10 +40,6 @@ m.addGraph(render_graph_DefaultRenderGraph())
 # Scene
 m.loadScene('../BillboardScenes/test_area/test_area_spheres.pyscene')
 m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True, useVolumes=True)
-m.scene.camera.position = float3(6.804514,2.521546,-2.763845)
-m.scene.camera.target = float3(5.846595,2.311095,-2.568650)
-m.scene.camera.up = float3(0.000000,1.000000,0.000000)
-m.scene.cameraSpeed = 1.0
 
 # Window Configuration
 m.resizeSwapChain(1920, 1061)

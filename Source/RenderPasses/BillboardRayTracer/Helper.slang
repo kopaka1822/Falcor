@@ -314,3 +314,17 @@ float4 shade(ShadingData sd, bool useBillboardDepth = false, float3 secondShadow
 
     return float4(curColor, curTransmit);
 }
+
+// returns depth weight for Weighted-Blended OIT
+float getDepthWeight(float alpha, float z)
+{
+    // transform z to non-linear
+    // Phenomenological:
+    const float near = gScene.camera.data.nearZ;
+    const float far = gScene.camera.data.farZ;
+    float f = ((near * far) / clamp(z, near, far) - far) / (near - far);
+    
+    float w = 10 * (1 - 0.99 * f); // modification: did not include alpha here (looks better for smoke)
+    return clamp(w * w * w, 0.01, 3000.0) * alpha;
+    //return 1.0;
+}

@@ -172,13 +172,13 @@ void boxAnyHit(inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttri
     float4 curColor = shade(sd, BILLBOARD_DEPTH_SHADOWS, WorldRayOrigin() + (RayTCurrent() + v.billboardDepth) * WorldRayDirection());
 
     float alpha = 1.0 - curColor.a;
-    float weight = alpha * exp(-RayTCurrent() * 0.01);
+    float weight = getDepthWeight(alpha, RayTCurrent());
     rayData.colorSum += curColor.rgb * weight;
     rayData.alphaSum += alpha * weight;
     rayData.transmit *= curColor.a; // curColor.a = transmittance
-    
+
+    if(curColor.a == 0.0) return; // opaque object => abort
     IgnoreHit();
-    // TODO accept ray interval if occlusion too high?
 #endif
 }
 
