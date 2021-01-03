@@ -162,7 +162,6 @@ void boxAnyHit(inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttri
 {
 #if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
     // do color computation here
-    VolumeNode n;
     
     VertexData v = getSphericalBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
 
@@ -171,14 +170,12 @@ void boxAnyHit(inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttri
     volumeFootprint.hitSphere(/*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection(), bbox.center(), 0.5 * bbox.extent().x); // transfer to surface
     ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
     float4 curColor = shade(sd, BILLBOARD_DEPTH_SHADOWS, WorldRayOrigin() + (RayTCurrent() + v.billboardDepth) * WorldRayDirection());
-    n.color = curColor.rgb;
-    n.transmit = curColor.a;
-    if(curColor.a > 0.999) IgnoreHit(); // invisible
-    n.depthStart = RayTCurrent();
-    n.depthEnd = RayTCurrent() + v.billboardDepth;
 
-    if(rayData.node.IsEmpty()) rayData.node = n; // simply replace node
-    else rayData.node = VolumeNode.MergeVolumes(rayData.node, n);
+    float alpha = 1.0 - curColor.a;
+    float weight = alpha * exp(-RayTCurrent() * 0.01);
+    rayData.colorSum += curColor.rgb * weight;
+    rayData.alphaSum += alpha * weight;
+    rayData.transmit *= curColor.a; // curColor.a = transmittance
     
     IgnoreHit();
     // TODO accept ray interval if occlusion too high?
@@ -206,12 +203,16 @@ void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayF
     VolumePayload volumePayload;
     volumePayload.footprint = footprint;
     volumePayload.rayTMax = ray.TMax;
-    volumePayload.node = VolumeNode.Empty();
+    volumePayload.colorSum = 0.0;
+    volumePayload.alphaSum = 0.0;
+    volumePayload.transmit = 1.0;
 
     TraceRay(gRtScene, RAY_FLAG_SKIP_TRIANGLES | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, volumePayload);
 
-    color += transmit * volumePayload.node.color;
-    transmit *= volumePayload.node.transmit;
+    if(volumePayload.transmit < 1.0) {
+        color += transmit * (volumePayload.colorSum / volumePayload.alphaSum) * (1.0 - volumePayload.transmit);
+        transmit *= volumePayload.transmit;
+    }
 }
 
 #else // BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR || BILLBOARD_TYPE_PARTICLE

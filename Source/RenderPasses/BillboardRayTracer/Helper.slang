@@ -1,110 +1,8 @@
-
-struct VolumeNode
-{
-    float depthStart;
-    float depthEnd;
-    float3 color;
-    float transmit;
-
-    // Splits the volume node at split pos (from "The Theory of OpenEXR Deep Samples" 2013)
-    void Split(out VolumeNode left, out VolumeNode right, float splitPos)
-    {
-        left.depthStart = depthStart;
-        left.depthEnd = splitPos;
-        right.depthStart = splitPos;
-        right.depthEnd = depthEnd;
-
-        float t = (splitPos - depthStart) / (depthEnd - depthStart);
-        left.transmit = pow(transmit, t);
-        right.transmit = pow(transmit, 1.0 - t);
-        if(transmit <= 0.0) left.transmit = right.transmit = 0.0; // handle UB of transmit = 0.0 (opaque)
-
-        // assume transmit < 1
-        left.color = color * (1.0 - left.transmit) / (1.0 - transmit);
-        right.color = color * (1.0 - right.transmit) / (1.0 - transmit);
-    }
-
-    // merges two volume nodes of equal length (from "The Theory of OpenEXR Deep Samples" 2013)
-    static VolumeNode Merge(VolumeNode n1, VolumeNode n2)
-    {
-        VolumeNode res;
-        res.depthStart = n1.depthStart;
-        res.depthEnd = n1.depthEnd;
-        res.transmit = n1.transmit * n2.transmit;
-
-        res.color = 0.0;
-        if(n1.transmit == 0.0) res.color += n1.color;
-        if(n2.transmit == 0.0) res.color += n2.color;
-        if(n1.transmit != 0.0 && n2.transmit != 0.0) {
-            float logn1 = log(n1.transmit);
-            float logn2 = log(n2.transmit);
-            res.color = n1.color * logn1 / (1.0 - n1.transmit);
-            res.color += n2.color * logn2 / (1.0 - n2.transmit);
-            res.color *= (1.0 - res.transmit) / (logn1 + logn2);
-        }
-
-        return res;
-    }
-
-    static VolumeNode Over(VolumeNode front, VolumeNode back)
-    {
-        VolumeNode res;
-        res.depthStart = front.depthStart;
-        res.depthEnd = back.depthEnd;
-        res.color = front.color + front.transmit * back.color;
-        res.transmit = front.transmit * back.transmit;
-        return res;
-    }
-
-    static VolumeNode Empty()
-    {
-        VolumeNode res;
-        res.depthStart = 0.0;
-        res.depthEnd = 0.0;
-        res.transmit = 1.0;
-        res.color = 0.0;
-        return res;
-    }
-
-    bool IsEmpty()
-    {
-        return depthEnd <= 0.0;
-    }
-
-    static VolumeNode MergeVolumes(VolumeNode n1, VolumeNode n2)
-    {
-        // n1 should be in front of n2
-        if(n2.depthStart < n1.depthStart)
-        {
-            VolumeNode tmp = n1;
-            n1 = n2;
-            n2 = tmp;
-        }
-
-        //return Over(n1, n2);
-
-        // do they overlap?
-        if(n1.depthEnd <= n2.depthStart) return Over(n1, n2); // no overlap => use over oparator
-
-        VolumeNode n[4];
-        // split n1 and put it into array
-        n1.Split(n[0], n[1], n2.depthStart);
-        if(n2.depthEnd <= n1.depthEnd) { // n2 is completely inside n1
-            n[2] = n2;
-            // split n[1] into n[1] and n[3]
-            VolumeNode tmp = n[1];
-            tmp.Split(n[1], n[3], n2.depthEnd); 
-        } else { // volumes overlap
-            n2.Split(n[2], n[3], n1.depthEnd);
-        }
-
-        return Over(Over(n[0], Merge(n[1], n[2])), n[3]);
-    }
-};
-
 struct VolumePayload
 {
-    VolumeNode node; // 6 floats
+    float3 colorSum;
+    float alphaSum;
+    float transmit;
     float rayTMax;
     RayFootprint footprint; // up to 12 floats
 }
@@ -389,18 +287,19 @@ float4 shade(ShadingData sd, bool useBillboardDepth = false, float3 secondShadow
     for(uint i = 0; i < lightCount; ++i)
     {
         LightData l = gScene.getLight(i);
-        [branch] if(useBillboardDepth)
+        [branch] if(useBillboardDepth && (i == 0))
         {
             float3 color = evalMaterial(sd, l, 1.0).color;
             if(i == 0)
             {
-                float s1 = max(TraceShadowRay(sd.posW, l), 0.0);
-                float s2 = max(TraceShadowRay(secondShadowPos, l), 0.0);
+                curColor += color * max(TraceShadowRay((sd.posW + secondShadowPos) * 0.5, l), 0.2);
+                //float s1 = max(TraceShadowRay(sd.posW, l), 0.0);
+                //float s2 = max(TraceShadowRay(secondShadowPos, l), 0.0);
                 //curColor += (s1 + s2) * 0.5 * color;
                 //curColor += s1 * color;
-                float t = curTransmit;
-                if(curTransmit > 0.001) curColor += color * ((t - 1) * (s1 - s2) / log(t) + s1 - s2 * t);
-                else curColor += color * s1;
+                //float t = curTransmit;
+                //if(curTransmit > 0.001) curColor += color * ((t - 1) * (s1 - s2) / log(t) + s1 - s2 * t);
+                //else curColor += color * s1;
             }
         }
         else
