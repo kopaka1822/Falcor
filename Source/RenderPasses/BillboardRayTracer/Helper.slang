@@ -290,22 +290,18 @@ float4 shade(ShadingData sd, bool useBillboardDepth = false, float3 secondShadow
         [branch] if(useBillboardDepth && (i == 0))
         {
             float3 color = evalMaterial(sd, l, 1.0).color;
-            if(i == 0)
+            float shadowSum = 0.0;
+            float scale = 1.0 / (BILLBOARD_SHADOW_SAMPLES - 1);
+            for(uint j = 0; j < BILLBOARD_SHADOW_SAMPLES; ++j)
             {
-                curColor += color * max(TraceShadowRay((sd.posW + secondShadowPos) * 0.5, l), 0.2);
-                //float s1 = max(TraceShadowRay(sd.posW, l), 0.0);
-                //float s2 = max(TraceShadowRay(secondShadowPos, l), 0.0);
-                //curColor += (s1 + s2) * 0.5 * color;
-                //curColor += s1 * color;
-                //float t = curTransmit;
-                //if(curTransmit > 0.001) curColor += color * ((t - 1) * (s1 - s2) / log(t) + s1 - s2 * t);
-                //else curColor += color * s1;
+                shadowSum += TraceShadowRay(lerp(sd.posW, secondShadowPos, j * scale), l);
             }
+            curColor += color * (shadowSum / BILLBOARD_SHADOW_SAMPLES);
         }
         else
         {
             float shadowFac = 1.0;
-            if(i == 0) shadowFac = max(TraceShadowRay(sd.posW, l), 0.2);
+            if(i == 0) shadowFac = TraceShadowRay(sd.posW, l);
             curColor += evalMaterial(sd, l, shadowFac).color;
         }
     }

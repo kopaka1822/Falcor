@@ -74,7 +74,7 @@ private:
     bool                        mSoftParticles = true;
     bool                        mShadows = true;
     bool                        mRandomColors = false;
-    bool                        mDeepBillboardSamples = false;
+    int                         mDeepBillboardSamples = 1;
 
     // Ray tracing program.
     struct

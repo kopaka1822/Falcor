@@ -57,16 +57,16 @@ float TraceShadowRay(float3 origin, LightData l)
             const float rayTIn = max(ray.TMin, rayT - w);
             const float ds = min(ray.TMax, rayT + w) - rayTIn;
             if(ds <= 0.0) continue;
-            
+            // hard coded opacity
             transmit *= pow(0.3, (1 - (d / r)) * (0.5 * ds / r));
         }
 
-        if(transmit < TRANSMIT_EPSILON)
+        if(transmit <= SHADOW_MIN)
         {
             q.Abort();
             break;
         }
     }
 
-    return transmit;
+    return max(transmit, SHADOW_MIN);
 }
