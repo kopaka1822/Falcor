@@ -38,6 +38,7 @@
   <ItemGroup>
     <ShaderSource Include="BillboardRayTracer.rt.slang" />
     <ShaderSource Include="Helper.slang" />
+    <ShaderSource Include="RayDifferentials.slang" />
     <ShaderSource Include="Shadow.slang" />
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">

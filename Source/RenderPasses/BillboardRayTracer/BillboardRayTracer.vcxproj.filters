@@ -10,5 +10,6 @@
     <ShaderSource Include="BillboardRayTracer.rt.slang" />
     <ShaderSource Include="Helper.slang" />
     <ShaderSource Include="Shadow.slang" />
+    <ShaderSource Include="RayDifferentials.slang" />
   </ItemGroup>
 </Project>

@@ -29,7 +29,6 @@
 #include "Utils/Math/MathConstants.slangh"
 #include "Scene/Material/MaterialDefines.slangh"
 #include "Scene/Lights/Lights.slang"
-//#include "RenderPasses/Shared/PathTracer/RayFootprint.slang"
 
 import Scene.Raytracing;
 import Utils.Math.MathHelpers;
@@ -46,35 +45,41 @@ import RenderPasses.Shared.PathTracer.RayFootprintData;
 #define REFLECT_EPSILON 0.001
 #define SHADOW_MIN 0.2
 
-struct BoxIntersectionAttributes
-{
-    int aabbOffset;
-};
-
-#include "Helper.slang"
-#include "Shadow.slang"
-
 cbuffer CB
 {
-    uint        gFrameCount;        // Frame count since scene was loaded.
+    uint gFrameCount; // Frame count since scene was loaded.
 }
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
 
+// Default ray payload
 struct RayPayload
 {
     PackedHitInfo hit;
     float depth;
 };
 
-/** ********************* Ray index 0 ************************ */
+// Payload for spherical billboards
+struct BillboardPayload
+{
+    float3 colorSum;
+    float alphaSum;
+    float transmit;
+    float rayTMax;
+    RayFootprint footprint; // up to 12 floats
+};
+
+
+#include "Helper.slang" // contains general helper function to retrieve billboard vertex data, billboard tangent plane and shading related data
+#include "Shadow.slang" // contains the trace shadow ray function (should be replaced with shadow maps for real-time)
+#include "RayDifferentials.slang" // contains helper functions to modify the ray differentials and filtered shading textures
+
+
+/****** Triangle Hit Shaders ******/
 
 [shader("miss")]
-void miss(inout RayPayload rayData : SV_RayPayload)
-{
-    
-}
+void miss(inout RayPayload rayData : SV_RayPayload) {}
 
 [shader("anyhit")]
 void triangleAnyHit(
@@ -101,9 +106,12 @@ void triangleClosestHit(
     rayData.hit = hit.encode();
 }
 
-/***************** Billboards *****************/
 
-
+/****** Billboard Hit Shaders ******/
+struct BoxIntersectionAttributes
+{
+    int aabbOffset;
+};
 
 [shader("intersection")]
 void boxIntersect()
@@ -121,7 +129,7 @@ void boxIntersect()
         const bool round = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
     
         // billboard plane base
-        const float3x3 planeBase = GetBillboardPlane(normalize(WorldRayOrigin() - P), yAlign);
+        const float3x3 planeBase = GetBillboardTangentSpace(normalize(WorldRayOrigin() - P), yAlign);
         // ray origin and direction in plane space
         const float3 d = mul(planeBase, WorldRayDirection());
         const float3 origin = mul(planeBase, WorldRayOrigin() - P);
@@ -159,7 +167,7 @@ void boxIntersect()
 }
 
 [shader("anyhit")]
-void boxAnyHit(inout VolumePayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
+void boxAnyHit(inout BillboardPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
 #if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
     // do color computation here
@@ -196,12 +204,14 @@ void boxClosestHit(inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttr
     rayData.hit = hit.encode();
 }
 
+/****** Ray Kernel for Bilboards ******/
+
 #if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
 
 void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayFootprint footprint)
 {
     // trace single ray and handle everything in any-hit shaders
-    VolumePayload volumePayload;
+    BillboardPayload volumePayload;
     volumePayload.footprint = footprint;
     volumePayload.rayTMax = ray.TMax;
     volumePayload.colorSum = 0.0;
@@ -250,6 +260,7 @@ void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayF
 
 #endif
 
+/****** Ray Generation ******/
 [shader("raygeneration")]
 void rayGen()
 {
