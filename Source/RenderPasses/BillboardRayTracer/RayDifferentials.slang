@@ -15,11 +15,9 @@ extension RayFootprint
     }
 
     [mutating]
-    void hitSurface(inout VertexData v, float3 rayOrg, float3 rayDir)
+    void hitSurface(inout VertexData v, float rayT, float3 rayDir)
     {
-        // Propagate to hit point.
-        float hitT = length(v.posW - rayOrg);
-        this.rayDiff = this.rayDiff.propagate(rayOrg, rayDir, hitT, v.faceNormalW);   // Propagate the ray differential to the current hit point.
+        this.rayDiff = this.rayDiff.propagate(rayDir, rayT, v.faceNormalW);   // Propagate the ray differential to the current hit point.
     }
 
     [mutating]
@@ -28,13 +26,11 @@ extension RayFootprint
         this.rayDiff = this.rayDiff.propagateSphere(rayOrg, rayDir, sphereCenter, sphereRadius);   // Propagate the ray differential to the current hit point.
     }
 
-    ShadingData computeShadingData(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float3 rayOrg, float3 rayDir)
+    ShadingData computeShadingData(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float rayT, float3 rayDir)
     {
-        float hitT = length(v.posW - rayOrg);
-
         // Get hit point adapted parameters.
         float2 dUVdx, dUVdy;    // Ray differential variables for the texture lookup.
-        prepareRayDiffAtHitPoint(v, triangleVertices, hit.getBarycentricWeights(), rayDir, hitT, gScene.getWorldMatrix(hit.instanceID), gScene.getInverseTransposeWorldMatrix(hit.instanceID),
+        prepareRayDiffAtHitPoint(v, triangleVertices, hit.getBarycentricWeights(), rayDir, rayT, gScene.getWorldMatrix(hit.instanceID), gScene.getInverseTransposeWorldMatrix(hit.instanceID),
             this.rayDiff, dUVdx, dUVdy);
 
         // Compute shading data.
@@ -119,7 +115,7 @@ extension RayFootprint
     }
 
     [mutating]
-    void hitSurface(inout VertexData v, float3 rayOrg, float3 rayDir)
+    void hitSurface(inout VertexData v, float rayT, float3 rayDir)
     {
     }
 
@@ -133,7 +129,7 @@ extension RayFootprint
     {
     }
 
-    ShadingData computeShadingData(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float3 rayOrg, float3 rayDir)
+    ShadingData computeShadingData(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float rayT, float3 rayDir)
     {
         const uint materialID = gScene.getMaterialID(hit.instanceID);
         return prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -rayDir, 0.f);
@@ -157,9 +153,9 @@ extension RayFootprint
    \param[in] rayDir Ray direction.
    \return Shading data computed at hit point.
 */
-ShadingData prepareShadingData(VertexData v, RayFootprint rayFootprint, StaticVertexData triangleVertices[3], HitInfo hit, float3 rayOrg, float3 rayDir)
+ShadingData prepareShadingData(VertexData v, RayFootprint rayFootprint, StaticVertexData triangleVertices[3], HitInfo hit, float rayT, float3 rayDir)
 {
-    return rayFootprint.computeShadingData(v, triangleVertices, hit, rayOrg, rayDir);
+    return rayFootprint.computeShadingData(v, triangleVertices, hit, rayT, rayDir);
 }
 
 static const float3 gRandomColors[] = {float3(1.0, 0, 0), float3(1.0, 0.1, 0.9), float3(0.1, 1, 0.1), float3(0, 1.0, 0.95), float3(1.0, 0.95, 0.0), float3(0.1, 0.1, 1)};

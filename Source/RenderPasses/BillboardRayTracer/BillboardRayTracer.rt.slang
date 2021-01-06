@@ -66,8 +66,8 @@ struct BillboardPayload
     float3 colorSum;
     float alphaSum;
     float transmit;
-    float rayTMax;
-    RayFootprint footprint; // up to 12 floats
+    float rayTMax; // 6 floats until here
+    RayFootprint footprint; // up to 12 floats for RayDiffs
 };
 
 
@@ -245,8 +245,9 @@ void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayF
 
         VertexData v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Direction, volumePayload.depth, prevRayMin, ray.TMax);
 
+        float travelledDistance = volumePayload.depth - prevRayMin;
         RayFootprint volumeFootprint = footprint; // copy footprint and transfer to hit surface
-        volumeFootprint.hitSurface(v, /*reconstruct original ray origin*/ ray.Origin + prevRayMin * ray.Direction, ray.Direction); // transfer to surface
+        volumeFootprint.hitSurface(v, travelledDistance, ray.Direction); // transfer to surface
         ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumeHit.primitiveIndex, ray.Origin, ray.Direction);
         float4 curColor = shade(sd);
 
@@ -266,15 +267,12 @@ void rayGen()
 {
     uint2 launchIndex = DispatchRaysIndex().xy;
     uint2 launchDim = DispatchRaysDimensions().xy;
-
-    // primary ray
     RayDesc ray = gScene.camera.computeRayPinhole(launchIndex, launchDim).toRayDesc();
-    ray.TMin = 0.0;
-    RayFootprint footprint = RayFootprint.create(launchIndex, launchDim);
+    ray.TMin = 0.0; // set to 0 to make handling with ray differentials and origin correction somewhat easier
+    RayFootprint footprint = RayFootprint.create(launchIndex, launchDim); // init ray differential
 
-    //footprint.create();
-    float3 color = 0.0;
-    float transmit = 1.0;
+    float3 color = 0.0; // color sum
+    float transmit = 1.0; // current visibility
 
     uint iteration = 0;
     do
@@ -289,21 +287,23 @@ void rayGen()
 
         // handle billboards
         ray.TMax = trianglePayload.depth; // set max range for billboard ray
-        traceBillboards(color, transmit, ray, footprint);
+        traceBillboards(color, transmit, ray, footprint); // updates color and transmittance based on encountered billboards
 
-        // evaluate triangle geometry
+        // evaluate triangle geometry (shading was deferred to ray generation shader)
         HitInfo hit;
         if(transmit <= TRANSMIT_EPSILON || !hit.decode(trianglePayload.hit)) break;
       
         // unpack hit data 
         StaticVertexData triangleVertices[3];
         VertexData v = gScene.getVertexData(hit, triangleVertices);
-        uint materialID = gScene.getMaterialID(hit.instanceID);
+        const uint materialID = gScene.getMaterialID(hit.instanceID);
 
-        // transfer ray differentials and get shading data
-        footprint.hitSurface(v, /*reconstruct original ray origin*/ ray.Origin + ray.TMin * ray.Direction, ray.Direction);
-        ShadingData sd = prepareShadingData(v, footprint, triangleVertices, hit, /*reconstruct original ray origin*/ ray.Origin + ray.TMin * ray.Direction, ray.Direction);
-        float4 curColor = shade(sd);
+        // transfer ray differentials and get shading data:
+        // compute the travelled distance: When the ray origin correction is used, the ray distance must be subtracted from ray.TMin
+        const float travelledDistance = trianglePayload.depth - ray.TMin;
+        footprint.hitSurface(v, travelledDistance, ray.Direction); // transfer ray differentials onto surface
+        ShadingData sd = prepareShadingData(v, footprint, triangleVertices, hit, travelledDistance, ray.Direction);
+        float4 curColor = shade(sd); // rgb = (pre-multiplied) color, a = transmittance (1 - alpha)
 
         color += transmit * curColor.rgb;
 
@@ -311,36 +311,38 @@ void rayGen()
         bool isTransmittive = (curColor.a * transmit > TRANSMIT_EPSILON);
         bool isInternalReflection = sd.eta > 1.0 && sd.eta * sd.eta * (1.0 - dot(sd.N, sd.V) * dot(sd.N, sd.V)) >= 1.0;
         bool isReflective = dot(sd.specular, 0.33) * transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
-        const float3 reflected = reflect(ray.Direction, sd.N);
+        const float3 reflected = reflect(ray.Direction, sd.N); // reflected ray direction
 
-        if(isTransmittive) // transmit ray
+        if(isTransmittive) // prefer transmission over reflections
         {
             if(isReflective) // envmap lookup for reflection
                 color += transmit * sd.specular * gScene.envMap.eval(reflected);
         
-            transmit *= curColor.a;
+            transmit *= curColor.a; // update visibility
             float3 refracted = ray.Direction;
             if(sd.IoR != 1.0 && !isInternalReflection) // workaround for internal reflection that looks good and is not too expensive (avoids back and forth bounces)
                 refracted = refract(ray.Direction, sd.N, sd.eta);
+            // update ray differentials
             footprint.bounceOnSurface(v, triangleVertices, hit, sd.N, ray.Direction, refracted, true);
             ray.Direction = refracted;
-            if(USE_REFRACTION_CORRECTION) {
+            if(USE_REFRACTION_CORRECTION) { // apply ray origin correction for billboards
                 ray.Origin = sd.computeNewRayOrigin(false) - refracted * trianglePayload.depth;
                 ray.TMin = trianglePayload.depth;
-            } else {
+            } else { // cast new ray from intersection point
                 ray.Origin = sd.computeNewRayOrigin(false);
                 ray.TMin = 0.0;
             }
         }
         else if(isReflective) // reflect ray
         {
-            transmit *= dot(sd.specular, 0.33);
+            transmit *= dot(sd.specular, 0.33); // update visibility
+            // update ray differentials
             footprint.bounceOnSurface(v, triangleVertices, hit, sd.N, ray.Direction, reflected, false);
             ray.Direction = reflected;
-            if(USE_REFLECTION_CORRECTION) {
+            if(USE_REFLECTION_CORRECTION) { // apply ray origin correction for billboards
                 ray.Origin = sd.computeNewRayOrigin() - reflected * trianglePayload.depth;
                 ray.TMin = trianglePayload.depth;
-            } else {
+            } else { // cast new ray from intersection point
                 ray.Origin = sd.computeNewRayOrigin();
                 ray.TMin = 0.0;
             }
@@ -348,7 +350,7 @@ void rayGen()
         else transmit = 0.0; // stop tracing rays
     } while(++iteration < 16 && transmit > TRANSMIT_EPSILON);
 
-    if(transmit > TRANSMIT_EPSILON) // sample environment map
+    if(transmit > TRANSMIT_EPSILON) // sample environment map (miss)
     {
         color += transmit * gScene.envMap.eval(ray.Direction);
     }
