@@ -50,15 +50,14 @@ float TraceShadowRay(float3 origin, LightData l)
             const float3 P = bbox.center();
 
             const float r = 0.5 * dim.x;
-            const float rayT = dot(ray.Direction, P - ray.Origin);
-            const float d = length(ray.Origin + rayT * ray.Direction - P);
-            if(d >= r) continue; // no hit
-            const float w = sqrt(r * r - d * d);
-            const float rayTIn = max(ray.TMin, rayT - w);
-            const float ds = min(ray.TMax, rayT + w) - rayTIn;
+            const float t = dot(ray.Direction, P - ray.Origin);
+            const float l = length(ray.Origin + t * ray.Direction - P);
+            if(l >= r) continue; // no hit
+            const float w = sqrt(r * r - l * l);
+            const float ds = min(ray.TMax, t + w) - max(ray.TMin, t - w);
             if(ds <= 0.0) continue;
             // hard coded opacity
-            transmit *= pow(0.3, (1 - (d / r)) * (0.5 * ds / r));
+            transmit *= pow(0.3, (1 - (l / r)) * (0.5 * ds / r));
         }
 
         if(transmit <= SHADOW_MIN)

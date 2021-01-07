@@ -69,16 +69,16 @@ VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, fl
 
     // determine depth
     const float r = 0.5 * dim.x;
-    const float rayT = dot(rayDirection, P - rayOrigin); // rayT to closest point inside billboard
-    const float d = length(rayOrigin + rayT * rayDirection - P); // smallest distance
-    const float w = sqrt(r * r - d * d);
-    const float ds = min(rayTMax, rayT + w) - rayTCurrent;
+    const float t = dot(rayDirection, P - rayOrigin); // rayT to closest point inside billboard
+    const float l = length(rayOrigin + t * rayDirection - P); // smallest distance
+    const float w = sqrt(r * r - l * l);
+    const float ds = min(rayTMax, t + w) - rayTCurrent;
 
     // fill out vertex data
     v.billboardDepth = ds;
-    v.billboardStrength = (1.0 - (d / r)) * (ds / (2.0 * r));
+    v.billboardStrength = (1.0 - (l / r)) * (ds / (2.0 * r));
     v.posW = rayOrigin + rayDirection * rayTCurrent; // closest entry point
-    v.normalW = normalize(rayOrigin + rayDirection * (rayT - w) - P); // direction to unclipped entry point (for consistent texture coordinates when traversing)
+    v.normalW = normalize(rayOrigin + rayDirection * (t - w) - P); // direction to unclipped entry point (for consistent texture coordinates when traversing)
     v.texC.x = v.normalW.x == 0.0 ? 0.25 * sign(v.normalW.z) : atan2(v.normalW.z, v.normalW.x) / (2.0 * M_PI);
     v.texC.y = acos(v.normalW.y) / M_PI;
     v.texC.x += aabbOffset * 0.172; // give each bilboard a random texture rotation

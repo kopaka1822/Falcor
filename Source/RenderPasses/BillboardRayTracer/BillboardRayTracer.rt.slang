@@ -153,12 +153,12 @@ void boxIntersect()
     } break;
     case BILLBOARD_TYPE_SPHERICAL: {
         const float r = 0.5 * dim.x;
-        const float rayT = dot(WorldRayDirection(), P - WorldRayOrigin());
-        const float d = length(WorldRayOrigin() + rayT * WorldRayDirection() - P);
-        if(d >= r) return;
-        const float w = sqrt(r * r - d * d);
-        const float rayTIn = max(RayTMin(), rayT - w);
-        const float ds = min(/*TMax*/ RayTCurrent(), rayT + w) - rayTIn;
+        const float t = dot(WorldRayDirection(), P - WorldRayOrigin());
+        const float l = length(WorldRayOrigin() - P + t * WorldRayDirection());
+        if(l >= r) return;
+        const float w = sqrt(r * r - l * l);
+        const float rayTIn = max(RayTMin(), t - w);
+        const float ds = min(/*TMax*/ RayTCurrent(), t + w) - rayTIn;
         if(ds <= 0.0) return;
 
         BoxIntersectionAttributes attribs;
