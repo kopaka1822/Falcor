@@ -179,7 +179,7 @@ void boxAnyHit(inout BillboardPayload rayData : SV_RayPayload, BoxIntersectionAt
     const AABB bbox = gScene.proceduralPrimitiveAABBs[attribs.aabbOffset];
     volumeFootprint.hitSphere(/*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection(), bbox.center(), 0.5 * bbox.extent().x); // transfer to surface
     ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
-    float4 curColor = shade(sd, BILLBOARD_SHADOW_SAMPLES > 1, v.billboardDepth, v.billboardStrength);
+    float4 curColor = shade(sd, BILLBOARD_SHADOW_SAMPLES > 1, v.billboardDepth);
 
     // do color accumulation as in weighted-blended OIT
     float alpha = 1.0 - curColor.a;
@@ -254,7 +254,9 @@ void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayF
         RayFootprint volumeFootprint = footprint; // copy footprint and transfer to hit surface
         volumeFootprint.hitSurface(v, travelledDistance, ray.Direction); // transfer to surface
         ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumeHit.primitiveIndex, ray.Origin, ray.Direction);
-        float4 curColor = shade(sd); // rgb = (pre-multiplied) color, a = transmittance (1 - alpha)
+        //float4 curColor = shade(sd); // rgb = (pre-multiplied) color, a = transmittance (1 - alpha)
+        float4 curColor = shade(sd, BILLBOARD_SHADOW_SAMPLES > 1, v.billboardDepth, v.billboardDepth * 0.5);
+
 
         color += transmit * curColor.rgb; // update color
         transmit *= curColor.a; // update visibility

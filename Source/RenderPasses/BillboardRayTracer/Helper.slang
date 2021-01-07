@@ -53,6 +53,7 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
     v.tangentW.w = 1.0;
     v.faceNormalW = planeBase[2];
     v.coneTexLODValue = 0.0;
+    v.billboardDepth = (dim.x * 0.5 - length(P - v.posW)) * 2.0; // for soft shadows
 
     return v;
 }
@@ -93,7 +94,7 @@ VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, fl
 
 // simple shading function that iterates though all lights and traces shadow rays for the primary light source
 // returns rgb color and transmittance (in alpha channel)
-float4 shade(ShadingData sd, bool useBillboardDepth = false, float billboardDepth = 0.0, float billboardStrength = 0.0)
+float4 shade(ShadingData sd, bool useBillboardDepth = false, float billboardDepth = 0.0, float billboardOffset = 0.0)
 {
     float3 curColor = sd.emissive;
     const float curTransmit = 1.0 - sd.opacity;
@@ -113,7 +114,7 @@ float4 shade(ShadingData sd, bool useBillboardDepth = false, float billboardDept
             float scale = 1.0 / (nSamples - 1);
             for(uint j = 0; j < nSamples; ++j)
             {
-                shadowSum += TraceShadowRay(sd.posW - sd.V * billboardDepth * j * scale, l);
+                shadowSum += TraceShadowRay(sd.posW - sd.V * (billboardDepth * j * scale - billboardOffset), l);
             }
             curColor += color * (shadowSum / nSamples);
         }

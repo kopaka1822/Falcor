@@ -227,7 +227,7 @@ void BillboardRayTracer::renderUI(Gui::Widgets& widget)
     if (mBillboardType == (uint)BillboardType::Particle &&
         widget.checkbox("Soft particles", mSoftParticles)) dirty = true;
 
-    if (mBillboardType == (uint)BillboardType::Spherical)
+    if (mBillboardType != (uint)BillboardType::Impostor)
     {
         //if(widget.checkbox("Deep billboard samples", mDeepBillboardSamples)) dirty = true;
         if (widget.var("Deep shadow samples", mDeepBillboardSamples, 1, 32)) dirty = true;
