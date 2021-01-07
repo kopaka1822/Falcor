@@ -179,7 +179,7 @@ void boxAnyHit(inout BillboardPayload rayData : SV_RayPayload, BoxIntersectionAt
     const AABB bbox = gScene.proceduralPrimitiveAABBs[attribs.aabbOffset];
     volumeFootprint.hitSphere(/*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection(), bbox.center(), 0.5 * bbox.extent().x); // transfer to surface
     ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
-    float4 curColor = shade(sd, BILLBOARD_SHADOW_SAMPLES > 1, WorldRayOrigin() + (RayTCurrent() + v.billboardDepth) * WorldRayDirection());
+    float4 curColor = shade(sd, BILLBOARD_SHADOW_SAMPLES > 1, v.billboardDepth, v.billboardStrength);
 
     // do color accumulation as in weighted-blended OIT
     float alpha = 1.0 - curColor.a;

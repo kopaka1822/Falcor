@@ -93,7 +93,7 @@ VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, fl
 
 // simple shading function that iterates though all lights and traces shadow rays for the primary light source
 // returns rgb color and transmittance (in alpha channel)
-float4 shade(ShadingData sd, bool useBillboardDepth = false, float3 secondShadowPos = float3(0, 0, 0))
+float4 shade(ShadingData sd, bool useBillboardDepth = false, float billboardDepth = 0.0, float billboardStrength = 0.0)
 {
     float3 curColor = sd.emissive;
     const float curTransmit = 1.0 - sd.opacity;
@@ -109,12 +109,13 @@ float4 shade(ShadingData sd, bool useBillboardDepth = false, float3 secondShadow
             // obtain #BILLBOARD_SHADOW_SAMPLES shadow ray samples
             // Note: only for visualization purposes, please use fourier opacity maps or something similar in a real-time context
             float shadowSum = 0.0;
-            float scale = 1.0 / (BILLBOARD_SHADOW_SAMPLES - 1);
-            for(uint j = 0; j < BILLBOARD_SHADOW_SAMPLES; ++j)
+            const uint nSamples = BILLBOARD_SHADOW_SAMPLES;
+            float scale = 1.0 / (nSamples - 1);
+            for(uint j = 0; j < nSamples; ++j)
             {
-                shadowSum += TraceShadowRay(lerp(sd.posW, secondShadowPos, j * scale), l);
+                shadowSum += TraceShadowRay(sd.posW - sd.V * billboardDepth * j * scale, l);
             }
-            curColor += color * (shadowSum / BILLBOARD_SHADOW_SAMPLES);
+            curColor += color * (shadowSum / nSamples);
         }
         else
         {
