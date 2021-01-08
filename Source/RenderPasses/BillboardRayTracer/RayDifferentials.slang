@@ -2,6 +2,17 @@
 #include "RenderPasses/Shared/PathTracer/RayFootprintModes.slangh"
 #if (RAY_FOOTPRINT_MODE == RAY_FOOTPRINT_MODE_RAYDIFFS_ANISO)
 
+bool SolveLinearSystem2x2(float2x2 A, float2 B, out float2 x) {
+    float det = A[0][0] * A[1][1] - A[0][1] * A[1][0];
+    if (abs(det) < 1e-10f)
+        return false;
+    x[0] = (A[1][1] * B[0] - A[0][1] * B[1]) / det;
+    x[1] = (A[0][0] * B[1] - A[1][0] * B[0]) / det;
+    if (isnan(x[0]) || isnan(x[1]))
+        return false;
+    return true;
+}
+
 extension RayFootprint
 {
     static RayFootprint create(uint2 pixel, uint2 frameDim)
@@ -49,20 +60,47 @@ extension RayFootprint
         // reconstruct billboard plane
         const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbIndex];
         const float2 dim = bbox.extent().xy;
+        const float r = dim.x * 0.5;
         const float3 P = bbox.center();
         const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
 
         float2 dUVdx, dUVdy;    // Ray differential variables for the texture lookup.
         if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL)
         {
-            const float3 d = v.normalW;
-            float3 dNdx = this.rayDiff.dOdx / dim.x;
-            float3 dNdy = this.rayDiff.dOdy / dim.x;
+            // from pbrt http://www.pbr-book.org/3ed-2018/Texture/Sampling_and_Antialiasing.html#FindingtheTextureSamplingRate
+            const float3 n = v.normalW;
+            const float2 uv = v.texC;
+            int dim[2];
+            if(abs(n.x) > abs(n.y) && abs(n.x) > abs(n.z)) {
+                dim[0] = 1; dim[1] = 2;
+            } else if (abs(n.y) > abs(n.z)) {
+                dim[0] = 0; dim[1] = 2;
+            } else {
+                dim[0] = 0; dim[1] = 1;
+            }
 
-            dUVdx.x = (-d.z * dNdx.x  + d.x * dNdx.z) / (2.0 * M_PI * (d.x * d.x + d.z * d.z));
-            dUVdx.y = -dNdx.y / (sqrt(1.0 - d.y * d.y) * M_PI);
-            dUVdy.x = (-d.z * dNdy.x  + d.x * dNdy.z) / (2.0 * M_PI * (d.x * d.x + d.z * d.z));
-            dUVdy.y = -dNdy.y / (sqrt(1.0 - d.y * d.y) * M_PI);
+            // change of position per texture coordinate direction (UV-sphere)
+            float uOffset = M_PI - aabbIndex * 0.172 * 2.0 * M_PI;
+            const float3 dpdu = float3(
+                -sin(M_PI * uv.y) * 2.0 * M_PI * sin(2.0 * M_PI * uv.x + uOffset),
+                0.0,
+                sin(M_PI * uv.y) * 2.0 * M_PI * cos(2.0 * M_PI * uv.x + uOffset)) * r;
+            const float3 dpdv = float3(
+                M_PI * cos(M_PI * uv.y) * cos(2.0 * M_PI * uv.x + uOffset),
+                -M_PI * sin(M_PI * uv.y),
+                M_PI * cos(M_PI * uv.y) * sin(2.0 * M_PI * uv.x + uOffset)) * r;
+
+            float2x2 A;
+            A[0][0] = dpdu[dim[0]]; A[0][1] = dpdv[dim[0]];
+            A[1][0] = dpdu[dim[1]]; A[1][1] = dpdv[dim[1]];
+
+            float3 dx = this.rayDiff.dOdx;
+            float3 dy = this.rayDiff.dOdy;
+            float2 Bx = float2(this.rayDiff.dOdx[dim[0]], this.rayDiff.dOdx[dim[1]]);
+            float2 By = float2(this.rayDiff.dOdy[dim[0]], this.rayDiff.dOdy[dim[1]]);
+
+            if(!SolveLinearSystem2x2(A, Bx, dUVdx)) dUVdx = 0.0;
+            if(!SolveLinearSystem2x2(A, By, dUVdy)) dUVdy = 0.0;
         }
         else
         {
@@ -84,6 +122,7 @@ extension RayFootprint
         const uint materialID = BILLBOARD_MATERIAL_ID;
         // Use the dUVdx and dUVdy directly --> gives you anisotropic filtering.
         sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], viewDir, dUVdx, dUVdy);
+        //sd.diffuse = length(dUVdx);
 
         return sd;
     }

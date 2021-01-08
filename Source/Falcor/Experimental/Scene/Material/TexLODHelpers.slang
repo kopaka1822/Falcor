@@ -353,21 +353,23 @@ struct RayDiff
         float3 A = P + D * dot(C - P, D) - C;
         float t = dot(C - P, D) - sqrt(r * r - dot(A, A));
 
-        // return propagate(P, D, t, normalize(P + t * D - C));
+        // point on sphere and normal
+        float3 p = P + D * t;
+        float3 n = (p - C) / r;
+        // reconstructed differential ray
+        float3 rxOrigin = P + getdOdx();
+        float3 ryOrigin = P + getdOdy();
+        float3 rxDirection = D + getdDdx();
+        float3 ryDirection = D + getdDdy();
 
-        float3 dpdx = getdOdx() + t * getdDdx();    // Part of Igehy Equation 10
-        float3 dpdy = getdOdy() + t * getdDdy();
+        float d = -dot(n, p);
+        float tx = (-dot(n, rxOrigin) - d) / dot(n, rxDirection);
+        float ty = (-dot(n, ryOrigin) - d) / dot(n, ryDirection);
+        float3 px = rxOrigin + tx * rxDirection;
+        float3 py = ryOrigin + ty * ryDirection;
 
-        float3 dAdx = getdOdx() + getdDdx() * dot(C - P, D) + D * (-dot(getdOdx(), D) + dot(C - P, getdDdx()));
-        float3 dAdy = getdOdy() + getdDdy() * dot(C - P, D) + D * (-dot(getdOdy(), D) + dot(C - P, getdDdy()));
-        float dydx = -1.0 / sqrt(r * r - dot(A, A)) * dot(dAdx, A);
-        float dydy = -1.0 / sqrt(r * r - dot(A, A)) * dot(dAdy, A);
-
-        float dtdx = -dot(getdOdx(), D) + dot(C-P, getdDdx()) - dydx;
-        float dtdy = -dot(getdOdy(), D) + dot(C-P, getdDdy()) - dydy;
-
-        dpdx += D * dtdx;
-        dpdy += D * dtdy;
+        float3 dpdx = px - p;
+        float3 dpdy = py - p;
 
         return RayDiff.create(dpdx, dpdy, getdDdx(), getdDdy());
     }
