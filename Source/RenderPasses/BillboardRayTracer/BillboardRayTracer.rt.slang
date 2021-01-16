@@ -44,6 +44,7 @@ import RenderPasses.Shared.PathTracer.RayFootprintData;
 #define TRANSMIT_EPSILON 0.001
 #define REFLECT_EPSILON 0.001
 #define SHADOW_MIN 0.2
+#define AMBIENT_LIGHT 0.3
 
 cbuffer CB
 {

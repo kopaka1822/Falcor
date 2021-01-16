@@ -44,7 +44,7 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
         float blendScale = 4.0 / dim.x;
         float outFade = getSoftParticleContrast((rayTMax - rayTCurrent) * blendScale);
         float inFade = getSoftParticleContrast((rayTCurrent - rayTMin) * blendScale);
-        //float inFade = 1.0;
+        //inFade = 1.0;
         v.billboardStrength = min(outFade, inFade);
     }
 
@@ -126,7 +126,7 @@ float4 shade(ShadingData sd, bool useBillboardDepth = false, float billboardDept
             curColor += evalMaterial(sd, l, shadowFac).color;
         }
     }
-
+    curColor += sd.diffuse * AMBIENT_LIGHT;
     curColor *= sd.opacity;
     return float4(curColor, curTransmit);
 }
