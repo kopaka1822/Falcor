@@ -316,12 +316,13 @@ void rayGen()
 
         color += transmit * curColor.rgb;
 
+        // calc fresnel to see how much gets reflected/refracted
+        const float3 reflected = reflect(ray.Direction, sd.N); // reflected ray direction
+        const float3 F = fresnelSchlick(sd.specular, 1, saturate(dot(reflected, sd.N)));
+        curColor.a *= (1.0 - dot(F, 0.33)); // adjust fragment transmittance with fresnel
         // prepare next ray
         bool isTransmittive = (curColor.a * transmit > TRANSMIT_EPSILON);
         bool isInternalReflection = sd.eta > 1.0 && sd.eta * sd.eta * (1.0 - dot(sd.N, sd.V) * dot(sd.N, sd.V)) >= 1.0;
-        // calc fresnel to see how much gets reflected
-        const float3 reflected = reflect(ray.Direction, sd.N); // reflected ray direction
-        const float3 F = fresnelSchlick(sd.specular, 1, saturate(dot(reflected, sd.N)));
         bool isReflective = dot(F, 0.33) * transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
 
         if(isTransmittive) // prefer transmission over reflections
