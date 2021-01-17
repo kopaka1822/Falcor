@@ -39,6 +39,7 @@ import Scene.TextureSampler;
 import Scene.Material.MaterialData;
 import Scene.HitInfo;
 import RenderPasses.Shared.PathTracer.RayFootprintData;
+import Scene.Material.BRDF;
 
 // early out settings
 #define TRANSMIT_EPSILON 0.001
@@ -318,13 +319,15 @@ void rayGen()
         // prepare next ray
         bool isTransmittive = (curColor.a * transmit > TRANSMIT_EPSILON);
         bool isInternalReflection = sd.eta > 1.0 && sd.eta * sd.eta * (1.0 - dot(sd.N, sd.V) * dot(sd.N, sd.V)) >= 1.0;
-        bool isReflective = dot(sd.specular, 0.33) * transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
+        // calc fresnel to see how much gets reflected
         const float3 reflected = reflect(ray.Direction, sd.N); // reflected ray direction
+        const float3 F = fresnelSchlick(sd.specular, 1, saturate(dot(reflected, sd.N)));
+        bool isReflective = dot(F, 0.33) * transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
 
         if(isTransmittive) // prefer transmission over reflections
         {
             if(isReflective) // envmap lookup for reflection
-                color += transmit * sd.specular * gScene.envMap.eval(reflected);
+                color += F * transmit * gScene.envMap.eval(reflected);
         
             transmit *= curColor.a; // update visibility
             float3 refracted = ray.Direction;
@@ -343,7 +346,7 @@ void rayGen()
         }
         else if(isReflective) // reflect ray
         {
-            transmit *= dot(sd.specular, 0.33); // update visibility
+            transmit *= dot(F, 0.33); // update visibility
             // update ray differentials
             footprint.bounceOnSurface(v, triangleVertices, hit, sd.N, ray.Direction, reflected, false);
             ray.Direction = reflected;
