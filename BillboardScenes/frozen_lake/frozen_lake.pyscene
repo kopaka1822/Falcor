@@ -13,7 +13,20 @@ mat.doubleSided = True
 sceneBuilder.replaceMaterial(mat)
 
 mat = Material('snow')
-mat.loadTexture(MaterialTextureSlot.BaseColor, 'snow.jpg')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'snow.png')
+mat.roughness = 0.1
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('fence')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'fence.png')
+mat.roughness = 0.1
+mat.doubleSided = True
+mat.alphaMode = 0
+mat.indexOfRefraction = 1.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('metal')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'metal.jpg')
 mat.roughness = 0.1
 sceneBuilder.replaceMaterial(mat)
 
@@ -48,8 +61,8 @@ sceneBuilder.selectedCamera = camera
 # first row
 sceneBuilder.addBillboard(float3(2.912134, 0.04, 2.4), 0.3, 0.6)
 sceneBuilder.addBillboard(float3(3.456740, 0.05, 2.651742), 0.3, 0.6)
-sceneBuilder.addBillboard(float3(3.862442, 0.04, 2.704823), 0.3, 0.6)
-sceneBuilder.addBillboard(float3(4.260973, -0.02, 2.573748), 0.3, 0.6)
+sceneBuilder.addBillboard(float3(3.862442, 0.0, 2.404823), 0.3, 0.6)
+sceneBuilder.addBillboard(float3(4.160973, -0.02, 2.573748), 0.3, 0.6)
 # 2nd row
 sceneBuilder.addBillboard(float3(3.091180, 0.05, 3.006089), 0.3, 0.6)
 sceneBuilder.addBillboard(float3(3.687496, 0.07, 3.231226), 0.3, 0.6)
@@ -62,3 +75,6 @@ sceneBuilder.addBillboard(float3(4.197367, 0.04, 3.695770), 0.3, 0.6)
 sceneBuilder.addBillboard(float3(3.05, 0.04, 4.299580), 0.3, 0.6)
 sceneBuilder.addBillboard(float3(3.95, 0.03, 4.352522), 0.3, 0.6)
 sceneBuilder.addBillboard(float3(4.642100, 0.04, 4.401728), 0.3, 0.6)
+
+# test billboard on the lake
+# sceneBuilder.addBillboard(float3(3.456740, -0.05, 1.0), 0.3, 0.6)
