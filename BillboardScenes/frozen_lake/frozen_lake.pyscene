@@ -1,0 +1,64 @@
+# load scene settings
+sceneBuilder.importScene('frozen_lake.glb')
+sceneBuilder.envMap = EnvMap('StarSky.hdr');
+
+# set up material
+mat = Material('ice')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'lake.jpg')
+mat.loadTexture(MaterialTextureSlot.Normal, 'lake_normal.png')
+mat.roughness = 0.0
+mat.metallic = 0.0
+mat.indexOfRefraction = 1.45
+mat.doubleSided = True
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('snow')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'snow.jpg')
+mat.roughness = 0.1
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Impostor')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'tree2.png')
+mat.alphaMode = 1
+mat.indexOfRefraction = 1.0
+sceneBuilder.addMaterial(mat)
+
+# set up lights
+l = DirectionalLight('MainLight')
+l.intensity = float3(10.0, 10.0, 10.0)
+l.direction = float3(0.281, -0.880, 0.383)
+sceneBuilder.addLight(l)
+
+l = DirectionalLight('AmbientLightBack')
+l.intensity = float3(2.0, 2.0, 2.0)
+l.direction = float3(-0.62, 0.71, 0.31)
+sceneBuilder.addLight(l)
+
+# create camera
+camera = Camera('Camera0')
+camera.position = float3(1.583133, -0.192782, -2.766615)
+camera.target = float3(1.877412, -0.286655, -1.815517)
+camera.up = float3(0.0, 1.0, 0.0)
+camera.nearPlane = 0.1
+camera.farPlane = 50.0
+sceneBuilder.addCamera(camera)
+sceneBuilder.selectedCamera = camera
+
+# add billboards
+# first row
+sceneBuilder.addBillboard(float3(2.912134, 0.04, 2.4), 0.3, 0.6)
+sceneBuilder.addBillboard(float3(3.456740, 0.05, 2.651742), 0.3, 0.6)
+sceneBuilder.addBillboard(float3(3.862442, 0.04, 2.704823), 0.3, 0.6)
+sceneBuilder.addBillboard(float3(4.260973, -0.02, 2.573748), 0.3, 0.6)
+# 2nd row
+sceneBuilder.addBillboard(float3(3.091180, 0.05, 3.006089), 0.3, 0.6)
+sceneBuilder.addBillboard(float3(3.687496, 0.07, 3.231226), 0.3, 0.6)
+sceneBuilder.addBillboard(float3(4.604741, 0.04, 3.373385), 0.3, 0.6)
+# 3rd row
+sceneBuilder.addBillboard(float3(2.76, 0.11, 3.631087), 0.3, 0.6)
+sceneBuilder.addBillboard(float3(3.366131, 0.1, 3.479208), 0.3, 0.6)
+sceneBuilder.addBillboard(float3(4.197367, 0.04, 3.695770), 0.3, 0.6)
+# 4th row
+sceneBuilder.addBillboard(float3(3.05, 0.04, 4.299580), 0.3, 0.6)
+sceneBuilder.addBillboard(float3(3.95, 0.03, 4.352522), 0.3, 0.6)
+sceneBuilder.addBillboard(float3(4.642100, 0.04, 4.401728), 0.3, 0.6)
