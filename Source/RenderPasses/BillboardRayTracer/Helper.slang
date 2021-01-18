@@ -58,6 +58,16 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
     return v;
 }
 
+float2 CalcUVFromNormal(float3 n, uint aabbOffset)
+{
+    float2 uv;
+    uv.x = (n.x == 0.0 ? 0.25 * sign(n.z) : atan2(n.z, n.x) / (2.0 * M_PI)) + 0.5;
+    uv.y = acos(n.y) / M_PI;
+    uv = clamp(uv, 0.0, 1.0);
+    uv.x += aabbOffset * 0.172; // give each billboard a random texture rotation
+    return uv;
+}
+
 // Returns vertex data for spherical billboards
 VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayDirection, float rayTCurrent, float rayTMin, float rayTMax)
 {
@@ -80,10 +90,7 @@ VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, fl
     v.billboardStrength = (1.0 - (l / r)) * (ds / (2.0 * r));
     v.posW = rayOrigin + rayDirection * rayTCurrent; // closest entry point
     v.normalW = normalize(rayOrigin + rayDirection * (t - w) - P); // direction to unclipped entry point (for consistent texture coordinates when traversing)
-    v.texC.x = (v.normalW.x == 0.0 ? 0.25 * sign(v.normalW.z) : atan2(v.normalW.z, v.normalW.x) / (2.0 * M_PI)) + 0.5;
-    v.texC.y = acos(v.normalW.y) / M_PI;
-    v.texC = clamp(v.texC, 0.0, 1.0);
-    v.texC.x += aabbOffset * 0.172; // give each bilboard a random texture rotation
+    v.texC = CalcUVFromNormal(v.normalW, aabbOffset);
 
     // other vertex data
     v.tangentW = 0.0; // does not really matter

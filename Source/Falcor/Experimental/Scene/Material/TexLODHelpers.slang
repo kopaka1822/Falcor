@@ -352,19 +352,24 @@ struct RayDiff
     {
         float3 A = P + D * dot(C - P, D) - C;
         float t = dot(C - P, D) - sqrt(r * r - dot(A, A));
-
+        
         // point on sphere and normal
         float3 p = P + D * t;
         float3 n = (p - C) / r;
+
+        //return propagate(D, t, n);
         // reconstructed differential ray
         float3 rxOrigin = P + getdOdx();
         float3 ryOrigin = P + getdOdy();
         float3 rxDirection = D + getdDdx();
         float3 ryDirection = D + getdDdy();
 
-        float d = -dot(n, p);
-        float tx = (-dot(n, rxOrigin) - d) / dot(n, rxDirection);
-        float ty = (-dot(n, ryOrigin) - d) / dot(n, ryDirection);
+        // new rayt
+        float3 Ax = rxOrigin + rxDirection * dot(C - rxOrigin, rxDirection) - C;
+        float tx = dot(C - rxOrigin, rxDirection) - sqrt(r * r - dot(Ax, Ax));
+        float3 Ay = ryOrigin + ryDirection * dot(C - ryOrigin, ryDirection) - C;
+        float ty = dot(C - ryOrigin, ryDirection) - sqrt(r * r - dot(Ay, Ay));
+
         float3 px = rxOrigin + tx * rxDirection;
         float3 py = ryOrigin + ty * ryDirection;
 
