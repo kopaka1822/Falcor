@@ -80,15 +80,14 @@ extension RayFootprint
             }
 
             // change of position per texture coordinate direction (UV-sphere)
-            float uOffset = M_PI - aabbIndex * 0.172 * 2.0 * M_PI;
-            const float3 dpdu = float3(
-                -sin(M_PI * uv.y) * 2.0 * M_PI * sin(2.0 * M_PI * uv.x + uOffset),
-                0.0,
-                sin(M_PI * uv.y) * 2.0 * M_PI * cos(2.0 * M_PI * uv.x + uOffset)) * r;
-            const float3 dpdv = float3(
-                M_PI * cos(M_PI * uv.y) * cos(2.0 * M_PI * uv.x + uOffset),
-                -M_PI * sin(M_PI * uv.y),
-                M_PI * cos(M_PI * uv.y) * sin(2.0 * M_PI * uv.x + uOffset)) * r;
+            float theta = (uv.x - 0.5 - aabbIndex * 0.172) * 2.0 * M_PI;
+            float phi = M_PI * uv.y;
+            float sinphi = sin(phi);
+            float cosphi = cos(phi);
+            float sintheta = sin(theta);
+            float costheta = cos(theta);
+            const float3 dpdu = float3(-sinphi*sintheta,0.0,sinphi*costheta) * 2.0 * M_PI * r;
+            const float3 dpdv = float3(cosphi*costheta,-sinphi,cosphi*sintheta) * M_PI * r;
 
             float2x2 A;
             A[0][0] = dpdu[dim[0]]; A[0][1] = dpdv[dim[0]];
