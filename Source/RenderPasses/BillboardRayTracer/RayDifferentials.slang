@@ -71,48 +71,48 @@ extension RayFootprint
             const float3 n = v.normalW;
             const float2 uv = v.texC;
 
-            float3 A = rayOrg + rayDir * dot(P - rayOrg, rayDir) - P;
-            float t = dot(P - rayOrg, rayDir) - sqrt(r * r - dot(A, A));
-            float3 p = rayOrg + t * rayDir;
+            //float3 A = rayOrg + rayDir * dot(P - rayOrg, rayDir) - P;
+            //float t = dot(P - rayOrg, rayDir) - sqrt(r * r - dot(A, A));
+            //float3 p = rayOrg + t * rayDir;
+            //
+            //float3 px = p + this.rayDiff.dOdx;
+            //float3 py = p + this.rayDiff.dOdy;
+            //
+            //float3 nx = (px - P) / r;
+            //float3 ny = (py - P) / r;
+            //
+            //dUVdx = CalcUVFromNormal(nx, aabbIndex) - uv;
+            //dUVdy = CalcUVFromNormal(ny, aabbIndex) - uv;
+            int dim[2];
+            if(abs(n.x) > abs(n.y) && abs(n.x) > abs(n.z)) {
+                dim[0] = 1; dim[1] = 2;
+            } else if (abs(n.y) > abs(n.z)) {
+                dim[0] = 0; dim[1] = 2;
+            } else {
+                dim[0] = 0; dim[1] = 1;
+            }
             
-            float3 px = p + this.rayDiff.dOdx;
-            float3 py = p + this.rayDiff.dOdy;
+            // change of position per texture coordinate direction (UV-sphere)
+            float theta = (uv.x - 0.5 - aabbIndex * 0.172) * 2.0 * M_PI;
+            float phi = M_PI * uv.y;
+            float sinphi = sin(phi);
+            float cosphi = cos(phi);
+            float sintheta = sin(theta);
+            float costheta = cos(theta);
+            const float3 dpdu = float3(-sinphi*sintheta,0.0,sinphi*costheta) * 2.0 * M_PI * r;
+            const float3 dpdv = float3(cosphi*costheta,-sinphi,cosphi*sintheta) * M_PI * r;
             
-            float3 nx = (px - P) / r;
-            float3 ny = (py - P) / r;
+            float2x2 A;
+            A[0][0] = dpdu[dim[0]]; A[0][1] = dpdv[dim[0]];
+            A[1][0] = dpdu[dim[1]]; A[1][1] = dpdv[dim[1]];
             
-            dUVdx = CalcUVFromNormal(nx, aabbIndex) - uv;
-            dUVdy = CalcUVFromNormal(ny, aabbIndex) - uv;
-            //int dim[2];
-            //if(abs(n.x) > abs(n.y) && abs(n.x) > abs(n.z)) {
-            //    dim[0] = 1; dim[1] = 2;
-            //} else if (abs(n.y) > abs(n.z)) {
-            //    dim[0] = 0; dim[1] = 2;
-            //} else {
-            //    dim[0] = 0; dim[1] = 1;
-            //}
-            //
-            //// change of position per texture coordinate direction (UV-sphere)
-            //float theta = (uv.x - 0.5 - aabbIndex * 0.172) * 2.0 * M_PI;
-            //float phi = M_PI * uv.y;
-            //float sinphi = sin(phi);
-            //float cosphi = cos(phi);
-            //float sintheta = sin(theta);
-            //float costheta = cos(theta);
-            //const float3 dpdu = float3(-sinphi*sintheta,0.0,sinphi*costheta) * 2.0 * M_PI * r;
-            //const float3 dpdv = float3(cosphi*costheta,-sinphi,cosphi*sintheta) * M_PI * r;
-            //
-            //float2x2 A;
-            //A[0][0] = dpdu[dim[0]]; A[0][1] = dpdv[dim[0]];
-            //A[1][0] = dpdu[dim[1]]; A[1][1] = dpdv[dim[1]];
-            //
-            //float3 dx = this.rayDiff.dOdx;
-            //float3 dy = this.rayDiff.dOdy;
-            //float2 Bx = float2(this.rayDiff.dOdx[dim[0]], this.rayDiff.dOdx[dim[1]]);
-            //float2 By = float2(this.rayDiff.dOdy[dim[0]], this.rayDiff.dOdy[dim[1]]);
-            //
-            //if(!SolveLinearSystem2x2(A, Bx, dUVdx)) dUVdx = 0.0;
-            //if(!SolveLinearSystem2x2(A, By, dUVdy)) dUVdy = 0.0;
+            float3 dx = this.rayDiff.dOdx;
+            float3 dy = this.rayDiff.dOdy;
+            float2 Bx = float2(this.rayDiff.dOdx[dim[0]], this.rayDiff.dOdx[dim[1]]);
+            float2 By = float2(this.rayDiff.dOdy[dim[0]], this.rayDiff.dOdy[dim[1]]);
+            
+            if(!SolveLinearSystem2x2(A, Bx, dUVdx)) dUVdx = 0.0;
+            if(!SolveLinearSystem2x2(A, By, dUVdy)) dUVdy = 0.0;
         }
         else
         {
