@@ -122,7 +122,7 @@ void boxIntersect()
     const uint aabbOffset = gScene.proceduralPrimitives[GeometryIndex()].AABBOffset;
     const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
     const float2 dim = bbox.extent().xy; // w = dim.x, h = dim.y
-    const float3 P = bbox.center();
+    const float3 C = bbox.center();
 
     switch(BILLBOARD_TYPE)
     {
@@ -132,21 +132,21 @@ void boxIntersect()
         const bool particle = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
     
         // billboard plane base
-        const float3x3 planeBase = GetBillboardTangentSpace(normalize(WorldRayOrigin() - P), yAlign);
+        const float3x3 planeBase = GetBillboardTangentSpace(normalize(WorldRayOrigin() - C), yAlign);
         // ray origin and direction in plane space
         const float3 dp = mul(planeBase, WorldRayDirection());
-        const float3 Op = mul(planeBase, WorldRayOrigin() - P);
+        const float3 Op = mul(planeBase, WorldRayOrigin() - C);
     
         // ray intersection parameter:
 	    // Op + s * dp = (Xp.x, Xp.y, 0) with Xp = intersection point of plane
         const float s = -Op.z / dp.z;
         if(s <= RayTMin()) return; // use <= instead of < to avoid self intersection when casting a new ray (because we set ray.TMin = s before casting a new ray)
-        const float2 Xp = Op.xy + s * dp.xy;
+        const float2 Pp = Op.xy + s * dp.xy;
     
         // check if on plane
-        if(any(Xp < -0.5 * dim) || any(Xp > 0.5 * dim)) return;
+        if(any(Pp < -0.5 * dim) || any(Pp > 0.5 * dim)) return;
         // more general formula for particle test that also works with elliptical particles (dim.x/2 == r != dim.y/2)
-	    if(particle && (4.0 * Xp.x * Xp.x / (dim.x * dim.x) + 4.0 * Xp.y  * Xp.y  / (dim.y * dim.y) > 1.0)) return;
+	    if(particle && (4.0 * Pp.x * Pp.x / (dim.x * dim.x) + 4.0 * Pp.y  * Pp.y  / (dim.y * dim.y) > 1.0)) return;
     
         BoxIntersectionAttributes attribs;
         attribs.aabbOffset = aabbOffset;
@@ -155,8 +155,8 @@ void boxIntersect()
     } break;
     case BILLBOARD_TYPE_SPHERICAL: {
         const float r = 0.5 * dim.x;
-        const float t = dot(WorldRayDirection(), P - WorldRayOrigin());
-        const float l = length(WorldRayOrigin() - P + t * WorldRayDirection());
+        const float t = dot(WorldRayDirection(), C - WorldRayOrigin());
+        const float l = length(WorldRayOrigin() - C + t * WorldRayDirection());
         if(l >= r) return;
         const float w = sqrt(r * r - l * l);
         const float rayTIn = max(RayTMin(), t - w);

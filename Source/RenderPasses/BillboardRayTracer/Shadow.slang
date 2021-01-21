@@ -47,11 +47,11 @@ float TraceShadowRay(float3 origin, LightData l)
             const uint aabbOffset = gScene.proceduralPrimitives[q.CandidateGeometryIndex()].AABBOffset;
             const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
             const float2 dim = bbox.extent().xy;
-            const float3 P = bbox.center();
+            const float3 C = bbox.center();
 
             const float r = 0.5 * dim.x;
-            const float t = dot(ray.Direction, P - ray.Origin);
-            const float l = length(ray.Origin + t * ray.Direction - P);
+            const float t = dot(ray.Direction, C - ray.Origin);
+            const float l = length(ray.Origin + t * ray.Direction - C);
             if(l >= r) continue; // no hit
             const float w = sqrt(r * r - l * l);
             const float ds = min(ray.TMax, t + w) - max(ray.TMin, t - w);

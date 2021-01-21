@@ -27,17 +27,17 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
     VertexData v;
     const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
     const float2 dim = bbox.extent().xy;
-    const float3 P = bbox.center();
+    const float3 C = bbox.center();
 
     // billboard plane base
     const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
-    const float3x3 planeBase = GetBillboardTangentSpace(normalize(rayOrigin - P), yAlign);
+    const float3x3 planeBase = GetBillboardTangentSpace(normalize(rayOrigin - C), yAlign);
 
     // fill out important vertex data
     v.posW = rayOrigin + rayDirection * rayTCurrent;
     v.normalW = planeBase[2];
-    v.texC.x = dot(P - v.posW, planeBase[0]) / dim.x + 0.5;
-    v.texC.y = dot(P - v.posW, planeBase[1]) / dim.y + 0.5;
+    v.texC.x = dot(C - v.posW, planeBase[0]) / dim.x + 0.5;
+    v.texC.y = dot(C - v.posW, planeBase[1]) / dim.y + 0.5;
     v.billboardStrength = 1.0;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE && USE_SOFT_PARTICLES)
     {
@@ -53,7 +53,7 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
     v.tangentW.w = 1.0;
     v.faceNormalW = planeBase[2];
     v.coneTexLODValue = 0.0;
-    v.billboardDepth = (dim.x * 0.5 - length(P - v.posW)) * 2.0; // for soft shadows
+    v.billboardDepth = (dim.x * 0.5 - length(C - v.posW)) * 2.0; // for soft shadows
 
     return v;
 }
@@ -76,12 +76,12 @@ VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, fl
     // reconstruct billboard plane
     const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
     const float2 dim = bbox.extent().xy;
-    const float3 P = bbox.center();
+    const float3 C = bbox.center();
 
     // determine depth
     const float r = 0.5 * dim.x;
-    const float t = dot(rayDirection, P - rayOrigin); // rayT to closest point inside billboard
-    const float l = length(rayOrigin + t * rayDirection - P); // smallest distance
+    const float t = dot(rayDirection, C - rayOrigin); // rayT to closest point inside billboard
+    const float l = length(rayOrigin + t * rayDirection - C); // smallest distance
     const float w = sqrt(r * r - l * l);
     const float ds = min(rayTMax, t + w) - rayTCurrent;
 
@@ -89,7 +89,7 @@ VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, fl
     v.billboardDepth = ds;
     v.billboardStrength = (1.0 - (l / r)) * (ds / (2.0 * r));
     v.posW = rayOrigin + rayDirection * rayTCurrent; // closest entry point
-    v.normalW = normalize(rayOrigin + rayDirection * (t - w) - P); // direction to unclipped entry point (for consistent texture coordinates when traversing)
+    v.normalW = normalize(rayOrigin + rayDirection * (t - w) - C); // direction to unclipped entry point (for consistent texture coordinates when traversing)
     v.texC = CalcUVFromNormal(v.normalW, aabbOffset);
 
     // other vertex data
