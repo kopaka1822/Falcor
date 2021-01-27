@@ -1,0 +1,119 @@
+# load scene settings
+sceneBuilder.importScene('cabin.glb')
+sceneBuilder.envMap = EnvMap('wobbly_bridge_4k.hdr')
+sceneBuilder.envMap.rotation = float3(0.0, 160.0, 0.0)
+sceneBuilder.envMap.intensity = 0.2
+
+# set up material
+mat = Material('Bark_01_Mat')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'T_Nature_Bark_01_Diff.png')
+mat.loadTexture(MaterialTextureSlot.Normal, 'T_Nature_Bark_01_Norm.png')
+mat.roughness = 1.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Bark_02_Mat')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'Foliage_Bark_01_Diffuse_01.png')
+mat.loadTexture(MaterialTextureSlot.Normal, 'Foliage_Bark_01_Normal_01.png')
+mat.roughness = 1.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Bricks_01_Mat')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'T_Buildings_Bricks_01_Diffuse_01.png')
+mat.loadTexture(MaterialTextureSlot.Normal, 'T_Buildings_Bricks_01_Normal_01.png')
+mat.roughness = 1.0
+mat.doubleSided = True
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Bushes01')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'Foliage_Bushes01_DiffuseMaska.tga')
+mat.doubleSided = True
+mat.indexOfRefraction = 1.0
+mat.alphaMode = 1
+mat.roughness = 1.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Glass_Window');
+mat.baseColor = float4(0.001, 0.001, 0.001, 0.1)
+mat.roughness = 0.0
+mat.metallic = 0.0
+mat.indexOfRefraction = 1.45
+mat.specularTransmission = 0.95
+mat.doubleSided = True
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Grass_01_Mat')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'Foliage_Grass01_DiffuseMask.tga')
+mat.doubleSided = True
+mat.indexOfRefraction = 1.0
+mat.alphaMode = 1
+mat.roughness = 1.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Ground_01_Mat')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'Ground_Mask_01a.png')
+mat.roughness = 1.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Leaves_01_Mat')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'Foliage_Leaves_01_DiffuseMask_01a.tga')
+mat.doubleSided = True
+mat.indexOfRefraction = 1.0
+mat.alphaMode = 1
+mat.roughness = 1.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('PlanksWood_01_Mat')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'T_Buildings_WoodPlanks_01_Diffuse_012.png')
+mat.loadTexture(MaterialTextureSlot.Normal, 'T_Buildings_WoodPlanks_01_Normal_01.png')
+mat.doubleSided = True
+mat.roughness = 1.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Props_01_Mat')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'T_Props_Tools_01_DiffuseMask_01.tga.png')
+mat.doubleSided = True
+mat.indexOfRefraction = 1.0
+mat.alphaMode = 1
+mat.roughness = 1.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('RoofPlanks_01_Mat')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'T_Buildings_WoodPlanks_02_Diffuse_01d.png')
+mat.loadTexture(MaterialTextureSlot.Normal, 'T_Buildings_WoodPlanks_02_Normal_01.png')
+mat.doubleSided = True
+mat.roughness = 1.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Spherical')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'smoke_sphere_dark.png')
+mat.indexOfRefraction = 1.0
+mat.doubleSided = True
+sceneBuilder.addMaterial(mat)
+
+# set up lights
+l = DirectionalLight('MainLight')
+l.intensity = float3(5.0, 5.0, 5.0)
+l.direction = float3(0.652, -0.467, -0.597)
+sceneBuilder.addLight(l)
+
+l = PointLight('Fire')
+l.intensity = float3(2.0, 0.2, 0.02)
+l.position = float3(1.727000, 1.888000, 1.444000)
+sceneBuilder.addLight(l)
+
+# create camera
+camera = Camera('Camera0')
+camera.position = float3(-0.209992, 2.269213, 4.504242)
+camera.target = float3(0.490456, 2.653592, 3.902889)
+camera.up = float3(0.0, 1.0, 0.0)
+camera.nearPlane = 0.1
+camera.farPlane = 100.0
+sceneBuilder.addCamera(camera)
+sceneBuilder.selectedCamera = camera
+
+# window (bottom up)
+sceneBuilder.addSmoke(float3(1.25, 2.0, 1.3), 1.0, 32)
+sceneBuilder.addSmoke(float3(1.25, 3.3, 2.05), 1.0, 32)
+sceneBuilder.addBillboard(float3(1.096157, 2.519734, 2.762482), 0.7, 0.7)
+sceneBuilder.addBillboard(float3(1.735726, 2.494461, 2.7), 0.7, 0.7)
+sceneBuilder.addSmoke(float3(1.1, 4.18, 2.86), 1.0, 30)

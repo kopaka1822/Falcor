@@ -93,7 +93,7 @@ extension RayFootprint
             }
             
             // change of position per texture coordinate direction (UV-sphere)
-            float theta = (uv.x - 0.5 - aabbIndex * 0.172) * 2.0 * M_PI;
+            float theta = (uv.x - 0.5 - aabbIndex * 0.912) * 2.0 * M_PI;
             float phi = M_PI * uv.y;
             float sinphi = sin(phi);
             float cosphi = cos(phi);
@@ -216,7 +216,7 @@ ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint,
     ShadingData sd = rayFootprint.computeBillboardShadingData(v, aabbIndex, rayOrg, rayDir);
     if(BILLBOARD_TYPE != BILLBOARD_TYPE_IMPOSTOR) sd.isVolume = true;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE) sd.opacity *= v.billboardStrength;
-    if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL && sd.opacity < 1.0) sd.opacity = 1.0 - pow(1.0 - sd.opacity, v.billboardStrength);
+    if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL && sd.opacity < 1.0) sd.opacity = clamp(1.0 - pow(1.0 - sd.opacity, v.billboardStrength), 0.0, 1.0);
     if(USE_RANDOM_BILLBOARD_COLORS)
     {
         sd.diffuse *= gRandomColors[aabbIndex % 6];

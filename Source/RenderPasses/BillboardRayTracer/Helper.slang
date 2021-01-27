@@ -41,7 +41,7 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
     v.billboardStrength = 1.0;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE && USE_SOFT_PARTICLES)
     {
-        float blendScale = 4.0 / dim.x;
+        float blendScale = 8.0 / dim.x;
         float outFade = getSoftParticleContrast((rayTMax - rayTCurrent) * blendScale);
         float inFade = getSoftParticleContrast((rayTCurrent - rayTMin) * blendScale);
         //inFade = 1.0;
@@ -64,7 +64,7 @@ float2 CalcUVFromNormal(float3 n, uint aabbOffset)
     uv.x = (n.x == 0.0 ? 0.25 * sign(n.z) : atan2(n.z, n.x) / (2.0 * M_PI)) + 0.5;
     uv.y = acos(n.y) / M_PI;
     uv = clamp(uv, 0.0, 1.0);
-    uv.x += aabbOffset * 0.172; // give each billboard a random texture rotation
+    uv.x += aabbOffset * 0.912; // give each billboard a random texture rotation
     return uv;
 }
 
