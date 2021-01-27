@@ -1544,7 +1544,7 @@ namespace Falcor
             {
                 D3D12_RAYTRACING_GEOMETRY_DESC& desc = blas.geomDescs[geomIndexOffset++];
                 desc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
-                desc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
+                desc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_NO_DUPLICATE_ANYHIT_INVOCATION;
 
                 desc.AABBs.AABBCount = 1; // Currently only one AABB per user-defined prim supported
                 desc.AABBs.AABBs.StartAddress = mpRtAABBBuffer->getGpuAddress() + bbAddressOffset;
