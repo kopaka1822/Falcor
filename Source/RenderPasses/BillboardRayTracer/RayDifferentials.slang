@@ -26,15 +26,18 @@ extension RayFootprint
     }
 
     [mutating]
-    void hitSurface(inout VertexData v, float rayT, float3 rayDir)
+    void hitSurface(VertexData v, float rayT, float3 rayDir)
     {
         this.rayDiff = this.rayDiff.propagate(rayDir, rayT, v.faceNormalW);   // Propagate the ray differential to the current hit point.
     }
 
     [mutating]
-    void hitSphere(float3 rayOrg, float3 rayDir, float3 sphereCenter, float sphereRadius)
+    void hitSphere(VertexData v, float3 rayOrg, float3 rayDir, float rayT, float3 sphereCenter, float sphereRadius)
     {
-        this.rayDiff = this.rayDiff.propagateSphere(rayOrg, rayDir, sphereCenter, sphereRadius);   // Propagate the ray differential to the current hit point.
+        // Propagate the ray differential to the current hit point.
+        this.rayDiff = this.rayDiff.propagate(rayDir, rayT, v.faceNormalW);
+        // this version is more precise but does not make a significant difference in practice
+        //this.rayDiff = this.rayDiff.propagateSphere(rayOrg, rayDir, sphereCenter, sphereRadius);   
     }
 
     ShadingData computeShadingData(VertexData v, StaticVertexData triangleVertices[3], HitInfo hit, float rayT, float3 rayDir)
@@ -71,18 +74,6 @@ extension RayFootprint
             const float3 n = v.normalW;
             const float2 uv = v.texC;
 
-            //float3 A = rayOrg + rayDir * dot(P - rayOrg, rayDir) - P;
-            //float t = dot(P - rayOrg, rayDir) - sqrt(r * r - dot(A, A));
-            //float3 p = rayOrg + t * rayDir;
-            //
-            //float3 px = p + this.rayDiff.dOdx;
-            //float3 py = p + this.rayDiff.dOdy;
-            //
-            //float3 nx = (px - P) / r;
-            //float3 ny = (py - P) / r;
-            //
-            //dUVdx = CalcUVFromNormal(nx, aabbIndex) - uv;
-            //dUVdy = CalcUVFromNormal(ny, aabbIndex) - uv;
             int dim[2];
             if(abs(n.x) > abs(n.y) && abs(n.x) > abs(n.z)) {
                 dim[0] = 1; dim[1] = 2;
@@ -106,8 +97,6 @@ extension RayFootprint
             A[0][0] = dpdu[dim[0]]; A[0][1] = dpdv[dim[0]];
             A[1][0] = dpdu[dim[1]]; A[1][1] = dpdv[dim[1]];
             
-            float3 dx = this.rayDiff.dOdx;
-            float3 dy = this.rayDiff.dOdy;
             float2 Bx = float2(this.rayDiff.dOdx[dim[0]], this.rayDiff.dOdx[dim[1]]);
             float2 By = float2(this.rayDiff.dOdy[dim[0]], this.rayDiff.dOdy[dim[1]]);
             
@@ -126,15 +115,12 @@ extension RayFootprint
             dUVdy.y = dot(this.rayDiff.dOdy, planeBase[1]) / dim[1];
         }
 
-        
-
         // Compute shading data.
         float3 viewDir = -rayDir;
         ShadingData sd;
         const uint materialID = BILLBOARD_MATERIAL_ID;
         // Use the dUVdx and dUVdy directly --> gives you anisotropic filtering.
         sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], viewDir, dUVdx, dUVdy);
-        //sd.diffuse = length(dUVdx);
 
         return sd;
     }
@@ -171,7 +157,7 @@ extension RayFootprint
     }
 
     [mutating]
-    void hitSphere(float3 rayOrg, float3 rayDir, float3 sphereCenter, float sphereRadius)
+    void hitSphere(VertexData v, float3 rayOrg, float3 rayDir, float rayT, float3 sphereCenter, float sphereRadius)
     {        
     }
 

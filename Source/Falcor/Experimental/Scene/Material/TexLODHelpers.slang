@@ -341,7 +341,7 @@ struct RayDiff
         return RayDiff.create(dodx, dody, getdDdx(), getdDdy());
     }
 
-      /** Propagate the ray differential onto a sphere
+      /** Propagate the ray differential onto a sphere (more precise than propagate for projection onto spheres)
         \param[in] P Ray origin.
         \param[in] D Ray direction.
         \param[in] C Center of the sphere
@@ -355,9 +355,7 @@ struct RayDiff
         
         // point on sphere and normal
         float3 p = P + D * t;
-        float3 n = (p - C) / r;
 
-        //return propagate(D, t, n);
         // reconstructed differential ray
         float3 rxOrigin = P + getdOdx();
         float3 ryOrigin = P + getdOdy();

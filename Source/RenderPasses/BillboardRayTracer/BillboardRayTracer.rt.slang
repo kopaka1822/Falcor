@@ -179,7 +179,7 @@ void boxAnyHit(inout BillboardPayload rayData : SV_RayPayload, BoxIntersectionAt
     VertexData v = getSphericalBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
     RayFootprint volumeFootprint = rayData.footprint; // copy footprint and transfer to hit surface
     const AABB bbox = gScene.proceduralPrimitiveAABBs[attribs.aabbOffset];
-    volumeFootprint.hitSphere(/*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection(), bbox.center(), 0.5 * bbox.extent().x); // transfer to surface
+    volumeFootprint.hitSphere(v, /*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection(), RayTCurrent() - RayTMin(), bbox.center(), 0.5 * bbox.extent().x); // transfer to surface
     ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
     float4 curColor = shade(sd, BILLBOARD_SHADOW_SAMPLES > 1, v.billboardDepth);
 
