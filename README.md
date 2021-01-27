@@ -1,65 +1,50 @@
-# Falcor 4.3
+# Billboard Ray Tracing (Falcor 4.3)
 
-Falcor is a real-time rendering framework supporting DirectX 12. It aims to improve productivity of research and prototype projects.
+## Setup
 
-Features include:
-* Abstracting many common graphics operations, such as shader compilation, model loading, and scene rendering
-* DirectX Raytracing abstraction
-* Render Graph system
-* Python scripting
-* Common rendering effects such as shadows and post-processing effects
-* Unbiased path tracer
+1. Follow the setup intructions for [Falcor](falcor_README.md).
+2. In Visual Studio: Set Mogwai as startup project and use "-sF:\git\Falcor\startup.py" as command arguments (right click mogwai in the solution explorer->properties->configuration properties/debugging/command arguments).
+3. Start Mogwai with DebugD3D12 or ReleaseD3D12
+4. Load test scenes with File->Load Scene. Choose any .pyscene from the BillboardScenes/ directory.
 
-The included path tracer requires NVAPI. Please make sure you have it set up properly, otherwise the path tracer won't work. You can find the instructions below.
+## The Billboard Ray Tracer
 
-## Prerequisites
-- Windows 10 version 2004 (May 2020 Update) or newer
-- Visual Studio 2019
-- [Windows 10 SDK (10.0.19041.0) for Windows 10, version 2004](https://developer.microsoft.com/en-us/windows/downloads/windows-10-sdk/)
-- A GPU which supports DirectX Raytracing, such as the NVIDIA Titan V or GeForce RTX (make sure you have the latest driver)
+The billboard ray tracer is a simple 1 sample per pixel (non-gbuffer) ray tracer that reflects on specular surface (if roughness == 0) and refracts on transmittive surfaces. If both criterias are met, the refraction is preferred and an environment lookup is used instead of a ray traced reflection.
 
-Optional:
-- Windows 10 Graphics Tools. To run DirectX 12 applications with the debug layer enabled, you must install this. There are two ways to install it:
-    - Click the Windows button and type `Optional Features`, in the window that opens click `Add a feature` and select `Graphics Tools`.
-    - Download an offline package from [here](https://docs.microsoft.com/en-us/windows-hardware/test/hlk/windows-hardware-lab-kit#supplemental-content-for-graphics-media-and-mean-time-between-failures-mtbf-tests). Choose a ZIP file that matches the OS version you are using (not the SDK version used for building Falcor). The ZIP includes a document which explains how to install the graphics tools.
-- NVAPI (see below)
+### Falcor UI
+* Ray footpint mode: Choose between ray differentials and Mip0 filtering
+* Billboard type: Selects the active billboard type (Impostor, Particle, or Spherical). This will be selected automatically when loading a new scene.
+* Reflection correction: ray origin correction for reflections as discussed in the article
+* Refraction correction: ray origin correction for refractions as discussed in the article
+* Deep shadow samples: number of shadow samples that will be used for the self shadowing of particles. For a real-time application, this should be replaced with filterable deep shadow maps like fourier opacity maps. However, for simplicity we used (expensive) ray traced shadows.
+* Shadow: enables shadows
+* Random Colors: gives each billboard a random color. This can be used to see how well weighted-blended OIT behaves even with different colored particles.
 
-## NVAPI installation
-After cloning the repository, head over to https://developer.nvidia.com/nvapi and download the latest version of NVAPI (this build is tested against version R440).
-Extract the content of the zip file into `Source/Externals/.packman/` and rename `R440-developer` to `nvapi`.
+### Source Code
 
-Finally, set `_ENABLE_NVAPI` to `true` in `Source/Falcor/Core/FalcorConfig.h`
+The full source for the billboard ray tracer is located at Source\RenderPasses\BillboardRayTracer\
 
-## CUDA Support
-If you want to use CUDA C/C++ code as part of a Falcor project, then refer to the README located in the `Source/Samples/CudaInterop/` for instructions on how to set up your environment to use CUDA with Falcor.
+**BillboardRayTracer.rt.slang**:
+Contains all shader kernels:
+* miss, triangleAnyHit, triangleClosestHit: shader kernels for triangular geometry
+* boxIntersect: intersection shader for billboards
+* boxAnyHit: any-hit shader for billboard (only used for any-hit ray tracing with spherical billboards)
+* boxClosestHit: closest-hit shader for impostors and billboard particles (not spherical billboards)
+* traceBillboards: helper function to handle all billboards in the given ray interval [Ray.TMin, Ray.TMax]. 
+* rayGen: ray generation shader for particles as discussed in the article: First, a non-billboard ray is shot to determine the unoccupied ray-interval for soft particles and spherical billboards. Then, traceBillboards is called for this ray-interval which also updates the color and transmittance. Then the color for the triangle hit point from the non-billboard ray is calculated. Then, the ray gets reflected, refracted or aborted based on the material properites and the remaining transmittance.
 
-If you want to execute Slang-based shader code through CUDA using `CUDAProgram`, then you will need to copy or link the root directory of the CUDA SDK under `Source/Externals/.packman/`, as a directory named `CUDA`.
-Then, set `_ENABLE_CUDA` to `true` in `Source/Falcor/Core/FalcorConfig.h`
+**Helper.slang**:
+A collection of helper functions to fetch billboard data:
+* GetBillboardTangentSpace: computes the billboard tangent space
+* getSoftParticleContrast: contrast function from soft particles
+* getBillboardVertexData: initializes the vertex data for impostors and normal particles
+* getSphericalBillboardVertexData: initializes the vertex data for spherical billboards
+* shade: forward shades a surface and uses ray traced shadows for the primary light. If a particle or spherical billboard is shaded, the shadow will be cumputed for different locations inside to create soft self shadowing
+* getDepthWeight: weight functin from weighted-blended OIT
 
-## Falcor Configuration
-`FalcorConfig.h` contains some flags which control Falcor's behavior.
-- `_LOG_ENABLED` - Enable/disable log messages. By default, it is set to `true`.
-- `_PROFILING_ENABLED` - Enable/Disable the internal CPU/GPU profiler. By default, it is set to `true`.
+**RayDifferentials.slang**:
+* computeBillboardShadingData: computes the appropriate texture differentials dUVdx, dUVdy for normal and spherical billboards.
+* prepareBillboardShadingData: adjusts the fetched particle opacity after calling _computeBillboardShadingData_
 
-## Resources
-- [Falcor](https://github.com/NVIDIAGameWorks/Falcor): Falcor's GitHub page.
-- [Documentation](./Docs/index.md): Additional information and tutorials.
-    - [Getting Started](./Docs/Getting-Started.md)
-    - [Render Graph Tutorials](./Docs/Tutorials/index.md)
-- [ORCA](https://developer.nvidia.com/orca): A collection of high quality scenes and assets optimized for Falcor.
-- [Slang](https://github.com/shader-slang/slang): Falcor's shading language and compiler.
-
-## Citation
-If you use Falcor in a research project leading to a publication, please cite the project.
-The BibTex entry is
-
-```bibtex
-@Misc{Benty20,
-   author =      {Nir Benty and Kai-Hwa Yao and Petrik Clarberg and Lucy Chen and Simon Kallweit and Tim Foley and Matthew Oakes and Conor Lavelle and Chris Wyman},
-   title =       {The {Falcor} Rendering Framework},
-   year =        {2020},
-   month =       {08},
-   url =         {https://github.com/NVIDIAGameWorks/Falcor},
-   note=         {\url{https://github.com/NVIDIAGameWorks/Falcor}}
-}
-```
+**Shadow.slang**:
+This file includes the function to compute a hard ray traced shadow with ray queries.
