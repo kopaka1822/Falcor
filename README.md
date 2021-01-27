@@ -20,6 +20,11 @@ The billboard ray tracer is a simple 1 sample per pixel (non-gbuffer) ray tracer
 * Shadow: enables shadows
 * Random Colors: gives each billboard a random color. This can be used to see how well weighted-blended OIT behaves even with different colored particles.
 
+### Current constraints
+* Only a single billboard type is supported at once. The active type is defined in BILLBOARD_TYPE and can be: BILLBOARD_TYPE_IMPOSTOR, BILLBOARD_TYPE_PARTICLE or BILLBOARD_TYPE_SPHERICAL.
+* Only a single material can be used for all billboards. This material is the last defined material of the scene. Depending on the name of the material, the appropriate billboard type will be chosen when the scene is loaded.
+* All billboards are static.
+
 ### Source Code
 
 The full source for the billboard ray tracer is located at Source\RenderPasses\BillboardRayTracer\
@@ -48,3 +53,4 @@ A collection of helper functions to fetch billboard data:
 
 **Shadow.slang**:
 This file includes the function to compute a hard ray traced shadow with ray queries.
+
