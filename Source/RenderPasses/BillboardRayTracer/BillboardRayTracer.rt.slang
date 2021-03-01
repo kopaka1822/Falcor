@@ -46,6 +46,8 @@ import Scene.Material.BRDF;
 #define REFLECT_EPSILON 0.001
 #define SHADOW_MIN 0.2
 #define AMBIENT_LIGHT 0.3
+#define MAX_BOUNCES 16
+#define MAX_INTERNAL_REFLECTIONS 4
 
 cbuffer CB
 {
@@ -284,6 +286,7 @@ void rayGen()
     float transmit = 1.0; // current visibility
 
     uint iteration = 0;
+    uint internalReflections = 0; // limit this for performance reasons
     do
     {
         // first trace triangles to determine depth range
@@ -318,12 +321,19 @@ void rayGen()
 
         // calc fresnel to see how much gets reflected/refracted
         const float3 reflected = reflect(ray.Direction, sd.N); // reflected ray direction
-        const float3 F = fresnelSchlick(sd.specular, 1, saturate(dot(reflected, sd.N)));
+        float3 F = fresnelSchlick(sd.specular, 1, saturate(dot(reflected, sd.N)));
         curColor.a *= (1.0 - dot(F, 0.33)); // adjust fragment transmittance with fresnel
         // prepare next ray
         bool isTransmittive = (curColor.a * transmit > TRANSMIT_EPSILON);
         bool isInternalReflection = sd.eta > 1.0 && sd.eta * sd.eta * (1.0 - dot(sd.N, sd.V) * dot(sd.N, sd.V)) >= 1.0;
         bool isReflective = dot(F, 0.33) * transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
+        // prepare correct internal reflection
+        if(isInternalReflection && internalReflections < MAX_INTERNAL_REFLECTIONS){
+            ++internalReflections;
+            isTransmittive = false;
+            F = 1.0;
+        }
+        // compute ray length for origin correction
         float correctionEta = 1.0;
         if(isTransmittive) correctionEta = 1.0 / sd.eta;
         float correctionDepth = trianglePayload.depth * correctionEta;
@@ -364,7 +374,7 @@ void rayGen()
             }
         }
         else transmit = 0.0; // stop tracing rays
-    } while(++iteration < 16 && transmit > TRANSMIT_EPSILON);
+    } while(++iteration < MAX_BOUNCES && transmit > TRANSMIT_EPSILON);
 
     if(transmit > TRANSMIT_EPSILON) // sample environment map (miss)
     {
