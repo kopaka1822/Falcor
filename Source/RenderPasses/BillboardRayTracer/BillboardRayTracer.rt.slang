@@ -47,7 +47,7 @@ import Scene.Material.BRDF;
 #define SHADOW_MIN 0.2
 #define AMBIENT_LIGHT 0.3
 #define MAX_BOUNCES 16
-#define MAX_INTERNAL_REFLECTIONS 4
+#define MAX_INTERNAL_REFLECTIONS 8
 
 cbuffer CB
 {
@@ -287,6 +287,7 @@ void rayGen()
 
     uint iteration = 0;
     uint internalReflections = 0; // limit this for performance reasons
+    bool inVolume = false; // simplified tracking if in volume (glass for our secnes) => only works when not starting inside
     do
     {
         // first trace triangles to determine depth range
@@ -299,7 +300,8 @@ void rayGen()
 
         // handle billboards
         ray.TMax = trianglePayload.depth; // set max range for billboard ray
-        traceBillboards(color, transmit, ray, footprint); // updates color and transmittance based on encountered billboards
+        if(!inVolume)
+            traceBillboards(color, transmit, ray, footprint); // updates color and transmittance based on encountered billboards
 
         // evaluate triangle geometry (shading was deferred to ray generation shader)
         HitInfo hit;
@@ -342,7 +344,8 @@ void rayGen()
         {
             if(isReflective) // envmap lookup for reflection
                 color += F * transmit * gScene.envMap.eval(reflected);
-        
+
+            inVolume = sd.eta < 1.0;
             transmit *= curColor.a; // update visibility
             float3 refracted = ray.Direction;
             if(sd.IoR != 1.0 && !isInternalReflection) // workaround for internal reflection that looks good and is not too expensive (avoids back and forth bounces)
