@@ -324,6 +324,9 @@ void rayGen()
         bool isTransmittive = (curColor.a * transmit > TRANSMIT_EPSILON);
         bool isInternalReflection = sd.eta > 1.0 && sd.eta * sd.eta * (1.0 - dot(sd.N, sd.V) * dot(sd.N, sd.V)) >= 1.0;
         bool isReflective = dot(F, 0.33) * transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
+        float correctionEta = 1.0;
+        if(isTransmittive) correctionEta = 1.0 / sd.eta;
+        float correctionDepth = trianglePayload.depth * correctionEta;
 
         if(isTransmittive) // prefer transmission over reflections
         {
@@ -334,12 +337,13 @@ void rayGen()
             float3 refracted = ray.Direction;
             if(sd.IoR != 1.0 && !isInternalReflection) // workaround for internal reflection that looks good and is not too expensive (avoids back and forth bounces)
                 refracted = refract(ray.Direction, sd.N, sd.eta);
+
             // update ray differentials
             footprint.bounceOnSurface(v, triangleVertices, hit, sd.N, ray.Direction, refracted, true);
             ray.Direction = refracted;
             if(USE_REFRACTION_CORRECTION) { // apply ray origin correction for billboards
-                ray.Origin = sd.computeNewRayOrigin(false) - refracted * trianglePayload.depth;
-                ray.TMin = trianglePayload.depth;
+                ray.Origin = sd.computeNewRayOrigin(false) - refracted * correctionDepth;
+                ray.TMin = correctionDepth;
             } else { // cast new ray from intersection point
                 ray.Origin = sd.computeNewRayOrigin(false);
                 ray.TMin = 0.0;
@@ -352,8 +356,8 @@ void rayGen()
             footprint.bounceOnSurface(v, triangleVertices, hit, sd.N, ray.Direction, reflected, false);
             ray.Direction = reflected;
             if(USE_REFLECTION_CORRECTION) { // apply ray origin correction for billboards
-                ray.Origin = sd.computeNewRayOrigin() - reflected * trianglePayload.depth;
-                ray.TMin = trianglePayload.depth;
+                ray.Origin = sd.computeNewRayOrigin() - reflected * correctionDepth;
+                ray.TMin = correctionDepth;
             } else { // cast new ray from intersection point
                 ray.Origin = sd.computeNewRayOrigin();
                 ray.TMin = 0.0;

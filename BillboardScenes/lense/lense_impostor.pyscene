@@ -1,0 +1,70 @@
+ior = 3
+
+
+# load scene settings
+sceneBuilder.importScene('lense1.glb')
+
+# set up material
+mat = Material('Plane')
+mat.baseColor = float4(0.0, 0.0, 0.0, 0.0) # invisible
+mat.alphaMode = 1
+mat.roughness = 1.0
+mat.doubleSided = True
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Glass')
+mat.baseColor = float4(0.001, 0.001, 0.001, 0.15)
+mat.roughness = 1.0 # makes no sense in general but removes the specular highlights from glass in our case
+mat.metallic = 0.0
+mat.indexOfRefraction = ior
+mat.specularTransmission = 0.95
+mat.doubleSided = True
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Impostor')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'checkers.png')
+mat.roughness = 1.0
+mat.doubleSided = True
+sceneBuilder.addMaterial(mat)
+
+# set up lights
+l = DirectionalLight('ShadowDummy')
+l.intensity = float3(0.0, 0.0, 0.0)
+l.direction = float3(0.0, -1.0, 0.0)
+sceneBuilder.addLight(l)
+
+l = DirectionalLight('X+')
+l.intensity = float3(10.0, 10.0, 10.0)
+l.direction = float3(1.0, 0.0, 0.0)
+sceneBuilder.addLight(l)
+
+l = DirectionalLight('X-')
+l.intensity = float3(10.0, 10.0, 10.0)
+l.direction = float3(-1.0, 0.0, 0.0)
+sceneBuilder.addLight(l)
+
+l = DirectionalLight('Z+')
+l.intensity = float3(10.0, 10.0, 10.0)
+l.direction = float3(1.0, 0.0, 1.0)
+sceneBuilder.addLight(l)
+
+l = DirectionalLight('Z-')
+l.intensity = float3(10.0, 10.0, 10.0)
+l.direction = float3(0.0, 0.0, -1.0)
+sceneBuilder.addLight(l)
+
+# create camera
+camera = Camera('Camera0')
+camera.position = float3(0.0, 0.0, 0.0)
+camera.target = float3(1.0, 0.0, 0.0)
+camera.up = float3(0.0, 1.0, 0.0)
+camera.nearPlane = 0.1
+camera.farPlane = 50.0
+sceneBuilder.addCamera(camera)
+sceneBuilder.selectedCamera = camera
+
+# add billboards
+sceneBuilder.addBillboard(float3(2.5, 0.0, 0.0), 2.0, 2.0)
+sceneBuilder.addBillboard(float3(-2.5, 0.0, 0.0), 2.0, 2.0)
+sceneBuilder.addBillboard(float3(0.0, 0.0, 2.5), 2.0, 2.0)
+sceneBuilder.addBillboard(float3(0.0, 0.0, -2.5), 2.0, 2.0)
