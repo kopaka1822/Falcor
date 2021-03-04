@@ -23,7 +23,7 @@ mat.indexOfRefraction = 2.0
 sceneBuilder.replaceMaterial(mat)
 
 mat = Material('Glass')
-mat.baseColor = float4(0.001, 0.001, 0.001, 0.15)
+mat.baseColor = float4(0.001, 0.001, 0.01, 0.28)
 mat.roughness = 0.0
 mat.metallic = 0.0
 mat.indexOfRefraction = 1.45
