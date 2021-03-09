@@ -1,0 +1,47 @@
+# load scene settings
+sceneBuilder.importScene('mirrors2.glb')
+sceneBuilder.envMap = EnvMap('gray.png');
+
+# set up material
+mat = Material('Plane')
+mat.baseColor = float4(0.0, 0.0, 0.0, 0.0) # invisible
+mat.roughness = 1.0
+mat.doubleSided = True
+mat.alphaMode = 1
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Mirror')
+mat.baseColor = float4(0.9, 0.9, 0.9, 1.0)
+mat.roughness = 0.0
+mat.metallic = 1.0
+mat.indexOfRefraction = 2.0
+sceneBuilder.replaceMaterial(mat)
+
+mat = Material('Impostor')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'checkers.png')
+mat.roughness = 1.0
+mat.doubleSided = True
+sceneBuilder.addMaterial(mat)
+
+# set up lights
+l = DirectionalLight('X+')
+l.intensity = float3(500.0, 500.0, 500.0)
+l.direction = float3(0.01, 1.0, 0.0)
+sceneBuilder.addLight(l)
+
+l = DirectionalLight('X-')
+l.intensity = float3(500.0, 500.0, 500.0)
+l.direction = float3(-0.01, 1.0, 0.0)
+sceneBuilder.addLight(l)
+
+camera = Camera('Camera0')
+camera.position = float3(0.0, 0.0, 0.0)
+camera.target = float3(0.0, 0.0, 1.0)
+camera.up = float3(0.0, 1.0, 0.0)
+camera.nearPlane = 0.1
+camera.farPlane = 50.0
+sceneBuilder.addCamera(camera)
+sceneBuilder.selectedCamera = camera
+
+# add billboards
+sceneBuilder.addBillboard(float3(-2.0, 0.0, 2.0), 2.0, 2.0)
