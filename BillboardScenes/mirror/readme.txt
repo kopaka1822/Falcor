@@ -1,6 +1,7 @@
 test scenes for concave and convex mirrors
-mirror - convex
-mirror_concave - convave
+mirror_planar
+mirror_convex
+mirror_concave
 
 the reference scene have a quad rotated towards the mirror center.
 the impostor versions use an impostor instead (therefore, the rotation of the non-mirrored quad changes)
