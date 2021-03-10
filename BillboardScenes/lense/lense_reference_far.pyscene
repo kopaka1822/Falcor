@@ -1,8 +1,9 @@
-ior = 3
+ior = 1.5
 target = float3(0.0, 0.0, -1.0)
 
 # load scene settings
 sceneBuilder.importScene('lense2.glb')
+sceneBuilder.envMap = EnvMap('gray.png')
 
 # set up material
 mat = Material('Plane')

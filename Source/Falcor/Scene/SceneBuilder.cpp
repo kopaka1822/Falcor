@@ -552,6 +552,9 @@ namespace Falcor
 
     void SceneBuilder::addBillboard(float3 center, float width, float height)
     {
+        // big radius for non y-axis aligned impostors (quad shape instead of sphere shape)
+        //float3 radius = 0.5f * float3(sqrt(width * width + height * height), height, sqrt(width * width + height * height));
+        // radius for y-axis aligned impostors (quad shape) or spherical billboards (sphere shape with width = height)
         float3 radius = 0.5f * float3(width, height, width);
         AABB aabb(center - radius, center + radius);
         addCustomPrimitive(0, aabb);

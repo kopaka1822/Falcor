@@ -1,8 +1,9 @@
-ior = 3
+ior = 1.5
 
 
 # load scene settings
 sceneBuilder.importScene('lense1.glb')
+sceneBuilder.envMap = EnvMap('gray.png')
 
 # set up material
 mat = Material('Plane')
@@ -55,7 +56,7 @@ sceneBuilder.addLight(l)
 
 camera = Camera('Camera0')
 camera.position = float3(0.0, 0.0, 0.0)
-camera.target = float3(1.0, 0.0, 0.0)
+camera.target = float3(0.0, 0.0, 1.0)
 camera.up = float3(0.0, 1.0, 0.0)
 camera.nearPlane = 0.1
 camera.farPlane = 50.0

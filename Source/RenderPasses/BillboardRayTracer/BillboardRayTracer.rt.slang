@@ -333,6 +333,7 @@ void rayGen()
         if(isInternalReflection && internalReflections < MAX_INTERNAL_REFLECTIONS){
             ++internalReflections;
             isTransmittive = false;
+            isReflective = transmit > REFLECT_EPSILON && sd.linearRoughness < 0.02;
             F = 1.0;
         }
         // compute ray length for origin correction
