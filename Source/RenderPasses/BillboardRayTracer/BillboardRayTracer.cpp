@@ -149,6 +149,7 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
         defines.add("USE_REFLECTION_CORRECTION", mReflectionCorrection ? "true" : "false");
         defines.add("USE_REFRACTION_CORRECTION", mRefractionCorrection ? "true" : "false");
         defines.add("USE_SOFT_PARTICLES", mSoftParticles ? "true" : "false");
+        defines.add("USE_PARTICLE_WEIGHTED_OIT", mParticleWeightedTransparency ? "1" : "0");
         defines.add("BILLBOARD_MATERIAL_ID", std::to_string(mLastMaterialId));
         defines.add("USE_SHADOWS", mShadows ? "true" : "false");
         defines.add("USE_RANDOM_BILLBOARD_COLORS", mRandomColors ? "true" : "false");
@@ -224,8 +225,12 @@ void BillboardRayTracer::renderUI(Gui::Widgets& widget)
     if (widget.checkbox("Refraction correction", mRefractionCorrection)) dirty = true;
     widget.tooltip("Ray origin correction for impostors and particles");
 
-    if (mBillboardType == (uint)BillboardType::Particle &&
-        widget.checkbox("Soft particles", mSoftParticles)) dirty = true;
+    if(mBillboardType == (uint)BillboardType::Particle)
+    {
+        if (widget.checkbox("Soft particles", mSoftParticles)) dirty = true;
+        if (widget.checkbox("Use weighted OIT", mParticleWeightedTransparency)) dirty = true;
+        widget.tooltip("Use any-hit shading with weighted OIT instead of closest-hit ray tracing with alpha blending");
+    }
 
     if (mBillboardType != (uint)BillboardType::Impostor)
     {
@@ -262,7 +267,7 @@ void BillboardRayTracer::setScene(RenderContext* pRenderContext, const Scene::Sh
         // get last material name for hint about billboard type
         auto matName = pScene->getMaterial(mLastMaterialId)->getName();
         if(matName == "Impostor") mBillboardType = (uint)BillboardType::Impostor;
-        else if(matName == "Particle") mBillboardType = (uint)BillboardType::Particle;
+        else if (matName == "Particle") mBillboardType = (uint)BillboardType::Particle;
         else if(matName == "Spherical") mBillboardType = (uint)BillboardType::Spherical;
     }
 

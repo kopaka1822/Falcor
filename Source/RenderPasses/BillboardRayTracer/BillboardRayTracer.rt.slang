@@ -49,6 +49,8 @@ import Scene.Material.BRDF;
 #define MAX_BOUNCES 16
 #define MAX_INTERNAL_REFLECTIONS 8
 
+#define USE_WEIGHTED_OIT ((BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL) || (BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE && USE_PARTICLE_WEIGHTED_OIT))
+
 cbuffer CB
 {
     uint gFrameCount; // Frame count since scene was loaded.
@@ -175,15 +177,26 @@ void boxIntersect()
 [shader("anyhit")]
 void boxAnyHit(inout BillboardPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-// only used for sphericalbillboards
-#if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
-    // get vertex data, transfer ray differentials and obtain shading data
-    VertexData v = getSphericalBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
-    RayFootprint volumeFootprint = rayData.footprint; // copy footprint and transfer to hit surface
-    const AABB bbox = gScene.proceduralPrimitiveAABBs[attribs.aabbOffset];
-    volumeFootprint.hitSphere(v, /*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection(), RayTCurrent() - RayTMin(), bbox.center(), 0.5 * bbox.extent().x); // transfer to surface
-    ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
-    float4 curColor = shade(sd, BILLBOARD_SHADOW_SAMPLES > 1, v.billboardDepth);
+#if USE_WEIGHTED_OIT
+    #if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
+        // get vertex data, transfer ray differentials and obtain shading data
+        VertexData v = getSphericalBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
+        RayFootprint volumeFootprint = rayData.footprint; // copy footprint and transfer to hit surface
+        const AABB bbox = gScene.proceduralPrimitiveAABBs[attribs.aabbOffset];
+        volumeFootprint.hitSphere(v, /*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection(), RayTCurrent() - RayTMin(), bbox.center(), 0.5 * bbox.extent().x); // transfer to surface
+        ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
+        float4 curColor = shadeBillboard(sd, v.billboardDepth);
+    #elif BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE
+        // get vertex data, transfer ray differentials and obtain shading data
+        VertexData v = getBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(),  WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
+        // transfer ray differentials and get shading data
+        float travelledDistance = RayTCurrent() - RayTMin();
+        RayFootprint volumeFootprint = rayData.footprint; // copy footprint and transfer to hit surface
+        volumeFootprint.hitSurface(v, travelledDistance, WorldRayDirection()); // transfer to surface
+        ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
+        // rgb = (pre-multiplied) color, a = transmittance (1 - alpha)
+        float4 curColor = shadeBillboard(sd, v.billboardDepth, v.billboardDepth * 0.5);
+    #endif // color us in curColor
 
     // do color accumulation as in weighted-blended OIT
     float alpha = 1.0 - curColor.a;
@@ -200,7 +213,7 @@ void boxAnyHit(inout BillboardPayload rayData : SV_RayPayload, BoxIntersectionAt
 [shader("closesthit")]
 void boxClosestHit(inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    // this shader is skipped for BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
+    // this shader is skipped if weighted OIT is used (spherical billboards)
     // store hit information in ray payload
     rayData.depth = RayTCurrent();
     HitInfo hit;
@@ -213,7 +226,7 @@ void boxClosestHit(inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttr
 
 /****** Ray Kernel for Bilboards ******/
 
-#if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
+#if USE_WEIGHTED_OIT
 
 void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayFootprint footprint)
 {
@@ -234,7 +247,7 @@ void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayF
     }
 }
 
-#else // BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR || BILLBOARD_TYPE_PARTICLE
+#else // closest-hit ray tracing with alpha blending (no weighted OIT)
 
 void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayFootprint footprint)
 {
@@ -258,8 +271,8 @@ void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayF
         RayFootprint volumeFootprint = footprint; // copy footprint and transfer to hit surface
         volumeFootprint.hitSurface(v, travelledDistance, ray.Direction); // transfer to surface
         ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumeHit.primitiveIndex, ray.Origin, ray.Direction);
-        //float4 curColor = shade(sd); // rgb = (pre-multiplied) color, a = transmittance (1 - alpha)
-        float4 curColor = shade(sd, BILLBOARD_SHADOW_SAMPLES > 1, v.billboardDepth, v.billboardDepth * 0.5);
+        // rgb = (pre-multiplied) color, a = transmittance (1 - alpha)
+        float4 curColor = shadeBillboard(sd, v.billboardDepth, v.billboardDepth * 0.5);
 
 
         color += transmit * curColor.rgb; // update color
@@ -384,6 +397,6 @@ void rayGen()
     {
         color += transmit * gScene.envMap.eval(ray.Direction);
     }
-
+    
     gOutputColor[launchIndex] = float4(color, 1);
 }

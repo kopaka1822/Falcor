@@ -100,9 +100,24 @@ VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, fl
     return v;
 }
 
-// simple shading function that iterates though all lights and traces shadow rays for the primary light source
+float3 evalBillboardMaterial(ShadingData sd, LightData light)
+{
+    LightSample ls = evalLight(light, sd);
+
+    // volumetric shading?
+    if(BILLBOARD_TYPE != BILLBOARD_TYPE_IMPOSTOR) return max(ls.diffuse * sd.diffuse, 0.0);
+
+    // If the light doesn't hit the surface or we are viewing the surface from the back, return
+    if (ls.NdotL <= 0) return 0.0;
+
+    // Calculate the diffuse term
+    float3 color = ls.diffuse * sd.diffuse.rgb * (1 / M_PI) * ls.NdotL;
+    return color;
+}
+
+// shading function for billboards that iterates though all lights and traces shadow rays for the primary light source
 // returns rgb color and transmittance (in alpha channel)
-float4 shade(ShadingData sd, bool useBillboardDepth = false, float billboardDepth = 0.0, float billboardOffset = 0.0)
+float4 shadeBillboard(ShadingData sd, float billboardDepth, float billboardOffset = 0.0)
 {
     float3 curColor = sd.emissive;
     const float curTransmit = 1.0 - sd.opacity;
@@ -112,9 +127,9 @@ float4 shade(ShadingData sd, bool useBillboardDepth = false, float billboardDept
     for(uint i = 0; i < lightCount; ++i)
     {
         LightData l = gScene.getLight(i);
-        [branch] if(useBillboardDepth && (i == 0))
+        [branch] if(BILLBOARD_SHADOW_SAMPLES > 1 &&  (i == 0))
         {
-            float3 color = evalMaterial(sd, l, 1.0).color;
+            float3 color = evalBillboardMaterial(sd, l);
             // obtain #BILLBOARD_SHADOW_SAMPLES shadow ray samples
             // Note: only for visualization purposes, please use fourier opacity maps or something similar in a real-time context
             float shadowSum = 0.0;
@@ -130,8 +145,29 @@ float4 shade(ShadingData sd, bool useBillboardDepth = false, float billboardDept
         {
             float shadowFac = 1.0;
             if(i == 0) shadowFac = TraceShadowRay(sd.posW, l); // single shadow ray sample for the primary light
-            curColor += evalMaterial(sd, l, shadowFac).color;
+            curColor += evalBillboardMaterial(sd, l) * shadowFac;
         }
+    }
+    curColor += sd.diffuse * AMBIENT_LIGHT;
+    curColor *= sd.opacity;
+    return float4(curColor, curTransmit);
+}
+
+// simple shading function that iterates though all lights and traces shadow rays for the primary light source
+// returns rgb color and transmittance (in alpha channel)
+float4 shade(ShadingData sd)
+{
+    float3 curColor = sd.emissive;
+    const float curTransmit = 1.0 - sd.opacity;
+
+    // forward render all light sources
+    const uint lightCount = gScene.getLightCount();
+    for(uint i = 0; i < lightCount; ++i)
+    {
+        LightData l = gScene.getLight(i);
+        float shadowFac = 1.0;
+        if(i == 0) shadowFac = TraceShadowRay(sd.posW, l); // single shadow ray sample for the primary light
+        curColor += evalMaterial(sd, l, shadowFac).color;
     }
     curColor += sd.diffuse * AMBIENT_LIGHT;
     curColor *= sd.opacity;

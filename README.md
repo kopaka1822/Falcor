@@ -19,6 +19,8 @@ The billboard ray tracer is a simple 1 sample per pixel (non-gbuffer) ray tracer
 * Deep shadow samples: number of shadow samples that will be used for the self shadowing of particles. For a real-time application, this should be replaced with filterable deep shadow maps like fourier opacity maps. However, for simplicity we used (expensive) ray traced shadows.
 * Shadow: enables shadows
 * Random Colors: gives each billboard a random color. This can be used to see how well weighted-blended OIT behaves even with different colored particles.
+* Soft Particles (Particle only): Uses the soft particle technique to smoothly fade out particles near objects
+* Use weighted OIT (Particle only): Uses weighted OIT with any-hit ray tracing (approximate result)
 
 ### Current constraints
 * Only a single billboard type is supported at once. The active type is defined in BILLBOARD_TYPE and can be: BILLBOARD_TYPE_IMPOSTOR, BILLBOARD_TYPE_PARTICLE or BILLBOARD_TYPE_SPHERICAL.
@@ -44,8 +46,9 @@ A collection of helper functions to fetch billboard data:
 * getSoftParticleContrast: contrast function from soft particles
 * getBillboardVertexData: initializes the vertex data for impostors and normal particles
 * getSphericalBillboardVertexData: initializes the vertex data for spherical billboards
-* shade: forward shades a surface and uses ray traced shadows for the primary light. If a particle or spherical billboard is shaded, the shadow will be cumputed for different locations inside to create soft self shadowing
-* getDepthWeight: weight functin from weighted-blended OIT
+* shadeBillboard: forward shades a billboard and uses ray traced shadows for the primary light. If a particle or spherical billboard is shaded, the shadow will be computed for different locations inside the sphere to create soft self shadowing
+* shade: forward shades a surface and uses ray traced shadows for the primary light.
+* getDepthWeight: weight function from weighted-blended OIT
 
 **RayDifferentials.slang**:
 * computeBillboardShadingData: computes the appropriate texture differentials dUVdx, dUVdy for normal and spherical billboards.
