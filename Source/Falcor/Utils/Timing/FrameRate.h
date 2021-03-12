@@ -72,6 +72,22 @@ namespace Falcor
             return time;
         }
 
+        double getMedianFrameTime() const
+        {
+            uint64_t frames = std::min(mFrameCount, sFrameWindow);
+            auto copy = mFrameTimes;
+            std::sort(copy.begin(), copy.begin() + frames);
+            return copy[frames / 2] * 1000;
+        }
+
+        double getMinFrameTime() const
+        {
+            uint64_t frames = std::min(mFrameCount, sFrameWindow);
+            double time = std::numeric_limits<double>::max();
+            for (uint64_t i = 0; i < frames; i++) time = std::min(mFrameTimes[i], time);
+            return time * 1000;
+        }
+
         /** Get the time that it took to render the last frame
         */
         double getLastFrameTime() const
@@ -91,7 +107,7 @@ namespace Falcor
         Clock mClock;
         std::vector<double> mFrameTimes;
         uint64_t mFrameCount = 0;
-        static const uint64_t sFrameWindow = 60;
+        static const uint64_t sFrameWindow = 1024;
     };
 
     inline std::string to_string(const FrameRate& fr, bool vsyncOn = false) { return fr.getMsg(vsyncOn); }

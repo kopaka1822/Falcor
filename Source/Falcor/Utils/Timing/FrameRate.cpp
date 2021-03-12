@@ -34,9 +34,16 @@ namespace Falcor
     std::string FrameRate::getMsg(bool vsyncOn) const
     {
         float msPerFrame = (float)getAverageFrameTime();
+        float medianMsPerFrame = (float)getMedianFrameTime();
+        float minMsPerFrame = (float)getMinFrameTime();
         std::stringstream strstr;
         std::string msStr = std::to_string(msPerFrame);
-        std::string s = std::to_string(int(ceil(1000 / msPerFrame))) + " FPS (" + msStr.erase(msStr.size() - 4) + " ms/frame)";
+        std::string medStr = std::to_string(medianMsPerFrame);
+        std::string minStr = std::to_string(minMsPerFrame);
+        std::string s = std::to_string(int(ceil(1000 / msPerFrame))) + " FPS (" + msStr.erase(msStr.size() - 4) + " ms/frame avg | "
+                        + medStr.erase(medStr.size() - 4) + " ms/frame median | "
+                        + minStr.erase(minStr.size() - 4) + " ms/frame min)";
+
         if (vsyncOn) s += std::string(", VSync");
         return s;
     }
