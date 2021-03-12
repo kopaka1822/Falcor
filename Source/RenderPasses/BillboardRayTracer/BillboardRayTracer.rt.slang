@@ -207,6 +207,7 @@ void boxAnyHit(inout BillboardPayload rayData : SV_RayPayload, BoxIntersectionAt
     rayData.transmit *= curColor.a; // curColor.a = transmittance
 
     if(curColor.a == 0.0) return; // opaque object => abort (hopefully ignores most of the objects behind this one)
+    //if(rayData.transmit <= TRANSMIT_EPSILON) return; // this can cause some weird spherical shaped artifacts
     IgnoreHit(); // do not accept the hit in general => keep any-hit traversal going
 #endif
 }
@@ -275,7 +276,7 @@ void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayF
 
         // prepare next ray
         ray.TMin = volumePayload.depth;
-    } while(++iteration < 64 && transmit > TRANSMIT_EPSILON);
+    } while(transmit > TRANSMIT_EPSILON);
 }
 
 #endif

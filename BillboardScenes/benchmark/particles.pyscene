@@ -1,0 +1,30 @@
+# load scene settings
+sceneBuilder.importScene('quad1x1.obj') # dummy
+sceneBuilder.envMap = EnvMap('BlueSky.png')
+sceneBuilder.envMap.intensity = 0.1
+
+# set up material
+mat = Material('Particle')
+mat.loadTexture(MaterialTextureSlot.BaseColor, 'smoke_dark.png')
+mat.indexOfRefraction = 1.0
+mat.doubleSided = True
+sceneBuilder.addMaterial(mat)
+
+# set up lights
+l = DirectionalLight('MainLight')
+l.intensity = float3(10.0, 10.0, 10.0)
+l.direction = float3(0.0, -0.931, 0.364)
+sceneBuilder.addLight(l)
+
+# create camera
+camera = Camera('Camera0')
+camera.position = float3(0.0, 0.0, 15.0)
+camera.target = float3(0.0, 0.0, 20.0)
+camera.up = float3(0.0, 1.0, 0.0)
+camera.nearPlane = 0.1
+camera.farPlane = 100.0
+sceneBuilder.addCamera(camera)
+sceneBuilder.selectedCamera = camera
+
+# add billboards
+sceneBuilder.addSmoke(float3(0.0, 0.0, 20.0), 2.0, 100000)
