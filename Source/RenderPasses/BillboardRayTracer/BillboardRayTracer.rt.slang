@@ -62,7 +62,7 @@ RWTexture2D<float4> gOutputColor;
 // Default ray payload
 struct RayPayload
 {
-    PackedHitInfo hit; // instanceID, primitiveIndex and compressed barycentrics
+    PackedHitInfo hit; // for triangles: instanceID, primitiveIndex and compressed barycentrics. for billboards: x = aabbOffset
     float depth; // rayTCurrent of intersection
 };
 
@@ -217,12 +217,7 @@ void boxClosestHit(inout RayPayload rayData : SV_RayPayload, BoxIntersectionAttr
     // this shader is skipped if weighted OIT is used (spherical billboards)
     // store hit information in ray payload
     rayData.depth = RayTCurrent();
-    HitInfo hit;
-    hit.type = InstanceType::Curve;
-    hit.instanceID = 0;
-    hit.primitiveIndex = attribs.aabbOffset; // this is the only relevant data for now
-    hit.barycentrics = 0.0;
-    rayData.hit = hit.encode();
+    rayData.hit.x = attribs.aabbOffset; // this is the only relevant data for now
 }
 
 /****** Ray Kernel for Bilboards ******/
@@ -259,19 +254,18 @@ void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayF
     uint iteration = 0;
     do // trace volumetric data
     {
-        HitInfo volumeHit;
-        volumePayload.hit = HitInfo::kInvalidIndex;
+        volumePayload.hit.x = uint(-1); // set invalid hit
         TraceRay(gRtScene, RAY_FLAG_SKIP_TRIANGLES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, hitProgramCount, 0 /* missIdx */, ray, volumePayload);
 
-        if(!volumeHit.decode(volumePayload.hit)) break; // no more billboard intersections
-
-        BillboardVertex v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Direction, volumePayload.depth, prevRayMin, ray.TMax);
+        if(volumePayload.hit.x == uint(-1)) break; // no more billboard intersections
+        
+        BillboardVertex v = getBillboardVertexData(volumePayload.hit.x, ray.Origin, ray.Direction, volumePayload.depth, prevRayMin, ray.TMax);
 
         // transfer ray differentials and get shading data
         float travelledDistance = volumePayload.depth - prevRayMin;
         RayFootprint volumeFootprint = footprint; // copy footprint and transfer to hit surface
         volumeFootprint.hitSurface(v.normalW, travelledDistance, ray.Direction); // transfer to surface
-        BillboardShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumeHit.primitiveIndex, ray.Origin, ray.Direction);
+        BillboardShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumePayload.hit.x, ray.Origin, ray.Direction);
         // rgb = (pre-multiplied) color, a = transmittance (1 - alpha)
         float4 curColor = shadeBillboard(sd, v.billboardDepth, v.billboardDepth * 0.5);
 
