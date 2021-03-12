@@ -136,7 +136,7 @@ void boxIntersect()
         const bool particle = BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE;
     
         // billboard plane base
-        const float3x3 planeBase = GetBillboardTangentSpace(normalize(WorldRayOrigin() - C), yAlign);
+        const float3x3 planeBase = GetBillboardTangentSpace(WorldRayOrigin() - C, yAlign);
         // ray origin and direction in plane space
         const float3 dp = mul(planeBase, WorldRayDirection());
         const float3 Op = mul(planeBase, WorldRayOrigin() - C);
@@ -148,10 +148,11 @@ void boxIntersect()
         const float2 Pp = Op.xy + s * dp.xy;
     
         // check if on plane
-        if(any(Pp < -0.5 * dim) || any(Pp > 0.5 * dim)) return;
+        if(any(abs(Pp) > 0.5 * dim)) return;
         // more general formula for particle test that also works with elliptical particles (dim.x/2 == r != dim.y/2)
-	    if(particle && (4.0 * Pp.x * Pp.x / (dim.x * dim.x) + 4.0 * Pp.y  * Pp.y  / (dim.y * dim.y) > 1.0)) return;
-    
+	    //if(particle && (4.0 * Pp.x * Pp.x / (dim.x * dim.x) + 4.0 * Pp.y  * Pp.y  / (dim.y * dim.y) > 1.0)) return;
+        if(particle && Pp.x * Pp.x + Pp.y * Pp.y >= dim.x * dim.x * 0.25) return;
+
         BoxIntersectionAttributes attribs;
         attribs.aabbOffset = aabbOffset;
         ReportHit(s, 0, attribs);
@@ -180,20 +181,20 @@ void boxAnyHit(inout BillboardPayload rayData : SV_RayPayload, BoxIntersectionAt
 #if USE_WEIGHTED_OIT
     #if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
         // get vertex data, transfer ray differentials and obtain shading data
-        VertexData v = getSphericalBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
+        BillboardVertex v = getSphericalBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
         RayFootprint volumeFootprint = rayData.footprint; // copy footprint and transfer to hit surface
         const AABB bbox = gScene.proceduralPrimitiveAABBs[attribs.aabbOffset];
-        volumeFootprint.hitSphere(v, /*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection(), RayTCurrent() - RayTMin(), bbox.center(), 0.5 * bbox.extent().x); // transfer to surface
-        ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
+        volumeFootprint.hitSphere(v.normalW, /*reconstruct original ray origin*/ WorldRayOrigin() + RayTMin() * WorldRayDirection(), WorldRayDirection(), RayTCurrent() - RayTMin(), bbox.center(), 0.5 * bbox.extent().x); // transfer to surface
+        BillboardShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
         float4 curColor = shadeBillboard(sd, v.billboardDepth);
     #elif BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE
         // get vertex data, transfer ray differentials and obtain shading data
-        VertexData v = getBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(),  WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
+        BillboardVertex v = getBillboardVertexData(attribs.aabbOffset, WorldRayOrigin(),  WorldRayDirection(), RayTCurrent(), RayTMin(), rayData.rayTMax);
         // transfer ray differentials and get shading data
         float travelledDistance = RayTCurrent() - RayTMin();
         RayFootprint volumeFootprint = rayData.footprint; // copy footprint and transfer to hit surface
-        volumeFootprint.hitSurface(v, travelledDistance, WorldRayDirection()); // transfer to surface
-        ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
+        volumeFootprint.hitSurface(v.normalW, travelledDistance, WorldRayDirection()); // transfer to surface
+        BillboardShadingData sd = prepareBillboardShadingData(v, volumeFootprint, attribs.aabbOffset, WorldRayOrigin(), WorldRayDirection());
         // rgb = (pre-multiplied) color, a = transmittance (1 - alpha)
         float4 curColor = shadeBillboard(sd, v.billboardDepth, v.billboardDepth * 0.5);
     #endif // color us in curColor
@@ -264,13 +265,13 @@ void traceBillboards(inout float3 color, inout float transmit, RayDesc ray, RayF
 
         if(!volumeHit.decode(volumePayload.hit)) break; // no more billboard intersections
 
-        VertexData v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Direction, volumePayload.depth, prevRayMin, ray.TMax);
+        BillboardVertex v = getBillboardVertexData(volumeHit.primitiveIndex, ray.Origin, ray.Direction, volumePayload.depth, prevRayMin, ray.TMax);
 
         // transfer ray differentials and get shading data
         float travelledDistance = volumePayload.depth - prevRayMin;
         RayFootprint volumeFootprint = footprint; // copy footprint and transfer to hit surface
-        volumeFootprint.hitSurface(v, travelledDistance, ray.Direction); // transfer to surface
-        ShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumeHit.primitiveIndex, ray.Origin, ray.Direction);
+        volumeFootprint.hitSurface(v.normalW, travelledDistance, ray.Direction); // transfer to surface
+        BillboardShadingData sd = prepareBillboardShadingData(v, volumeFootprint, volumeHit.primitiveIndex, ray.Origin, ray.Direction);
         // rgb = (pre-multiplied) color, a = transmittance (1 - alpha)
         float4 curColor = shadeBillboard(sd, v.billboardDepth, v.billboardDepth * 0.5);
 
@@ -328,7 +329,7 @@ void rayGen()
         // transfer ray differentials and get shading data:
         // compute the travelled distance: When the ray origin correction is used, the ray distance must be subtracted from ray.TMin
         const float travelledDistance = trianglePayload.depth - ray.TMin;
-        footprint.hitSurface(v, travelledDistance, ray.Direction); // transfer ray differentials onto surface
+        footprint.hitSurface(v.faceNormalW, travelledDistance, ray.Direction); // transfer ray differentials onto surface
         ShadingData sd = prepareShadingData(v, footprint, triangleVertices, hit, travelledDistance, ray.Direction);
         float4 curColor = shade(sd); // rgb = (pre-multiplied) color, a = transmittance (1 - alpha)
 

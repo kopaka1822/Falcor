@@ -1,5 +1,6 @@
 // imported and modified ray differentials
 #include "RenderPasses/Shared/PathTracer/RayFootprintModes.slangh"
+
 #if (RAY_FOOTPRINT_MODE == RAY_FOOTPRINT_MODE_RAYDIFFS_ANISO)
 
 bool SolveLinearSystem2x2(float2x2 A, float2 B, out float2 x) {
@@ -26,16 +27,16 @@ extension RayFootprint
     }
 
     [mutating]
-    void hitSurface(VertexData v, float rayT, float3 rayDir)
+    void hitSurface(float3 faceNormal, float rayT, float3 rayDir)
     {
-        this.rayDiff = this.rayDiff.propagate(rayDir, rayT, v.faceNormalW);   // Propagate the ray differential to the current hit point.
+        this.rayDiff = this.rayDiff.propagate(rayDir, rayT, faceNormal);   // Propagate the ray differential to the current hit point.
     }
 
     [mutating]
-    void hitSphere(VertexData v, float3 rayOrg, float3 rayDir, float rayT, float3 sphereCenter, float sphereRadius)
+    void hitSphere(float3 faceNormal, float3 rayOrg, float3 rayDir, float rayT, float3 sphereCenter, float sphereRadius)
     {
         // Propagate the ray differential to the current hit point.
-        this.rayDiff = this.rayDiff.propagate(rayDir, rayT, v.faceNormalW);
+        this.rayDiff = this.rayDiff.propagate(rayDir, rayT, faceNormal);
         // this version is more precise but does not make a significant difference in practice
         //this.rayDiff = this.rayDiff.propagateSphere(rayOrg, rayDir, sphereCenter, sphereRadius);   
     }
@@ -57,18 +58,15 @@ extension RayFootprint
         return sd;
     }
 
-    ShadingData computeBillboardShadingData(VertexData v, uint aabbIndex, float3 rayOrg, float3 rayDir)
+    BillboardShadingData computeBillboardShadingData(BillboardVertex v, uint aabbIndex, float3 rayOrg, float3 rayDir)
     {
-        // TODO store data somewhere instead of recomputing
         // reconstruct billboard plane
         const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbIndex];
         const float2 dim = bbox.extent().xy;
         const float r = dim.x * 0.5;
-        const float3 P = bbox.center();
-        const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
 
         float2 dUVdx, dUVdy;    // Ray differential variables for the texture lookup.
-        if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL)
+        #if BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL
         {
             // from pbrt http://www.pbr-book.org/3ed-2018/Texture/Sampling_and_Antialiasing.html#FindingtheTextureSamplingRate
             const float3 n = v.normalW;
@@ -84,14 +82,19 @@ extension RayFootprint
             }
             
             // change of position per texture coordinate direction (UV-sphere)
-            float theta = (uv.x - 0.5 - aabbIndex * 0.912) * 2.0 * M_PI;
-            float phi = M_PI * uv.y;
-            float sinphi = sin(phi);
-            float cosphi = cos(phi);
-            float sintheta = sin(theta);
-            float costheta = cos(theta);
-            const float3 dpdu = float3(-sinphi*sintheta,0.0,sinphi*costheta) * 2.0 * M_PI * r;
-            const float3 dpdv = float3(cosphi*costheta,-sinphi,cosphi*sintheta) * M_PI * r;
+            //float theta = (uv.x - 0.5 - BILLBOARD_UV_OFFSET(aabbIndex)) * 2.0 * M_PI;
+            //float phi = M_PI * uv.y;
+            //float sinphi = sin(phi);
+            //float cosphi = cos(phi);
+            //float sintheta = sin(theta);
+            //float costheta = cos(theta);
+            //const float3 dpdu = float3(-sinphi*sintheta,0.0,sinphi*costheta) * 2.0 * M_PI * r;
+            //const float3 dpdv = float3(cosphi*costheta,-sinphi,cosphi*sintheta) * M_PI * r;
+            // simplified computation when replacing theta and phi with the normal (theta = arctan(n.z, n.x), phi = arccos(n.y))
+            float denom = 1.0 / sqrt(n.x * n.x + n.z * n.z);
+            float invysq = sqrt(1.0 - n.y * n.y);
+            const float3 dpdu = float3(-n.z * invysq * denom, 0.0, n.x * invysq * denom) * 2.0 * M_PI * r;
+            const float3 dpdv = float3(n.y * n.x * denom, -invysq, n.z * n.y * denom) * M_PI * r;
             
             float2x2 A;
             A[0][0] = dpdu[dim[0]]; A[0][1] = dpdv[dim[0]];
@@ -103,24 +106,21 @@ extension RayFootprint
             if(!SolveLinearSystem2x2(A, Bx, dUVdx)) dUVdx = 0.0;
             if(!SolveLinearSystem2x2(A, By, dUVdy)) dUVdy = 0.0;
         }
-        else
+        #else
         {
-            // billboard plane base
-            float3x3 planeBase = GetBillboardTangentSpace(normalize(rayOrg - P), yAlign);
-
-            // Get hit point adapted parameters.
-            dUVdx.x = dot(this.rayDiff.dOdx, planeBase[0]) / dim[0];
-            dUVdx.y = dot(this.rayDiff.dOdx, planeBase[1]) / dim[1];
-            dUVdy.x = dot(this.rayDiff.dOdy, planeBase[0]) / dim[0];
-            dUVdy.y = dot(this.rayDiff.dOdy, planeBase[1]) / dim[1];
+            dUVdx.x = dot(this.rayDiff.dOdx, v.tangentW) / dim[0];
+            dUVdx.y = dot(this.rayDiff.dOdx, v.bitangentW) / dim[1];
+            dUVdy.x = dot(this.rayDiff.dOdy, v.tangentW) / dim[0];
+            dUVdy.y = dot(this.rayDiff.dOdy, v.bitangentW) / dim[1];
         }
+        #endif
 
         // Compute shading data.
         float3 viewDir = -rayDir;
-        ShadingData sd;
         const uint materialID = BILLBOARD_MATERIAL_ID;
         // Use the dUVdx and dUVdy directly --> gives you anisotropic filtering.
-        sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], viewDir, dUVdx, dUVdy);
+        ExplicitRayDiffsLodTextureSampler explicitRayDiffsLOD = { dUVdx, dUVdy };
+        BillboardShadingData sd = prepareBillboardShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], viewDir, explicitRayDiffsLOD);
 
         return sd;
     }
@@ -152,12 +152,12 @@ extension RayFootprint
     }
 
     [mutating]
-    void hitSurface(inout VertexData v, float rayT, float3 rayDir)
+    void hitSurface(float3 faceNormal, float rayT, float3 rayDir)
     {
     }
 
     [mutating]
-    void hitSphere(VertexData v, float3 rayOrg, float3 rayDir, float rayT, float3 sphereCenter, float sphereRadius)
+    void hitSphere(float3 faceNormal, float3 rayOrg, float3 rayDir, float rayT, float3 sphereCenter, float sphereRadius)
     {        
     }
 
@@ -172,10 +172,11 @@ extension RayFootprint
         return prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -rayDir, 0.f);
     }
 
-    ShadingData computeBillboardShadingData(VertexData v, uint aabbIndex, float3 rayOrg, float3 rayDir)
+    BillboardShadingData computeBillboardShadingData(BillboardVertex v, uint aabbIndex, float3 rayOrg, float3 rayDir)
     {
         const uint materialID = BILLBOARD_MATERIAL_ID;
-        return prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -rayDir, 0.f);
+        ExplicitLodTextureSampler explicitLOD = { 0.0 };
+        return prepareBillboardShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -rayDir, explicitLOD);
     }
 };
 #endif
@@ -197,9 +198,9 @@ ShadingData prepareShadingData(VertexData v, RayFootprint rayFootprint, StaticVe
 
 static const float3 gRandomColors[] = {float3(1.0, 0, 0), float3(1.0, 0.1, 0.9), float3(0.1, 1, 0.1), float3(0, 1.0, 0.95), float3(1.0, 0.95, 0.0), float3(0.1, 0.1, 1)};
 
-ShadingData prepareBillboardShadingData(VertexData v, RayFootprint rayFootprint, uint aabbIndex, /*long version*/ float3 rayOrg,  float3 rayDir)
+BillboardShadingData prepareBillboardShadingData(BillboardVertex v, RayFootprint rayFootprint, uint aabbIndex, /*long version*/ float3 rayOrg,  float3 rayDir)
 {
-    ShadingData sd = rayFootprint.computeBillboardShadingData(v, aabbIndex, rayOrg, rayDir);
+    BillboardShadingData sd = rayFootprint.computeBillboardShadingData(v, aabbIndex, rayOrg, rayDir);
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE) sd.opacity *= v.billboardStrength;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL && sd.opacity < 1.0) sd.opacity = clamp(1.0 - pow(1.0 - sd.opacity, v.billboardStrength), 0.0, 1.0);
     if(USE_RANDOM_BILLBOARD_COLORS)

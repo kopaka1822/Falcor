@@ -247,8 +247,6 @@ struct VertexData
     float2 texC;            ///< Texture coordinate.
     float3 faceNormalW;     ///< Face normal in world space (normalized).
     float  coneTexLODValue; ///< Texture LOD data for cone tracing. This is zero, unless getVertexDataRayCones() is used.
-    float  billboardDepth; ///< (new) depth ds of the billboard vertex
-    float  billboardStrength; ///< (new) For particles: soft particle opacity factor; For sphericals: Normalized distance to the billboard center (1-(d/r))*(ds / 2r)
 };
 
 struct ProceduralPrimitiveData

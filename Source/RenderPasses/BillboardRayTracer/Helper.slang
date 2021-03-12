@@ -1,10 +1,47 @@
+// structs -----------
+
+struct BillboardShadingData
+{
+    float3 posW; // position in world space
+    float3 V;   // direction to the eye at shading hit
+    float3 N;   // shading normal
+    float3 diffuse; // diffuse albedo
+    float  opacity; 
+};
+
+struct BillboardVertex
+{
+    float3 posW; // position in world space
+    float3 normalW; // shading normal
+    float2 texC; // texture coordinates
+    float  billboardDepth; // depth ds of the billboard vertex
+    float  billboardStrength; // For particles: soft particle opacity factor; For sphericals: Normalized distance to the billboard center (1-(d/r))*(ds / 2r)
+#if BILLBOARD_TYPE != BILLBOARD_TYPE_SPHERICAL
+    float3 tangentW; // tangent for ray differentials
+    float3 bitangentW; // bitangent for ray differentials
+#endif
+};
+
+// helper function to fetch material data from texture
+BillboardShadingData prepareBillboardShadingData<L:ITextureSampler>(BillboardVertex v, uint materialID, MaterialData md, MaterialResources mr, float3 viewDir, L lod)
+{
+    BillboardShadingData sd;
+    float4 baseColor = sampleTexture(mr.baseColor, mr.samplerState, v.texC, md.baseColor, EXTRACT_DIFFUSE_TYPE(md.flags), lod);
+    sd.diffuse = baseColor.rgb;
+    sd.opacity = baseColor.a;
+    sd.posW = v.posW;
+    sd.V = viewDir;
+    sd.N = v.normalW;
+    return sd;
+}
+
 // GetTangentSpace() function from the article with option for y-axis alignment
-float3x3 GetBillboardTangentSpace(float3 normal, bool yAlign) {
+float3x3 GetBillboardTangentSpace(float3 normalDir, bool yAlign) {
 	float3x3 planeBase;
-	planeBase[2] = normal;
-	
+
 	// y axis alignment
-	if(yAlign) planeBase[2] = normalize(float3(planeBase[2].x, 0.0, planeBase[2].z));
+	if(yAlign) planeBase[2] = normalize(float3(normalDir.x, 0.0, normalDir.z));
+    else planeBase[2] = normalize(normalDir);  
 
 	float3 up = float3(0.0, 1.0, 0.0);
 	planeBase[0] = normalize(cross(up, planeBase[2]));
@@ -22,19 +59,23 @@ float getSoftParticleContrast(float x)
 }
 
 // Returns vertex data for impostors and particle billboards
-VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayDirection, float rayTCurrent, float rayTMin, float rayTMax)
+BillboardVertex getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayDirection, float rayTCurrent, float rayTMin, float rayTMax)
 {
-    VertexData v;
+    BillboardVertex v;
     const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
     const float2 dim = bbox.extent().xy;
     const float3 C = bbox.center();
 
     // billboard plane base
     const bool yAlign = BILLBOARD_TYPE == BILLBOARD_TYPE_IMPOSTOR;
-    const float3x3 planeBase = GetBillboardTangentSpace(normalize(rayOrigin - C), yAlign);
+    const float3x3 planeBase = GetBillboardTangentSpace(rayOrigin - C, yAlign);
 
     // fill out important vertex data
     v.posW = rayOrigin + rayDirection * rayTCurrent;
+#if BILLBOARD_TYPE != BILLBOARD_TYPE_SPHERICAL
+    v.tangentW = planeBase[0];
+    v.bitangentW = planeBase[1];
+#endif
     v.normalW = planeBase[2];
     v.texC.x = dot(C - v.posW, planeBase[0]) / dim.x + 0.5;
     v.texC.y = dot(C - v.posW, planeBase[1]) / dim.y + 0.5;
@@ -44,34 +85,30 @@ VertexData getBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayD
         float blendScale = 8.0 / dim.x;
         float outFade = getSoftParticleContrast((rayTMax - rayTCurrent) * blendScale);
         float inFade = getSoftParticleContrast((rayTCurrent - rayTMin) * blendScale);
-        //inFade = 1.0;
         v.billboardStrength = min(outFade, inFade);
     }
 
-    // other vertex data
-    v.tangentW.xyz = planeBase[0];
-    v.tangentW.w = 1.0;
-    v.faceNormalW = planeBase[2];
-    v.coneTexLODValue = 0.0;
-    v.billboardDepth = (dim.x * 0.5 - length(C - v.posW)) * 2.0; // for soft shadows
-
+    v.billboardDepth = dim.x - length(C - v.posW) * 2.0; // for soft shadows
+    //v.billboardDepth = sqrt(dim.x * dim.x * 0.25 - dot(C - v.posW, C - v.posW)) * 2.0;
     return v;
 }
+
+#define BILLBOARD_UV_OFFSET(id) (id * 0.912)
 
 float2 CalcUVFromNormal(float3 n, uint aabbOffset)
 {
     float2 uv;
-    uv.x = (n.x == 0.0 ? 0.25 * sign(n.z) : atan2(n.z, n.x) / (2.0 * M_PI)) + 0.5;
+    //uv.x = (n.x == 0.0 ? 0.25 * sign(n.z) : atan2(n.z, n.x) / (2.0 * M_PI)) + 0.5;
+    uv.x = atan2(n.z, n.x) / (2.0 * M_PI) + 0.5;
     uv.y = acos(n.y) / M_PI;
-    uv = clamp(uv, 0.0, 1.0);
-    uv.x += aabbOffset * 0.912; // give each billboard a random texture rotation
+    uv.x += BILLBOARD_UV_OFFSET(aabbOffset); // give each billboard a random texture rotation
     return uv;
 }
 
 // Returns vertex data for spherical billboards
-VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayDirection, float rayTCurrent, float rayTMin, float rayTMax)
+BillboardVertex getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, float3 rayDirection, float rayTCurrent, float rayTMin, float rayTMax)
 {
-    VertexData v;
+    BillboardVertex v;
 
     // reconstruct billboard plane
     const AABB bbox = gScene.proceduralPrimitiveAABBs[aabbOffset];
@@ -87,27 +124,27 @@ VertexData getSphericalBillboardVertexData(uint aabbOffset, float3 rayOrigin, fl
 
     // fill out vertex data
     v.billboardDepth = ds;
-    v.billboardStrength = (1.0 - (l / r)) * (ds / (2.0 * r));
+    v.billboardStrength = (1.0 - (l / r)) * (ds / dim.x);
     v.posW = rayOrigin + rayDirection * rayTCurrent; // closest entry point
     v.normalW = normalize(rayOrigin + rayDirection * (t - w) - C); // direction to unclipped entry point (for consistent texture coordinates when traversing)
     v.texC = CalcUVFromNormal(v.normalW, aabbOffset);
 
-    // other vertex data
-    v.tangentW = 0.0; // does not really matter
-    v.faceNormalW = v.normalW;
-    v.coneTexLODValue = 0.0;
-
     return v;
 }
 
-float3 evalBillboardMaterial(ShadingData sd, LightData light)
+// shading data: pos, N, diffuse
+float3 evalBillboardMaterial(BillboardShadingData sd, LightData light)
 {
-    LightSample ls = evalLight(light, sd);
+    LightSample ls;
+    if (light.type == uint(LightType::Directional)) ls = evalDirectionalLight(light, sd.posW);
+    else if (light.type == uint(LightType::Point)) ls = evalPointLight(light, sd.posW);
+    else return 0.0;
 
     // volumetric shading?
     if(BILLBOARD_TYPE != BILLBOARD_TYPE_IMPOSTOR) return max(ls.diffuse * sd.diffuse, 0.0);
 
     // If the light doesn't hit the surface or we are viewing the surface from the back, return
+    ls.NdotL = dot(sd.N, ls.L);
     if (ls.NdotL <= 0) return 0.0;
 
     // Calculate the diffuse term
@@ -117,11 +154,9 @@ float3 evalBillboardMaterial(ShadingData sd, LightData light)
 
 // shading function for billboards that iterates though all lights and traces shadow rays for the primary light source
 // returns rgb color and transmittance (in alpha channel)
-float4 shadeBillboard(ShadingData sd, float billboardDepth, float billboardOffset = 0.0)
+float4 shadeBillboard(BillboardShadingData sd, float billboardDepth, float billboardOffset = 0.0)
 {
-    float3 curColor = sd.emissive;
-    const float curTransmit = 1.0 - sd.opacity;
-
+    float3 curColor = 0.0;
     // forward render all light sources
     const uint lightCount = gScene.getLightCount();
     for(uint i = 0; i < lightCount; ++i)
@@ -149,8 +184,7 @@ float4 shadeBillboard(ShadingData sd, float billboardDepth, float billboardOffse
         }
     }
     curColor += sd.diffuse * AMBIENT_LIGHT;
-    curColor *= sd.opacity;
-    return float4(curColor, curTransmit);
+    return float4(curColor * sd.opacity, 1.0 - sd.opacity);
 }
 
 // simple shading function that iterates though all lights and traces shadow rays for the primary light source
@@ -158,7 +192,6 @@ float4 shadeBillboard(ShadingData sd, float billboardDepth, float billboardOffse
 float4 shade(ShadingData sd)
 {
     float3 curColor = sd.emissive;
-    const float curTransmit = 1.0 - sd.opacity;
 
     // forward render all light sources
     const uint lightCount = gScene.getLightCount();
@@ -170,8 +203,7 @@ float4 shade(ShadingData sd)
         curColor += evalMaterial(sd, l, shadowFac).color;
     }
     curColor += sd.diffuse * AMBIENT_LIGHT;
-    curColor *= sd.opacity;
-    return float4(curColor, curTransmit);
+    return float4(curColor * sd.opacity, 1.0 - sd.opacity);
 }
 
 // returns depth weight for Weighted-Blended OIT
