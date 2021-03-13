@@ -201,6 +201,9 @@ static const float3 gRandomColors[] = {float3(1.0, 0, 0), float3(1.0, 0.1, 0.9),
 BillboardShadingData prepareBillboardShadingData(BillboardVertex v, RayFootprint rayFootprint, uint aabbIndex, /*long version*/ float3 rayOrg,  float3 rayDir)
 {
     BillboardShadingData sd = rayFootprint.computeBillboardShadingData(v, aabbIndex, rayOrg, rayDir);
+#ifdef BILLBOARD_ALPHA_MULTIPLIER
+    sd.opacity *= BILLBOARD_ALPHA_MULTIPLIER;
+#endif
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_PARTICLE) sd.opacity *= v.billboardStrength;
     if(BILLBOARD_TYPE == BILLBOARD_TYPE_SPHERICAL && sd.opacity < 1.0) sd.opacity = clamp(1.0 - pow(1.0 - sd.opacity, v.billboardStrength), 0.0, 1.0);
     if(USE_RANDOM_BILLBOARD_COLORS)

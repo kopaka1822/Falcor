@@ -568,7 +568,7 @@ namespace Falcor
         std::uniform_real_distribution<float> posDist(-radius, radius);
         std::uniform_real_distribution<float> radDist(0.9f, 1.1f);
 
-        const float particleRadius = std::pow(1.0f / float(particles), 1.0f / 3.0f) * radius * 1.5f;
+        const float particleRadius = radius * 1.5f / std::pow(float(particles), 1.0f / 3.0f);
 
         for (int i = 0; i < particles; ++i)
         {

@@ -154,6 +154,9 @@ void BillboardRayTracer::execute(RenderContext* pRenderContext, const RenderData
         defines.add("USE_SHADOWS", mShadows ? "true" : "false");
         defines.add("USE_RANDOM_BILLBOARD_COLORS", mRandomColors ? "true" : "false");
         defines.add("BILLBOARD_SHADOW_SAMPLES", std::to_string(mDeepBillboardSamples));
+        // alpha multiplier used in the benchmark
+        uint32_t nBillboards = std::max<uint32_t>(mpScene ? mpScene->getProceduralPrimitiveCount() : 1, 1);
+        //defines.add("BILLBOARD_ALPHA_MULTIPLIER", std::to_string(2.0f / pow((float)nBillboards, 1.0f / 3.0f)));
 
         mTracer.pProgram->addDefines(defines);
 
@@ -246,6 +249,7 @@ void BillboardRayTracer::renderUI(Gui::Widgets& widget)
     if (dirty)
     {
         mOptionsChanged = true;
+        gpFramework->getFrameRate().reset(); // reset time after options changed
     }
 }
 
@@ -272,6 +276,7 @@ void BillboardRayTracer::setScene(RenderContext* pRenderContext, const Scene::Sh
     }
 
     mOptionsChanged = true;
+    gpFramework->getFrameRate().reset(); // reset time after options changed
 }
 
 void BillboardRayTracer::prepareVars()

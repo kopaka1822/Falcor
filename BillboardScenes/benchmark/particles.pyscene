@@ -1,7 +1,7 @@
 # load scene settings
 sceneBuilder.importScene('quad1x1.obj') # dummy
-sceneBuilder.envMap = EnvMap('BlueSky.png')
-sceneBuilder.envMap.intensity = 0.1
+sceneBuilder.envMap = EnvMap('green.png')
+#sceneBuilder.envMap.intensity = 0.1
 
 # set up material
 mat = Material('Particle')
@@ -27,4 +27,4 @@ sceneBuilder.addCamera(camera)
 sceneBuilder.selectedCamera = camera
 
 # add billboards
-sceneBuilder.addSmoke(float3(0.0, 0.0, 20.0), 2.0, 100000)
+sceneBuilder.addSmoke(float3(0.0, 0.0, 20.0), 2.0, 10000)

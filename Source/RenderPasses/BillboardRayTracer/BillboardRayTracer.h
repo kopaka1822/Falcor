@@ -74,7 +74,7 @@ private:
     bool                        mSoftParticles = true;
     bool                        mShadows = true;
     bool                        mRandomColors = false;
-    int                         mDeepBillboardSamples = 1;
+    int                         mDeepBillboardSamples = 2;
     bool                        mParticleWeightedTransparency = false;
 
     // Ray tracing program.

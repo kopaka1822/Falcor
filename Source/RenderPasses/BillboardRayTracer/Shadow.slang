@@ -57,7 +57,12 @@ float TraceShadowRay(float3 origin, LightData l)
             const float ds = min(ray.TMax, t + w) - max(ray.TMin, t - w);
             if(ds <= 0.0) continue;
             // hard coded opacity
-            transmit *= pow(0.3, (1 - (l / r)) * (0.5 * ds / r));
+            float alpha = 0.3;
+            #ifdef BILLBOARD_ALPHA_MULTIPLIER
+                alpha *= BILLBOARD_ALPHA_MULTIPLIER;
+            #endif
+
+            transmit *= pow(alpha, (1 - (l / r)) * (0.5 * ds / r));
         }
 
         if(transmit <= SHADOW_MIN)
