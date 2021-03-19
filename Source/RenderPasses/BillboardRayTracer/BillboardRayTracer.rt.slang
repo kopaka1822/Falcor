@@ -140,7 +140,8 @@ void boxIntersect()
         // ray origin and direction in plane space
         const float3 dp = mul(planeBase, WorldRayDirection());
         const float3 Op = mul(planeBase, WorldRayOrigin() - C);
-    
+        //const float3 Op = float3(0.0, 0.0, length(WorldRayOrigin() - C)); // alternative if normal is always normalize(WorldRayOrigin() - C)
+
         // ray intersection parameter:
 	    // Op + s * dp = (Xp.x, Xp.y, 0) with Xp = intersection point of plane
         const float s = -Op.z / dp.z;
