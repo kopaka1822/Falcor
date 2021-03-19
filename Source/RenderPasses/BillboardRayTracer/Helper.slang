@@ -99,7 +99,7 @@ float2 CalcUVFromNormal(float3 n, uint aabbOffset)
 {
     float2 uv;
     //uv.x = (n.x == 0.0 ? 0.25 * sign(n.z) : atan2(n.z, n.x) / (2.0 * M_PI)) + 0.5;
-    uv.x = atan2(n.z, n.x) / (2.0 * M_PI) + 0.5;
+    uv.x = atan2(n.z, n.x) / (2.0 * M_PI);
     uv.y = acos(n.y) / M_PI;
     uv.x += BILLBOARD_UV_OFFSET(aabbOffset); // give each billboard a random texture rotation
     return uv;

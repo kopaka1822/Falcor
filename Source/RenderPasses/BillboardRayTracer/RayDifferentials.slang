@@ -82,7 +82,7 @@ extension RayFootprint
             }
             
             // change of position per texture coordinate direction (UV-sphere)
-            //float theta = (uv.x - 0.5 - BILLBOARD_UV_OFFSET(aabbIndex)) * 2.0 * M_PI;
+            //float theta = (uv.x - BILLBOARD_UV_OFFSET(aabbIndex)) * 2.0 * M_PI;
             //float phi = M_PI * uv.y;
             //float sinphi = sin(phi);
             //float cosphi = cos(phi);
