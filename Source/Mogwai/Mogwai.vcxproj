@@ -37,6 +37,81 @@
     <ProjectReference Include="..\Falcor\Falcor.vcxproj">
       <Project>{2c535635-e4c5-4098-a928-574f0e7cd5f9}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\AccumulatePass\AccumulatePass.vcxproj">
+      <Project>{081fd8de-6c92-4cdc-84ad-c514f7e83f93}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\Antialiasing\Antialiasing.vcxproj">
+      <Project>{8ecc586d-1f5e-46d4-82bb-28044e6d67a2}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\BlitPass\BlitPass.vcxproj">
+      <Project>{15770768-65fc-4889-a34b-3cc27cc452bc}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\BSDFViewer\BSDFViewer.vcxproj">
+      <Project>{b219c161-94d2-4dcb-a75d-e6a0906f534d}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\CSM\CSM.vcxproj">
+      <Project>{52cb6295-6163-49b8-b3b6-8a6140e0479d}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\DebugPasses\DebugPasses.vcxproj">
+      <Project>{e92137d5-b374-4216-9a96-6ad67965b2ee}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\DepthPass\DepthPass.vcxproj">
+      <Project>{730aa5b9-7ddb-40af-a882-eb39b9d3ac7c}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\ErrorMeasurePass\ErrorMeasurePass.vcxproj">
+      <Project>{dae949bd-2c44-40da-a592-7ccab00d4a7d}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\FLIPPass\FLIPPass.vcxproj">
+      <Project>{dba9d6c1-3d7c-4b87-b7ca-abca2c136905}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\ForwardLightingPass\ForwardLightingPass.vcxproj">
+      <Project>{c028bf86-8f34-42c2-84da-4cbe1cf783fe}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\GBuffer\GBuffer.vcxproj">
+      <Project>{ca155b01-7528-4d81-b5cd-e801b4aa4027}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\ImageLoader\ImageLoader.vcxproj">
+      <Project>{8ce33f5f-cfb9-4b25-9298-990dae982991}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\MegakernelPathTracer\MegakernelPathTracer.vcxproj">
+      <Project>{873f13ca-a9c7-47ba-857d-8848c5e7f07e}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\MinimalPathTracer\MinimalPathTracer.vcxproj">
+      <Project>{ff7fe9b8-2ace-4044-869d-a5c4ef8042d3}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\OptixDenoiser\OptixDenoiser.vcxproj">
+      <Project>{05555565-706c-4633-bf8a-b99f96f2b301}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\PixelInspectorPass\PixelInspectorPass.vcxproj">
+      <Project>{80ddde59-a412-4e64-880a-6b52697c967b}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\SceneDebugger\SceneDebugger.vcxproj">
+      <Project>{b1715f7a-6efd-4910-b271-7423ab6961cb}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\SimplePostFX\SimplePostFX.vcxproj">
+      <Project>{eea2605b-eed3-442e-8d8d-7d2774df080a}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\SkyBox\SkyBox.vcxproj">
+      <Project>{c6eb0ac0-ff3b-474e-a453-44d84329d13a}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\SSAO\SSAO.vcxproj">
+      <Project>{6cc70b9f-ca56-4ef2-8075-a1be0005dcf4}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\SVGFPass\SVGFPass.vcxproj">
+      <Project>{691f64dd-0941-49de-b52e-949341192154}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\TemporalDelayPass\TemporalDelayPass.vcxproj">
+      <Project>{6b527e70-c2c6-4c87-bb7d-e1154f6a6fef}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\ToneMapper\ToneMapper.vcxproj">
+      <Project>{e58db0ed-58cd-4724-91ea-99419084cb3a}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\Utils\Utils.vcxproj">
+      <Project>{bca3ccd2-6118-4821-bf30-23b725b0c230}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\WhittedRayTracer\WhittedRayTracer.vcxproj">
+      <Project>{431c3127-e613-424c-b964-fb53daa87789}</Project>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <None Include="Data\BSDFViewer.py" />
