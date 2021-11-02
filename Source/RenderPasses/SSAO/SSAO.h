@@ -57,9 +57,11 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override { mpScene = pScene; }
     virtual void renderUI(Gui::Widgets& widget) override;
 
+    void setHalfResolution(bool halfRes);
     void setSampleRadius(float radius);
     void setKernelSize(uint32_t kernelSize);
     void setDistribution(uint32_t distribution);
+    bool getHalfResolution() {return mHalfResolution;}
     float getSampleRadius() { return mData.radius; }
     uint32_t getKernelSize() { return mData.kernelSize; }
     uint32_t getDistribution() { return (uint32_t)mHemisphereDistribution; }
@@ -67,13 +69,14 @@ public:
 private:
     SSAO();
     Texture::SharedPtr generateAOMap(RenderContext* pContext, const Camera* pCamera, const Texture::SharedPtr& pDepthTexture, const Texture::SharedPtr& pNormalTexture);
-    void setNoiseTexture(uint32_t width, uint32_t height);
+    void setNoiseTexture();
     void setKernel();
 
     SSAOData mData;
     bool mDirty = false;
 
     Fbo::SharedPtr mpAOFbo;
+    bool mHalfResolution = false;
 
     Sampler::SharedPtr mpNoiseSampler;
     Texture::SharedPtr mpNoiseTexture;

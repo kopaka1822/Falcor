@@ -64,6 +64,7 @@ namespace
         { (uint32_t)SSAO::SampleDistribution::CosineHammersley, "Cosine Hammersley" }
     };
 
+    const std::string kHalfResolution = "halfResolution";
     const std::string kKernelSize = "kernelSize";
     const std::string kNoiseSize = "noiseSize";
     const std::string kDistribution = "distribution";
@@ -104,7 +105,8 @@ SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& di
     Dictionary blurDict;
     for (const auto& [key, value] : dict)
     {
-        if (key == kKernelSize) pSSAO->mData.kernelSize = value;
+        if (key == kHalfResolution) pSSAO->mHalfResolution = value;
+        else if (key == kKernelSize) pSSAO->mData.kernelSize = value;
         else if (key == kNoiseSize) pSSAO->mNoiseSize = value;
         else if (key == kDistribution) pSSAO->mHemisphereDistribution = value;
         else if (key == kRadius) pSSAO->mData.radius = value;
@@ -142,13 +144,11 @@ RenderPassReflection SSAO::reflect(const CompileData& compileData)
 
 void SSAO::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
-    Fbo::Desc fboDesc;
-    fboDesc.setColorTarget(0, Falcor::ResourceFormat::R8Unorm);
-    
-    mpAOFbo = Fbo::create2D(compileData.defaultTexDims.x, compileData.defaultTexDims.y, fboDesc);
-
     setKernel();
-    setNoiseTexture(mNoiseSize.x, mNoiseSize.y);
+    setNoiseTexture();
+
+    // reset framebufer
+    mpAOFbo.reset();
 
     mpBlurGraph = RenderGraph::create("Gaussian Blur");
     GaussianBlur::SharedPtr pBlurPass = GaussianBlur::create(pRenderContext, mBlurDict);
@@ -185,6 +185,20 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
 Texture::SharedPtr SSAO::generateAOMap(RenderContext* pContext, const Camera* pCamera, const Texture::SharedPtr& pDepthTexture, const Texture::SharedPtr& pNormalTexture)
 {
+    if(!mpAOFbo)
+    {
+        // create framebuffer
+        Fbo::Desc fboDesc;
+        fboDesc.setColorTarget(0, Falcor::ResourceFormat::R8Unorm);
+
+        uint divisor = mHalfResolution ? 2 : 1; // half resolution of the ambient occlusion map if required (use resolution of the depth map for reference)
+        mpAOFbo = Fbo::create2D(pDepthTexture->getWidth() / divisor, pDepthTexture->getHeight() / divisor, fboDesc);
+        assert(mpAOFbo);
+
+        mData.noiseScale = float2(mpAOFbo->getWidth(), mpAOFbo->getHeight()) / float2(mNoiseSize.x, mNoiseSize.y);
+        mDirty = true; // modified mData
+    }
+
     if (mDirty)
     {
         ShaderVar var = mpSSAOPass["StaticCB"];
@@ -211,6 +225,9 @@ Texture::SharedPtr SSAO::generateAOMap(RenderContext* pContext, const Camera* pC
 
 void SSAO::renderUI(Gui::Widgets& widget)
 {
+    bool halfRes = mHalfResolution;
+    if (widget.checkbox("Half Resolution", halfRes)) setHalfResolution(halfRes);
+
     uint32_t distribution = (uint32_t)mHemisphereDistribution;
     if (widget.dropdown("Kernel Distribution", kDistributionDropdown, distribution)) setDistribution(distribution);
 
@@ -228,6 +245,13 @@ void SSAO::renderUI(Gui::Widgets& widget)
             mpBlurGraph->getPass("GaussianBlur")->renderUI(blurGroup);
         }
     }
+}
+
+void SSAO::setHalfResolution(bool halfRes)
+{
+    mHalfResolution = halfRes;
+    // reset framebufer
+    mpAOFbo.reset();
 }
 
 void SSAO::setSampleRadius(float radius)
@@ -281,21 +305,19 @@ void SSAO::setKernel()
     mDirty = true;
 }
 
-void SSAO::setNoiseTexture(uint32_t width, uint32_t height)
+void SSAO::setNoiseTexture()
 {
     std::vector<uint32_t> data;
-    data.resize(width * height);
+    data.resize(mNoiseSize.x * mNoiseSize.y);
 
-    for (uint32_t i = 0; i < width * height; i++)
+    for (uint32_t i = 0; i < mNoiseSize.x * mNoiseSize.y; i++)
     {
         // Random directions on the XY plane
         float2 dir = glm::normalize(glm::linearRand(float2(-1), float2(1))) * 0.5f + 0.5f;
         data[i] = glm::packUnorm4x8(float4(dir, 0.0f, 1.0f));
     }
 
-    mpNoiseTexture = Texture::create2D(width, height, ResourceFormat::RGBA8Unorm, 1, Texture::kMaxPossible, data.data());
-
-    mData.noiseScale = float2(mpAOFbo->getWidth(), mpAOFbo->getHeight()) / float2(width, height);
+    mpNoiseTexture = Texture::create2D(mNoiseSize.x, mNoiseSize.y, ResourceFormat::RGBA8Unorm, 1, Texture::kMaxPossible, data.data());
 
     mDirty = true;
 }
