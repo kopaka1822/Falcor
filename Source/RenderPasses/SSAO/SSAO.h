@@ -74,7 +74,6 @@ private:
     bool mDirty = false;
 
     Fbo::SharedPtr mpAOFbo;
-    uint2 mAoMapSize = uint2(1024);
 
     Sampler::SharedPtr mpNoiseSampler;
     Texture::SharedPtr mpNoiseTexture;

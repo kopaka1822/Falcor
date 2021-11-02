@@ -102,8 +102,11 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
         float2 sampleUV = saturate(float2(samplePosProj.x, -samplePosProj.y) * 0.5f + 0.5f);
         float sceneDepth = length(getPosition(sampleUV).xyz - gCamera.data.posW);
 
-        float rangeCheck = step(abs(sampleDepth - sceneDepth), gData.radius);
-        occlusion += step(sceneDepth, sampleDepth) * rangeCheck;
+        //if(abs(sampleDepth - sceneDepth) >= gData.radius && sceneDepth >= sampleDepth)
+        if(sampleDepth > sceneDepth && abs(sampleDepth - sceneDepth) < gData.radius)
+            occlusion += 1.0;
+        //float rangeCheck = step(abs(sampleDepth - sceneDepth), gData.radius);
+        //occlusion += step(sceneDepth, sampleDepth) * rangeCheck;
     }
 
     float factor = 1 - (occlusion / float(gData.kernelSize));

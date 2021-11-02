@@ -64,7 +64,6 @@ namespace
         { (uint32_t)SSAO::SampleDistribution::CosineHammersley, "Cosine Hammersley" }
     };
 
-    const std::string kAoMapSize = "aoMapSize";
     const std::string kKernelSize = "kernelSize";
     const std::string kNoiseSize = "noiseSize";
     const std::string kDistribution = "distribution";
@@ -105,8 +104,7 @@ SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& di
     Dictionary blurDict;
     for (const auto& [key, value] : dict)
     {
-        if (key == kAoMapSize) pSSAO->mAoMapSize = value;
-        else if (key == kKernelSize) pSSAO->mData.kernelSize = value;
+        if (key == kKernelSize) pSSAO->mData.kernelSize = value;
         else if (key == kNoiseSize) pSSAO->mNoiseSize = value;
         else if (key == kDistribution) pSSAO->mHemisphereDistribution = value;
         else if (key == kRadius) pSSAO->mData.radius = value;
@@ -120,7 +118,6 @@ SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& di
 Dictionary SSAO::getScriptingDictionary()
 {
     Dictionary dict;
-    dict[kAoMapSize] = mAoMapSize;
     dict[kKernelSize] = mData.kernelSize;
     dict[kNoiseSize] = mNoiseSize;
     dict[kRadius] = mData.radius;
@@ -147,7 +144,8 @@ void SSAO::compile(RenderContext* pRenderContext, const CompileData& compileData
 {
     Fbo::Desc fboDesc;
     fboDesc.setColorTarget(0, Falcor::ResourceFormat::R8Unorm);
-    mpAOFbo = Fbo::create2D(mAoMapSize.x, mAoMapSize.y, fboDesc);
+    
+    mpAOFbo = Fbo::create2D(compileData.defaultTexDims.x, compileData.defaultTexDims.y, fboDesc);
 
     setKernel();
     setNoiseTexture(mNoiseSize.x, mNoiseSize.y);
