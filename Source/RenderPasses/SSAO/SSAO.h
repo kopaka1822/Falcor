@@ -57,10 +57,12 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override { mpScene = pScene; }
     virtual void renderUI(Gui::Widgets& widget) override;
 
+    void setEnabled(bool enabled) {mEnabled = enabled;}
     void setHalfResolution(bool halfRes);
     void setSampleRadius(float radius);
     void setKernelSize(uint32_t kernelSize);
     void setDistribution(uint32_t distribution);
+    bool getEnabled() {return mEnabled;}
     bool getHalfResolution() {return mHalfResolution;}
     float getSampleRadius() { return mData.radius; }
     uint32_t getKernelSize() { return mData.kernelSize; }
@@ -75,6 +77,7 @@ private:
     SSAOData mData;
     bool mDirty = false;
 
+    bool mEnabled = true;
     Fbo::SharedPtr mpAOFbo;
     bool mHalfResolution = false;
 

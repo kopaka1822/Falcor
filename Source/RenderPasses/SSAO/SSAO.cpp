@@ -37,6 +37,8 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 static void regSSAO(pybind11::module& m)
 {
     pybind11::class_<SSAO, RenderPass, SSAO::SharedPtr> pass(m, "SSAO");
+    pass.def_property("enabled", &SSAO::getEnabled, &SSAO::setEnabled);
+    pass.def_property("halfResolution", &SSAO::getHalfResolution, &SSAO::setHalfResolution);
     pass.def_property("kernelRadius", &SSAO::getKernelSize, &SSAO::setKernelSize);
     pass.def_property("distribution", &SSAO::getDistribution, &SSAO::setDistribution);
     pass.def_property("sampleRadius", &SSAO::getSampleRadius, &SSAO::setSampleRadius);
@@ -64,6 +66,7 @@ namespace
         { (uint32_t)SSAO::SampleDistribution::CosineHammersley, "Cosine Hammersley" }
     };
 
+    const std::string kEnabled = "enabled";
     const std::string kHalfResolution = "halfResolution";
     const std::string kKernelSize = "kernelSize";
     const std::string kNoiseSize = "noiseSize";
@@ -105,7 +108,8 @@ SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& di
     Dictionary blurDict;
     for (const auto& [key, value] : dict)
     {
-        if (key == kHalfResolution) pSSAO->mHalfResolution = value;
+        if(key == kEnabled) pSSAO->mEnabled = value;
+        else if (key == kHalfResolution) pSSAO->mHalfResolution = value;
         else if (key == kKernelSize) pSSAO->mData.kernelSize = value;
         else if (key == kNoiseSize) pSSAO->mNoiseSize = value;
         else if (key == kDistribution) pSSAO->mHemisphereDistribution = value;
@@ -120,6 +124,8 @@ SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& di
 Dictionary SSAO::getScriptingDictionary()
 {
     Dictionary dict;
+    dict[kEnabled] = mEnabled;
+    dict[kHalfResolution] = mHalfResolution;
     dict[kKernelSize] = mData.kernelSize;
     dict[kNoiseSize] = mNoiseSize;
     dict[kRadius] = mData.radius;
@@ -160,21 +166,27 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
-    // Run the AO pass
-    auto pDepth = renderData[kDepth]->asTexture();
-    auto pNormals = renderData[kNormals]->asTexture();
     auto pColorOut = renderData[kColorOut]->asTexture();
     auto pColorIn = renderData[kColorIn]->asTexture();
+    auto pDepth = renderData[kDepth]->asTexture();
+    auto pNormals = renderData[kNormals]->asTexture();
     auto pAoMap = renderData[kAoMap]->asTexture();
 
     assert(pColorOut != pColorIn);
-    pAoMap = generateAOMap(pRenderContext, mpScene->getCamera().get(), pDepth, pNormals);
-
-    if (mApplyBlur)
+    if(mEnabled)
     {
-        mpBlurGraph->setInput("GaussianBlur.src", pAoMap);
-        mpBlurGraph->execute(pRenderContext);
-        pAoMap = mpBlurGraph->getOutput("GaussianBlur.dst")->asTexture();
+        pAoMap = generateAOMap(pRenderContext, mpScene->getCamera().get(), pDepth, pNormals);
+
+        if (mApplyBlur)
+        {
+            mpBlurGraph->setInput("GaussianBlur.src", pAoMap);
+            mpBlurGraph->execute(pRenderContext);
+            pAoMap = mpBlurGraph->getOutput("GaussianBlur.dst")->asTexture();
+        }
+    }
+    else // ! enabled
+    {
+        pRenderContext->clearTexture(pAoMap.get(), float4(1.0f));
     }
 
     mComposeData.pApplySSAOPass["gColor"] = pColorIn;
@@ -225,6 +237,9 @@ Texture::SharedPtr SSAO::generateAOMap(RenderContext* pContext, const Camera* pC
 
 void SSAO::renderUI(Gui::Widgets& widget)
 {
+    widget.checkbox("Enabled", mEnabled);
+    if(!mEnabled) return;
+
     bool halfRes = mHalfResolution;
     if (widget.checkbox("Half Resolution", halfRes)) setHalfResolution(halfRes);
 

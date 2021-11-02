@@ -81,6 +81,7 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
     float3x3 tbn = float3x3(tangent, bitangent, normal);
 
     float occlusion = 0.0f;
+    float validSamples = 0.0f;
     for (uint i = 0; i < gData.kernelSize; i++)
     {
         // Orient sample
@@ -100,15 +101,25 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
         samplePosProj.y = -samplePosProj.y;
 #endif
         float2 sampleUV = saturate(float2(samplePosProj.x, -samplePosProj.y) * 0.5f + 0.5f);
-        float sceneDepth = length(getPosition(sampleUV).xyz - gCamera.data.posW);
+        float3 scenePosW = getPosition(sampleUV).xyz;
+        float sceneDepth = length(scenePosW - gCamera.data.posW);
+
 
         //if(sampleDepth > sceneDepth)
         if(sampleDepth > sceneDepth && abs(sampleDepth - sceneDepth) < gData.radius)
             occlusion += 1.0;
         //float rangeCheck = step(abs(sampleDepth - sceneDepth), gData.radius);
         //occlusion += step(sceneDepth, sampleDepth) * rangeCheck;
+
+        //if(abs(sampleDepth - sceneDepth) < gData.radius)
+        //if(distance(posW, scenePosW) < gData.radius)
+        //{
+        //    validSamples += 1.0;
+        //    if(sampleDepth > sceneDepth) occlusion += 1.0;
+        //}
     }
 
-    float factor = 1 - (occlusion / float(gData.kernelSize));
+    validSamples = float(gData.kernelSize);
+    float factor = 1 - (occlusion / max(1.0, validSamples));
     return float4(factor.xxx, 1);
 }
