@@ -65,4 +65,5 @@ private:
     GFSDK_SSAO_Context_D3D12* mpAOContext = nullptr;
     Scene::SharedPtr mpScene;
     GFSDK_SSAO_Parameters mparams;
+    bool m_useNormalData = false;
 };
