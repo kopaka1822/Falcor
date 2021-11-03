@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="HBAOPlus.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="HBAOPlus.h" />
+    <ClInclude Include="include\GFSDK_SSAO.h">
+      <Filter>include</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="include">
+      <UniqueIdentifier>{4b72482e-5c68-4a3e-a45f-1d5ba1bd8c3c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="lib">
+      <UniqueIdentifier>{f308c67e-b263-4aea-a452-ac90a1ad3d9e}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="lib\GFSDK_SSAO_D3D12.win64.lib">
+      <Filter>lib</Filter>
+    </Library>
+  </ItemGroup>
+  <ItemGroup>
+    <CopyFileToFolders Include="lib\GFSDK_SSAO_D3D12.win64.dll">
+      <Filter>lib</Filter>
+    </CopyFileToFolders>
+  </ItemGroup>
+</Project>

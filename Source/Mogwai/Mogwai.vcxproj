@@ -70,6 +70,9 @@
     <ProjectReference Include="..\RenderPasses\GBuffer\GBuffer.vcxproj">
       <Project>{ca155b01-7528-4d81-b5cd-e801b4aa4027}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\HBAOPlus\HBAOPlus.vcxproj">
+      <Project>{30f55fe5-a6ca-479b-aa5d-3179b8453b0a}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\ImageLoader\ImageLoader.vcxproj">
       <Project>{8ce33f5f-cfb9-4b25-9298-990dae982991}</Project>
     </ProjectReference>
