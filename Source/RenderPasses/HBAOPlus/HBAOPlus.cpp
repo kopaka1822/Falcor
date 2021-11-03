@@ -27,11 +27,15 @@
  **************************************************************************/
 #include "HBAOPlus.h"
 
-
 namespace
 {
-    const char kDesc[] = "Horizon Based Ambient Occlusion Plus from NVIDIAGameworks";    
+    const char kDesc[] = "Horizon Based Ambient Occlusion Plus from NVIDIAGameworks";
+    const std::string kDepth = "depth";
+    const std::string kAmbientMap = "ambientMap";
 }
+
+// additional descriptors needed to pass in depth and normals
+static const uint32_t kNumAppDescriptors = 2;
 
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
@@ -63,24 +67,59 @@ Dictionary HBAOPlus::getScriptingDictionary()
     return Dictionary();
 }
 
+HBAOPlus::HBAOPlus()
+{
+    auto pDevice = gpDevice->getApiHandle();
+
+    // create descriptor heaps for the ssao pass
+    D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
+    descriptorHeapDesc.NumDescriptors = kNumAppDescriptors + GFSDK_SSAO_NUM_DESCRIPTORS_CBV_SRV_UAV_HEAP_D3D12;
+    descriptorHeapDesc.NodeMask = 0;
+    descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+
+    pDevice->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&mSSAODescriptorHeapCBVSRVUAV));
+
+    descriptorHeapDesc.NumDescriptors = GFSDK_SSAO_NUM_DESCRIPTORS_RTV_HEAP_D3D12;
+    descriptorHeapDesc.NodeMask = 0;
+    descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    
+    pDevice->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&mSSAODescriptorHeapRTV));
+}
+
+HBAOPlus::~HBAOPlus()
+{
+    if(mpAOContext) mpAOContext->Release();
+    if(mSSAODescriptorHeapCBVSRVUAV) mSSAODescriptorHeapCBVSRVUAV->Release();
+    if(mSSAODescriptorHeapRTV) mSSAODescriptorHeapRTV->Release();
+}
+
 RenderPassReflection HBAOPlus::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
-    reflector.addInput("depth", "non-linear depth map");
-    reflector.addOutput("ambientMap", "ambient occlusion");
+    reflector.addInput(kDepth, "non-linear depth map");
+    reflector.addOutput(kAmbientMap, "ambient occlusion").bindFlags(Falcor::ResourceBindFlags::ShaderResource | Falcor::ResourceBindFlags::RenderTarget);//.format(ResourceFormat::R8Unorm);
     return reflector;
 }
 
 void HBAOPlus::compile(RenderContext* pContext, const CompileData& compileData)
 {
-    // initialize the library
     GFSDK_SSAO_DescriptorHeaps_D3D12 descHeaps;
-    //descHeaps.CBV_SRV_UAV 
+    descHeaps.CBV_SRV_UAV.pDescHeap = mSSAODescriptorHeapCBVSRVUAV;
+    descHeaps.CBV_SRV_UAV.BaseIndex = kNumAppDescriptors;
+    descHeaps.RTV.pDescHeap = mSSAODescriptorHeapRTV;
+    descHeaps.RTV.BaseIndex = 0;
 
+    if(mpAOContext)
+    {
+        mpAOContext->Release();
+        mpAOContext = nullptr;
+    }
+    
     GFSDK_SSAO_Status status;
-    GFSDK_SSAO_Context_D3D12* pAOContext;
-    status = GFSDK_SSAO_CreateContext_D3D12(gpDevice->getApiHandle(), 1, descHeaps, &pAOContext);
+    status = GFSDK_SSAO_CreateContext_D3D12(gpDevice->getApiHandle(), 1, descHeaps, &mpAOContext);
     assert(status == GFSDK_SSAO_OK);
     switch(status)
     {
@@ -97,10 +136,67 @@ void HBAOPlus::compile(RenderContext* pContext, const CompileData& compileData)
 
 void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // renderData holds the requested resources
-    // auto& pTexture = renderData["src"]->asTexture();
+    if(!mpScene) return;
+
+    auto pDepth = renderData[kDepth]->asTexture();
+    auto pAmientMap = renderData[kAmbientMap]->asTexture();
+    auto ambientRtv = pAmientMap->getRTV();
+
+    // set depth texture in descirptor 
+    GFSDK_SSAO_InputData_D3D12 input;
+    input.DepthData.DepthTextureType = GFSDK_SSAO_HARDWARE_DEPTHS;
+    input.DepthData.FullResDepthTexture2ndLayerSRV = {}; // no second texture
+    // set depth texture to first slot in descriptor heap
+    input.DepthData.FullResDepthTextureSRV.pResource = pDepth->getApiHandle();
+    input.DepthData.FullResDepthTextureSRV.GpuHandle = mSSAODescriptorHeapCBVSRVUAV->GetGPUDescriptorHandleForHeapStart().ptr;
+
+    auto projMatrix = mpScene->getCamera()->getProjMatrix();
+    static_assert(sizeof(projMatrix) == sizeof(GFSDK_SSAO_Float4x4));
+
+    input.DepthData.MetersToViewSpaceUnits = 1.0f;
+    input.DepthData.ProjectionMatrix.Data = GFSDK_SSAO_Float4x4(reinterpret_cast<float*>(&projMatrix));
+    input.DepthData.ProjectionMatrix.Layout = GFSDK_SSAO_ROW_MAJOR_ORDER;
+    input.DepthData.Viewport.Enable = false; // use default texture viewport
+
+    input.NormalData.Enable = false; // do not use input normals
+
+    // set ao parameters
+    GFSDK_SSAO_Parameters params;
+    params.Radius = 2.0f;
+    params.Bias = 0.1f;
+    params.PowerExponent = 2.0f;
+    params.Blur.Enable = true;
+    params.Blur.Radius = GFSDK_SSAO_BLUR_RADIUS_4;
+    params.Blur.Sharpness = 16.0f;
+    params.EnableDualLayerAO = false;
+
+    // set render target
+    GFSDK_SSAO_Output_D3D12 output;
+    GFSDK_SSAO_RenderTargetView_D3D12 outputRtv;
+    outputRtv.pResource = pAmientMap->getApiHandle();
+    outputRtv.CpuHandle = ambientRtv->getApiHandle()->getCpuHandle(0).ptr;
+    output.pRenderTargetView = &outputRtv;
+    output.Blend.Mode = GFSDK_SSAO_OVERWRITE_RGB;
+
+    // render
+    ID3D12CommandQueue* commandQueue = pRenderContext->getLowLevelData()->getCommandQueue();
+    ID3D12GraphicsCommandList* commandList = pRenderContext->getLowLevelData()->getCommandList();
+
+    // set ssao descriptor heaps
+    commandList->SetDescriptorHeaps(1, &mSSAODescriptorHeapCBVSRVUAV);
+
+    auto status = mpAOContext->RenderAO(commandQueue, commandList, input, params, output, GFSDK_SSAO_DRAW_DEBUG_N);
+    assert(status == GFSDK_SSAO_OK);
+
+    // restore descriptor heaps
+    pRenderContext->bindDescriptorHeaps();
 }
 
 void HBAOPlus::renderUI(Gui::Widgets& widget)
 {
+}
+
+void HBAOPlus::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
+{
+    mpScene = pScene;
 }

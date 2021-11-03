@@ -50,10 +50,18 @@ public:
     virtual void compile(RenderContext* pContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
+    // needs to be public for IID_PPV_ARGS
+    ID3D12DescriptorHeap* mSSAODescriptorHeapCBVSRVUAV = nullptr;
+    ID3D12DescriptorHeap* mSSAODescriptorHeapRTV = nullptr;
+
+    ~HBAOPlus();
 private:
-    HBAOPlus() = default;
+    HBAOPlus();
+
+    GFSDK_SSAO_Context_D3D12* mpAOContext = nullptr;
+    Scene::SharedPtr mpScene;
 };
