@@ -54,14 +54,15 @@ public:
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
-    // needs to be public for IID_PPV_ARGS
-    ID3D12DescriptorHeap* mSSAODescriptorHeapCBVSRVUAV = nullptr;
-    ID3D12DescriptorHeap* mSSAODescriptorHeapRTV = nullptr;
 
     ~HBAOPlus();
 private:
     HBAOPlus();
 
+    ID3D12DescriptorHeap* mSSAODescriptorHeapCBVSRVUAV = nullptr;
+    ID3D12DescriptorHeap* mSSAODescriptorHeapRTV = nullptr;
+
     GFSDK_SSAO_Context_D3D12* mpAOContext = nullptr;
     Scene::SharedPtr mpScene;
+    GFSDK_SSAO_Parameters mparams;
 };

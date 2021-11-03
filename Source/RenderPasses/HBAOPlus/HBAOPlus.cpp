@@ -86,6 +86,16 @@ HBAOPlus::HBAOPlus()
     descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     
     pDevice->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&mSSAODescriptorHeapRTV));
+
+    mparams.Radius = 2.0f;
+    mparams.Bias = 0.1f;
+    mparams.PowerExponent = 2.0f;
+    mparams.Blur.Enable = true;
+    mparams.Blur.Radius = GFSDK_SSAO_BLUR_RADIUS_4;
+    mparams.Blur.Sharpness = 16.0f;
+    mparams.EnableDualLayerAO = false;
+    // can be done to increase precision of linear depths:
+    //mparams.DepthStorage = GFSDK_SSAO_DepthStorage::GFSDK_SSAO_FP32_VIEW_DEPTHS;
 }
 
 HBAOPlus::~HBAOPlus()
@@ -149,8 +159,22 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
 
     // initialize srv description for depth buffer
     D3D12_SHADER_RESOURCE_VIEW_DESC depthSRVDesc = {};
-    depthSRVDesc.Format = DXGI_FORMAT_R32_FLOAT;
-    assert(pDepth->getFormat() == Falcor::ResourceFormat::D32Float);
+    switch(pDepth->getFormat())
+    {
+    case Falcor::ResourceFormat::D16Unorm:
+        depthSRVDesc.Format = DXGI_FORMAT_R16_UNORM;
+        break;
+    case Falcor::ResourceFormat::D32Float:
+        depthSRVDesc.Format = DXGI_FORMAT_R32_FLOAT;
+        break;
+    case Falcor::ResourceFormat::D24UnormS8:
+        depthSRVDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+        break;
+    case Falcor::ResourceFormat::D32FloatS8X24:
+        depthSRVDesc.Format = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
+        break;
+    default: throw std::runtime_error("depth input for HBAOPlus is not a depth format!");
+    }
     depthSRVDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     depthSRVDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     depthSRVDesc.Texture2D.MipLevels = 1;
@@ -177,16 +201,6 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
 
     input.NormalData.Enable = false; // do not use input normals
 
-    // set ao parameters
-    GFSDK_SSAO_Parameters params;
-    params.Radius = 2.0f;
-    params.Bias = 0.1f;
-    params.PowerExponent = 2.0f;
-    params.Blur.Enable = true;
-    params.Blur.Radius = GFSDK_SSAO_BLUR_RADIUS_4;
-    params.Blur.Sharpness = 16.0f;
-    params.EnableDualLayerAO = false;
-
     // set render target
     GFSDK_SSAO_Output_D3D12 output;
     GFSDK_SSAO_RenderTargetView_D3D12 outputRtv;
@@ -202,7 +216,7 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     // set ssao descriptor heaps
     commandList->SetDescriptorHeaps(1, &mSSAODescriptorHeapCBVSRVUAV);
 
-    auto status = mpAOContext->RenderAO(commandQueue, commandList, input, params, output);
+    auto status = mpAOContext->RenderAO(commandQueue, commandList, input, mparams, output);
     assert(status == GFSDK_SSAO_OK);
 
     // restore descriptor heaps
@@ -211,6 +225,19 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
 
 void HBAOPlus::renderUI(Gui::Widgets& widget)
 {
+    widget.slider("Radius", mparams.Radius, 1.0f, 32.0f);
+    widget.slider("Bias", mparams.Bias, 0.0f, 0.5f);
+    widget.slider("Small Scale Factor", mparams.SmallScaleAO, 0.0f, 2.0f);
+    widget.slider("Large Scale Factor", mparams.LargeScaleAO, 0.0f, 2.0f);
+    widget.slider("Power Exponent", mparams.PowerExponent, 1.0f, 4.0f);
+
+    bool enableBlur = mparams.Blur.Enable;
+    widget.checkbox("Blur", enableBlur);
+    mparams.Blur.Enable = enableBlur;
+    if(mparams.Blur.Enable)
+    {
+        widget.slider("Sharpness", mparams.Blur.Sharpness, 0.0f, 16.0f);
+    }
 }
 
 void HBAOPlus::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
