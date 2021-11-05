@@ -48,7 +48,6 @@ public:
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
-    DualDepthPass& setDepthBufferFormat(ResourceFormat format);
     DualDepthPass& setDepthStencilState(const DepthStencilState::SharedPtr& pDsState);
     void setCullMode(RasterizerState::CullMode cullMode) { mCullMode = cullMode; }
 
@@ -60,6 +59,5 @@ private:
     GraphicsState::SharedPtr mpState;
     GraphicsVars::SharedPtr mpVars;
     RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
-    ResourceFormat mDepthFormat = ResourceFormat::D32Float;
     Scene::SharedPtr mpScene;
 };

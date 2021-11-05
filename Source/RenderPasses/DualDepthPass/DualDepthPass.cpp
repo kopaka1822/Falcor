@@ -35,7 +35,6 @@ namespace
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
     const std::string kInteralDepth = "internalDepth";
-    const std::string kDepthFormat = "depthFormat";
 }
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -73,15 +72,13 @@ void DualDepthPass::parseDictionary(const Dictionary& dict)
 {
     for (const auto& [key, value] : dict)
     {
-        if (key == kDepthFormat) setDepthBufferFormat(value);
-        else logWarning("Unknown field '" + key + "' in a DepthPass dictionary");
+
     }
 }
 
 Dictionary DualDepthPass::getScriptingDictionary()
 {
     Dictionary d;
-    d[kDepthFormat] = mDepthFormat;
     return d;
 }
 
@@ -89,11 +86,11 @@ RenderPassReflection DualDepthPass::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
+    ResourceFormat depthFormat = ResourceFormat::D32Float;
     ResourceFormat stagingFormat = ResourceFormat::R32Float;
-    if(mDepthFormat == ResourceFormat::D16Unorm) stagingFormat = ResourceFormat::R16Unorm;
 
-    reflector.addOutput(kDepth, "Depth-buffer").bindFlags(Resource::BindFlags::DepthStencil).format(mDepthFormat);
-    reflector.addOutput(kDepth2, "2nd Depth-buffer").bindFlags(Resource::BindFlags::DepthStencil).format(mDepthFormat);
+    reflector.addOutput(kDepth, "Depth-buffer").bindFlags(Resource::BindFlags::DepthStencil).format(depthFormat);
+    reflector.addOutput(kDepth2, "2nd Depth-buffer").bindFlags(Resource::BindFlags::DepthStencil).format(depthFormat);
     // unfortunately one can not write into a depth buffer as unordered access view
     reflector.addInternal(kInteralDepth, "staging resource for depth buffer").bindFlags(Resource::BindFlags::UnorderedAccess).format(stagingFormat);
     return reflector;
@@ -103,18 +100,29 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
 {
     const auto& pDepth = renderData[kDepth]->asTexture();
     const auto& pDepth2 = renderData[kDepth2]->asTexture();
+    const auto& pInternalDepth = renderData[kInteralDepth]->asTexture();
+
+    //auto dsv1 = pDepth->getDSV();
+    auto dsv2 = pDepth2->getDSV();
+    auto depthUav = pInternalDepth->getUAV();
 
     // clear both depth textures
-    pRenderContext->clearDsv(pDepth->getDSV().get(), 1, 0);
-    pRenderContext->clearDsv(pDepth2->getDSV().get(), 1, 0);
+    //pRenderContext->clearDsv(dsv1.get(), 1, 0);
+    pRenderContext->clearDsv(dsv2.get(), 1, 0);
+    pRenderContext->clearUAV(depthUav.get(), uint4(glm::floatBitsToUint(1.0f)));
 
-    //mpFbo->attachDepthStencilTarget(pDepth2);
-    mpFbo->attachDepthStencilTarget(pDepth);
+    mpFbo->attachDepthStencilTarget(pDepth2);
     mpState->setFbo(mpFbo);
 
-    // TODO bind pDepth as UAV
+    // bind the uav
+    auto var = mpVars->getRootVar();
+    var["primaryDepth"] = pInternalDepth;
 
+    // rasterize depth
     if (mpScene) mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mCullMode);
+
+    // copy uav to dsv
+    pRenderContext->copySubresource(pDepth.get(), 0, pInternalDepth.get(), 0);
 }
 
 void DualDepthPass::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
@@ -124,36 +132,14 @@ void DualDepthPass::setScene(RenderContext* pRenderContext, const Scene::SharedP
     mpVars = GraphicsVars::create(mpState->getProgram()->getReflector());
 }
 
-DualDepthPass& DualDepthPass::setDepthBufferFormat(ResourceFormat format)
-{
-    if (isDepthStencilFormat(format) == false)
-    {
-        logWarning("DepthPass buffer format must be a depth-stencil format");
-    }
-    else
-    {
-        mDepthFormat = format;
-        mPassChangedCB();
-    }
-    return *this;
-}
-
 DualDepthPass& DualDepthPass::setDepthStencilState(const DepthStencilState::SharedPtr& pDsState)
 {
     mpState->setDepthStencilState(pDsState);
     return *this;
 }
 
-static const Gui::DropdownList kDepthFormats =
-{
-    { (uint32_t)ResourceFormat::D16Unorm, "D16Unorm"},
-    { (uint32_t)ResourceFormat::D32Float, "D32Float" },
-    { (uint32_t)ResourceFormat::D24UnormS8, "D24UnormS8" },
-    { (uint32_t)ResourceFormat::D32FloatS8X24, "D32FloatS8X24" },
-};
 
 void DualDepthPass::renderUI(Gui::Widgets& widget)
 {
-    uint32_t depthFormat = (uint32_t)mDepthFormat;
-    if (widget.dropdown("Buffer Format", kDepthFormats, depthFormat)) setDepthBufferFormat(ResourceFormat(depthFormat));
+    
 }
