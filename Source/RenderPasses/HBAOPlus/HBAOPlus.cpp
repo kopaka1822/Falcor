@@ -114,7 +114,7 @@ RenderPassReflection HBAOPlus::reflect(const CompileData& compileData)
     reflector.addInput(kDepth, "non-linear depth map").bindFlags(Falcor::ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepth2, "2nd non-linear depth map").bindFlags(Falcor::ResourceBindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addInput(kNormal, "surface normals").bindFlags(Falcor::ResourceBindFlags::ShaderResource);
-    reflector.addOutput(kAmbientMap, "ambient occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget);//.format(ResourceFormat::R8Unorm);
+    reflector.addOutput(kAmbientMap, "ambient occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA8Unorm);//.format(ResourceFormat::R8Unorm);
     return reflector;
 }
 
@@ -225,7 +225,11 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     } else input.DepthData.FullResDepthTexture2ndLayerSRV = {}; // no second texture
 
     const auto& projMatrix = mpScene->getCamera()->getProjMatrix();
-    const auto& viewMatrix =  mpScene->getCamera()->getViewMatrix();
+    auto viewMatrix = glm::lookAtRH(mpScene->getCamera()->getPosition(), mpScene->getCamera()->getTarget(), mpScene->getCamera()->getUpVector());
+    // swap x and z
+    //viewMatrix = glm::mat4(glm::vec4(0, 0, 1, 0), glm::vec4(0, 1, 0, 0), glm::vec4(1, 0, 0, 0), glm::vec4(0, 0, 0, 1)) * viewMatrix;
+
+    //const auto& viewMatrix =  mpScene->getCamera()->getViewMatrix();
     static_assert(sizeof(projMatrix) == sizeof(GFSDK_SSAO_Float4x4));
 
     input.DepthData.MetersToViewSpaceUnits = 1.0f;
@@ -238,8 +242,9 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     input.NormalData.WorldToViewMatrix.Layout = GFSDK_SSAO_ROW_MAJOR_ORDER; 
     input.NormalData.FullResNormalTextureSRV.pResource = pNormal->getApiHandle();
     input.NormalData.FullResNormalTextureSRV.GpuHandle = mSSAODescriptorHeapCBVSRVUAV->GetGPUDescriptorHandleForHeapStart().ptr + 2 * gpDevice->getApiHandle()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);;
-    input.NormalData.DecodeScale = -1.0f;
-    input.NormalData.DecodeBias = 0.0f;
+    // normals are already in -1 to 1 space
+    //input.NormalData.DecodeScale = -1.0f;
+    //input.NormalData.DecodeBias = 0.0f;
 
     // set render target
     GFSDK_SSAO_Output_D3D12 output;
@@ -258,6 +263,7 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     commandList->SetDescriptorHeaps(1, &mSSAODescriptorHeapCBVSRVUAV);
 
     auto status = mpAOContext->RenderAO(commandQueue, commandList, input, mparams, output);
+    //auto status = mpAOContext->RenderAO(commandQueue, commandList, input, mparams, output, GFSDK_SSAO_RENDER_DEBUG_NORMAL);
     assert(status == GFSDK_SSAO_OK);
 
     // restore descriptor heaps
