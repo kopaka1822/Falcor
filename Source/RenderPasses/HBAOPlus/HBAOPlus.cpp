@@ -31,6 +31,7 @@ namespace
 {
     const char kDesc[] = "Horizon Based Ambient Occlusion Plus from NVIDIAGameworks";
     const std::string kDepth = "depth";
+    const std::string kDepth2 = "depth2";
     const std::string kNormal = "normals";
     const std::string kAmbientMap = "ambientMap";
 }
@@ -94,7 +95,7 @@ HBAOPlus::HBAOPlus()
     mparams.Blur.Enable = true;
     mparams.Blur.Radius = GFSDK_SSAO_BLUR_RADIUS_4;
     mparams.Blur.Sharpness = 16.0f;
-    mparams.EnableDualLayerAO = false;
+    mparams.EnableDualLayerAO = true;
     // can be done to increase precision of linear depths:
     //mparams.DepthStorage = GFSDK_SSAO_DepthStorage::GFSDK_SSAO_FP32_VIEW_DEPTHS;
 }
@@ -111,6 +112,7 @@ RenderPassReflection HBAOPlus::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addInput(kDepth, "non-linear depth map").bindFlags(Falcor::ResourceBindFlags::ShaderResource);
+    reflector.addInput(kDepth2, "2nd non-linear depth map").bindFlags(Falcor::ResourceBindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addInput(kNormal, "surface normals").bindFlags(Falcor::ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "ambient occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget);//.format(ResourceFormat::R8Unorm);
     return reflector;
@@ -151,15 +153,19 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     if(!mpScene) return;
 
     auto pDepth = renderData[kDepth]->asTexture();
+    decltype(pDepth) pDepth2 = nullptr;
+    if(renderData[kDepth2]) pDepth2 = renderData[kDepth2]->asTexture();
+    else mparams.EnableDualLayerAO = false; // force this to be false if no 2nd depth was supplied
+
     auto pNormal = renderData[kNormal]->asTexture();
     auto pAmientMap = renderData[kAmbientMap]->asTexture();
     auto ambientRtv = pAmientMap->getRTV();
 
     // transition resources into expected state
     pRenderContext->resourceBarrier(pDepth.get(), Falcor::Resource::State::ShaderResource);
+    if(pDepth2) pRenderContext->resourceBarrier(pDepth2.get(), Falcor::Resource::State::ShaderResource);
     pRenderContext->resourceBarrier(pNormal.get(), Falcor::Resource::State::ShaderResource);
     pRenderContext->resourceBarrier(pAmientMap.get(), Falcor::Resource::State::RenderTarget);
-
 
     // initialize srv description for depth buffer
     D3D12_SHADER_RESOURCE_VIEW_DESC depthSRVDesc = {};
@@ -187,6 +193,10 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     depthSRVDesc.Texture2D.ResourceMinLODClamp = 0.0f;
     auto curSrvHeapAddress = mSSAODescriptorHeapCBVSRVUAV->GetCPUDescriptorHandleForHeapStart();
     gpDevice->getApiHandle()->CreateShaderResourceView(pDepth->getApiHandle(), &depthSRVDesc, curSrvHeapAddress);
+    // 2nd depth attachment
+    //assert(pDepth->getFormat() == pDepth2->getFormat());
+    curSrvHeapAddress.ptr += gpDevice->getApiHandle()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    if(pDepth2) gpDevice->getApiHandle()->CreateShaderResourceView(pDepth2->getApiHandle(), &depthSRVDesc, curSrvHeapAddress);
 
     // initialize srv description for normal
     D3D12_SHADER_RESOURCE_VIEW_DESC normalSrvDesc = {};
@@ -198,16 +208,21 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     normalSrvDesc.Texture2D.MostDetailedMip = 0; // No MIP
     normalSrvDesc.Texture2D.PlaneSlice = 0;
     normalSrvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-    curSrvHeapAddress.ptr += 2 * gpDevice->getApiHandle()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    curSrvHeapAddress.ptr += gpDevice->getApiHandle()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     gpDevice->getApiHandle()->CreateShaderResourceView(pNormal->getApiHandle(), &normalSrvDesc, curSrvHeapAddress);
 
     // set depth texture in descirptor 
     GFSDK_SSAO_InputData_D3D12 input;
-    input.DepthData.DepthTextureType = GFSDK_SSAO_HARDWARE_DEPTHS;
-    input.DepthData.FullResDepthTexture2ndLayerSRV = {}; // no second texture
     // set depth texture to first slot in descriptor heap
+    input.DepthData.DepthTextureType = GFSDK_SSAO_HARDWARE_DEPTHS;
     input.DepthData.FullResDepthTextureSRV.pResource = pDepth->getApiHandle();
     input.DepthData.FullResDepthTextureSRV.GpuHandle = mSSAODescriptorHeapCBVSRVUAV->GetGPUDescriptorHandleForHeapStart().ptr;
+
+    if(pDepth2)
+    {
+        input.DepthData.FullResDepthTexture2ndLayerSRV.pResource = pDepth2->getApiHandle();
+        input.DepthData.FullResDepthTexture2ndLayerSRV.GpuHandle = mSSAODescriptorHeapCBVSRVUAV->GetGPUDescriptorHandleForHeapStart().ptr + gpDevice->getApiHandle()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    } else input.DepthData.FullResDepthTexture2ndLayerSRV = {}; // no second texture
 
     const auto& projMatrix = mpScene->getCamera()->getProjMatrix();
     const auto& viewMatrix =  mpScene->getCamera()->getViewMatrix();
@@ -258,6 +273,7 @@ void HBAOPlus::renderUI(Gui::Widgets& widget)
     widget.slider("Power Exponent", mparams.PowerExponent, 1.0f, 4.0f);
 
     widget.checkbox("Use Normals", m_useNormalData);
+    widget.checkbox("Dual Depth", *reinterpret_cast<bool*>(&mparams.EnableDualLayerAO));
 
     widget.checkbox("Blur", *reinterpret_cast<bool*>(&mparams.Blur.Enable));
     if(mparams.Blur.Enable)
