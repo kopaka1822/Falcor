@@ -94,10 +94,4 @@ private:
     bool mApplyBlur = true;
 
     Scene::SharedPtr mpScene;
-
-    struct
-    {
-        FullScreenPass::SharedPtr pApplySSAOPass;
-        Fbo::SharedPtr pFbo;
-    } mComposeData;
 };

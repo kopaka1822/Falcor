@@ -39,7 +39,6 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <ShaderSource Include="ApplyAO.ps.slang" />
     <ShaderSource Include="SSAO.ps.slang" />
     <ShaderSource Include="SSAOData.slang" />
   </ItemGroup>

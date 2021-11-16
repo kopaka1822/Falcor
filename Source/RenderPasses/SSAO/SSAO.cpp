@@ -75,14 +75,13 @@ namespace
     const std::string kBlurKernelWidth = "blurWidth";
     const std::string kBlurSigma = "blurSigma";
 
-    const std::string kColorIn = "colorIn";
-    const std::string kColorOut = "colorOut";
+    const std::string kAmbientMap = "ambientMap";
     const std::string kDepth = "depth";
     const std::string kNormals = "normals";
-    const std::string kAoMap = "AoMap";
 
     const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
-    const std::string kApplySSAOShader = "RenderPasses/SSAO/ApplyAO.ps.slang";
+
+    const auto AMBIENT_MAP_FORMAT = ResourceFormat::RGBA8Unorm;
 }
 
 SSAO::SSAO()
@@ -95,11 +94,6 @@ SSAO::SSAO()
     mpTextureSampler = Sampler::create(samplerDesc);
 
     mpSSAOPass = FullScreenPass::create(kSSAOShader);
-    mComposeData.pApplySSAOPass = FullScreenPass::create(kApplySSAOShader);
-    Sampler::Desc desc;
-    desc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear);
-    mComposeData.pApplySSAOPass["gSampler"] = Sampler::create(desc);
-    mComposeData.pFbo = Fbo::create();
 }
 
 SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -140,11 +134,9 @@ Dictionary SSAO::getScriptingDictionary()
 RenderPassReflection SSAO::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addInput(kColorIn, "Color buffer");
-    reflector.addOutput(kColorOut, "Color-buffer with AO applied to it");
     reflector.addInput(kDepth, "Depth-buffer");
     reflector.addInput(kNormals, "World space normals, [0, 1] range").flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addInternal(kAoMap, "AO Map");
+    reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(AMBIENT_MAP_FORMAT);
     return reflector;
 }
 
@@ -166,16 +158,13 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
-    auto pColorOut = renderData[kColorOut]->asTexture();
-    auto pColorIn = renderData[kColorIn]->asTexture();
     auto pDepth = renderData[kDepth]->asTexture();
     auto pNormals = renderData[kNormals]->asTexture();
-    auto pAoMap = renderData[kAoMap]->asTexture();
+    auto pAoDst = renderData[kAmbientMap]->asTexture();
 
-    assert(pColorOut != pColorIn);
     if(mEnabled)
     {
-        pAoMap = generateAOMap(pRenderContext, mpScene->getCamera().get(), pDepth, pNormals);
+        auto pAoMap = generateAOMap(pRenderContext, mpScene->getCamera().get(), pDepth, pNormals);
 
         if (mApplyBlur)
         {
@@ -183,16 +172,14 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             mpBlurGraph->execute(pRenderContext);
             pAoMap = mpBlurGraph->getOutput("GaussianBlur.dst")->asTexture();
         }
+
+        // copy to ao destination
+        pRenderContext->copySubresource(pAoDst.get(), 0, pAoMap.get(), 0);
     }
     else // ! enabled
     {
-        pRenderContext->clearTexture(pAoMap.get(), float4(1.0f));
+        pRenderContext->clearTexture(pAoDst.get(), float4(1.0f));
     }
-
-    mComposeData.pApplySSAOPass["gColor"] = pColorIn;
-    mComposeData.pApplySSAOPass["gAOMap"] = pAoMap;
-    mComposeData.pFbo->attachColorTarget(pColorOut, 0);
-    mComposeData.pApplySSAOPass->execute(pRenderContext, mComposeData.pFbo);
 }
 
 Texture::SharedPtr SSAO::generateAOMap(RenderContext* pContext, const Camera* pCamera, const Texture::SharedPtr& pDepthTexture, const Texture::SharedPtr& pNormalTexture)
@@ -201,7 +188,7 @@ Texture::SharedPtr SSAO::generateAOMap(RenderContext* pContext, const Camera* pC
     {
         // create framebuffer
         Fbo::Desc fboDesc;
-        fboDesc.setColorTarget(0, Falcor::ResourceFormat::R8Unorm);
+        fboDesc.setColorTarget(0, AMBIENT_MAP_FORMAT);
 
         uint divisor = mHalfResolution ? 2 : 1; // half resolution of the ambient occlusion map if required (use resolution of the depth map for reference)
         mpAOFbo = Fbo::create2D(pDepthTexture->getWidth() / divisor, pDepthTexture->getHeight() / divisor, fboDesc);

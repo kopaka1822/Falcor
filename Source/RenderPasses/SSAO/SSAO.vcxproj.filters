@@ -8,7 +8,6 @@
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="SSAO.ps.slang" />
-    <ShaderSource Include="ApplyAO.ps.slang" />
     <ShaderSource Include="SSAOData.slang" />
   </ItemGroup>
 </Project>
