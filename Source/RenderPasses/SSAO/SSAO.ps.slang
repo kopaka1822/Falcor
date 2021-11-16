@@ -50,10 +50,6 @@ float4 getPosition(float2 uv)
     float4 pos;
     pos.x = uv.x * 2.0f - 1.0f;
     pos.y = (1.0f - uv.y) * 2.0f - 1.0f;
-#ifdef FALCOR_VK
-    // NDC space is inverted
-    pos.y = -pos.y;
-#endif
     pos.z = gDepthTex.SampleLevel(gTextureSampler, uv, 0).r;
     pos.w = 1.0f;
 
@@ -61,6 +57,23 @@ float4 getPosition(float2 uv)
     posW /= posW.w;
 
     return posW;
+}
+
+// Ambient occlusion factor as in hbao+
+// P = position
+// N = normal
+// S = sample position
+float ComputeAO(float3 P, float3 N, float3 S)
+{
+    const float invR2 = 1.0 / (gData.radius * gData.radius);
+    const float NDotVBias = 0.1;
+
+    float3 V = S - P;
+    float VdotV = dot(V, V);
+    float NdotV = dot(N, V) * rsqrt(VdotV);
+    return saturate(NdotV - NDotVBias) * saturate(1.0 - VdotV * invR2);
+
+    // TODO if VdotV > R2 => use raytracing 
 }
 
 float4 main(float2 texC : TEXCOORD) : SV_TARGET0
@@ -72,7 +85,9 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
 
     // Calculate world position of pixel
     float3 posW = getPosition(texC).xyz;
-    float3 normal = normalize(gNormalTex.Sample(gTextureSampler, texC).xyz * 2.0f - 1.0f);
+    float3 normal = normalize(gNormalTex.Sample(gTextureSampler, texC).xyz);
+
+    // Calculate tangent space (use random direction for tangent orientation)
     float originDist = length(posW - gCamera.data.posW);
     float3 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xyz * 2.0f - 1.0f;
 
@@ -81,7 +96,6 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
     float3x3 tbn = float3x3(tangent, bitangent, normal);
 
     float occlusion = 0.0f;
-    float validSamples = 0.0f;
     for (uint i = 0; i < gData.kernelSize; i++)
     {
         // Orient sample
@@ -96,18 +110,16 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
         samplePosProj /= samplePosProj.w;
 
         // Sample depth buffer at the same place as sample
-#ifdef FALCOR_VK
-        // NDC space is inverted
-        samplePosProj.y = -samplePosProj.y;
-#endif
         float2 sampleUV = saturate(float2(samplePosProj.x, -samplePosProj.y) * 0.5f + 0.5f);
         float3 scenePosW = getPosition(sampleUV).xyz;
         float sceneDepth = length(scenePosW - gCamera.data.posW);
 
+        occlusion += ComputeAO(posW, normal, scenePosW);
 
         //if(sampleDepth > sceneDepth)
-        if(sampleDepth > sceneDepth && abs(sampleDepth - sceneDepth) < gData.radius)
-            occlusion += 1.0;
+        //if(sampleDepth > sceneDepth && abs(sampleDepth - sceneDepth) < gData.radius)
+            //occlusion += 1.0;
+            //occlusion += ComputeAO()
         //float rangeCheck = step(abs(sampleDepth - sceneDepth), gData.radius);
         //occlusion += step(sceneDepth, sampleDepth) * rangeCheck;
 
@@ -119,7 +131,7 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
         //}
     }
 
-    validSamples = float(gData.kernelSize);
-    float factor = 1 - (occlusion / max(1.0, validSamples));
-    return float4(factor.xxx, 1);
+    float AO = occlusion / float(gData.kernelSize);
+
+    return pow(saturate(1.0 - AO * 1.5), 2.0);
 }
