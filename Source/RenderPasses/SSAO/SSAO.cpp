@@ -47,6 +47,11 @@ static void regSSAO(pybind11::module& m)
     sampleDistribution.value("Random", SSAO::SampleDistribution::Random);
     sampleDistribution.value("UniformHammersley", SSAO::SampleDistribution::UniformHammersley);
     sampleDistribution.value("CosineHammersley", SSAO::SampleDistribution::CosineHammersley);
+
+    pybind11::enum_<SSAO::ShaderVariant> shaderVariant(m, "ShaderVariant");
+    shaderVariant.value("Raster", SSAO::ShaderVariant::Raster);
+    shaderVariant.value("Raytracing", SSAO::ShaderVariant::Raytracing);
+    shaderVariant.value("Hybrid", SSAO::ShaderVariant::Hybrid);
 }
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
@@ -66,6 +71,13 @@ namespace
         { (uint32_t)SSAO::SampleDistribution::CosineHammersley, "Cosine Hammersley" }
     };
 
+    const Gui::DropdownList kShaderVariantDropdown =
+    {
+        { (uint32_t)SSAO::ShaderVariant::Raster, "Raster" },
+        { (uint32_t)SSAO::ShaderVariant::Raytracing, "Raytracing" },
+        { (uint32_t)SSAO::ShaderVariant::Hybrid, "Hybrid" }
+    };
+
     const std::string kEnabled = "enabled";
     const std::string kHalfResolution = "halfResolution";
     const std::string kKernelSize = "kernelSize";
@@ -74,6 +86,7 @@ namespace
     const std::string kRadius = "radius";
     const std::string kBlurKernelWidth = "blurWidth";
     const std::string kBlurSigma = "blurSigma";
+    const std::string kShaderVariant = "shaderVariant";
 
     const std::string kAmbientMap = "ambientMap";
     const std::string kDepth = "depth";
@@ -92,8 +105,6 @@ SSAO::SSAO()
 
     samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpTextureSampler = Sampler::create(samplerDesc);
-
-    mpSSAOPass = FullScreenPass::create(kSSAOShader);
 }
 
 SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -182,6 +193,12 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     }
 }
 
+void SSAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
+{
+    mpScene = pScene;
+    mDirty = true;
+}
+
 Texture::SharedPtr SSAO::generateAOMap(RenderContext* pContext, const Camera* pCamera, const Texture::SharedPtr& pDepthTexture, const Texture::SharedPtr& pNormalTexture)
 {
     if(!mpAOFbo)
@@ -198,18 +215,26 @@ Texture::SharedPtr SSAO::generateAOMap(RenderContext* pContext, const Camera* pC
         mDirty = true; // modified mData
     }
 
-    if (mDirty)
+    if (mDirty || !mpSSAOPass)
     {
-        ShaderVar var = mpSSAOPass["StaticCB"];
-        if (var.isValid()) var.setBlob(mData);
+        // program defines
+        Program::DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add("SHADER_VARIANT", std::to_string(uint32_t(mShaderVariant)));
+
+        mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
+
+        // bind static resources
+        auto var = mpSSAOPass->getRootVar();
+        mpScene->setRaytracingShaderData(pContext, var);
+
+        mpSSAOPass["StaticCB"].setBlob(mData);
         mDirty = false;
     }
 
-    {
-        ShaderVar var = mpSSAOPass["PerFrameCB"];
-        pCamera->setShaderData(var["gCamera"]);
-    }
-
+   
+    pCamera->setShaderData(mpSSAOPass["PerFrameCB"]["gCamera"]);
+    
     // Update state/vars
     mpSSAOPass["gNoiseSampler"] = mpNoiseSampler;
     mpSSAOPass["gTextureSampler"] = mpTextureSampler;
@@ -226,6 +251,9 @@ void SSAO::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
+
+    uint32_t shaderVariant = (uint32_t)mShaderVariant;
+    if(widget.dropdown("Variant", kShaderVariantDropdown, shaderVariant)) setShaderVariant(shaderVariant);
 
     bool halfRes = mHalfResolution;
     if (widget.checkbox("Half Resolution", halfRes)) setHalfResolution(halfRes);
@@ -273,6 +301,12 @@ void SSAO::setDistribution(uint32_t distribution)
 {
     mHemisphereDistribution = (SampleDistribution)distribution;
     setKernel();
+}
+
+void SSAO::setShaderVariant(uint32_t variant)
+{
+    mShaderVariant = (ShaderVariant)variant;
+    mDirty = true;
 }
 
 void SSAO::setKernel()

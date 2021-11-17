@@ -47,6 +47,13 @@ public:
         CosineHammersley
     };
 
+    enum class ShaderVariant : uint32_t
+    {
+        Raster = 0,
+        Raytracing = 1,
+        Hybrid = 2
+    };
+
     static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
 
     std::string getDesc() override { return kDesc; }
@@ -54,7 +61,7 @@ public:
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override { mpScene = pScene; }
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
     virtual void renderUI(Gui::Widgets& widget) override;
 
     void setEnabled(bool enabled) {mEnabled = enabled;}
@@ -62,11 +69,13 @@ public:
     void setSampleRadius(float radius);
     void setKernelSize(uint32_t kernelSize);
     void setDistribution(uint32_t distribution);
+    void setShaderVariant(uint32_t variant);
     bool getEnabled() {return mEnabled;}
     bool getHalfResolution() {return mHalfResolution;}
     float getSampleRadius() { return mData.radius; }
     uint32_t getKernelSize() { return mData.kernelSize; }
     uint32_t getDistribution() { return (uint32_t)mHemisphereDistribution; }
+    uint32_t getShaderVariant() { return (uint32_t)mShaderVariant; }
 
 private:
     SSAO();
@@ -87,6 +96,7 @@ private:
 
     Sampler::SharedPtr mpTextureSampler;
     SampleDistribution mHemisphereDistribution = SampleDistribution::CosineHammersley;
+    ShaderVariant mShaderVariant = ShaderVariant::Raster;
 
     FullScreenPass::SharedPtr mpSSAOPass;
     RenderGraph::SharedPtr mpBlurGraph;

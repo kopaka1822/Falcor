@@ -153,7 +153,7 @@ namespace Falcor
 #ifdef FALCOR_VK
             std::string mShaderModel = "450";
 #elif defined FALCOR_D3D12
-            std::string mShaderModel = "6_3";
+            std::string mShaderModel = "6_5";
 #endif
         };
 

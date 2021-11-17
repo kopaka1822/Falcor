@@ -27,6 +27,18 @@
  **************************************************************************/
 import Scene.Camera.Camera;
 import SSAOData;
+import Scene.RaytracingInline;
+
+// only uses rasterization
+#define SHADER_VARIANT_RASTER 0
+// only uses raytracing
+#define SHADER_VARIANT_RAYTRACING 1
+// mixes ray tracing and rasterization
+#define SHADER_VARIANT_HYBRID 2
+
+#ifndef SHADER_VARIANT
+#error please define shader variant to either raster, raytracing or hybrid
+#endif
 
 cbuffer StaticCB
 {
@@ -59,6 +71,59 @@ float4 getPosition(float2 uv)
     return posW;
 }
 
+// P = world position
+// N = world surface normal
+// Dir = sample direction
+float ComputeAORay(float3 P, float3 N, float3 Dir)
+{
+    const float depthBias = 0.1;
+    float occlusion = 0.0;
+
+#if SHADER_VARIANT == SHADER_VARIANT_RASTER || SHADER_VARIANT == SHADER_VARIANT_HYBRID
+    // Calculate sample world space pos
+    float3 samplePosW = P + (Dir * gData.radius);
+    float sampleDepth = length(samplePosW - gCamera.data.posW);
+
+    // Get screen space pos of sample
+    float4 samplePosProj = mul(float4(samplePosW, 1.0f), gCamera.data.viewProjMat);
+    samplePosProj /= samplePosProj.w;
+
+    // Sample depth buffer at the same place as sample
+    float2 sampleUV = saturate(float2(samplePosProj.x, -samplePosProj.y) * 0.5f + 0.5f);
+    float3 scenePosW = getPosition(sampleUV).xyz;
+    float sceneDepth = length(scenePosW - gCamera.data.posW);
+
+    float sampleDistance = distance(P, scenePosW);
+    if(sampleDistance <= gData.radius) // only evaluate if within radius
+    {
+        if(sceneDepth < sampleDepth - depthBias) occlusion = 1.0;
+        return occlusion;
+    }
+
+#endif
+
+#if SHADER_VARIANT == SHADER_VARIANT_RAYTRACING || SHADER_VARIANT == SHADER_VARIANT_HYBRID
+    RayDesc ray;
+    ray.Origin = P;
+    ray.Direction = Dir;
+    ray.TMin = 0.01;
+    ray.TMax = gData.radius;
+
+    SceneRayQuery<1> sceneRayQuery; // 1 = Use Alpha Test
+    HitInfo hit;
+    float hitT;
+
+    //if (!sceneRayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
+        //return 0.0; // no occlusion (nothing hit)
+    if(sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff))
+    {
+        occlusion = 1.0;
+    }
+#endif
+
+    return occlusion;
+}
+
 // Ambient occlusion factor as in hbao+
 // P = position
 // N = normal
@@ -71,9 +136,40 @@ float ComputeAO(float3 P, float3 N, float3 S)
     float3 V = S - P;
     float VdotV = dot(V, V);
     float NdotV = dot(N, V) * rsqrt(VdotV);
-    return saturate(NdotV - NDotVBias) * saturate(1.0 - VdotV * invR2);
 
-    // TODO if VdotV > R2 => use raytracing 
+    float angleFactor = saturate(NdotV - NDotVBias);
+    float distanceFactor = saturate(1.0 - VdotV * invR2);
+
+    //return angleFactor * distanceFactor;
+
+    [branch]
+    if(distanceFactor > 0.0) return angleFactor * distanceFactor;
+    else
+    {
+    // else: try raytracing
+    RayDesc ray;
+    ray.Origin = P;
+    ray.Direction = normalize(V);
+    ray.TMin = 0.01;
+    ray.TMax = gData.radius;
+
+    SceneRayQuery<1> sceneRayQuery; // 1 = Use Alpha Test
+    HitInfo hit;
+    float hitT;
+
+    //RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
+    //q.TraceRayInline(gScene.rtAccel, RAY_FLAG_NONE, 0xff, ray);
+
+    //if (!sceneRayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
+        //return 0.0; // no occlusion (nothing hit)
+    if(!sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff))
+        return 0.0; // no occlusion (nothing hit)
+
+    distanceFactor = saturate(1.0 - hitT * hitT * invR2);
+
+    // TODO ray distance?
+    return angleFactor * distanceFactor;
+    }
 }
 
 float4 main(float2 texC : TEXCOORD) : SV_TARGET0
@@ -88,7 +184,7 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
     float3 normal = normalize(gNormalTex.Sample(gTextureSampler, texC).xyz);
 
     // Calculate tangent space (use random direction for tangent orientation)
-    float originDist = length(posW - gCamera.data.posW);
+    //float originDist = length(posW - gCamera.data.posW);
     float3 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xyz * 2.0f - 1.0f;
 
     float3 tangent = normalize(randDir - normal * dot(randDir, normal));
@@ -101,37 +197,13 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
         // Orient sample
         float3 kernelPos = mul(gData.sampleKernel[i].xyz, tbn);
 
-        // Calculate sample world space pos
-        float3 samplePosW = posW + (kernelPos * gData.radius);
-        float sampleDepth = length(samplePosW - gCamera.data.posW);
-
-        // Get screen space pos of sample
-        float4 samplePosProj = mul(float4(samplePosW, 1.0f), gCamera.data.viewProjMat);
-        samplePosProj /= samplePosProj.w;
-
-        // Sample depth buffer at the same place as sample
-        float2 sampleUV = saturate(float2(samplePosProj.x, -samplePosProj.y) * 0.5f + 0.5f);
-        float3 scenePosW = getPosition(sampleUV).xyz;
-        float sceneDepth = length(scenePosW - gCamera.data.posW);
-
-        occlusion += ComputeAO(posW, normal, scenePosW);
-
-        //if(sampleDepth > sceneDepth)
-        //if(sampleDepth > sceneDepth && abs(sampleDepth - sceneDepth) < gData.radius)
-            //occlusion += 1.0;
-            //occlusion += ComputeAO()
-        //float rangeCheck = step(abs(sampleDepth - sceneDepth), gData.radius);
-        //occlusion += step(sceneDepth, sampleDepth) * rangeCheck;
-
-        //if(abs(sampleDepth - sceneDepth) < gData.radius)
-        //if(distance(posW, scenePosW) < gData.radius)
-        //{
-        //    validSamples += 1.0;
-        //    if(sampleDepth > sceneDepth) occlusion += 1.0;
-        //}
+        occlusion += ComputeAORay(posW, normal, normalize(kernelPos)); // TODO is normalized?
     }
 
     float AO = occlusion / float(gData.kernelSize);
-
-    return pow(saturate(1.0 - AO * 1.5), 2.0);
+    float4 res = pow(saturate(1.0 - AO * 1.5), 2.0);
+    //if(SHADER_VARIANT == SHADER_VARIANT_RASTER) res.yz = 0.0;
+    //if(SHADER_VARIANT == SHADER_VARIANT_RAYTRACING) res.xz = 0.0;
+    //if(SHADER_VARIANT == SHADER_VARIANT_HYBRID) res.xy = 0.0;
+    return res;
 }
