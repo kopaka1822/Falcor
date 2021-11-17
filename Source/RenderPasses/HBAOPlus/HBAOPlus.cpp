@@ -113,7 +113,7 @@ RenderPassReflection HBAOPlus::reflect(const CompileData& compileData)
     RenderPassReflection reflector;
     reflector.addInput(kDepth, "non-linear depth map").bindFlags(Falcor::ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepth2, "2nd non-linear depth map").bindFlags(Falcor::ResourceBindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addInput(kNormal, "surface normals").bindFlags(Falcor::ResourceBindFlags::ShaderResource);
+    reflector.addInput(kNormal, "surface normals").bindFlags(Falcor::ResourceBindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);;
     reflector.addOutput(kAmbientMap, "ambient occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA8Unorm);//.format(ResourceFormat::R8Unorm);
     return reflector;
 }
@@ -153,18 +153,20 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     if(!mpScene) return;
 
     auto pDepth = renderData[kDepth]->asTexture();
-    decltype(pDepth) pDepth2 = nullptr;
+    Texture::SharedPtr pDepth2 = nullptr;
     if(renderData[kDepth2]) pDepth2 = renderData[kDepth2]->asTexture();
     else mparams.EnableDualLayerAO = false; // force this to be false if no 2nd depth was supplied
 
-    auto pNormal = renderData[kNormal]->asTexture();
+    Texture::SharedPtr pNormal = nullptr;
+    if(renderData[kNormal]) renderData[kNormal]->asTexture();
+    else m_useNormalData = false; // force this to be false if no normals were supplied
     auto pAmientMap = renderData[kAmbientMap]->asTexture();
     auto ambientRtv = pAmientMap->getRTV();
 
     // transition resources into expected state
     pRenderContext->resourceBarrier(pDepth.get(), Falcor::Resource::State::ShaderResource);
     if(pDepth2) pRenderContext->resourceBarrier(pDepth2.get(), Falcor::Resource::State::ShaderResource);
-    pRenderContext->resourceBarrier(pNormal.get(), Falcor::Resource::State::ShaderResource);
+    if(pNormal) pRenderContext->resourceBarrier(pNormal.get(), Falcor::Resource::State::ShaderResource);
     pRenderContext->resourceBarrier(pAmientMap.get(), Falcor::Resource::State::RenderTarget);
 
     // initialize srv description for depth buffer
@@ -198,18 +200,21 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     curSrvHeapAddress.ptr += gpDevice->getApiHandle()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     if(pDepth2) gpDevice->getApiHandle()->CreateShaderResourceView(pDepth2->getApiHandle(), &depthSRVDesc, curSrvHeapAddress);
 
-    // initialize srv description for normal
-    D3D12_SHADER_RESOURCE_VIEW_DESC normalSrvDesc = {};
-    assert(pNormal->getFormat() == Falcor::ResourceFormat::RGBA32Float);
-    normalSrvDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    normalSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    normalSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    normalSrvDesc.Texture2D.MipLevels = 1;
-    normalSrvDesc.Texture2D.MostDetailedMip = 0; // No MIP
-    normalSrvDesc.Texture2D.PlaneSlice = 0;
-    normalSrvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-    curSrvHeapAddress.ptr += gpDevice->getApiHandle()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    gpDevice->getApiHandle()->CreateShaderResourceView(pNormal->getApiHandle(), &normalSrvDesc, curSrvHeapAddress);
+    if(pNormal)
+    {
+        // initialize srv description for normal
+        D3D12_SHADER_RESOURCE_VIEW_DESC normalSrvDesc = {};
+        assert(pNormal->getFormat() == Falcor::ResourceFormat::RGBA32Float);
+        normalSrvDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        normalSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        normalSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        normalSrvDesc.Texture2D.MipLevels = 1;
+        normalSrvDesc.Texture2D.MostDetailedMip = 0; // No MIP
+        normalSrvDesc.Texture2D.PlaneSlice = 0;
+        normalSrvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+        curSrvHeapAddress.ptr += gpDevice->getApiHandle()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        gpDevice->getApiHandle()->CreateShaderResourceView(pNormal->getApiHandle(), &normalSrvDesc, curSrvHeapAddress);
+    }
 
     // set depth texture in descirptor 
     GFSDK_SSAO_InputData_D3D12 input;
@@ -238,13 +243,16 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     input.DepthData.Viewport.Enable = false; // use default texture viewport
 
     input.NormalData.Enable = m_useNormalData; // do not use input normals
-    input.NormalData.WorldToViewMatrix.Data = GFSDK_SSAO_Float4x4(reinterpret_cast<const float*>(&viewMatrix));
-    input.NormalData.WorldToViewMatrix.Layout = GFSDK_SSAO_ROW_MAJOR_ORDER; 
-    input.NormalData.FullResNormalTextureSRV.pResource = pNormal->getApiHandle();
-    input.NormalData.FullResNormalTextureSRV.GpuHandle = mSSAODescriptorHeapCBVSRVUAV->GetGPUDescriptorHandleForHeapStart().ptr + 2 * gpDevice->getApiHandle()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);;
-    // normals are already in -1 to 1 space
-    //input.NormalData.DecodeScale = -1.0f;
-    //input.NormalData.DecodeBias = 0.0f;
+    if(m_useNormalData)
+    {
+        input.NormalData.WorldToViewMatrix.Data = GFSDK_SSAO_Float4x4(reinterpret_cast<const float*>(&viewMatrix));
+        input.NormalData.WorldToViewMatrix.Layout = GFSDK_SSAO_ROW_MAJOR_ORDER; 
+        input.NormalData.FullResNormalTextureSRV.pResource = pNormal->getApiHandle();
+        input.NormalData.FullResNormalTextureSRV.GpuHandle = mSSAODescriptorHeapCBVSRVUAV->GetGPUDescriptorHandleForHeapStart().ptr + 2 * gpDevice->getApiHandle()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);;
+        // normals are already in -1 to 1 space
+        //input.NormalData.DecodeScale = -1.0f;
+        //input.NormalData.DecodeBias = 0.0f;
+    }
 
     // set render target
     GFSDK_SSAO_Output_D3D12 output;
