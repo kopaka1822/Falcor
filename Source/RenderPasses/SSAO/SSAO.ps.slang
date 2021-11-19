@@ -57,6 +57,8 @@ Texture2D gDepthTex;
 Texture2D gNormalTex;
 Texture2D gNoiseTex;
 
+static int gRaysTraced = 0;
+
 float4 getPosition(float2 uv)
 {
     float4 pos;
@@ -81,7 +83,7 @@ float ComputeAORay(float3 P, float3 N, float3 Dir)
 
 #if SHADER_VARIANT == SHADER_VARIANT_RASTER || SHADER_VARIANT == SHADER_VARIANT_HYBRID
     // Calculate sample world space pos
-    float3 samplePosW = P + (Dir * gData.radius);
+    float3 samplePosW = P + (Dir * gData.radius * 0.8);
     float sampleDepth = length(samplePosW - gCamera.data.posW);
 
     // Get screen space pos of sample
@@ -89,12 +91,16 @@ float ComputeAORay(float3 P, float3 N, float3 Dir)
     samplePosProj /= samplePosProj.w;
 
     // Sample depth buffer at the same place as sample
-    float2 sampleUV = saturate(float2(samplePosProj.x, -samplePosProj.y) * 0.5f + 0.5f);
+    float2 unclippedSampleUV = float2(samplePosProj.x, -samplePosProj.y) * 0.5f + 0.5f;
+    float2 sampleUV = saturate(unclippedSampleUV);
     float3 scenePosW = getPosition(sampleUV).xyz;
     float sceneDepth = length(scenePosW - gCamera.data.posW);
 
     float sampleDistance = distance(P, scenePosW);
-    if(sampleDistance <= gData.radius) // only evaluate if within radius
+    if(SHADER_VARIANT == SHADER_VARIANT_HYBRID && any(unclippedSampleUV != sampleUV))
+    {
+    }
+    else if(sampleDistance <= gData.radius || sceneDepth > sampleDepth) // only evaluate if within radius
     {
         if(sceneDepth < sampleDepth - depthBias) occlusion = 1.0;
         return occlusion;
@@ -112,7 +118,7 @@ float ComputeAORay(float3 P, float3 N, float3 Dir)
     SceneRayQuery<1> sceneRayQuery; // 1 = Use Alpha Test
     HitInfo hit;
     float hitT;
-
+    gRaysTraced += 1;
     //if (!sceneRayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
         //return 0.0; // no occlusion (nothing hit)
     if(sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff))
@@ -202,6 +208,13 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
 
     float AO = occlusion / float(gData.kernelSize);
     float4 res = pow(saturate(1.0 - AO * 1.5), 2.0);
+
+    float red = gRaysTraced / float(gData.kernelSize);
+    float green = 1.0 - red;
+
+    res.r *= red;
+    res.g *= green;
+    res.b = 0.0;
     //if(SHADER_VARIANT == SHADER_VARIANT_RASTER) res.yz = 0.0;
     //if(SHADER_VARIANT == SHADER_VARIANT_RAYTRACING) res.xz = 0.0;
     //if(SHADER_VARIANT == SHADER_VARIANT_HYBRID) res.xy = 0.0;
