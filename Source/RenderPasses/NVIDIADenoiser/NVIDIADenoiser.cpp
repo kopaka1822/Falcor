@@ -26,13 +26,19 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "NVIDIADenoiser.h"
-
+// NRI
+#include <NRIDescs.hpp>
+#include <Extensions/NRIWrapperD3D12.h>
+#include <Extensions/NRIHelper.h>
+// NRD
+#include <NRD.h>
+#include "NRD_SDK/Integration/NRDIntegration.hpp"
 
 namespace
 {
     const char kDesc[] = "NVIDIA Denoiser";
     const std::string kInput = "input";
-    const std::string kOutput = "output;"
+    const std::string kOutput = "output";
 }
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -73,6 +79,9 @@ void NVIDIADenoiser::execute(RenderContext* pRenderContext, const RenderData& re
 {
     // renderData holds the requested resources
     // auto& pTexture = renderData["src"]->asTexture();
+
+    
+
 }
 
 void NVIDIADenoiser::renderUI(Gui::Widgets& widget)

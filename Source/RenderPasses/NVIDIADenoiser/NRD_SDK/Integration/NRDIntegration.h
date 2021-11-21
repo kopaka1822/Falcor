@@ -14,6 +14,9 @@ license agreement from NVIDIA CORPORATION is strictly prohibited.
 //    NRD.h
 //    NRIDescs.hpp
 //    Extensions/NRIHelper.h
+#include <NRD.h>
+#include <NRIDescs.h>
+#include <Extensions/NRIHelper.h>
 
 #include <array>
 #include <vector>

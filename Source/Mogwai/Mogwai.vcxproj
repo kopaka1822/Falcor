@@ -85,6 +85,9 @@
     <ProjectReference Include="..\RenderPasses\MinimalPathTracer\MinimalPathTracer.vcxproj">
       <Project>{ff7fe9b8-2ace-4044-869d-a5c4ef8042d3}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\NVIDIADenoiser\NVIDIADenoiser.vcxproj">
+      <Project>{e4d49ab3-45ac-4407-8a1e-37415b8aaeca}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\OptixDenoiser\OptixDenoiser.vcxproj">
       <Project>{05555565-706c-4633-bf8a-b99f96f2b301}</Project>
     </ProjectReference>

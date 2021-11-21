@@ -5,5 +5,33 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="NVIDIADenoiser.h" />
+    <ClInclude Include="NRD_SDK\Include\NRD.h">
+      <Filter>NRD_SDK</Filter>
+    </ClInclude>
+    <ClInclude Include="NRD_SDK\Include\NRDDescs.h">
+      <Filter>NRD_SDK</Filter>
+    </ClInclude>
+    <ClInclude Include="NRD_SDK\Include\NRDSettings.h">
+      <Filter>NRD_SDK</Filter>
+    </ClInclude>
+    <ClInclude Include="NRD_SDK\Integration\NRDIntegration.h">
+      <Filter>NRD_SDK</Filter>
+    </ClInclude>
+    <ClInclude Include="NRD_SDK\Integration\NRDIntegration.hpp">
+      <Filter>NRD_SDK</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="NRD_SDK">
+      <UniqueIdentifier>{24732ec9-100b-4a6f-873d-e8ea19b10761}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NRI">
+      <UniqueIdentifier>{982f1ee1-6580-416f-8a60-587400c2a249}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="NRD_SDK\Include\NRD.hlsli">
+      <Filter>NRD_SDK</Filter>
+    </ShaderSource>
   </ItemGroup>
 </Project>

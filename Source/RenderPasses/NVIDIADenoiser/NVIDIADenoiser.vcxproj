@@ -28,12 +28,20 @@
     <ClCompile Include="NVIDIADenoiser.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="NRD_SDK\Include\NRD.h" />
+    <ClInclude Include="NRD_SDK\Include\NRDDescs.h" />
+    <ClInclude Include="NRD_SDK\Include\NRDSettings.h" />
+    <ClInclude Include="NRD_SDK\Integration\NRDIntegration.h" />
+    <ClInclude Include="NRD_SDK\Integration\NRDIntegration.hpp" />
     <ClInclude Include="NVIDIADenoiser.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Falcor\Falcor.vcxproj">
       <Project>{2c535635-e4c5-4098-a928-574f0e7cd5f9}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="NRD_SDK\Include\NRD.hlsli" />
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
@@ -56,9 +64,13 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
+    <IncludePath>NRD_SDK\Include;NRI\Include;$(IncludePath)</IncludePath>
+    <LibraryPath>NRI\lib;NRD_SDK\Lib\Release;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
+    <IncludePath>NRD_SDK\Include;NRI\Include;$(IncludePath)</IncludePath>
+    <LibraryPath>NRI\lib;NRD_SDK\Lib\Release;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -74,6 +86,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>NRI.lib;NRI_D3D12.lib;NRI_Shared.lib;NRI_Validation.lib;NRD.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -94,6 +107,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>NRI.lib;NRI_D3D12.lib;NRI_Shared.lib;NRI_Validation.lib;NRD.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
