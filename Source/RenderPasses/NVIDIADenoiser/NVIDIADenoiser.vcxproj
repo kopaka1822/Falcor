@@ -43,6 +43,14 @@
   <ItemGroup>
     <ShaderSource Include="NRD_SDK\Include\NRD.hlsli" />
   </ItemGroup>
+  <ItemGroup>
+    <CopyFileToFolders Include="NRD_SDK\Lib\Release\NRD.dll">
+      <FileType>Document</FileType>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="NRI\lib\NRI.dll">
+      <FileType>Document</FileType>
+    </CopyFileToFolders>
+  </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>

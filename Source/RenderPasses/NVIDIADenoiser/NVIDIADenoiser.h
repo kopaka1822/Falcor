@@ -28,6 +28,18 @@
 #pragma once
 #include "Falcor.h"
 #include "FalcorExperimental.h"
+#include <optional>
+
+// NRI
+#include <NRIDescs.hpp>
+#include <Extensions/NRIWrapperD3D12.h>
+#include <Extensions/NRIHelper.h>
+// NRD
+#include <NRD.h>
+#include "NRD_SDK/Integration/NRDIntegration.hpp"
+
+struct NriInterface : public nri::CoreInterface, public nri::HelperInterface, public nri::WrapperD3D12Interface {};
+NriInterface NRI;
 
 using namespace Falcor;
 
@@ -46,13 +58,18 @@ public:
     virtual std::string getDesc() override;
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pContext, const CompileData& compileData) override {}
+    virtual void compile(RenderContext* pContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
+    ~NVIDIADenoiser();
 private:
-    NVIDIADenoiser() = default;
+    NVIDIADenoiser();
+
+    std::optional<NrdIntegration> NRD;
+    nri::Device* nriDevice = nullptr;
+    uint32_t m_frameIndex = 0;
 };
