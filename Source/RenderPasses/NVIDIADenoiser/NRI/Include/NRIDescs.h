@@ -844,7 +844,7 @@ namespace nri
 
     struct TextureTransitionBarrierDesc
     {
-        const Texture* texture;
+        Texture* texture;
         uint16_t mipOffset;
         uint16_t mipNum;
         uint16_t arrayOffset;
