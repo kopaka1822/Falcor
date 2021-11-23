@@ -234,7 +234,8 @@ Texture::SharedPtr SSAO::generateAOMap(RenderContext* pContext, const Camera* pC
 
    
     pCamera->setShaderData(mpSSAOPass["PerFrameCB"]["gCamera"]);
-    
+    mpSSAOPass["PerFrameCB"]["frameIndex"] = mFrameIndex++;
+
     // Update state/vars
     mpSSAOPass["gNoiseSampler"] = mpNoiseSampler;
     mpSSAOPass["gTextureSampler"] = mpTextureSampler;

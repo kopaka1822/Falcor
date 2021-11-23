@@ -89,6 +89,7 @@ private:
     bool mEnabled = true;
     Fbo::SharedPtr mpAOFbo;
     bool mHalfResolution = false;
+    uint mFrameIndex = 0;
 
     Sampler::SharedPtr mpNoiseSampler;
     Texture::SharedPtr mpNoiseTexture;

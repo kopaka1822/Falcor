@@ -48,6 +48,7 @@ cbuffer StaticCB
 cbuffer PerFrameCB
 {
     Camera gCamera;
+    uint frameIndex;
 }
 
 SamplerState gNoiseSampler;
@@ -178,12 +179,43 @@ float ComputeAO(float3 P, float3 N, float3 S)
     }
 }
 
-float4 main(float2 texC : TEXCOORD) : SV_TARGET0
+// helper math for zcurve
+uint ZCurveToLinearIndex(uint2 xy)
+{
+    return IntegerExplode(xy[0]) | (IntegerExplode(xy[1]) << 1);
+}
+
+// "Explodes" an integer, i.e. inserts a 0 between each bit. 
+//      For example, 0b11111111 -> 0b1010101010101010
+uint IntegerExplode(uint x)
+{
+    x = (x | (x << 8)) & 0x00FF00FF;
+    x = (x | (x << 4)) & 0x0F0F0F0F;
+    x = (x | (x << 2)) & 0x33333333;
+    x = (x | (x << 1)) & 0x55555555;
+    return x;
+}
+
+uint JenkinsHash(uint a)
+{
+    // http://burtleburtle.net/bob/hash/integer.html
+    a = (a + 0x7ed55d16) + (a << 12);
+    a = (a ^ 0xc761c23c) ^ (a >> 19);
+    a = (a + 0x165667b1) + (a << 5);
+    a = (a + 0xd3a2646c) ^ (a << 9);
+    a = (a + 0xfd7046c5) + (a << 3);
+    a = (a ^ 0xb55a4f09) ^ (a >> 16);
+    return a;
+}
+
+float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
     if (gDepthTex.SampleLevel(gTextureSampler, texC, 0).r >= 1)
     {
         return 1.0f;
     }
+
+    int zCurveIndex = ZCurveToLinearIndex(uint2(svPos.xy));
 
     // Calculate world position of pixel
     float3 posW = getPosition(texC).xyz;
@@ -198,7 +230,8 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
     float3x3 tbn = float3x3(tangent, bitangent, normal);
 
     float occlusion = 0.0f;
-    for (uint i = 0; i < gData.kernelSize; i++)
+    //for (uint i = 0; i < gData.kernelSize; i++)
+    uint i = (JenkinsHash(zCurveIndex + frameIndex)) % gData.kernelSize;
     {
         // Orient sample
         float3 kernelPos = mul(gData.sampleKernel[i].xyz, tbn);
@@ -206,10 +239,12 @@ float4 main(float2 texC : TEXCOORD) : SV_TARGET0
         occlusion += ComputeAORay(posW, normal, normalize(kernelPos)); // TODO is normalized?
     }
 
-    float AO = occlusion / float(gData.kernelSize);
+    //float AO = occlusion / float(gData.kernelSize);
+    float AO = occlusion;
     float4 res = pow(saturate(1.0 - AO * 1.5), 2.0);
 
-    float red = gRaysTraced / float(gData.kernelSize);
+    //float red = gRaysTraced / float(gData.kernelSize);
+    float red = gRaysTraced;
     float green = 1.0 - red;
 
     res.r *= red;
