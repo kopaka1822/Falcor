@@ -939,6 +939,7 @@ namespace Falcor
             if (pVersion == nullptr)
             {
                 std::string error = "Failed to link program:\n" + getProgramDescString() + "\n\n" + log;
+                if(mThrowOnError) throw std::runtime_error(error);
                 logError(error, Logger::MsgBox::RetryAbort);
 
                 // Continue loop to keep trying...

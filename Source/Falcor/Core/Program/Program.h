@@ -245,6 +245,7 @@ namespace Falcor
             return mDesc.mGroups[groupIndex].entryPoints[entryPointIndexInGroup];
         }
 
+        void setThrowOnError(bool throwOnErr) {mThrowOnError = throwOnErr;}
     protected:
         friend class ::Falcor::ProgramVersion;
 
@@ -305,5 +306,7 @@ namespace Falcor
 
         bool checkIfFilesChanged();
         void reset();
+
+        bool mThrowOnError = false;
     };
 }

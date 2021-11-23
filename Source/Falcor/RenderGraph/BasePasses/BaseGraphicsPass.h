@@ -70,7 +70,7 @@ namespace Falcor
             \param[in] programDefines List of macro definitions to set into the program. The macro definitions will be set on all shader stages.
             \return A new object, or an exception is thrown if creation failed.
         */
-        BaseGraphicsPass(const Program::Desc& progDesc, const Program::DefineList& programDefines);
+        BaseGraphicsPass(const Program::Desc& progDesc, const Program::DefineList& programDefines, bool throwOnError = false);
 
         GraphicsVars::SharedPtr mpVars;
         GraphicsState::SharedPtr mpState;

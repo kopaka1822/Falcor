@@ -44,7 +44,7 @@ namespace Falcor
             \param[in] viewportMask Optional value to initialize viewport mask with. Useful for multi-projection passes.
             \return A new object, or throws an exception if creation failed.
         */
-        static SharedPtr create(const std::string& filename, const Program::DefineList& defines = Program::DefineList(), uint32_t viewportMask = 0);
+        static SharedPtr create(const std::string& filename, const Program::DefineList& defines = Program::DefineList(), uint32_t viewportMask = 0, bool throwOnError = false);
 
         /** Create a new fullscreen pass.
             \param[in] desc The program description.
@@ -52,7 +52,7 @@ namespace Falcor
             \param[in] viewportMask Optional value to initialize viewport mask with. Useful for multi-projection passes.
             \return A new object, or throws an exception if creation failed.
         */
-        static SharedPtr create(const Program::Desc& desc, const Program::DefineList& defines = Program::DefineList(), uint32_t viewportMask = 0);
+        static SharedPtr create(const Program::Desc& desc, const Program::DefineList& defines = Program::DefineList(), uint32_t viewportMask = 0, bool throwOnError = false);
 
         /** Execute the pass using an FBO
             \param[in] pRenderContext The render context.
@@ -62,7 +62,7 @@ namespace Falcor
         virtual void execute(RenderContext* pRenderContext, const Fbo::SharedPtr& pFbo, bool autoSetVpSc = true) const;
 
     protected:
-        FullScreenPass(const Program::Desc& progDesc, const Program::DefineList& programDefines);
+        FullScreenPass(const Program::Desc& progDesc, const Program::DefineList& programDefines, bool throwOnError);
     };
 }
 

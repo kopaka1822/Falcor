@@ -92,8 +92,8 @@ namespace Falcor
         }
     }
 
-    FullScreenPass::FullScreenPass(const Program::Desc& progDesc, const Program::DefineList& programDefines)
-        : BaseGraphicsPass(progDesc, programDefines)
+    FullScreenPass::FullScreenPass(const Program::Desc& progDesc, const Program::DefineList& programDefines, bool throwOnError)
+        : BaseGraphicsPass(progDesc, programDefines, throwOnError)
     {
         gFullScreenData.objectCount++;
 
@@ -122,7 +122,7 @@ namespace Falcor
         }
     }
 
-    FullScreenPass::SharedPtr FullScreenPass::create(const Program::Desc& desc, const Program::DefineList& defines, uint32_t viewportMask)
+    FullScreenPass::SharedPtr FullScreenPass::create(const Program::Desc& desc, const Program::DefineList& defines, uint32_t viewportMask, bool throwOnError)
     {
         Program::Desc d = desc;
         Program::DefineList defs = defines;
@@ -143,14 +143,14 @@ namespace Falcor
         }
         if (!d.hasEntryPoint(ShaderType::Vertex)) d.addShaderLibrary("RenderGraph/BasePasses/FullScreenPass.vs.slang").vsEntry("main");
 
-        return SharedPtr(new FullScreenPass(d, defs));
+        return SharedPtr(new FullScreenPass(d, defs, throwOnError));
     }
 
-    FullScreenPass::SharedPtr FullScreenPass::create(const std::string& filename, const Program::DefineList& defines, uint32_t viewportMask)
+    FullScreenPass::SharedPtr FullScreenPass::create(const std::string& filename, const Program::DefineList& defines, uint32_t viewportMask, bool throwOnError)
     {
         Program::Desc d;
         d.addShaderLibrary(filename).psEntry("main");
-        return create(d, defines, viewportMask);
+        return create(d, defines, viewportMask, throwOnError);
     }
 
     void FullScreenPass::execute(RenderContext* pRenderContext, const Fbo::SharedPtr& pFbo, bool autoSetVpSc) const

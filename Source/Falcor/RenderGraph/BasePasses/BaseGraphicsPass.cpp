@@ -30,9 +30,9 @@
 
 namespace Falcor
 {
-    BaseGraphicsPass::BaseGraphicsPass(const Program::Desc& progDesc, const Program::DefineList& programDefines)
+    BaseGraphicsPass::BaseGraphicsPass(const Program::Desc& progDesc, const Program::DefineList& programDefines, bool throwOnError)
     {
-        auto pProg = GraphicsProgram::create(progDesc, programDefines);
+        auto pProg = GraphicsProgram::create(progDesc, programDefines, throwOnError);
 
         mpState = GraphicsState::create();
         mpState->setProgram(pProg);

@@ -46,7 +46,7 @@ namespace Falcor
             \param[in] programDefines Optional list of macro definitions to set into the program. The macro definitions will be set on all shader stages.
             \return A new object, or an exception is thrown if creation failed.
         */
-        static SharedPtr create(const Desc& desc, const Program::DefineList& programDefines = DefineList());
+        static SharedPtr create(const Desc& desc, const Program::DefineList& programDefines = DefineList(), bool throwOnError = false);
 
         /** Create a new graphics program from file.
             \param[in] filename Graphics program filename.
