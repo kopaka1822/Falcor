@@ -6,4 +6,7 @@
   <ItemGroup>
     <ClInclude Include="ConvertFormat.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="convert.slang" />
+  </ItemGroup>
 </Project>

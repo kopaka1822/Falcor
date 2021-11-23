@@ -30,7 +30,12 @@
 
 namespace
 {
-    const char kDesc[] = "Converts one or more input texture to a single output texture with specified format";    
+    const char kDesc[] = "Converts one or more input texture to a single output texture with specified format";
+
+    const std::string kFormula = "formula";
+    const std::string kFormat = "format";
+
+    const std::string kShaderFilename = "RenderPasses/ConvertFormat/convert.slang";
 }
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -46,7 +51,7 @@ extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 
 ConvertFormat::SharedPtr ConvertFormat::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new ConvertFormat);
+    SharedPtr pPass = SharedPtr(new ConvertFormat(dict));
     return pPass;
 }
 
@@ -54,24 +59,165 @@ std::string ConvertFormat::getDesc() { return kDesc; }
 
 Dictionary ConvertFormat::getScriptingDictionary()
 {
-    return Dictionary();
+    Dictionary dict;
+    dict[kFormula] = mFormula;
+    dict[kFormat] = mFormat;
+    return dict;
+}
+
+void ConvertFormat::parseDictionary(const Dictionary& dict)
+{
+    for (const auto& [key, value] : dict)
+    {
+        if(key == kFormula) mFormula = (const std::string&)value;
+        else if(key == kFormat) mFormat = value;
+        else Falcor::logError("unknown field " + key);
+    }
+}
+
+ConvertFormat::ConvertFormat(const Dictionary& dict)
+:
+mFormula("I0[xy]"), // "I0.Sample(s, uv)"
+mFormat(ResourceFormat::RGBA32Float)
+{
+    mpFbo = Fbo::create();
+
+    parseDictionary(dict);
 }
 
 RenderPassReflection ConvertFormat::reflect(const CompileData& compileData)
 {
-    // Define the required resources here
     RenderPassReflection reflector;
-    //reflector.addOutput("dst");
-    //reflector.addInput("src");
+    reflector.addInput("I0", "input image").flags(RenderPassReflection::Field::Flags::Optional).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput("I1", "input image").flags(RenderPassReflection::Field::Flags::Optional).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput("I2", "input image").flags(RenderPassReflection::Field::Flags::Optional).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput("I3", "input image").flags(RenderPassReflection::Field::Flags::Optional).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addOutput("out", "output image").format(mFormat).bindFlags(ResourceBindFlags::RenderTarget);
     return reflector;
+}
+
+void ConvertFormat::compile(RenderContext* pContext, const CompileData& compileData)
+{
+
 }
 
 void ConvertFormat::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // renderData holds the requested resources
-    // auto& pTexture = renderData["src"]->asTexture();
+    if(mDirty) // reload shaders if dirty
+    {
+        mDirty = false; // only attempt this once, until something in the settings changes
+
+        mpPass.reset();
+        mValid = false;
+
+        try
+        {
+            Program::DefineList defines; // = mpScene->getSceneDefines();
+            defines.add("FORMULA", mFormula);
+            mpPass = FullScreenPass::create(kShaderFilename, defines, 0U, true);
+            Sampler::Desc samplerDesc;
+            samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
+            mpPass["s"] = Sampler::create(samplerDesc);
+            mValid = true;
+        }
+        catch(const std::exception& e)
+        {
+            Falcor::logError(e.what(), Falcor::Logger::MsgBox::ContinueAbort, false);
+        }
+    }
+
+    if(!mValid) return;
+
+    Texture::SharedPtr I0;
+    Texture::SharedPtr I1;
+    Texture::SharedPtr I2;
+    Texture::SharedPtr I3;
+
+    if(renderData["I0"]) I0 = renderData["I0"]->asTexture();
+    if(renderData["I1"]) I1 = renderData["I1"]->asTexture();
+    if(renderData["I2"]) I2 = renderData["I2"]->asTexture();
+    if(renderData["I3"]) I3 = renderData["I3"]->asTexture();
+
+    auto out = renderData["out"]->asTexture();
+
+    mpFbo->attachColorTarget(out, 0);
+
+    mpPass["I0"] = I0;
+    mpPass["I1"] = I1;
+    mpPass["I2"] = I2;
+    mpPass["I3"] = I3;
+
+    mpPass->execute(pRenderContext, mpFbo);
 }
+
+static const Gui::DropdownList kCommonResourceFormats =
+{
+    { (uint32_t)ResourceFormat::R8Unorm,         "R8Unorm"},
+    { (uint32_t)ResourceFormat::R8Snorm,         "R8Snorm"},
+    { (uint32_t)ResourceFormat::R16Unorm,        "R16Unorm"},
+    { (uint32_t)ResourceFormat::R16Snorm,        "R16Snorm"},
+    { (uint32_t)ResourceFormat::RG8Unorm,        "RG8Unorm"},
+    { (uint32_t)ResourceFormat::RG8Snorm,        "RG8Snorm"},
+    { (uint32_t)ResourceFormat::RG16Unorm,       "RG16Unorm"},
+    { (uint32_t)ResourceFormat::RG16Snorm,       "RG16Snorm"},
+    //{ (uint32_t)ResourceFormat::RGB16Unorm,      "RGB16Unorm"}, // not supported as render target
+    //{ (uint32_t)ResourceFormat::RGB16Snorm,      "RGB16Snorm"}, // not supported as render target
+    { (uint32_t)ResourceFormat::RGBA8Unorm,      "RGBA8Unorm"},
+    { (uint32_t)ResourceFormat::RGBA8Snorm,      "RGBA8Snorm"},
+    { (uint32_t)ResourceFormat::RGB10A2Unorm,    "RGB10A2Unorm"},
+    //{ (uint32_t)ResourceFormat::RGB10A2Uint,     "RGB10A2Uint"},
+    { (uint32_t)ResourceFormat::RGBA16Unorm,     "RGBA16Unorm"},
+    { (uint32_t)ResourceFormat::RGBA8UnormSrgb,  "RGBA8UnormSrgb"},
+    { (uint32_t)ResourceFormat::R16Float,        "R16Float"},
+    { (uint32_t)ResourceFormat::RG16Float,       "RG16Float"},
+    //{ (uint32_t)ResourceFormat::RGB16Float,      "RGB16Float"}, // not supported as render target
+    { (uint32_t)ResourceFormat::RGBA16Float,     "RGBA16Float"},
+    { (uint32_t)ResourceFormat::R32Float,        "R32Float"},
+    { (uint32_t)ResourceFormat::RG32Float,       "RG32Float"},
+    // { (uint32_t)ResourceFormat::RGB32Float,      "RGB32Float"}, // not supported as render target
+    { (uint32_t)ResourceFormat::RGBA32Float,     "RGBA32Float"},
+        //R8Int,
+        //R8Uint,
+        //R16Int,
+        //R16Uint,
+        //R32Int,
+        //R32Uint,
+        //RG8Int,
+        //RG8Uint,
+        //RG16Int,
+        //RG16Uint,
+        //RG32Int,
+        //RG32Uint,
+        //RGB16Int,
+        //RGB16Uint,
+        //RGB32Int,
+        //RGB32Uint,
+        //RGBA8Int,
+        //RGBA8Uint,
+        //RGBA16Int,
+        //RGBA16Uint,
+        //RGBA32Int,
+        //RGBA32Uint,
+        //BGRA8Unorm,
+        //BGRA8UnormSrgb,
+        //BGRX8Unorm,
+        //BGRX8UnormSrgb,
+        //Alpha8Unorm,
+        //Alpha32Float,
+        //R5G6B5Unorm,
+
+        // Depth-stencil
+        //D32Float,
+        //D16Unorm,
+        //D32FloatS8X24,
+        //D24UnormS8
+};
 
 void ConvertFormat::renderUI(Gui::Widgets& widget)
 {
+
+    if(widget.textbox(kFormula, mFormula)) mDirty = true;
+    if(!mValid) widget.text("invalid!", true);
+
+    if(widget.dropdown(kFormat.c_str(), kCommonResourceFormats, *reinterpret_cast<uint32_t*>(&mFormat))) mPassChangedCB();
 }
