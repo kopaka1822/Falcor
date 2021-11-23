@@ -109,11 +109,11 @@ RenderPassReflection NVIDIADenoiser::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
-    reflector.addInput(kInput, "noisy input image").format(ResourceFormat::RGBA8Unorm);
-    reflector.addInput(kMotionVectors, "3D world space motion (RGBA16f+) or 2D screen space motion (RG16f+), MVs must be non-jittered, MV = previous - current").format(ResourceFormat::RG32Float);
-    reflector.addInput(kNormalRoughness, "RGBA8+ or R10G10B10A2+ depending on encoding (UNORM FORMAT)").format(ResourceFormat::RGBA32Float);
-    reflector.addInput(kViewZ, "Linear view depth for primary rays (R16f+)");//.format(ResourceFormat::R32Float);
-    reflector.addOutput(kOutput, "denoised output image").format(ResourceFormat::RGBA8Unorm);
+    reflector.addInput(kInput, "noisy input image").format(ResourceFormat::R8Unorm).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kMotionVectors, "3D world space motion (RGBA16f+) or 2D screen space motion (RG16f+), MVs must be non-jittered, MV = previous - current").format(ResourceFormat::RG32Float).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kNormalRoughness, "RGBA8+ or R10G10B10A2+ depending on encoding (UNORM FORMAT)").format(ResourceFormat::RGBA8Unorm).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kViewZ, "Linear view depth for primary rays (R16f+)").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addOutput(kOutput, "denoised output image").format(ResourceFormat::R8Unorm).bindFlags(ResourceBindFlags::UnorderedAccess);
     
     return reflector;
 }
@@ -144,19 +144,17 @@ void NVIDIADenoiser::compile(RenderContext* pContext, const CompileData& compile
 
 void NVIDIADenoiser::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    return;
-
     auto pInput = renderData[kInput]->asTexture();
     auto pOutput = renderData[kOutput]->asTexture();
-    //auto pMotionVec = renderData[kMotionVectors]->asTexture();
-    //auto pViewZ = renderData[kViewZ]->asTexture();
-    //auto pNormalRoughness = renderData[kNormalRoughness]->asTexture();
+    auto pMotionVec = renderData[kMotionVectors]->asTexture();
+    auto pViewZ = renderData[kViewZ]->asTexture();
+    auto pNormalRoughness = renderData[kNormalRoughness]->asTexture();
 
     // make sure all input resources have shader resource state
     pRenderContext->resourceBarrier(pInput.get(), Resource::State::ShaderResource);
-    //pRenderContext->resourceBarrier(pMotionVec.get(), Resource::State::ShaderResource);
-    //pRenderContext->resourceBarrier(pViewZ.get(), Resource::State::ShaderResource);
-    //pRenderContext->resourceBarrier(pNormalRoughness.get(), Resource::State::ShaderResource);
+    pRenderContext->resourceBarrier(pMotionVec.get(), Resource::State::ShaderResource);
+    pRenderContext->resourceBarrier(pViewZ.get(), Resource::State::ShaderResource);
+    pRenderContext->resourceBarrier(pNormalRoughness.get(), Resource::State::ShaderResource);
 
     // output should be in UAV state
     pRenderContext->resourceBarrier(pOutput.get(), Resource::State::UnorderedAccess);
@@ -182,20 +180,20 @@ void NVIDIADenoiser::execute(RenderContext* pRenderContext, const RenderData& re
 
     nri::TextureD3D12Desc textureDesc = {};
     // motion vec IN_MV
-    //textureDesc.d3d12Resource = pMotionVec->getApiHandle();
-    //NRI.CreateTextureD3D12(*nriDevice, textureDesc, entryDescs[0].texture);
-    //entryDescs[0].nextAccess = nri::AccessBits::SHADER_RESOURCE;
-    //entryDescs[0].nextLayout = nri::TextureLayout::SHADER_RESOURCE;
-    //// normal roughness IN_NORMAL_ROUGHNESS
-    //textureDesc.d3d12Resource = pNormalRoughness->getApiHandle();
-    //NRI.CreateTextureD3D12(*nriDevice, textureDesc, entryDescs[1].texture);
-    //entryDescs[1].nextAccess = nri::AccessBits::SHADER_RESOURCE;
-    //entryDescs[1].nextLayout = nri::TextureLayout::SHADER_RESOURCE;
-    //// IN_VIEWZ
-    //textureDesc.d3d12Resource = pViewZ->getApiHandle();
-    //NRI.CreateTextureD3D12(*nriDevice, textureDesc, entryDescs[2].texture);
-    //entryDescs[2].nextAccess = nri::AccessBits::SHADER_RESOURCE;
-    //entryDescs[2].nextLayout = nri::TextureLayout::SHADER_RESOURCE;
+    textureDesc.d3d12Resource = pMotionVec->getApiHandle();
+    NRI.CreateTextureD3D12(*nriDevice, textureDesc, entryDescs[0].texture);
+    entryDescs[0].nextAccess = nri::AccessBits::SHADER_RESOURCE;
+    entryDescs[0].nextLayout = nri::TextureLayout::SHADER_RESOURCE;
+    // normal roughness IN_NORMAL_ROUGHNESS
+    textureDesc.d3d12Resource = pNormalRoughness->getApiHandle();
+    NRI.CreateTextureD3D12(*nriDevice, textureDesc, entryDescs[1].texture);
+    entryDescs[1].nextAccess = nri::AccessBits::SHADER_RESOURCE;
+    entryDescs[1].nextLayout = nri::TextureLayout::SHADER_RESOURCE;
+    // IN_VIEWZ
+    textureDesc.d3d12Resource = pViewZ->getApiHandle();
+    NRI.CreateTextureD3D12(*nriDevice, textureDesc, entryDescs[2].texture);
+    entryDescs[2].nextAccess = nri::AccessBits::SHADER_RESOURCE;
+    entryDescs[2].nextLayout = nri::TextureLayout::SHADER_RESOURCE;
     // IN_DIFF_HITDIST
     textureDesc.d3d12Resource = pInput->getApiHandle();
     NRI.CreateTextureD3D12(*nriDevice, textureDesc, entryDescs[3].texture);
@@ -225,16 +223,19 @@ void NVIDIADenoiser::execute(RenderContext* pRenderContext, const RenderData& re
 
     // Fill up the user pool
     NrdUserPool userPool = {};
-    userPool[(size_t)nrd::ResourceType::IN_MV] = NrdIntegrationTexture{nullptr, nri::Format::RG32_SFLOAT};
-    userPool[(size_t)nrd::ResourceType::IN_NORMAL_ROUGHNESS] = NrdIntegrationTexture{nullptr, nri::Format::RGBA32_SFLOAT};
-    userPool[(size_t)nrd::ResourceType::IN_VIEWZ] = NrdIntegrationTexture{nullptr, nri::Format::R32_SFLOAT};
-    userPool[(size_t)nrd::ResourceType::IN_DIFF_HITDIST] = NrdIntegrationTexture{entryDescs + 3, nri::Format::RGBA8_UNORM};
-    userPool[(size_t)nrd::ResourceType::OUT_DIFF_HITDIST] = NrdIntegrationTexture{entryDescs + 4, nri::Format::RGBA8_UNORM};
+    userPool[(size_t)nrd::ResourceType::IN_MV] = NrdIntegrationTexture{entryDescs, nri::Format::RG32_SFLOAT};
+    userPool[(size_t)nrd::ResourceType::IN_NORMAL_ROUGHNESS] = NrdIntegrationTexture{entryDescs + 1, nri::Format::RGBA8_UNORM};
+    userPool[(size_t)nrd::ResourceType::IN_VIEWZ] = NrdIntegrationTexture{entryDescs + 2, nri::Format::R32_SFLOAT};
+    userPool[(size_t)nrd::ResourceType::IN_DIFF_HITDIST] = NrdIntegrationTexture{entryDescs + 3, nri::Format::R8_UNORM};
+    userPool[(size_t)nrd::ResourceType::OUT_DIFF_HITDIST] = NrdIntegrationTexture{entryDescs + 4, nri::Format::R8_UNORM};
 
     NRD->Denoise(m_frameIndex, *cmdBuffer, commonSettings, userPool);
     m_frameIndex = 1 - m_frameIndex;
 
     NRI.DestroyCommandBuffer(*cmdBuffer);
+
+    // restore descriptor heaps
+    pRenderContext->bindDescriptorHeaps();
 }
 
 
