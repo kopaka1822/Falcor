@@ -1,7 +1,7 @@
-Texture2D<float> I0;
-Texture2D<float> I1;
-Texture2D<float> I2;
-Texture2D<float> I3;
+Texture2D<float4> I0;
+Texture2D<float4> I1;
+Texture2D<float4> I2;
+Texture2D<float4> I3;
 
 SamplerState s;
 
