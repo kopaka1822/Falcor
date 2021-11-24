@@ -231,7 +231,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
     float occlusion = 0.0f;
     //for (uint i = 0; i < gData.kernelSize; i++)
-    uint i = (JenkinsHash(zCurveIndex + frameIndex)) % gData.kernelSize;
+    uint i = (zCurveIndex + (frameIndex)) % gData.kernelSize; // JenkinsHash
     {
         // Orient sample
         float3 kernelPos = mul(gData.sampleKernel[i].xyz, tbn);

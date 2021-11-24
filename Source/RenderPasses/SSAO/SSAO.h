@@ -102,7 +102,7 @@ private:
     FullScreenPass::SharedPtr mpSSAOPass;
     RenderGraph::SharedPtr mpBlurGraph;
     Dictionary mBlurDict;
-    bool mApplyBlur = true;
+    bool mApplyBlur = false;
 
     Scene::SharedPtr mpScene;
 };

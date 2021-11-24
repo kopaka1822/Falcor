@@ -61,7 +61,7 @@ public:
     virtual void compile(RenderContext* pContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override { mpScene = pScene; }
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
@@ -72,4 +72,10 @@ private:
     std::optional<NrdIntegration> NRD;
     nri::Device* nriDevice = nullptr;
     uint32_t m_frameIndex = 0;
+    Scene::SharedPtr mpScene;
+    nrd::CommonSettings mCommonSettings = {};
+    nrd::ReblurDiffuseSettings mSettings = {};
+    bool mEnabled = true;
+
+    std::chrono::high_resolution_clock::time_point mLastTime;
 };

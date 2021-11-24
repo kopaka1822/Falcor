@@ -140,15 +140,31 @@ void NVIDIADenoiser::compile(RenderContext* pContext, const CompileData& compile
     
     bool bresult = NRD->Initialize(*nriDevice, NRI, NRI, denoiserCreationDesc);
     if(!bresult) throw std::runtime_error("could not initialize NRD");
+    
+    mLastTime = std::chrono::high_resolution_clock::now();
+    mCommonSettings.frameIndex = 0;
+}
+
+static void copyMatrix(float* dst, const glm::mat4& mat)
+{
+    memcpy(dst, &mat, sizeof(glm::mat4));
 }
 
 void NVIDIADenoiser::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    if(!mpScene) return;
+
     auto pInput = renderData[kInput]->asTexture();
     auto pOutput = renderData[kOutput]->asTexture();
     auto pMotionVec = renderData[kMotionVectors]->asTexture();
     auto pViewZ = renderData[kViewZ]->asTexture();
     auto pNormalRoughness = renderData[kNormalRoughness]->asTexture();
+
+    if(!mEnabled)
+    {
+        pRenderContext->copySubresource(pOutput.get(), 0, pInput.get(), 0);
+        return;
+    }
 
     // make sure all input resources have shader resource state
     pRenderContext->resourceBarrier(pInput.get(), Resource::State::ShaderResource);
@@ -212,14 +228,30 @@ void NVIDIADenoiser::execute(RenderContext* pRenderContext, const RenderData& re
     // Populate common settings
     //  - for the first time use defaults
     //  - currently NRD supports only the following view space: X - right, Y - top, Z - forward or backward
-    nrd::CommonSettings commonSettings = {};
-    //PopulateCommonSettings(commonSettings);
+    auto pCam = mpScene->getCamera();
+    copyMatrix(mCommonSettings.viewToClipMatrix, pCam->getProjMatrix());
+    copyMatrix(mCommonSettings.viewToClipMatrixPrev, pCam->getProjMatrix());
+    copyMatrix(mCommonSettings.worldToViewMatrix, pCam->getViewMatrix());
+    copyMatrix(mCommonSettings.worldToViewMatrixPrev, pCam->getPrevViewMatrix());
+    //mCommonSettings.meterToUnitsMultiplier = 1.0f;
+    auto nowTime = std::chrono::high_resolution_clock::now();
+    mCommonSettings.timeDeltaBetweenFrames = std::chrono::duration<float>(nowTime - mLastTime).count() * 0.001f;
+    mLastTime = nowTime;
+    mCommonSettings.frameIndex += 1;
+    mCommonSettings.isMotionVectorInWorldSpace = false; // here: provided in screen space
+    mCommonSettings.isRadianceMultipliedByExposure = true; 
 
-    // Set settings for each denoiser
-    nrd::ReblurDiffuseSettings settings = {};
-    //PopulateDenoiserSettings(settings);
+    // "Normalized hit distance" = saturate( "hit distance" / f ), where:
+    // f = ( A + viewZ * B ) * lerp( 1.0, C, exp2( D * roughness ^ 2 ) ), see "NRD.hlsl/REBLUR_FrontEnd_GetNormHitDist"
+    // HERE: simplify to: f = ( A + viewZ * B ) = viewZ * B
+    mSettings.hitDistanceParameters.A = 0.0f;
+    mSettings.hitDistanceParameters.B = 0.1f;
+    mSettings.hitDistanceParameters.C = 1.0f; // this ignores the roughness parameter
+    //mSettings.maxAccumulatedFrameNum = 16;
+    mSettings.blurRadius = 30.0f;
+    mSettings.checkerboardMode = nrd::CheckerboardMode::OFF;
 
-    NRD->SetMethodSettings(nrd::Method::REBLUR_DIFFUSE_OCCLUSION, &settings);
+    NRD->SetMethodSettings(nrd::Method::REBLUR_DIFFUSE_OCCLUSION, &mSettings);
 
     // Fill up the user pool
     NrdUserPool userPool = {};
@@ -229,7 +261,7 @@ void NVIDIADenoiser::execute(RenderContext* pRenderContext, const RenderData& re
     userPool[(size_t)nrd::ResourceType::IN_DIFF_HITDIST] = NrdIntegrationTexture{entryDescs + 3, nri::Format::R8_UNORM};
     userPool[(size_t)nrd::ResourceType::OUT_DIFF_HITDIST] = NrdIntegrationTexture{entryDescs + 4, nri::Format::R8_UNORM};
 
-    NRD->Denoise(m_frameIndex, *cmdBuffer, commonSettings, userPool);
+    NRD->Denoise(m_frameIndex, *cmdBuffer, mCommonSettings, userPool);
     m_frameIndex = 1 - m_frameIndex;
 
     NRI.DestroyCommandBuffer(*cmdBuffer);
@@ -241,5 +273,10 @@ void NVIDIADenoiser::execute(RenderContext* pRenderContext, const RenderData& re
 
 void NVIDIADenoiser::renderUI(Gui::Widgets& widget)
 {
+    widget.checkbox("Enabled", mEnabled);
+    if(!mEnabled) return;
 
+
+    widget.var("Max Frame History", mSettings.maxAccumulatedFrameNum, uint32_t(0), nrd::REBLUR_MAX_HISTORY_FRAME_NUM);
+    widget.var("Meters To Units", mCommonSettings.meterToUnitsMultiplier, 0.0f);
 }
