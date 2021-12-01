@@ -37,7 +37,8 @@ struct SSAOData
     float4 sampleKernel[kMaxSamples];
     float2 noiseScale = float2(1, 1);
     uint32_t kernelSize = 16;
-    float radius = 2.0f;
+    float radius = 1.0f;
+    float invRadiusSquared = 0.25f;
 };
 
 END_NAMESPACE_FALCOR

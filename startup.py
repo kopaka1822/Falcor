@@ -36,7 +36,7 @@ def render_graph_SSAO():
     loadRenderPassLibrary('WhittedRayTracer.dll')
     GBufferRaster = createPass('GBufferRaster', {'samplePattern': SamplePattern.Center, 'sampleCount': 16, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': CullMode.CullBack})
     g.addPass(GBufferRaster, 'GBufferRaster')
-    SSAO = createPass('SSAO', {'enabled': True, 'halfResolution': False, 'kernelSize': 16, 'noiseSize': uint2(16,16), 'radius': 2.0, 'distribution': SampleDistribution.UniformHammersley, 'blurWidth': 5, 'blurSigma': 2.0})
+    SSAO = createPass('SSAO', {'enabled': True, 'halfResolution': False, 'kernelSize': 16, 'noiseSize': uint2(16,16), 'radius': 1.0, 'distribution': SampleDistribution.CosineHammersley, 'blurWidth': 5, 'blurSigma': 2.0})
     g.addPass(SSAO, 'SSAO')
     NVIDIADenoiser = createPass('NVIDIADenoiser')
     g.addPass(NVIDIADenoiser, 'NVIDIADenoiser')

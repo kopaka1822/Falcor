@@ -103,7 +103,8 @@ SSAO::SSAO()
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
     mpNoiseSampler = Sampler::create(samplerDesc);
 
-    samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
+    //samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
+    samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpTextureSampler = Sampler::create(samplerDesc);
 }
 
@@ -288,6 +289,7 @@ void SSAO::setHalfResolution(bool halfRes)
 void SSAO::setSampleRadius(float radius)
 {
     mData.radius = radius;
+    mData.invRadiusSquared = 1.0f / (radius * radius);
     mDirty = true;
 }
 
@@ -352,6 +354,11 @@ void SSAO::setNoiseTexture()
         // Random directions on the XY plane
         float2 dir = glm::normalize(glm::linearRand(float2(-1), float2(1))) * 0.5f + 0.5f;
         data[i] = glm::packUnorm4x8(float4(dir, 0.0f, 1.0f));
+        //auto r1 = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
+        //auto r2 = glm::acos(1.0f - glm::linearRand(0.0f, 2.0f));
+        //
+        //float3 dir = float3(sin(r1) * sin(r2), sin(r1) * cos(r2), sin(r2));
+        //data[i] = glm::packUnorm4x8(glm::vec4(dir * 0.5f + 0.5f, 0.0f));
     }
 
     mpNoiseTexture = Texture::create2D(mNoiseSize.x, mNoiseSize.y, ResourceFormat::RGBA8Unorm, 1, Texture::kMaxPossible, data.data());

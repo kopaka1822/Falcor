@@ -89,7 +89,7 @@ HBAOPlus::HBAOPlus()
     
     pDevice->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&mSSAODescriptorHeapRTV));
 
-    mparams.Radius = 2.0f;
+    mparams.Radius = 1.0f;
     mparams.Bias = 0.1f;
     mparams.PowerExponent = 2.0f;
     mparams.Blur.Enable = true;
