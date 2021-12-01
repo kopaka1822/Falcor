@@ -46,15 +46,23 @@ public:
     virtual std::string getDesc() override;
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pContext, const CompileData& compileData) override {}
+    virtual void compile(RenderContext* pContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
+    uint32_t getKernelRadius() const {return mKernelRadius;}
+    void setKernelRadius(uint32_t radius);
 private:
     CrossBilateralBlur();
 
-    ResourceFormat mFormat;
+    Fbo::SharedPtr mpFbo;
+    Sampler::SharedPtr mpSampler;
+    uint32_t mKernelRadius = 4;
+    bool mReady = false;
+
+    FullScreenPass::SharedPtr mpBlurX;
+    FullScreenPass::SharedPtr mpBlurY;
 };

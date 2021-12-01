@@ -31,6 +31,7 @@
 namespace
 {
     const char kDesc[] = "Depth-Aware Cross Bilateral Blur";
+    const char kShaderPath[] = "RenderPasses/CrossBilateralBlur/Blur.ps.slang";
 
     const std::string kColor = "color";
     const std::string kDepth = "linear depth";
@@ -61,31 +62,91 @@ Dictionary CrossBilateralBlur::getScriptingDictionary()
     return Dictionary();
 }
 
+void CrossBilateralBlur::setKernelRadius(uint32_t radius)
+{
+    mKernelRadius = radius;
+    mPassChangedCB();
+}
+
 CrossBilateralBlur::CrossBilateralBlur()
-:
-mFormat(ResourceFormat::RGBA8Unorm)
-{}
+{
+    mpFbo = Fbo::create();
+    Sampler::Desc samplerDesc;
+    samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
+    mpSampler = Sampler::create(samplerDesc);
+}
 
 RenderPassReflection CrossBilateralBlur::reflect(const CompileData& compileData)
 {
+    mReady = false;
+
     // Define the required resources here
     RenderPassReflection reflector;
-    reflector.addInputOutput(kColor, "color image to be blurred").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget).format(mFormat);
-    reflector.addInput(kDepth, "linear depth").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInternal(kPingPong, "temporal result after first blur").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget).format(mFormat);
+
+    auto& colorField = reflector.addInputOutput(kColor, "color image to be blurred").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget);
+    auto& depthField = reflector.addInput(kDepth, "linear depth").bindFlags(ResourceBindFlags::ShaderResource);
+    auto& pingpongField = reflector.addInternal(kPingPong, "temporal result after first blur").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget);
+
+    // set correct input format and dimensions of the ping pong buffer
+    auto edge = compileData.connectedResources.getField(kColor);
+    if(edge)
+    {
+        const auto inputFormat = edge->getFormat();
+        const auto srcWidth = edge->getWidth();
+        const auto srcHeight = edge->getHeight();
+
+        colorField.format(inputFormat).texture2D(srcWidth, srcHeight, 1, 1, 1);
+        pingpongField.format(inputFormat).texture2D(srcWidth, srcHeight, 1, 1, 1);
+
+        mReady = true;
+    }
+    
     return reflector;
+}
+
+void CrossBilateralBlur::compile(RenderContext* pContext, const CompileData& compileData)
+{
+    if(!mReady) throw std::runtime_error("CrossBilateralBlur::compile - missing incoming reflection information");
+
+    Program::DefineList defines;
+    defines.add("KERNEL_RADIUS", std::to_string(mKernelRadius));
+
+    defines.add("DIR", "int2(1, 0)");
+    mpBlurX = FullScreenPass::create(kShaderPath, defines);
+
+    defines.add("DIR", "int2(0, 1)");
+    mpBlurY = FullScreenPass::create(kShaderPath, defines);
+
+    // share program vars
+    mpBlurY->setVars(mpBlurX->getVars());
+
+    mpBlurX["gSampler"] = mpSampler;
 }
 
 void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    assert(mReady);
+
     auto pColor = renderData[kColor]->asTexture();
     auto pPingPong = renderData[kPingPong]->asTexture();
     auto pDepth = renderData[kDepth]->asTexture();
 
     assert(pColor->getFormat() == pPingPong->getFormat());
+
+    // blur in x
+    mpFbo->attachColorTarget(pPingPong, 0);
+    mpBlurX["gSrcTex"] = pColor;
+    mpBlurX["gDepthTex"] = pDepth;
+    mpBlurX->execute(pRenderContext, mpFbo);
+
+    // blur in y
+    mpFbo->attachColorTarget(pColor, 0);
+    mpBlurY["gSrcTex"] = pPingPong;
+    mpBlurY->execute(pRenderContext, mpFbo);
 }
 
 void CrossBilateralBlur::renderUI(Gui::Widgets& widget)
 {
-    
+    if (widget.var("Kernel Radius", mKernelRadius, uint32_t(1), uint32_t(20))) setKernelRadius(mKernelRadius);
+
 }

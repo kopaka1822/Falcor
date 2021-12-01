@@ -104,6 +104,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NVIDIADenoiser", "Source\Re
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ConvertFormat", "Source\RenderPasses\ConvertFormat\ConvertFormat.vcxproj", "{BD0C66B8-1F90-4FEE-8360-115AEA5227DE}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CrossBilateralBlur", "Source\RenderPasses\CrossBilateralBlur\CrossBilateralBlur.vcxproj", "{227B9D60-F1E9-49DE-91CA-0D2100148CB3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		DebugD3D12|x64 = DebugD3D12|x64
@@ -274,6 +276,10 @@ Global
 		{BD0C66B8-1F90-4FEE-8360-115AEA5227DE}.DebugD3D12|x64.Build.0 = Debug|x64
 		{BD0C66B8-1F90-4FEE-8360-115AEA5227DE}.ReleaseD3D12|x64.ActiveCfg = Release|x64
 		{BD0C66B8-1F90-4FEE-8360-115AEA5227DE}.ReleaseD3D12|x64.Build.0 = Release|x64
+		{227B9D60-F1E9-49DE-91CA-0D2100148CB3}.DebugD3D12|x64.ActiveCfg = Debug|x64
+		{227B9D60-F1E9-49DE-91CA-0D2100148CB3}.DebugD3D12|x64.Build.0 = Debug|x64
+		{227B9D60-F1E9-49DE-91CA-0D2100148CB3}.ReleaseD3D12|x64.ActiveCfg = Release|x64
+		{227B9D60-F1E9-49DE-91CA-0D2100148CB3}.ReleaseD3D12|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -319,6 +325,7 @@ Global
 		{C13653E6-8E5B-4971-AE65-CDE1C2F10F3E} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 		{E4D49AB3-45AC-4407-8A1E-37415B8AAECA} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 		{BD0C66B8-1F90-4FEE-8360-115AEA5227DE} = {D16038A7-B031-4181-B4A1-2C416C02330C}
+		{227B9D60-F1E9-49DE-91CA-0D2100148CB3} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {357B2AE0-FE30-4AC6-8D41-B580232BC0DE}

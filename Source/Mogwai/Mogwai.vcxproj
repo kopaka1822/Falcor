@@ -52,6 +52,9 @@
     <ProjectReference Include="..\RenderPasses\ConvertFormat\ConvertFormat.vcxproj">
       <Project>{bd0c66b8-1f90-4fee-8360-115aea5227de}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\CrossBilateralBlur\CrossBilateralBlur.vcxproj">
+      <Project>{227b9d60-f1e9-49de-91ca-0d2100148cb3}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\CSM\CSM.vcxproj">
       <Project>{52cb6295-6163-49b8-b3b6-8a6140e0479d}</Project>
     </ProjectReference>
