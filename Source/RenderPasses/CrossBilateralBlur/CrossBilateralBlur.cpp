@@ -31,7 +31,7 @@
 namespace
 {
     const char kDesc[] = "Depth-Aware Cross Bilateral Blur";
-    const char kShaderPath[] = "RenderPasses/CrossBilateralBlur/Blur.ps.slang";
+    const char kShaderPath[] = "RenderPasses/CrossBilateralBlur/Blur.ps.hlsl";
 
     const std::string kColor = "color";
     const std::string kDepth = "linear depth";
@@ -132,21 +132,25 @@ void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData
     auto pDepth = renderData[kDepth]->asTexture();
 
     assert(pColor->getFormat() == pPingPong->getFormat());
-
-    // blur in x
-    mpFbo->attachColorTarget(pPingPong, 0);
-    mpBlurX["gSrcTex"] = pColor;
     mpBlurX["gDepthTex"] = pDepth;
-    mpBlurX->execute(pRenderContext, mpFbo);
 
-    // blur in y
-    mpFbo->attachColorTarget(pColor, 0);
-    mpBlurY["gSrcTex"] = pPingPong;
-    mpBlurY->execute(pRenderContext, mpFbo);
+    for(uint32_t i = 0; i < mRepetitions; ++i)
+    {
+        // blur in x
+        mpFbo->attachColorTarget(pPingPong, 0);
+        mpBlurX["gSrcTex"] = pColor;
+        mpBlurX->execute(pRenderContext, mpFbo);
+
+        // blur in y
+        mpFbo->attachColorTarget(pColor, 0);
+        mpBlurY["gSrcTex"] = pPingPong;
+        mpBlurY->execute(pRenderContext, mpFbo);
+    }
 }
 
 void CrossBilateralBlur::renderUI(Gui::Widgets& widget)
 {
     if (widget.var("Kernel Radius", mKernelRadius, uint32_t(1), uint32_t(20))) setKernelRadius(mKernelRadius);
+    widget.var("Blur Repetitions", mRepetitions, uint32_t(1), uint32_t(20));
 
 }

@@ -6,4 +6,7 @@
   <ItemGroup>
     <ClInclude Include="CrossBilateralBlur.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="Blur.ps.hlsl" />
+  </ItemGroup>
 </Project>
