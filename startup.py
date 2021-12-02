@@ -37,7 +37,7 @@ def render_graph_SSAO():
     loadRenderPassLibrary('CrossBilateralBlur.dll')
     GBufferRaster = createPass('GBufferRaster', {'samplePattern': SamplePattern.Center, 'sampleCount': 16, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': CullMode.CullBack})
     g.addPass(GBufferRaster, 'GBufferRaster')
-    SSAO = createPass('SSAO', {'enabled': True, 'halfResolution': False, 'kernelSize': 16, 'noiseSize': uint2(16,16), 'radius': 1.0, 'distribution': SampleDistribution.CosineHammersley})
+    SSAO = createPass('SSAO', {'enabled': True, 'halfResolution': False, 'kernelSize': 16, 'noiseSize': uint2(4,4), 'radius': 1.0, 'distribution': SampleDistribution.CosineHammersley})
     g.addPass(SSAO, 'SSAO')
     ConvertFormat = createPass('ConvertFormat', {'formula': 'I0[xy]', 'format': ResourceFormat.R32Float})
     g.addPass(ConvertFormat, 'ConvertFormat')

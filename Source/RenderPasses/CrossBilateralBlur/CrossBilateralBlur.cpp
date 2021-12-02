@@ -125,6 +125,7 @@ void CrossBilateralBlur::compile(RenderContext* pContext, const CompileData& com
 
 void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    if(!mEnabled) return;
     assert(mReady);
 
     auto pColor = renderData[kColor]->asTexture();
@@ -150,6 +151,9 @@ void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData
 
 void CrossBilateralBlur::renderUI(Gui::Widgets& widget)
 {
+    widget.checkbox("Enabled", mEnabled);
+    if(!mEnabled) return;
+
     if (widget.var("Kernel Radius", mKernelRadius, uint32_t(1), uint32_t(20))) setKernelRadius(mKernelRadius);
     widget.var("Blur Repetitions", mRepetitions, uint32_t(1), uint32_t(20));
 

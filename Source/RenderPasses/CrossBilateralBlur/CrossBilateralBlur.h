@@ -60,8 +60,9 @@ private:
 
     Fbo::SharedPtr mpFbo;
     Sampler::SharedPtr mpSampler;
+    bool mEnabled = true;
     uint32_t mKernelRadius = 4;
-    uint32_t mRepetitions = 2;
+    uint32_t mRepetitions = 1;
     bool mReady = false;
 
     FullScreenPass::SharedPtr mpBlurX;

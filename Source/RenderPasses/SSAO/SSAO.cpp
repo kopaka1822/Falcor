@@ -269,6 +269,8 @@ void SSAO::renderUI(Gui::Widgets& widget)
     float radius = mData.radius;
     if (widget.var("Sample Radius", radius, 0.001f, FLT_MAX, 0.001f)) setSampleRadius(radius);
 
+    widget.text("noise size"); widget.text(std::to_string(mNoiseSize.x), true);
+
     widget.checkbox("Apply Blur", mApplyBlur);
     if (mApplyBlur)
     {
