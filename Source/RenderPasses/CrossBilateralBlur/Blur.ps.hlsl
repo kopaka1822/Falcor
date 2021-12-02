@@ -38,8 +38,8 @@ void BlurDirection(inout float AO, inout float weightSum)
     for(uint d = 1; d <= KERNEL_RADIUS; d++)
     {
         float2 sampleUv = gUV + d * gDUV;
-        float sampleAO = gSrcTex.SampleLevel(gSampler, sampleUv, 0).x;
-        float sampleDepth = gDepthTex.SampleLevel(gSampler, sampleUv, 0).x;
+        float sampleAO = gSrcTex.Sample(gSampler, sampleUv).x;
+        float sampleDepth = gDepthTex.Sample(gSampler, sampleUv).x;
         // set depth slope after obtaining the first depth sample
         if(d == 1) depthSlope = sampleDepth - gDepth;
 
@@ -56,8 +56,8 @@ float4 main(BlurPSIn pIn) : SV_TARGET
     gDUV = float2(1.0 / gDUV.x, 1.0 / gDUV.y) * float2(DIR);
     
     // initial weight (of center sample)
-    float AO = gSrcTex.SampleLevel(gSampler, gUV, 0).x;
-    gDepth = gDepthTex.SampleLevel(gSampler, gUV, 0).x;
+    float AO = gSrcTex.Sample(gSampler, gUV).x;
+    gDepth = gDepthTex.Sample(gSampler, gUV).x;
     float weightSum = 1.0;
 
     // compute ao and weights for positive and negative direction

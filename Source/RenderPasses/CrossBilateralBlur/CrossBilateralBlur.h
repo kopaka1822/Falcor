@@ -59,6 +59,7 @@ private:
     CrossBilateralBlur();
 
     Fbo::SharedPtr mpFbo;
+    Fbo::SharedPtr mpFbo2;
     Sampler::SharedPtr mpSampler;
     bool mEnabled = true;
     uint32_t mKernelRadius = 4;

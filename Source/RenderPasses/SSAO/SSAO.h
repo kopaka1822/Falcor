@@ -100,9 +100,6 @@ private:
     ShaderVariant mShaderVariant = ShaderVariant::Raster;
 
     FullScreenPass::SharedPtr mpSSAOPass;
-    RenderGraph::SharedPtr mpBlurGraph;
-    Dictionary mBlurDict;
-    bool mApplyBlur = false;
 
     Scene::SharedPtr mpScene;
 };

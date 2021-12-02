@@ -84,8 +84,6 @@ namespace
     const std::string kNoiseSize = "noiseSize";
     const std::string kDistribution = "distribution";
     const std::string kRadius = "radius";
-    const std::string kBlurKernelWidth = "blurWidth";
-    const std::string kBlurSigma = "blurSigma";
     const std::string kShaderVariant = "shaderVariant";
 
     const std::string kAmbientMap = "ambientMap";
@@ -120,8 +118,6 @@ SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& di
         else if (key == kNoiseSize) pSSAO->mNoiseSize = value;
         else if (key == kDistribution) pSSAO->mHemisphereDistribution = value;
         else if (key == kRadius) pSSAO->mData.radius = value;
-        else if (key == kBlurKernelWidth) pSSAO->mBlurDict["kernelWidth"] = (uint32_t)value;
-        else if (key == kBlurSigma) pSSAO->mBlurDict["sigma"] = (float)value;
         else logWarning("Unknown field '" + key + "' in a SSAO dictionary");
     }
     return pSSAO;
@@ -136,10 +132,6 @@ Dictionary SSAO::getScriptingDictionary()
     dict[kNoiseSize] = mNoiseSize;
     dict[kRadius] = mData.radius;
     dict[kDistribution] = mHemisphereDistribution;
-
-    auto blurDict = mpBlurGraph->getPass("GaussianBlur")->getScriptingDictionary();
-    dict[kBlurKernelWidth] = (uint32_t)blurDict["kernelWidth"];
-    dict[kBlurSigma] = (float)blurDict["sigma"];
     return dict;
 }
 
@@ -159,11 +151,6 @@ void SSAO::compile(RenderContext* pRenderContext, const CompileData& compileData
 
     // reset framebufer
     mpAOFbo.reset();
-
-    mpBlurGraph = RenderGraph::create("Gaussian Blur");
-    GaussianBlur::SharedPtr pBlurPass = GaussianBlur::create(pRenderContext, mBlurDict);
-    mpBlurGraph->addPass(pBlurPass, "GaussianBlur");
-    mpBlurGraph->markOutput("GaussianBlur.dst");
 }
 
 void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -178,14 +165,7 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     {
         auto pAoMap = generateAOMap(pRenderContext, mpScene->getCamera().get(), pDepth, pNormals);
 
-        if (mApplyBlur)
-        {
-            mpBlurGraph->setInput("GaussianBlur.src", pAoMap);
-            mpBlurGraph->execute(pRenderContext);
-            pAoMap = mpBlurGraph->getOutput("GaussianBlur.dst")->asTexture();
-        }
-
-        // copy to ao destination
+        // copy to ao destination TODO optimize
         pRenderContext->copySubresource(pAoDst.get(), 0, pAoMap.get(), 0);
     }
     else // ! enabled
@@ -270,15 +250,6 @@ void SSAO::renderUI(Gui::Widgets& widget)
     if (widget.var("Sample Radius", radius, 0.001f, FLT_MAX, 0.001f)) setSampleRadius(radius);
 
     widget.text("noise size"); widget.text(std::to_string(mNoiseSize.x), true);
-
-    widget.checkbox("Apply Blur", mApplyBlur);
-    if (mApplyBlur)
-    {
-        if (auto blurGroup = widget.group("Blur Settings"))
-        {
-            mpBlurGraph->getPass("GaussianBlur")->renderUI(blurGroup);
-        }
-    }
 }
 
 void SSAO::setHalfResolution(bool halfRes)

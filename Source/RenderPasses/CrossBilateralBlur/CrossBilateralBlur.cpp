@@ -71,6 +71,7 @@ void CrossBilateralBlur::setKernelRadius(uint32_t radius)
 CrossBilateralBlur::CrossBilateralBlur()
 {
     mpFbo = Fbo::create();
+    mpFbo2 = Fbo::create();
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpSampler = Sampler::create(samplerDesc);
@@ -118,9 +119,10 @@ void CrossBilateralBlur::compile(RenderContext* pContext, const CompileData& com
     mpBlurY = FullScreenPass::create(kShaderPath, defines);
 
     // share program vars
-    mpBlurY->setVars(mpBlurX->getVars());
+    //mpBlurY->setVars(mpBlurX->getVars());
 
     mpBlurX["gSampler"] = mpSampler;
+    mpBlurY["gSampler"] = mpSampler;
 }
 
 void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -133,19 +135,33 @@ void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData
     auto pDepth = renderData[kDepth]->asTexture();
 
     assert(pColor->getFormat() == pPingPong->getFormat());
-    mpBlurX["gDepthTex"] = pDepth;
+
+    // set resources if they changed
+    if(mpBlurX["gDepthTex"].getTexture() != pDepth)
+    {
+        mpBlurX["gDepthTex"] = pDepth;
+        mpBlurY["gDepthTex"] = pDepth;
+    }
+    
+    if(mpBlurX["gSrcTex"].getTexture() != pColor)
+    {
+        mpBlurX["gSrcTex"] = pColor;
+        mpFbo2->attachColorTarget(pColor, 0);
+    }
+    
+    if(mpBlurY["gSrcTex"].getTexture() != pPingPong)
+    {
+        mpBlurY["gSrcTex"] = pPingPong;
+        mpFbo->attachColorTarget(pPingPong, 0);
+    }
 
     for(uint32_t i = 0; i < mRepetitions; ++i)
     {
         // blur in x
-        mpFbo->attachColorTarget(pPingPong, 0);
-        mpBlurX["gSrcTex"] = pColor;
         mpBlurX->execute(pRenderContext, mpFbo);
 
         // blur in y
-        mpFbo->attachColorTarget(pColor, 0);
-        mpBlurY["gSrcTex"] = pPingPong;
-        mpBlurY->execute(pRenderContext, mpFbo);
+        mpBlurY->execute(pRenderContext, mpFbo2);
     }
 }
 
