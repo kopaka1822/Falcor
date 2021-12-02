@@ -65,7 +65,8 @@ static int gRaysTraced = 0;
 float distanceWeight(float dsquared)
 {
     //return saturate(1.0 - sqrt(dsquared) / gData.radius); // closer to HBAO
-    return saturate(1.0 - dsquared * gData.invRadiusSquared);
+    //return saturate(1.0 - dsquared * gData.invRadiusSquared);
+    return 1.0f;
 }
 
 float2 getSnappedUV(float2 uv)
@@ -169,7 +170,7 @@ float ComputeAORay(float3 P, float3 N, float3 Dir, float3 DirTangent, float2 uv)
     gRaysTraced += 1;
     //if (!sceneRayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
         //return 0.0; // no occlusion (nothing hit)
-    if(sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff))
+    if(sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff)) // TODO value of hitT
     {
         occlusion = distanceWeight(hitT * hitT);
     }
@@ -219,11 +220,12 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     // Calculate world position of pixel
     float3 posW = getPosition(texC).xyz;
     float3 normal = normalize(gNormalTex.Sample(gTextureSampler, texC).xyz);
-    posW += 0.02 * normal; // offset starting position slightly along the normal to avoid self intersection
+    posW += 0.01 * normal; // offset starting position slightly along the normal to avoid self intersection
 
     // Calculate tangent space (use random direction for tangent orientation)
     //float originDist = length(posW - gCamera.data.posW);
     float3 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xyz * 2.0f - 1.0f;
+    //float3 randDir = normalize(float3(1.0, 1.0, 1.0));
 
     float3 tangent = normalize(randDir - normal * dot(randDir, normal));
     float3 bitangent = cross(normal, tangent);
@@ -238,6 +240,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         float3 tangentDir = gData.sampleKernel[i].x * tangent + gData.sampleKernel[i].y * bitangent;
 
         occlusion += ComputeAORay(posW, normal, normalize(kernelPos), normalize(tangentDir), texC); // TODO is normalized?
+        //occlusion += ComputeAORay(posW, normal, normal, normalize(tangentDir), texC); // TODO is normalized?
     }
 
     float AO = occlusion / float(gData.kernelSize);

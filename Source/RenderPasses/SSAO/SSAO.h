@@ -43,6 +43,7 @@ public:
     enum class SampleDistribution : uint32_t
     {
         Random,
+        RandomCosine,
         UniformHammersley,
         CosineHammersley
     };

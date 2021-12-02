@@ -45,6 +45,7 @@ static void regSSAO(pybind11::module& m)
 
     pybind11::enum_<SSAO::SampleDistribution> sampleDistribution(m, "SampleDistribution");
     sampleDistribution.value("Random", SSAO::SampleDistribution::Random);
+    sampleDistribution.value("RandomCosine", SSAO::SampleDistribution::RandomCosine);
     sampleDistribution.value("UniformHammersley", SSAO::SampleDistribution::UniformHammersley);
     sampleDistribution.value("CosineHammersley", SSAO::SampleDistribution::CosineHammersley);
 
@@ -67,6 +68,7 @@ namespace
     const Gui::DropdownList kDistributionDropdown =
     {
         { (uint32_t)SSAO::SampleDistribution::Random, "Random" },
+        { (uint32_t)SSAO::SampleDistribution::RandomCosine, "Random Cosine" },
         { (uint32_t)SSAO::SampleDistribution::UniformHammersley, "Uniform Hammersley" },
         { (uint32_t)SSAO::SampleDistribution::CosineHammersley, "Cosine Hammersley" }
     };
@@ -250,6 +252,16 @@ void SSAO::renderUI(Gui::Widgets& widget)
     if (widget.var("Sample Radius", radius, 0.001f, FLT_MAX, 0.001f)) setSampleRadius(radius);
 
     widget.text("noise size"); widget.text(std::to_string(mNoiseSize.x), true);
+
+    widget.text("hammersley:");
+    std::stringstream ss;
+    for(uint32_t i = 0; i < 32; ++i)
+    {
+        ss << "i: " << i << " x: " << float(i)/32.0f << " y: " << radicalInverse(i);
+        widget.text(ss.str());
+        //ss.clear();
+        ss.str(std::string());
+    }
 }
 
 void SSAO::setHalfResolution(bool halfRes)
@@ -297,21 +309,32 @@ void SSAO::setKernel()
             p = glm::normalize(glm::linearRand(float3(-1.0f, -1.0f, 0.0f), float3(1.0f, 1.0f, 1.0f)));
             break;
 
+        case SampleDistribution::RandomCosine:
+            {
+                float phi = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
+                float theta = glm::acos(glm::sqrt(glm::linearRand(0.0f, 1.0f)));
+
+                p.z = cos(theta);
+                p.x = sin(theta) * sin(phi);
+                p.y = sin(theta) * cos(phi);
+            }
+            break;
+
         case SampleDistribution::UniformHammersley:
-            p = hammersleyUniform(i, mData.kernelSize);
+            p = hammersleyUniform(i + 1, mData.kernelSize + 1);
             break;
 
         case SampleDistribution::CosineHammersley:
-            p = hammersleyCosine(i, mData.kernelSize);
+            p = hammersleyCosine(i + 1, mData.kernelSize + 1);
             break;
         }
 
         mData.sampleKernel[i] = float4(p, 0.0f);
 
         // Skew sample point distance on a curve so more cluster around the origin
-        float dist = (float)i / (float)mData.kernelSize;
-        dist = glm::mix(0.1f, 1.0f, dist * dist);
-        mData.sampleKernel[i] *= dist;
+        //float dist = (float)i / (float)mData.kernelSize;
+        //dist = glm::mix(0.1f, 1.0f, dist * dist);
+        //mData.sampleKernel[i] *= dist;
     }
 
     mDirty = true;
