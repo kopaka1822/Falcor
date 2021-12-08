@@ -65,8 +65,8 @@ static int gRaysTraced = 0;
 float distanceWeight(float dsquared)
 {
     //return saturate(1.0 - sqrt(dsquared) / gData.radius); // closer to HBAO
-    //return saturate(1.0 - dsquared * gData.invRadiusSquared);
-    return 1.0f;
+    return saturate(1.0 - dsquared * gData.invRadiusSquared);
+    //return 1.0f;
 }
 
 float2 getSnappedUV(float2 uv)
@@ -140,21 +140,24 @@ float ComputeAORay(float3 P, float3 N, float3 Dir, float3 DirTangent, float2 uv)
         // screen border
         if(any(unclippedSampleUV != sampleUV) && occlusion == 0.0) useRay = true;
 
-        bool validSample = distSq < gData.radius * gData.radius || cosTheta < 0.1; // inside radius or scene is below the horizon (in the last case, occlusion and weights evaluate to 0)
+        float weight = 1.0;
+        bool validSample = distSq < gData.radius * gData.radius || cosTheta < 0.001; // inside radius or scene is below the horizon (in the last case, occlusion and weights evaluate to 0)
         hasValidSamples = hasValidSamples || validSample;
         if(validSample)
         {   // only update horizon angle for samples inside the sampling radius
             maxHorizonCosTheta = max(maxHorizonCosTheta, cosTheta);
         }
-        else if(!hasValidSamples) useRay = true; // we need at least one valid sample before the first invalid sample, to consider this evaluateable
+        else useRay = true;//if(!hasValidSamples) useRay = true; // we need at least one valid sample before the first invalid sample, to consider this evaluateable
 
-        float weight = cosTheta * cosTheta * (1.0 - cosTheta * cosTheta);
-        //float weight = cosTheta;
-        sampleSum += weight * distanceWeight(distSq);
+        //float weight = cosTheta * cosTheta * (1.0 - cosTheta * cosTheta);
+        
+        //sampleSum += weight * distanceWeight(distSq);
+        sampleSum += 0.5 * cosTheta * cosTheta * distanceWeight(distSq);
         weightSum += weight;
     }
-    maxHorizonCosTheta = 1.0;
-    if(SHADER_VARIANT == SHADER_VARIANT_RASTER || useRay == false) return maxHorizonCosTheta * maxHorizonCosTheta * saturate(sampleSum / max(weightSum, 0.000001));
+    //maxHorizonCosTheta = 1.0;
+    //if(SHADER_VARIANT == SHADER_VARIANT_RASTER || useRay == false) return maxHorizonCosTheta * maxHorizonCosTheta * saturate(sampleSum / max(weightSum, 0.000001));
+    if(SHADER_VARIANT == SHADER_VARIANT_RASTER || useRay == false) return saturate(sampleSum / max(weightSum, 0.000001));
 #endif
 
 #if SHADER_VARIANT == SHADER_VARIANT_RAYTRACING || SHADER_VARIANT == SHADER_VARIANT_HYBRID
