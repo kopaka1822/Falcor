@@ -143,6 +143,8 @@ RenderPassReflection SSAO::reflect(const CompileData& compileData)
     reflector.addInput(kDepth, "Depth-buffer");
     reflector.addInput(kNormals, "World space normals, [0, 1] range").flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(AMBIENT_MAP_FORMAT);
+
+    
     return reflector;
 }
 
@@ -159,9 +161,13 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
+    //pRenderContext->getLowLevelData()->getCommandList()->ResourceBarrier()
+    //pRenderContext->resourceBarrier(, Resource::State::)
+
     auto pDepth = renderData[kDepth]->asTexture();
     auto pNormals = renderData[kNormals]->asTexture();
     auto pAoDst = renderData[kAmbientMap]->asTexture();
+    //renderData["k"]->asBuffer();
 
     if(mEnabled)
     {
@@ -301,9 +307,18 @@ void SSAO::setKernel()
 {
     for (uint32_t i = 0; i < mData.kernelSize; i++)
     {
+        auto& s = mData.sampleKernel[i];
+        float theta = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
+        float r = glm::sqrt(1.0f - glm::pow(glm::linearRand(0.0f, 1.0f), 2.0f / 3.0f));
+        s.x = r * sin(theta);
+        s.y = r * cos(theta);
+        s.z = glm::linearRand(0.0f, 1.0f);
+        s.w = glm::linearRand(0.0f, 1.0f);
+
+
         // Hemisphere in the Z+ direction
         float3 p;
-        switch (mHemisphereDistribution)
+        /*switch (mHemisphereDistribution)
         {
         case SampleDistribution::Random:
             p = glm::normalize(glm::linearRand(float3(-1.0f, -1.0f, 0.0f), float3(1.0f, 1.0f, 1.0f)));
@@ -327,9 +342,9 @@ void SSAO::setKernel()
         case SampleDistribution::CosineHammersley:
             p = hammersleyCosine(i + 1, mData.kernelSize + 1);
             break;
-        }
+        }*/
 
-        mData.sampleKernel[i] = float4(p, 0.0f);
+        //mData.sampleKernel[i] = float4(p, 0.0f);
 
         // Skew sample point distance on a curve so more cluster around the origin
         //float dist = (float)i / (float)mData.kernelSize;

@@ -152,12 +152,13 @@ float ComputeAORay(float3 P, float3 N, float3 Dir, float3 DirTangent, float2 uv)
         //float weight = cosTheta * cosTheta * (1.0 - cosTheta * cosTheta);
         
         //sampleSum += weight * distanceWeight(distSq);
-        sampleSum += 0.5 * cosTheta * cosTheta * distanceWeight(distSq);
+        sampleSum += cosTheta * cosTheta * distanceWeight(distSq);
         weightSum += weight;
     }
     //maxHorizonCosTheta = 1.0;
     //if(SHADER_VARIANT == SHADER_VARIANT_RASTER || useRay == false) return maxHorizonCosTheta * maxHorizonCosTheta * saturate(sampleSum / max(weightSum, 0.000001));
     if(SHADER_VARIANT == SHADER_VARIANT_RASTER || useRay == false) return saturate(sampleSum / max(weightSum, 0.000001));
+    //if(SHADER_VARIANT == SHADER_VARIANT_RASTER || useRay == false) return pow(0.5 * sampleSum / weightSum, 0.5);
 #endif
 
 #if SHADER_VARIANT == SHADER_VARIANT_RAYTRACING || SHADER_VARIANT == SHADER_VARIANT_HYBRID
@@ -213,61 +214,72 @@ uint JenkinsHash(uint a)
 
 float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
-    if (gDepthTex.SampleLevel(gTextureSampler, texC, 0).r >= 1)
+    float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
+    /*if (gDepthTex.SampleLevel(gTextureSampler, texC, 0).r >= 1)
     {
         return 1.0f;
-    }
+    }*/
+    if(linearDepth <= 0.0) return 1.0f;
+
+    //return linearDepth * 0.01;
 
     int zCurveIndex = ZCurveToLinearIndex(uint2(svPos.xy));
 
+    float2 screenUv = texC * 2.0 - 1.0;
+    float3 posV = float3(screenUv * linearDepth / gCamera.data.nearZ , linearDepth);
+    //return float4(posV * 0.01, 1.0);
+
     // Calculate world position of pixel
-    float3 posW = getPosition(texC).xyz;
     float3 normal = normalize(gNormalTex.Sample(gTextureSampler, texC).xyz);
-    posW += 0.01 * normal; // offset starting position slightly along the normal to avoid self intersection
 
     // Calculate tangent space (use random direction for tangent orientation)
-    //float originDist = length(posW - gCamera.data.posW);
     float3 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xyz * 2.0f - 1.0f;
-    //float3 randDir = normalize(float3(1.0, 1.0, 1.0));
+    // TODO rotate xy rangent space
 
-    float3 tangent = normalize(randDir - normal * dot(randDir, normal));
-    float3 bitangent = cross(normal, tangent);
-    float3x3 tbn = float3x3(tangent, bitangent, normal);
+    float3 tangent = float3(1.0f, 0.0f, 0.0f);
+    float3 bitangent = float3(0.0f, 1.0f, 0.0f);
+    float3x3 tbn = float3x3(tangent, bitangent, float3(0.0f, 0.0f, -1.0f));
 
-    float occlusion = 0.0f;
+    //float occlusion = 0.0f;
+    float visibility = 0.0f;
     for (uint i = 0; i < gData.kernelSize; i++)
     //uint i = (zCurveIndex + (frameIndex)) % gData.kernelSize; // JenkinsHash
     {
         // Orient sample
-        float3 kernelPos = mul(gData.sampleKernel[i].xyz, tbn);
-        float3 tangentDir = gData.sampleKernel[i].x * tangent + gData.sampleKernel[i].y * bitangent;
+        float4 rand = gData.sampleKernel[i];
+        float3 initialSamplePosV = posV + tangent * rand.x * gData.radius + bitangent * rand.y * gData.radius;
+        float2 samplePosUV = float2(initialSamplePosV.xy * gCamera.data.nearZ / linearDepth * 0.5 + 0.5);
+        samplePosUV = saturate(samplePosUV);
+        samplePosUV = getSnappedUV(samplePosUV);
 
-        occlusion += ComputeAORay(posW, normal, normalize(kernelPos), normalize(tangentDir), texC); // TODO is normalized?
+        float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, samplePosUV, 0).r;
+        float3 samplePosV = float3((samplePosUV * 2.0 - 1.0) * linearSampleDepth / gCamera.data.nearZ, linearSampleDepth);
+
+        float2 diffXY = (posV.xy - samplePosV.xy) / gData.radius;
+        float sphereHeight = sqrt(1.0 - dot(diffXY, diffXY)) * gData.radius;
+
+        float sampleRange = max(min(linearSampleDepth, linearDepth + sphereHeight) - (linearDepth - sphereHeight), 0);
+        sampleRange /= gData.radius;
+
+        //occlusion += 
+        float samplingPdf = 2.0 * sqrt(1.0 - dot(rand.xy, rand.xy));
+        visibility += sampleRange / samplingPdf;
+
+        //occlusion += ComputeAORay(posW, normal, normalize(kernelPos), normalize(tangentDir), texC); // TODO is normalized?
         //occlusion += ComputeAORay(posW, normal, normal, normalize(tangentDir), texC); // TODO is normalized?
     }
 
-    float AO = occlusion / float(gData.kernelSize);
-    //float AO = occlusion;
-    float AOmultiplicator = 1.0;
-    //#if SHADER_VARIANT == SHADER_VARIANT_RASTER
-    //AOmultiplicator = 1.5;
-    //#elif SHADER_VARIANT == SHADER_VARIANT_HYBRID
-    //AOmultiplicator = 1.5;
-    //#else
-    //AOmultiplicator = 0.9;
-    //#endif
-    //float4 res = pow(saturate(1.0 - AO * AOmultiplicator), 2.0);
-    float4 res = saturate(1.0 - AO);
+    return visibility / float(gData.kernelSize);
 
-    float red = gRaysTraced / float(gData.kernelSize);
+    //float red = gRaysTraced / float(gData.kernelSize);
     //float red = gRaysTraced;
-    float green = 1.0 - red;
+    //float green = 1.0 - red;
 
-    res.r *= red;
-    res.g *= green;
-    res.b = 0.0;
+    //res.r *= red;
+    //res.g *= green;
+    //res.b = 0.0;
     //if(SHADER_VARIANT == SHADER_VARIANT_RASTER) res.yz = 0.0;
     //if(SHADER_VARIANT == SHADER_VARIANT_RAYTRACING) res.xz = 0.0;
     //if(SHADER_VARIANT == SHADER_VARIANT_HYBRID) res.xy = 0.0;
-    return res;
+    //return res;
 }
