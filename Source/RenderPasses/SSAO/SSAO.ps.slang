@@ -212,64 +212,99 @@ uint JenkinsHash(uint a)
     return a;
 }
 
+float2 Rotate2D(float2 vec, float theta)
+{
+    float cosTheta = cos(theta);
+    float sinTheta = sin(theta);
+
+    return float2(
+        vec.x * cosTheta - vec.y * sinTheta,
+        vec.x * sinTheta + vec.y * cosTheta
+    );
+}
+
+float2 Rotate90(float2 vec) // CCW
+{
+    return float2(-vec.y, vec.x);
+}
+
+// uv: uv coordinates [0, 1]
+// viewDepth: linear depth in view space
+// return: view space position
+float3 UVToViewSpace(float2 uv, float viewDepth)
+{
+    float2 screenUv = uv * 2.0 - 1.0; // coordinates on near plane
+    return float3(screenUv * viewDepth / gCamera.data.nearZ, viewDepth);
+}
+
+// posV: view space position
+// return: texture uv [0, 1]
+float2 ViewSpaceToUV(float3 posV)
+{
+    return float2(posV.xy * gCamera.data.nearZ / posV.z * 0.5 + 0.5);
+}
+
 float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
-    /*if (gDepthTex.SampleLevel(gTextureSampler, texC, 0).r >= 1)
-    {
-        return 1.0f;
-    }*/
     if(linearDepth <= 0.0) return 1.0f;
-
-    //return linearDepth * 0.01;
 
     int zCurveIndex = ZCurveToLinearIndex(uint2(svPos.xy));
 
-    float2 screenUv = texC * 2.0 - 1.0;
-    float3 posV = float3(screenUv * linearDepth / gCamera.data.nearZ , linearDepth);
-    //return float4(posV * 0.01, 1.0);
+    float3 posV = UVToViewSpace(texC, linearDepth);
 
     // Calculate world position of pixel
     float3 normal = normalize(gNormalTex.Sample(gTextureSampler, texC).xyz);
 
     // Calculate tangent space (use random direction for tangent orientation)
-    float3 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xyz * 2.0f - 1.0f;
-    // TODO rotate xy rangent space
-
-    float3 tangent = float3(1.0f, 0.0f, 0.0f);
-    float3 bitangent = float3(0.0f, 1.0f, 0.0f);
-    float3x3 tbn = float3x3(tangent, bitangent, float3(0.0f, 0.0f, -1.0f));
+    float2 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xy;
+    //randDir = float2(1.0f, 0.0f);
+    float3 tangent = float3(randDir, 0.0f);
+    float3 bitangent = float3(Rotate90(randDir), 0.0f);
+    //float3x3 tbn = float3x3(tangent, bitangent, float3(0.0f, 0.0f, -1.0f));
 
     //float occlusion = 0.0f;
     float visibility = 0.0f;
     for (uint i = 0; i < gData.kernelSize; i++)
     //uint i = (zCurveIndex + (frameIndex)) % gData.kernelSize; // JenkinsHash
     {
-        // Orient sample
-        float4 rand = gData.sampleKernel[i];
+        // obtain sample position on disc around view space position
+        float4 rand = gData.sampleKernel[i]; // xy = random location on unit sphere, zw = uniform in 0,1
         float3 initialSamplePosV = posV + tangent * rand.x * gData.radius + bitangent * rand.y * gData.radius;
-        float2 samplePosUV = float2(initialSamplePosV.xy * gCamera.data.nearZ / linearDepth * 0.5 + 0.5);
-        samplePosUV = saturate(samplePosUV);
-        samplePosUV = getSnappedUV(samplePosUV);
+        float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
+        // clip sample position uv and snap to pixel center
+        samplePosUV = saturate(samplePosUV); // clip to screen border
+        samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
 
+        // obtain actual view space position of the sample
         float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, samplePosUV, 0).r;
-        float3 samplePosV = float3((samplePosUV * 2.0 - 1.0) * linearSampleDepth / gCamera.data.nearZ, linearSampleDepth);
+        float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
 
-        float2 diffXY = (posV.xy - samplePosV.xy) / gData.radius;
-        float sphereHeight = sqrt(1.0 - dot(diffXY, diffXY)) * gData.radius;
+        // 
+        float2 diffXY = posV.xy - samplePosV.xy;
+        float radiusSq = dot(diffXY, diffXY);
+        if(radiusSq >= gData.radius * gData.radius) // sample is outside of radius
+        {
+            visibility += 1.0;
+            continue;
+        }
+
+        float sphereHeight = sqrt(gData.radius * gData.radius - radiusSq);
 
         float sampleRange = max(min(linearSampleDepth, linearDepth + sphereHeight) - (linearDepth - sphereHeight), 0);
         sampleRange /= gData.radius;
 
-        //occlusion += 
-        float samplingPdf = 2.0 * sqrt(1.0 - dot(rand.xy, rand.xy));
+        float samplingPdf = 2.0 * sphereHeight;
         visibility += sampleRange / samplingPdf;
-
-        //occlusion += ComputeAORay(posW, normal, normalize(kernelPos), normalize(tangentDir), texC); // TODO is normalized?
-        //occlusion += ComputeAORay(posW, normal, normal, normalize(tangentDir), texC); // TODO is normalized?
     }
 
-    return visibility / float(gData.kernelSize);
+    float AO = visibility / float(gData.kernelSize);
+    float4 res = AO;
+    res.x = 0.0;
+    //res.y = 0.0;
+    res.z = 0.0;
+    //AO = saturate(AO * 1.5);
+    return res;
 
     //float red = gRaysTraced / float(gData.kernelSize);
     //float red = gRaysTraced;

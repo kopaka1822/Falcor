@@ -43,9 +43,7 @@ public:
     enum class SampleDistribution : uint32_t
     {
         Random,
-        RandomCosine,
-        UniformHammersley,
-        CosineHammersley
+        Hammersley,
     };
 
     enum class ShaderVariant : uint32_t
@@ -97,7 +95,7 @@ private:
     uint2 mNoiseSize = uint2(4);
 
     Sampler::SharedPtr mpTextureSampler;
-    SampleDistribution mHemisphereDistribution = SampleDistribution::CosineHammersley;
+    SampleDistribution mHemisphereDistribution = SampleDistribution::Hammersley;
     ShaderVariant mShaderVariant = ShaderVariant::Raster;
 
     FullScreenPass::SharedPtr mpSSAOPass;
