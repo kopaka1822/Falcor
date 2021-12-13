@@ -139,7 +139,7 @@ GBufferPSOut psMain(VSOut vsOut, uint triangleIndex : SV_PrimitiveID, float3 bar
     // Linear z and its derivative
     if (is_valid(gLinearZAndDeriv))
     {
-        const float linearZ = vsOut.posH.z * vsOut.posH.w;
+        const float linearZ = vsOut.posH.w;
         gLinearZAndDeriv[ipos] = float2(linearZ, max(abs(ddx(linearZ)), abs(ddy(linearZ))));
     }
 
