@@ -183,12 +183,6 @@ float ComputeAORay(float3 P, float3 N, float3 Dir, float3 DirTangent, float2 uv)
     return occlusion;
 }
 
-// helper math for zcurve
-uint ZCurveToLinearIndex(uint2 xy)
-{
-    return IntegerExplode(xy[0]) | (IntegerExplode(xy[1]) << 1);
-}
-
 // "Explodes" an integer, i.e. inserts a 0 between each bit. 
 //      For example, 0b11111111 -> 0b1010101010101010
 uint IntegerExplode(uint x)
@@ -198,6 +192,12 @@ uint IntegerExplode(uint x)
     x = (x | (x << 2)) & 0x33333333;
     x = (x | (x << 1)) & 0x55555555;
     return x;
+}
+
+// helper math for zcurve
+uint ZCurveToLinearIndex(uint2 xy)
+{
+    return IntegerExplode(xy[0]) | (IntegerExplode(xy[1]) << 1);
 }
 
 uint JenkinsHash(uint a)
@@ -294,9 +294,19 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         float samplingPdf = 2.0 * sphereHeight;
         visibility += sampleRange / samplingPdf;
+
+        // get rid of shadowing around edges
+        // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
+        // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
+        visibility += saturate((linearDepth - sphereHeight - linearSampleDepth) / (gData.radius * 8.0));
     }
 
     float AO = visibility / float(gData.kernelSize);
+    // since fully visibile are all values in [0.5, 1.0], scale accordingly
+    AO = saturate(AO * 2.0);
+    // do artistic modifications
+    AO = pow(AO, 2.0);
+
     float4 res = AO;
     res.x = 0.0;
     //res.y = 0.0;
