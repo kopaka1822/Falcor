@@ -285,21 +285,12 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         // obtain actual view space position of the sample
         float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, samplePosUV, 0).r;
-        float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
+        //float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
 
-        // 
-        float2 diffXY = posV.xy - samplePosV.xy;
-        float radiusSq = dot(diffXY, diffXY);
-        if(radiusSq >= gData.radius * gData.radius) // sample is outside of radius
-        {
-            visibility += 1.0;
-            continue;
-        }
-
-        float sphereHeight = sqrt(gData.radius * gData.radius - radiusSq);
+        // height of the sphere at the requested sample position (not the actual sampling position)
+        float sphereHeight = sqrt(1.0 - dot(rand.xy, rand.xy)) * gData.radius;
 
         float sampleRange = max(min(linearSampleDepth, linearDepth + sphereHeight) - (linearDepth - sphereHeight), 0);
-        sampleRange /= gData.radius;
 
         float samplingPdf = 2.0 * sphereHeight;
         visibility += sampleRange / samplingPdf;
