@@ -229,19 +229,22 @@ float2 Rotate90(float2 vec) // CCW
 }
 
 // uv: uv coordinates [0, 1]
-// viewDepth: linear depth in view space
-// return: view space position
+// viewDepth: linear depth in view space (positive z)
+// return: view space position (negative z)
 float3 UVToViewSpace(float2 uv, float viewDepth)
 {
-    float2 screenUv = uv * 2.0 - 1.0; // coordinates on near plane
-    return float3(screenUv * viewDepth / gCamera.data.nearZ, viewDepth);
+    float2 ndc = float2(uv.x, 1.0 - uv.y) * 2.0 - 1.0; // normalized device coordinates [-1, 1]
+    const float2 imageScale = 0.5 * float2(gCamera.data.frameWidth / gCamera.data.focalLength, gCamera.data.frameHeight / gCamera.data.focalLength);
+    return float3(ndc * viewDepth * imageScale, -viewDepth);
 }
 
-// posV: view space position
+// posV: view space position (negative z)
 // return: texture uv [0, 1]
 float2 ViewSpaceToUV(float3 posV)
 {
-    return float2(posV.xy * gCamera.data.nearZ / posV.z * 0.5 + 0.5);
+    const float2 imageScale = 0.5 * float2(gCamera.data.frameWidth / gCamera.data.focalLength, gCamera.data.frameHeight / gCamera.data.focalLength);
+    float2 ndc = posV.xy / (imageScale * posV.z);
+    return ndc * float2(-0.5, 0.5) + 0.5; // since posV.z is negative, the sign order is inversed
 }
 
 float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
@@ -251,10 +254,14 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
     int zCurveIndex = ZCurveToLinearIndex(uint2(svPos.xy));
 
+    // view space position of current pixel
     float3 posV = UVToViewSpace(texC, linearDepth);
+    //float4 posW = gPositionTex.SampleLevel(gTextureSampler, texC, 0).xyzw;
+    //float3 posV2 = mul(posW, gCamera.data.viewMat).xyz;
 
-    // Calculate world position of pixel
-    float3 normal = normalize(gNormalTex.Sample(gTextureSampler, texC).xyz);
+    // view space normal of current pixel
+    float3 normalW = normalize(gNormalTex.Sample(gTextureSampler, texC).xyz);
+    float3 normalV = mul(normalW, float3x3(gCamera.data.viewMat));
 
     // Calculate tangent space (use random direction for tangent orientation)
     float2 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xy;

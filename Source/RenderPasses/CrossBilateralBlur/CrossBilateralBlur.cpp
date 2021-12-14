@@ -79,10 +79,9 @@ CrossBilateralBlur::CrossBilateralBlur()
 
 RenderPassReflection CrossBilateralBlur::reflect(const CompileData& compileData)
 {
-    mReady = false;
-
     // Define the required resources here
     RenderPassReflection reflector;
+    mReady = false;
 
     auto& colorField = reflector.addInputOutput(kColor, "color image to be blurred").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget);
     auto& depthField = reflector.addInput(kDepth, "linear depth").bindFlags(ResourceBindFlags::ShaderResource);
@@ -127,8 +126,7 @@ void CrossBilateralBlur::compile(RenderContext* pContext, const CompileData& com
 
 void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if(!mEnabled) return;
-    assert(mReady);
+    if(!mEnabled || !mReady) return;
 
     auto pColor = renderData[kColor]->asTexture();
     auto pPingPong = renderData[kPingPong]->asTexture();

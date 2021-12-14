@@ -78,7 +78,9 @@ public:
 
 private:
     SSAO();
-    Texture::SharedPtr generateAOMap(RenderContext* pContext, const Camera* pCamera, const Texture::SharedPtr& pDepthTexture, const Texture::SharedPtr& pNormalTexture);
+    Texture::SharedPtr generateAOMap(RenderContext* pContext, const Camera* pCamera,
+    const Texture::SharedPtr& pDepthTexture,
+    const Texture::SharedPtr& pNormalTexture);
     void setNoiseTexture();
     void setKernel();
 

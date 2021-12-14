@@ -90,7 +90,8 @@ namespace
 
     const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
 
-    const auto AMBIENT_MAP_FORMAT = ResourceFormat::RGBA8Unorm;
+    //const auto AMBIENT_MAP_FORMAT = ResourceFormat::RGBA8Unorm;
+    const auto AMBIENT_MAP_FORMAT = ResourceFormat::RGBA32Float; // debugging
 }
 
 SSAO::SSAO()
@@ -139,7 +140,6 @@ RenderPassReflection SSAO::reflect(const CompileData& compileData)
     reflector.addInput(kDepth, "Depth-buffer");
     reflector.addInput(kNormals, "World space normals, [0, 1] range").flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(AMBIENT_MAP_FORMAT);
-
     
     return reflector;
 }
@@ -160,10 +160,13 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     //pRenderContext->getLowLevelData()->getCommandList()->ResourceBarrier()
     //pRenderContext->resourceBarrier(, Resource::State::)
 
+
     auto pDepth = renderData[kDepth]->asTexture();
     auto pNormals = renderData[kNormals]->asTexture();
     auto pAoDst = renderData[kAmbientMap]->asTexture();
+
     //renderData["k"]->asBuffer();
+
 
     if(mEnabled)
     {
@@ -184,7 +187,8 @@ void SSAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScen
     mDirty = true;
 }
 
-Texture::SharedPtr SSAO::generateAOMap(RenderContext* pContext, const Camera* pCamera, const Texture::SharedPtr& pDepthTexture, const Texture::SharedPtr& pNormalTexture)
+Texture::SharedPtr SSAO::generateAOMap(RenderContext* pContext, const Camera* pCamera, const Texture::SharedPtr& pDepthTexture,
+const Texture::SharedPtr& pNormalTexture)
 {
     if(!mpAOFbo)
     {
