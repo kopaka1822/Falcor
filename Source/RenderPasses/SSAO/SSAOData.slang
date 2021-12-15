@@ -37,7 +37,7 @@ struct SSAOData
     float4 sampleKernel[kMaxSamples];
     float2 noiseScale = float2(1, 1);
     uint32_t kernelSize = 16;
-    float radius = 1.0f;
+    float radius = 0.5f;
     float invRadiusSquared = 0.25f;
 };
 

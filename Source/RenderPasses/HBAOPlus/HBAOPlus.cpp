@@ -89,7 +89,7 @@ HBAOPlus::HBAOPlus()
     
     pDevice->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&mSSAODescriptorHeapRTV));
 
-    mparams.Radius = 1.0f;
+    mparams.Radius = 0.5f;
     mparams.Bias = 0.1f;
     mparams.PowerExponent = 2.0f;
     mparams.Blur.Enable = true;
@@ -280,7 +280,8 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
 
 void HBAOPlus::renderUI(Gui::Widgets& widget)
 {
-    widget.slider("Radius", mparams.Radius, 1.0f, 32.0f);
+    //widget.slider("Radius", mparams.Radius, 1.0f, 32.0f);
+    widget.var("Radius", mparams.Radius, 0.001f, FLT_MAX, 0.1f);
     widget.slider("Bias", mparams.Bias, 0.0f, 0.5f);
     widget.slider("Small Scale Factor", mparams.SmallScaleAO, 0.0f, 2.0f);
     widget.slider("Large Scale Factor", mparams.LargeScaleAO, 0.0f, 2.0f);

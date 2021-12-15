@@ -255,7 +255,7 @@ void SSAO::renderUI(Gui::Widgets& widget)
     if (widget.var("Kernel Size", size, 1u, SSAOData::kMaxSamples)) setKernelSize(size);
 
     float radius = mData.radius;
-    if (widget.var("Sample Radius", radius, 0.001f, FLT_MAX, 0.001f)) setSampleRadius(radius);
+    if (widget.var("Sample Radius", radius, 0.001f, FLT_MAX, 0.1f)) setSampleRadius(radius);
 
     widget.text("noise size"); widget.text(std::to_string(mNoiseSize.x), true);
 }
