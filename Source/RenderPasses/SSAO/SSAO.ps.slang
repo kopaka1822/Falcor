@@ -40,6 +40,15 @@ import Scene.RaytracingInline;
 #error please define shader variant to either raster, raytracing or hybrid
 #endif
 
+#define TANGENT_SPACE_VIEW_SPACE 0
+#define TANGENT_SPACE_CAMERA_ORIENTED 1
+
+#define TANGENT_SPACE TANGENT_SPACE_VIEW_SPACE
+
+#ifndef TANGENT_SPACE
+#error please define tangent space
+#endif
+
 #define NUM_STEPS 4
 
 cbuffer StaticCB
@@ -255,7 +264,8 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     int zCurveIndex = ZCurveToLinearIndex(uint2(svPos.xy));
 
     // view space position of current pixel
-    float3 posV = UVToViewSpace(texC, linearDepth);
+    const float3 posV = UVToViewSpace(texC, linearDepth);
+    const float posVLength = length(posV);
     //float4 posW = gPositionTex.SampleLevel(gTextureSampler, texC, 0).xyzw;
     //float3 posV2 = mul(posW, gCamera.data.viewMat).xyz;
 
@@ -266,8 +276,25 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     // Calculate tangent space (use random direction for tangent orientation)
     float2 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xy;
     //randDir = float2(1.0f, 0.0f);
-    float3 tangent = float3(randDir, 0.0f);
-    float3 bitangent = float3(Rotate90(randDir), 0.0f);
+    
+    // determine tangent space
+    float3 normal;
+    float3 tangent;
+    float3 bitangent;
+    if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
+    {
+        normal = float3(0.0, 0.0, 1.0);
+        tangent = float3(randDir, 0.0f);
+        bitangent = float3(Rotate90(randDir), 0.0f);
+    }
+    else // TANGENT_SPACE_CAMERA_ORIENTED
+    {
+        // consistent with notation above when normal = (0, 0, 1)
+        normal = -posV / posVLength;
+        bitangent = normalize(cross(normal, float3(randDir, 0.0f)));
+        tangent = cross(bitangent, normal);
+    }
+
     //float3x3 tbn = float3x3(tangent, bitangent, float3(0.0f, 0.0f, -1.0f));
 
     //float occlusion = 0.0f;
@@ -285,12 +312,19 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         // obtain actual view space position of the sample
         float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, samplePosUV, 0).r;
-        //float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
+        float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
 
         // height of the sphere at the requested sample position (not the actual sampling position)
         float sphereHeight = sqrt(1.0 - dot(rand.xy, rand.xy)) * gData.radius;
 
-        float sampleRange = max(min(linearSampleDepth, linearDepth + sphereHeight) - (linearDepth - sphereHeight), 0);
+        float objectSpaceZ; // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+        if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
+            objectSpaceZ = linearDepth - linearSampleDepth;
+        else // TANGENT_SPACE_CAMERA_ORIENTED
+            objectSpaceZ = dot(samplePosV - posV, normal);
+
+        // determine distance within [-sphereHeight, +sphereHeight]
+        float sampleRange = max(sphereHeight - max(-sphereHeight, objectSpaceZ), 0.0);
 
         float samplingPdf = 2.0 * sphereHeight;
         visibility += sampleRange / samplingPdf;
@@ -298,7 +332,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         // get rid of shadowing around edges
         // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
         // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
-        visibility += saturate((linearDepth - sphereHeight - linearSampleDepth) / (gData.radius * 8.0));
+        visibility += saturate((objectSpaceZ - sphereHeight) / (gData.radius * 8.0));
     }
 
     float AO = visibility / float(gData.kernelSize);
@@ -321,8 +355,5 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     //res.r *= red;
     //res.g *= green;
     //res.b = 0.0;
-    //if(SHADER_VARIANT == SHADER_VARIANT_RASTER) res.yz = 0.0;
-    //if(SHADER_VARIANT == SHADER_VARIANT_RAYTRACING) res.xz = 0.0;
-    //if(SHADER_VARIANT == SHADER_VARIANT_HYBRID) res.xy = 0.0;
     //return res;
 }
