@@ -44,7 +44,7 @@ import Scene.RaytracingInline;
 #define TANGENT_SPACE_CAMERA_ORIENTED 1
 
 #define TANGENT_SPACE TANGENT_SPACE_CAMERA_ORIENTED
-#define HEMISPHERE_SAMPLING false
+#define HEMISPHERE_SAMPLING true
 
 #ifndef TANGENT_SPACE
 #error please define tangent space
@@ -273,10 +273,10 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     // view space normal of current pixel
     float3 normalW = normalize(gNormalTex.Sample(gTextureSampler, texC).xyz);
     float3 normalV = mul(normalW, float3x3(gCamera.data.viewMat));
-
+    
     // Calculate tangent space (use random direction for tangent orientation)
     float2 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xy;
-    //randDir = float2(1.0f, 0.0f);
+    randDir = float2(1.0f, 0.0f);
     
     // determine tangent space
     float3 normal;
@@ -295,6 +295,9 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         bitangent = normalize(cross(normal, float3(randDir, 0.0f)));
         tangent = cross(bitangent, normal);
     }
+
+    // transfer view space normal to normal in object coordinates of the sampling sphere
+    float3 normalO = float3(dot(normalV, tangent), dot(normalV, bitangent), dot(normalV, normal));
 
     // precompute factor for intersection with hemisphere plane
     const float surfaceNormalZInTangentSpace = dot(normalV, normal);
@@ -333,18 +336,29 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         if (HEMISPHERE_SAMPLING) // determine correct sphereStart and sphereEnd for hemisphere
         {
-            float NdotS = dot(normalV, samplePosV - posV);
-            float hemiPlaneIntersection = hemisphereIntersectionFactor * length(rand.xy) * gData.radius;
+            float t = -dot(rand.xy, normalO.xy) * gData.radius / normalO.z;
+            //return t;
+            
+            //float NdotS = dot(normalV, initialSamplePosV - posV);
+            //float NdotS = dot(normalV, tangent * rand.x + bitangent * rand.y);
+            //return NdotS;
+            //float signNdotS = NdotS < 0.0 ? -1.0 : 0.0;
+            //float signNdotS = sign(NdotS);
+            //float hemiPlaneIntersection = hemisphereIntersectionFactor * length(rand.xy) * gData.radius;
+
+            sphereEnd = clamp(t, -sphereHeight, sphereHeight);
             //return hemiPlaneIntersection;
-            if (surfaceNormalZInTangentSpace >= 0.0)
-                sphereEnd = clamp(-sign(NdotS) * hemiPlaneIntersection, -sphereHeight, sphereHeight);
-            else
-                sphereStart = clamp(sign(NdotS) * hemiPlaneIntersection, -sphereHeight, sphereHeight);
+            //if (surfaceNormalZInTangentSpace >= 0.0)
+            //    sphereEnd = clamp(signNdotS * hemiPlaneIntersection, -sphereHeight, sphereHeight);
+            //else
+            //    sphereStart = clamp(signNdotS * hemiPlaneIntersection, -sphereHeight, sphereHeight);
         }
         float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
-        float maxSampleRange = sphereStart - sphereEnd;
-        
-        visibility += sampleRange / maxSampleRange;
+        //float maxSampleRange = sphereStart - sphereEnd;
+        float maxSampleRange = 2.0 * sphereHeight;
+
+        if(maxSampleRange > 0.0)
+            visibility += sampleRange / maxSampleRange;
 
         // get rid of shadowing around edges
         // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
@@ -354,7 +368,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
     float AO = visibility / float(gData.kernelSize);
     // since fully visibile are all values in [0.5, 1.0], scale accordingly
-    //AO = saturate(AO * 2.0);
+    AO = saturate(AO * 2.0);
     // do artistic modifications
     //AO = pow(AO, 2.0);
 
