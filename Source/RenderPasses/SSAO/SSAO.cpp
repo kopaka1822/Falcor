@@ -225,6 +225,7 @@ const Texture::SharedPtr& pNormalTexture)
    
     pCamera->setShaderData(mpSSAOPass["PerFrameCB"]["gCamera"]);
     mpSSAOPass["PerFrameCB"]["frameIndex"] = mFrameIndex++;
+    mpSSAOPass["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
 
     // Update state/vars
     mpSSAOPass["gNoiseSampler"] = mpNoiseSampler;

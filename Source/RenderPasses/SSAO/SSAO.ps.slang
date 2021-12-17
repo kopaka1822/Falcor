@@ -59,6 +59,7 @@ cbuffer StaticCB
 
 cbuffer PerFrameCB
 {
+    float4x4 invViewMat;
     Camera gCamera;
     uint frameIndex;
 }
@@ -360,33 +361,70 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         // calculate view position of sample and project to uv coordinates
         float3 initialSamplePosV = posV + tangent * rand.x + bitangent * rand.y;
-        float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
-        // clip sample position uv and snap to pixel center
-        samplePosUV = getScreenClampedUV(texC, samplePosUV); // clip to screen border
-        samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
 
-        // obtain actual view space position of the sample
-        float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, samplePosUV, 0).r;
-        float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
+        if (SHADER_VARIANT == SHADER_VARIANT_RASTER || SHADER_VARIANT == SHADER_VARIANT_HYBRID)
+        {
+            float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
+            // clip sample position uv and snap to pixel center
+            samplePosUV = getScreenClampedUV(texC, samplePosUV); // clip to screen border
+            samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
 
-        float objectSpaceZ; // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
-        if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
-            objectSpaceZ = linearDepth - linearSampleDepth;
-        else // TANGENT_SPACE_CAMERA_ORIENTED
-            objectSpaceZ = dot(samplePosV - posV, normal);
+            // obtain actual view space position of the sample
+            float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, samplePosUV, 0).r;
+            float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
+
+            float objectSpaceZ; // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+            if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
+                objectSpaceZ = linearDepth - linearSampleDepth;
+            else // TANGENT_SPACE_CAMERA_ORIENTED
+                objectSpaceZ = dot(samplePosV - posV, normal);
         
-        float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
-        //float maxSampleRange = sphereStart - sphereEnd; // this does not work well
-        float maxSampleRange = 2.0 * sphereHeight;
-        //if(maxSampleRange > 0.0)
-        visibility += sampleRange / maxSampleRange;
+            float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
+            //float maxSampleRange = sphereStart - sphereEnd; // this does not work well
+            float maxSampleRange = 2.0 * sphereHeight;
+            //if(maxSampleRange > 0.0)
+            visibility += sampleRange / maxSampleRange;
 
-        // get rid of shadowing around edges
-        // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
-        // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
-        visibility += saturate((objectSpaceZ - sphereHeight) / (gData.radius * 8.0))
-        * (sphereStart - sphereEnd) / maxSampleRange // this adjust the visibility to the sampling (hemi-)sphere
-        ;
+            // get rid of shadowing around edges
+            // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
+            // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
+            //visibility += saturate((objectSpaceZ - sphereHeight) / (gData.radius * 8.0))
+            //* (sphereStart - sphereEnd) / maxSampleRange // this adjust the visibility to the sampling (hemi-)sphere
+            //;
+        }
+        if (SHADER_VARIANT == SHADER_VARIANT_RAYTRACING)
+        {
+            // shoot a ray through the sample position
+            RayDesc ray;
+            ray.Origin = gCamera.data.posW; // offset a little bit in normal direction
+            float3 unnormalizedWorldDir = mul(initialSamplePosV, float3x3(invViewMat)); // transform to world space
+            float worldDirLength = length(unnormalizedWorldDir);
+            // todo normalize direction only in tangent space z (longer than 1)
+            ray.Direction = unnormalizedWorldDir / worldDirLength; 
+            //ray.TMin = worldDirLength - sphereStart * worldDirLength / posVLength;
+            ray.TMin = 0.0;
+            ray.TMax = worldDirLength - sphereEnd * worldDirLength / posVLength;
+
+            SceneRayQuery<1> sceneRayQuery; // 1 = Use Alpha Test
+            HitInfo hit;
+            float hitT;
+            gRaysTraced += 1;
+            //if (!sceneRayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
+            //return 0.0; // no occlusion (nothing hit)
+            float objectSpaceZ = sphereEnd; // assume nothing hit
+            if (sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff)) // TODO value of hitT
+            {
+                float projectedHitT = hitT * posVLength / worldDirLength;
+                objectSpaceZ = posVLength - projectedHitT;
+            }
+
+            float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
+            //float maxSampleRange = sphereStart - sphereEnd; // this does not work well
+            float maxSampleRange = 2.0 * sphereHeight;
+            //if(maxSampleRange > 0.0)
+            visibility += sampleRange / maxSampleRange;
+        }
+
     }
 
     float AO = visibility / float(gData.kernelSize);
@@ -396,18 +434,12 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     //AO = pow(AO, 2.0);
 
     float4 res = AO;
-    res.x = 0.0;
-    //res.y = 0.0;
-    res.z = 0.0;
-    //AO = saturate(AO * 1.5);
-    return res;
-
-    //float red = gRaysTraced / float(gData.kernelSize);
+    float red = gRaysTraced / float(gData.kernelSize);
     //float red = gRaysTraced;
-    //float green = 1.0 - red;
+    float green = 1.0 - red;
 
-    //res.r *= red;
-    //res.g *= green;
-    //res.b = 0.0;
-    //return res;
+    res.r *= red;
+    res.g *= green;
+    res.b = 0.0;
+    return res;
 }
