@@ -79,6 +79,39 @@ float distanceWeight(float dsquared)
     //return 1.0f;
 }
 
+// clamps uvend to screen space [0, 1]
+// uvstart: uv coordinate that is in screen space
+// uvend: target uv coordinate that might be outside of the screen space
+// return: linear combination t*uvstart + (1-t)*uvend, that is as close to uvend as possible and is in the range of [0, 1]
+float2 getScreenClampedUV(float2 uvstart, float2 uvend)
+{
+    return saturate(uvend); // this actually does not make much of a difference but costs a little bit more...
+    float2 satuv = saturate(uvend);
+    if (all(satuv == uvend))
+        return uvend;
+
+    // clip x
+    float dist = abs(uvend.x - uvstart.x);
+    if(dist > 0.0)
+    {
+        float t = abs(uvend.x - satuv.x) / dist;
+        uvend.x = satuv.x;
+        uvend.y = t * uvstart.y + (1.0 - t) * uvend.y;
+    }
+
+    // clip y
+    satuv = saturate(uvend);
+    dist = abs(uvend.y - uvstart.y);
+    if(dist > 0.0)
+    {
+        float t = abs(uvend.y - satuv.y) / dist;
+        uvend.y = satuv.y;
+        uvend.x = t * uvstart.x + (1.0 - t) * uvend.x;
+    }
+    
+    return uvend;
+}
+
 float2 getSnappedUV(float2 uv)
 {
     float width, height;
@@ -302,38 +335,45 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     {
         // obtain sample position on disc around view space position
         float4 rand = gData.sampleKernel[i]; // xy = random location on unit sphere, zw = uniform in 0,1
-        float3 initialSamplePosV = posV + tangent * rand.x * gData.radius + bitangent * rand.y * gData.radius;
-        float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
-        // clip sample position uv and snap to pixel center
-        samplePosUV = saturate(samplePosUV); // clip to screen border
-        samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
-
-        // obtain actual view space position of the sample
-        float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, samplePosUV, 0).r;
-        float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
-
+        rand.xy *= gData.radius; // multiply normalized 2D position with sample radius
+        
         // height of the sphere at the requested sample position (not the actual sampling position)
-        float sphereHeight = sqrt(1.0 - dot(rand.xy, rand.xy)) * gData.radius;
-
-        float objectSpaceZ; // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
-        if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
-            objectSpaceZ = linearDepth - linearSampleDepth;
-        else // TANGENT_SPACE_CAMERA_ORIENTED
-            objectSpaceZ = dot(samplePosV - posV, normal);
-
+        float sphereHeight = sqrt(gData.radius * gData.radius - dot(rand.xy, rand.xy));
+        
         // determine distance within [-sphereHeight, +sphereHeight]
         float sphereStart = sphereHeight; // in object coordinates (bigger is closer to the camera)
         float sphereEnd = -sphereHeight; // in object coordinates (smaller is futher from the camera)
 
         if (HEMISPHERE_SAMPLING) // determine correct sphereStart and sphereEnd for hemisphere
         {
-            float t = -dot(rand.xy, normalO.xy) * gData.radius / normalO.z;
-            float tclamped = clamp(t, -sphereHeight, sphereHeight);
+            float zIntersect = -dot(rand.xy, normalO.xy) / normalO.z;
+            float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
             if (normalO.z >= 0.0)
-                sphereEnd = tclamped;
+                sphereEnd = zIntersectClamped;
             else
-                sphereStart = tclamped;
+                sphereStart = zIntersectClamped;
         }
+
+        // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
+        if (sphereStart - sphereEnd < 0.01)
+            continue;
+
+        // calculate view position of sample and project to uv coordinates
+        float3 initialSamplePosV = posV + tangent * rand.x + bitangent * rand.y;
+        float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
+        // clip sample position uv and snap to pixel center
+        samplePosUV = getScreenClampedUV(texC, samplePosUV); // clip to screen border
+        samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
+
+        // obtain actual view space position of the sample
+        float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, samplePosUV, 0).r;
+        float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
+
+        float objectSpaceZ; // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+        if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
+            objectSpaceZ = linearDepth - linearSampleDepth;
+        else // TANGENT_SPACE_CAMERA_ORIENTED
+            objectSpaceZ = dot(samplePosV - posV, normal);
         
         float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
         //float maxSampleRange = sphereStart - sphereEnd; // this does not work well
@@ -344,7 +384,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         // get rid of shadowing around edges
         // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
         // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
-        visibility += clamp((objectSpaceZ - sphereHeight) / (gData.radius * 8.0), 0.0, 1.0)
+        visibility += saturate((objectSpaceZ - sphereHeight) / (gData.radius * 8.0))
         * (sphereStart - sphereEnd) / maxSampleRange // this adjust the visibility to the sampling (hemi-)sphere
         ;
     }
