@@ -366,10 +366,10 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         // calculate view position of sample and project to uv coordinates
         float3 initialSamplePosV = posV + tangent * rand.x + bitangent * rand.y;
-
+        float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
+        
         if (SHADER_VARIANT == SHADER_VARIANT_RASTER || SHADER_VARIANT == SHADER_VARIANT_HYBRID)
         {
-            float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
             // clip sample position uv and snap to pixel center
             samplePosUV = getScreenClampedUV(texC, samplePosUV); // clip to screen border
             samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
@@ -402,16 +402,20 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         }
         if (SHADER_VARIANT == SHADER_VARIANT_RAYTRACING)
         {
+            // to be consistent with the rasterizer, we snap the uv coordinate as well to the pixel center,
+            // but we do not clip it since we can shoot outside of the screen space
+            samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
+            float3 sampleDirV = normalize(UVToViewSpace(samplePosUV, linearDepth)); // get sample direction in view space
+            
             // shoot a ray through the sample position
             RayDesc ray;
             ray.Origin = gCamera.data.posW; // offset a little bit in normal direction
-            float3 unnormalizedWorldDir = mul(initialSamplePosV, float3x3(invViewMat)); // transform to world space
-            float worldDirLength = length(unnormalizedWorldDir);
+            ray.Direction = mul(sampleDirV, float3x3(invViewMat));
+            float initialSamplePosLength = length(initialSamplePosV);
             // todo normalize direction only in tangent space z (longer than 1)
-            ray.Direction = unnormalizedWorldDir / worldDirLength; 
             //ray.TMin = worldDirLength - sphereStart * worldDirLength / posVLength;
             ray.TMin = 0.0;
-            ray.TMax = worldDirLength - sphereEnd * worldDirLength / posVLength;
+            ray.TMax = initialSamplePosLength - sphereEnd * initialSamplePosLength / posVLength;
 
             SceneRayQuery<1> sceneRayQuery; // 1 = Use Alpha Test
             HitInfo hit;
@@ -422,7 +426,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float objectSpaceZ = sphereEnd; // assume nothing hit
             if (sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff)) // TODO value of hitT
             {
-                float projectedHitT = hitT * posVLength / worldDirLength;
+                float projectedHitT = hitT * posVLength / initialSamplePosLength;
                 objectSpaceZ = posVLength - projectedHitT;
             }
 
