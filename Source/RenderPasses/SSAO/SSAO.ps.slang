@@ -262,21 +262,17 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
     if(linearDepth <= 0.0) return 1.0f;
 
-    int zCurveIndex = ZCurveToLinearIndex(uint2(svPos.xy));
-
     // view space position of current pixel
     const float3 posV = UVToViewSpace(texC, linearDepth);
     const float posVLength = length(posV);
-    //float4 posW = gPositionTex.SampleLevel(gTextureSampler, texC, 0).xyzw;
-    //float3 posV2 = mul(posW, gCamera.data.viewMat).xyz;
 
     // view space normal of current pixel
-    float3 normalW = normalize(gNormalTex.Sample(gTextureSampler, texC).xyz);
+    float3 normalW = gNormalTex.Sample(gTextureSampler, texC).xyz;
     float3 normalV = mul(normalW, float3x3(gCamera.data.viewMat));
     
     // Calculate tangent space (use random direction for tangent orientation)
     float2 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xy;
-    randDir = float2(1.0f, 0.0f);
+    //randDir = float2(1.0f, 0.0f);
     
     // determine tangent space
     float3 normal;
@@ -298,16 +294,11 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
     // transfer view space normal to normal in object coordinates of the sampling sphere
     float3 normalO = float3(dot(normalV, tangent), dot(normalV, bitangent), dot(normalV, normal));
-
-    // precompute factor for intersection with hemisphere plane
-    const float surfaceNormalZInTangentSpace = dot(normalV, normal);
-    //const float hemisphereIntersectionFactor = sqrt(1.0 - surfaceNormalZInTangentSpace * surfaceNormalZInTangentSpace) / max(abs(surfaceNormalZInTangentSpace), 0.0001);
-    //const float hemisphereIntersectionFactor = sqrt(1.0 - surfaceNormalZInTangentSpace * surfaceNormalZInTangentSpace) / abs(surfaceNormalZInTangentSpace);
-    const float hemisphereIntersectionFactor = tan(acos(surfaceNormalZInTangentSpace));
     
     float visibility = 0.0f;
-    for (uint i = 0; i < gData.kernelSize; i++)
+    //uint zCurveIndex = ZCurveToLinearIndex(uint2(svPos.xy));
     //uint i = (zCurveIndex + (frameIndex)) % gData.kernelSize; // JenkinsHash
+    for (uint i = 0; i < gData.kernelSize; i++)
     {
         // obtain sample position on disc around view space position
         float4 rand = gData.sampleKernel[i]; // xy = random location on unit sphere, zw = uniform in 0,1
@@ -337,33 +328,25 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         if (HEMISPHERE_SAMPLING) // determine correct sphereStart and sphereEnd for hemisphere
         {
             float t = -dot(rand.xy, normalO.xy) * gData.radius / normalO.z;
-            //return t;
-            
-            //float NdotS = dot(normalV, initialSamplePosV - posV);
-            //float NdotS = dot(normalV, tangent * rand.x + bitangent * rand.y);
-            //return NdotS;
-            //float signNdotS = NdotS < 0.0 ? -1.0 : 0.0;
-            //float signNdotS = sign(NdotS);
-            //float hemiPlaneIntersection = hemisphereIntersectionFactor * length(rand.xy) * gData.radius;
-
-            sphereEnd = clamp(t, -sphereHeight, sphereHeight);
-            //return hemiPlaneIntersection;
-            //if (surfaceNormalZInTangentSpace >= 0.0)
-            //    sphereEnd = clamp(signNdotS * hemiPlaneIntersection, -sphereHeight, sphereHeight);
-            //else
-            //    sphereStart = clamp(signNdotS * hemiPlaneIntersection, -sphereHeight, sphereHeight);
+            float tclamped = clamp(t, -sphereHeight, sphereHeight);
+            if (normalO.z >= 0.0)
+                sphereEnd = tclamped;
+            else
+                sphereStart = tclamped;
         }
+        
         float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
-        //float maxSampleRange = sphereStart - sphereEnd;
+        //float maxSampleRange = sphereStart - sphereEnd; // this does not work well
         float maxSampleRange = 2.0 * sphereHeight;
-
-        if(maxSampleRange > 0.0)
-            visibility += sampleRange / maxSampleRange;
+        //if(maxSampleRange > 0.0)
+        visibility += sampleRange / maxSampleRange;
 
         // get rid of shadowing around edges
         // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
         // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
-        visibility += saturate((objectSpaceZ - sphereHeight) / (gData.radius * 8.0));
+        visibility += clamp((objectSpaceZ - sphereHeight) / (gData.radius * 8.0), 0.0, 1.0)
+        * (sphereStart - sphereEnd) / maxSampleRange // this adjust the visibility to the sampling (hemi-)sphere
+        ;
     }
 
     float AO = visibility / float(gData.kernelSize);
