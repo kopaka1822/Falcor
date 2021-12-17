@@ -45,6 +45,7 @@ import Scene.RaytracingInline;
 
 #define TANGENT_SPACE TANGENT_SPACE_CAMERA_ORIENTED
 #define HEMISPHERE_SAMPLING true
+#define PREVENT_DARK_HALOS false
 
 #ifndef TANGENT_SPACE
 #error please define tangent space
@@ -72,6 +73,7 @@ Texture2D gNormalTex;
 Texture2D gNoiseTex;
 
 static int gRaysTraced = 0;
+static int gInvalid = 0;
 
 float distanceWeight(float dsquared)
 {
@@ -357,7 +359,10 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
         if (sphereStart - sphereEnd < 0.01)
+        {
+            gInvalid += 1;
             continue;
+        }
 
         // calculate view position of sample and project to uv coordinates
         float3 initialSamplePosV = posV + tangent * rand.x + bitangent * rand.y;
@@ -385,12 +390,15 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             //if(maxSampleRange > 0.0)
             visibility += sampleRange / maxSampleRange;
 
-            // get rid of shadowing around edges
-            // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
-            // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
-            //visibility += saturate((objectSpaceZ - sphereHeight) / (gData.radius * 8.0))
-            //* (sphereStart - sphereEnd) / maxSampleRange // this adjust the visibility to the sampling (hemi-)sphere
-            //;
+            if (PREVENT_DARK_HALOS)
+            {
+                // get rid of shadowing around edges
+                // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
+                // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
+                visibility += saturate((objectSpaceZ - sphereHeight) / (gData.radius * 8.0))
+                * (sphereStart - sphereEnd) / maxSampleRange // this adjust the visibility to the sampling (hemi-)sphere
+                ;   
+            }
         }
         if (SHADER_VARIANT == SHADER_VARIANT_RAYTRACING)
         {
@@ -435,11 +443,12 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
     float4 res = AO;
     float red = gRaysTraced / float(gData.kernelSize);
+    float blue = gInvalid / float(gData.kernelSize);
     //float red = gRaysTraced;
-    float green = 1.0 - red;
+    float green = 1.0 - red - blue;
 
     res.r *= red;
     res.g *= green;
-    res.b = 0.0;
+    res.b *= blue;
     return res;
 }
