@@ -297,6 +297,7 @@ void SSAO::setShaderVariant(uint32_t variant)
 
 void SSAO::setKernel()
 {
+    std::srand(5960372); // same seed for kernel
     for (uint32_t i = 0; i < mData.kernelSize; i++)
     {
         auto& s = mData.sampleKernel[i];
@@ -322,42 +323,6 @@ void SSAO::setKernel()
         s.y = r * cos(theta);
         s.z = glm::linearRand(0.0f, 1.0f);
         s.w = glm::linearRand(0.0f, 1.0f);
-
-
-        // Hemisphere in the Z+ direction
-        float3 p;
-        /*switch (mHemisphereDistribution)
-        {
-        case SampleDistribution::Random:
-            p = glm::normalize(glm::linearRand(float3(-1.0f, -1.0f, 0.0f), float3(1.0f, 1.0f, 1.0f)));
-            break;
-
-        case SampleDistribution::RandomCosine:
-            {
-                float phi = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
-                float theta = glm::acos(glm::sqrt(glm::linearRand(0.0f, 1.0f)));
-
-                p.z = cos(theta);
-                p.x = sin(theta) * sin(phi);
-                p.y = sin(theta) * cos(phi);
-            }
-            break;
-
-        case SampleDistribution::UniformHammersley:
-            p = hammersleyUniform(i + 1, mData.kernelSize + 1);
-            break;
-
-        case SampleDistribution::CosineHammersley:
-            p = hammersleyCosine(i + 1, mData.kernelSize + 1);
-            break;
-        }*/
-
-        //mData.sampleKernel[i] = float4(p, 0.0f);
-
-        // Skew sample point distance on a curve so more cluster around the origin
-        //float dist = (float)i / (float)mData.kernelSize;
-        //dist = glm::mix(0.1f, 1.0f, dist * dist);
-        //mData.sampleKernel[i] *= dist;
     }
 
     mDirty = true;
@@ -368,19 +333,12 @@ void SSAO::setNoiseTexture()
     std::vector<uint16_t> data;
     data.resize(mNoiseSize.x * mNoiseSize.y);
 
+    std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
     for (uint32_t i = 0; i < mNoiseSize.x * mNoiseSize.y; i++)
     {
         // Random directions on the XY plane
-        //float2 dir = glm::normalize(glm::linearRand(float2(-1), float2(1))) * 0.5f + 0.5f;
-        //data[i] = glm::packUnorm4x8(float4(dir, 0.0f, 1.0f));
         auto theta = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
         data[i] = uint16_t(glm::packSnorm4x8(float4(sin(theta), cos(theta), 0.0f, 0.0f)));
-
-        //auto r1 = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
-        //auto r2 = glm::acos(1.0f - glm::linearRand(0.0f, 2.0f));
-        //
-        //float3 dir = float3(sin(r1) * sin(r2), sin(r1) * cos(r2), sin(r2));
-        //data[i] = uint16_t(glm::packSnorm4x8(glm::vec4(dir * 0.5f + 0.5f, 0.0f)));
     }
 
     mpNoiseTexture = Texture::create2D(mNoiseSize.x, mNoiseSize.y, ResourceFormat::RG8Snorm, 1, Texture::kMaxPossible, data.data());

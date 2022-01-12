@@ -45,7 +45,7 @@ import Scene.RaytracingInline;
 
 #define TANGENT_SPACE TANGENT_SPACE_CAMERA_ORIENTED
 #define HEMISPHERE_SAMPLING true
-#define PREVENT_DARK_HALOS false
+#define PREVENT_DARK_HALOS true
 
 #ifndef TANGENT_SPACE
 #error please define tangent space
@@ -293,6 +293,12 @@ float2 ViewSpaceToUV(float3 posV)
     return ndc * float2(-0.5, 0.5) + 0.5; // since posV.z is negative, the sign order is inversed
 }
 
+float makeNonZero(float value, float epsilon)
+{
+    float absValue = max(abs(value), epsilon);
+    return value >= 0 ? absValue : -absValue;
+}
+
 float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
@@ -308,6 +314,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     
     // Calculate tangent space (use random direction for tangent orientation)
     float2 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xy;
+    randDir = normalize(randDir); // should be normalized by default, but precision is lost in texture format
     //randDir = float2(1.0f, 0.0f);
     
     // determine tangent space
@@ -337,10 +344,10 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     for (uint i = 0; i < gData.kernelSize; i++)
     {
         // obtain sample position on disc around view space position
-        float4 rand = gData.sampleKernel[i]; // xy = random location on unit sphere, zw = uniform in 0,1
-        rand.xy *= gData.radius; // multiply normalized 2D position with sample radius
+        float4 rand = gData.sampleKernel[i]; // xy = random location on unit disc, zw = uniform in 0,1
+        rand.xy *= gData.radius; // multiply 2D position with sample radius
         
-        // height of the sphere at the requested sample position (not the actual sampling position)
+        // height of the sphere at the requested sample position (not at the actual sampling position)
         float sphereHeight = sqrt(gData.radius * gData.radius - dot(rand.xy, rand.xy));
         
         // determine distance within [-sphereHeight, +sphereHeight]
@@ -349,7 +356,8 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         if (HEMISPHERE_SAMPLING) // determine correct sphereStart and sphereEnd for hemisphere
         {
-            float zIntersect = -dot(rand.xy, normalO.xy) / normalO.z;
+            //float zIntersect = -dot(rand.xy, normalO.xy) / normalO.z;
+            float zIntersect = -dot(rand.xy, normalO.xy) / makeNonZero(normalO.z, 0.0001);
             float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
             if (normalO.z >= 0.0)
                 sphereEnd = zIntersectClamped;
@@ -367,6 +375,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         // calculate view position of sample and project to uv coordinates
         float3 initialSamplePosV = posV + tangent * rand.x + bitangent * rand.y;
         float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
+        float objectSpaceZ; // needs to be calculated by the respective variant
         
         if (SHADER_VARIANT == SHADER_VARIANT_RASTER || SHADER_VARIANT == SHADER_VARIANT_HYBRID)
         {
@@ -378,65 +387,56 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, samplePosUV, 0).r;
             float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
 
-            float objectSpaceZ; // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+            // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
             if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
                 objectSpaceZ = linearDepth - linearSampleDepth;
             else // TANGENT_SPACE_CAMERA_ORIENTED
                 objectSpaceZ = dot(samplePosV - posV, normal);
-        
-            float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
-            //float maxSampleRange = sphereStart - sphereEnd; // this does not work well
-            float maxSampleRange = 2.0 * sphereHeight;
-            //if(maxSampleRange > 0.0)
-            visibility += sampleRange / maxSampleRange;
-
-            if (PREVENT_DARK_HALOS)
-            {
-                // get rid of shadowing around edges
-                // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
-                // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
-                visibility += saturate((objectSpaceZ - sphereHeight) / (gData.radius * 8.0))
-                * (sphereStart - sphereEnd) / maxSampleRange // this adjust the visibility to the sampling (hemi-)sphere
-                ;   
-            }
         }
         if (SHADER_VARIANT == SHADER_VARIANT_RAYTRACING)
         {
             // to be consistent with the rasterizer, we snap the uv coordinate as well to the pixel center,
             // but we do not clip it since we can shoot outside of the screen space
             samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
-            float3 sampleDirV = normalize(UVToViewSpace(samplePosUV, linearDepth)); // get sample direction in view space
+            float3 sampleDirV = normalize(UVToViewSpace(samplePosUV, 1.0)); // get sample direction in view space
             
             // shoot a ray through the sample position
             RayDesc ray;
             ray.Origin = gCamera.data.posW; // offset a little bit in normal direction
             ray.Direction = mul(sampleDirV, float3x3(invViewMat));
             float initialSamplePosLength = length(initialSamplePosV);
-            // todo normalize direction only in tangent space z (longer than 1)
-            //ray.TMin = worldDirLength - sphereStart * worldDirLength / posVLength;
             ray.TMin = 0.0;
             ray.TMax = initialSamplePosLength - sphereEnd * initialSamplePosLength / posVLength;
 
             SceneRayQuery<1> sceneRayQuery; // 1 = Use Alpha Test
             HitInfo hit;
             float hitT;
-            gRaysTraced += 1;
+            //gRaysTraced += 1;
             //if (!sceneRayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
             //return 0.0; // no occlusion (nothing hit)
-            float objectSpaceZ = sphereEnd; // assume nothing hit
+            objectSpaceZ = sphereEnd; // assume nothing hit
             if (sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff)) // TODO value of hitT
             {
                 float projectedHitT = hitT * posVLength / initialSamplePosLength;
                 objectSpaceZ = posVLength - projectedHitT;
             }
-
-            float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
-            //float maxSampleRange = sphereStart - sphereEnd; // this does not work well
-            float maxSampleRange = 2.0 * sphereHeight;
-            //if(maxSampleRange > 0.0)
-            visibility += sampleRange / maxSampleRange;
         }
 
+        float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
+        //float maxSampleRange = sphereStart - sphereEnd; // this does not work well
+        float maxSampleRange = 2.0 * sphereHeight;
+        //if(maxSampleRange > 0.0)
+        visibility += sampleRange / maxSampleRange;
+
+        if (PREVENT_DARK_HALOS)
+        {
+            // get rid of shadowing around edges
+            // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
+            // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
+            visibility += saturate((objectSpaceZ - sphereHeight) / (gData.radius * 8.0))
+                * (sphereStart - sphereEnd) / maxSampleRange // this adjust the visibility to the sampling (hemi-)sphere
+            ;
+        }
     }
 
     float AO = visibility / float(gData.kernelSize);
