@@ -43,15 +43,21 @@ import Scene.RaytracingInline;
 #define TANGENT_SPACE_VIEW_SPACE 0
 #define TANGENT_SPACE_CAMERA_ORIENTED 1
 
+// shoots only a small ray inside the sphere between [+sphereHeight, -sphereHeight]
+#define RAY_MODE_SHORT_RAYS_APPROX 0
+// shoots s small ray from the center, which is known to be unoccluded, to +sphereHeight, then continues with RAY_MODE_SHORT_RAYS_APPROX
+// (this way, additional blocckers can be detected)
+#define RAY_MODE_SHORT_RAYS_REF 1
+// traces a single ray from the camera position to -sphereHeight
+#define RAY_MODE_LONG_RAYS_REF 2
+// traces a single ray from the camera position to -sphereHeight but stops at the first hit (should be very similar to rasterizer)
+#define RAY_MODE_LONG_RAYS_FIRST_HIT 3
+
+
 #define TANGENT_SPACE TANGENT_SPACE_CAMERA_ORIENTED
 #define HEMISPHERE_SAMPLING true
 #define PREVENT_DARK_HALOS true
-
-#ifndef TANGENT_SPACE
-#error please define tangent space
-#endif
-
-#define NUM_STEPS 4
+#define RAY_MODE RAY_MODE_SHORT_RAYS_REF
 
 cbuffer StaticCB
 {
@@ -135,98 +141,6 @@ float4 getPosition(float2 uv)
     posW /= posW.w;
 
     return posW;
-}
-
-// P = world position
-// N = world surface normal
-// Dir = sample direction
-// DirTangent = sample direction projected to XY plane of tangent space (tangent and bitangent)
-float ComputeAORay(float3 P, float3 N, float3 Dir, float3 DirTangent, float2 uv)
-{
-    const float depthBias = 0.1;
-    const float radiusBias = 0.8; // 1.0 = no bias, 0.8 = use 80% of radius as max distance to sample
-    float occlusion = 0.0;
-
-#if SHADER_VARIANT == SHADER_VARIANT_RASTER || SHADER_VARIANT == SHADER_VARIANT_HYBRID
-    bool useRay = false;
-    // Calculate sample world space pos
-    float3 finalSamplePosW = P + (DirTangent * gData.radius * radiusBias);
-    //float sampleDepth = length(samplePosW - gCamera.data.posW);
-
-    // Get screen space pos of sample
-    float4 finalSamplePosProj = mul(float4(finalSamplePosW, 1.0f), gCamera.data.viewProjMat);
-    finalSamplePosProj /= finalSamplePosProj.w;
-
-    // Sample depth buffer at the same place as sample
-    float2 finalUnclippedSampleUV = float2(finalSamplePosProj.x, -finalSamplePosProj.y) * 0.5f + 0.5f;
-
-    float weightSum = 0.0f;
-    float sampleSum = 0.0f;
-    float maxHorizonCosTheta = 0.0f; // theta = pi / 2
-    bool hasValidSamples = false;
-
-    // step along ray for num step times
-    [unroll] for(int i = 1; i <= NUM_STEPS; ++i)
-    {
-        float f = float(i) / float(NUM_STEPS); // linear factor (0.25, 0.5, 0.75, 1.0)
-        f -= abs(Dir[i % 3]) / float(NUM_STEPS); // add some noise to the step (TODO needs to be replaced with some independent random value)
-        // depth to sample (this is on the tangent plane)
-        //float sampleDepth = length(lerp(P, finalSamplePosW, f) - gCamera.data.posW);
-
-        // actual depth in depth buffer
-        float2 unclippedSampleUV = lerp(uv, finalUnclippedSampleUV, f);
-        unclippedSampleUV = getSnappedUV(unclippedSampleUV);
-        float2 sampleUV = saturate(unclippedSampleUV);
-        float3 scenePosW = getPosition(sampleUV).xyz;
-        float3 V = scenePosW - P;
-        float distSq = dot(V, V);
-        float sceneDepth = length(scenePosW - gCamera.data.posW);
-        float cosTheta = max(dot(N, V / distSq), 0);
-
-        // screen border
-        if(any(unclippedSampleUV != sampleUV) && occlusion == 0.0) useRay = true;
-
-        float weight = 1.0;
-        bool validSample = distSq < gData.radius * gData.radius || cosTheta < 0.001; // inside radius or scene is below the horizon (in the last case, occlusion and weights evaluate to 0)
-        hasValidSamples = hasValidSamples || validSample;
-        if(validSample)
-        {   // only update horizon angle for samples inside the sampling radius
-            maxHorizonCosTheta = max(maxHorizonCosTheta, cosTheta);
-        }
-        else useRay = true;//if(!hasValidSamples) useRay = true; // we need at least one valid sample before the first invalid sample, to consider this evaluateable
-
-        //float weight = cosTheta * cosTheta * (1.0 - cosTheta * cosTheta);
-        
-        //sampleSum += weight * distanceWeight(distSq);
-        sampleSum += cosTheta * cosTheta * distanceWeight(distSq);
-        weightSum += weight;
-    }
-    //maxHorizonCosTheta = 1.0;
-    //if(SHADER_VARIANT == SHADER_VARIANT_RASTER || useRay == false) return maxHorizonCosTheta * maxHorizonCosTheta * saturate(sampleSum / max(weightSum, 0.000001));
-    if(SHADER_VARIANT == SHADER_VARIANT_RASTER || useRay == false) return saturate(sampleSum / max(weightSum, 0.000001));
-    //if(SHADER_VARIANT == SHADER_VARIANT_RASTER || useRay == false) return pow(0.5 * sampleSum / weightSum, 0.5);
-#endif
-
-#if SHADER_VARIANT == SHADER_VARIANT_RAYTRACING || SHADER_VARIANT == SHADER_VARIANT_HYBRID
-    RayDesc ray;
-    ray.Origin = P; // offset a little bit in normal direction
-    ray.Direction = Dir;
-    ray.TMin = 0.0; // no bias required because of offset in normal direction
-    ray.TMax = gData.radius;
-
-    SceneRayQuery<1> sceneRayQuery; // 1 = Use Alpha Test
-    HitInfo hit;
-    float hitT;
-    gRaysTraced += 1;
-    //if (!sceneRayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
-        //return 0.0; // no occlusion (nothing hit)
-    if(sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff)) // TODO value of hitT
-    {
-        occlusion = distanceWeight(hitT * hitT);
-    }
-#endif
-
-    return occlusion;
 }
 
 // "Explodes" an integer, i.e. inserts a 0 between each bit. 
@@ -376,11 +290,15 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         float3 initialSamplePosV = posV + tangent * rand.x + bitangent * rand.y;
         float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
         float objectSpaceZ; // needs to be calculated by the respective variant
-        
+
+        bool hybridRay = false;
         if (SHADER_VARIANT == SHADER_VARIANT_RASTER || SHADER_VARIANT == SHADER_VARIANT_HYBRID)
         {
             // clip sample position uv and snap to pixel center
-            samplePosUV = getScreenClampedUV(texC, samplePosUV); // clip to screen border
+            float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
+            if (any(samplePosUV != screenUv))
+                hybridRay = true; // always shoot rays for screen border
+            samplePosUV = screenUv;
             samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
 
             // obtain actual view space position of the sample
@@ -392,43 +310,99 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 objectSpaceZ = linearDepth - linearSampleDepth;
             else // TANGENT_SPACE_CAMERA_ORIENTED
                 objectSpaceZ = dot(samplePosV - posV, normal);
+
+            if(objectSpaceZ > sphereStart)
+                hybridRay = true;
         }
-        if (SHADER_VARIANT == SHADER_VARIANT_RAYTRACING)
+        if (SHADER_VARIANT == SHADER_VARIANT_RAYTRACING || (SHADER_VARIANT == SHADER_VARIANT_HYBRID && hybridRay))
         {
+            gRaysTraced += 1;
+            
             // to be consistent with the rasterizer, we snap the uv coordinate as well to the pixel center,
             // but we do not clip it since we can shoot outside of the screen space
             samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
             float3 sampleDirV = normalize(UVToViewSpace(samplePosUV, 1.0)); // get sample direction in view space
-            
-            // shoot a ray through the sample position
-            RayDesc ray;
-            ray.Origin = gCamera.data.posW; // offset a little bit in normal direction
-            ray.Direction = mul(sampleDirV, float3x3(invViewMat));
             float initialSamplePosLength = length(initialSamplePosV);
-            ray.TMin = 0.0;
-            if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
-                ray.TMax = (linearDepth - sphereEnd) * initialSamplePosLength / linearDepth;
-            else // TANGENT_SPACE_CAMERA_ORIENTED
-                ray.TMax = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
 
-            SceneRayQuery<1> sceneRayQuery; // 1 = Use Alpha Test
-            HitInfo hit;
-            float hitT;
-            gRaysTraced += 1;
+            bool occluded = false;
+            if (RAY_MODE == RAY_MODE_SHORT_RAYS_REF)
+            { // THis assumes TANGENT_SPACE_VIEW_SPACE for now
 
-            objectSpaceZ = sphereEnd; // assume nothing hit
-            if (sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff)) // TODO value of hitT
-            {
-                if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE) {
-                    float projectedHitT = hitT * linearDepth / initialSamplePosLength;
-                    objectSpaceZ = linearDepth - projectedHitT;
-                }
-                else
-                { // TANGENT_SPACE_CAMERA_ORIENTED
-                    float projectedHitT = hitT * posVLength / initialSamplePosLength;
-                    objectSpaceZ = posVLength - projectedHitT;
+                #if RAY_MODE == RAY_MODE_SHORT_RAYS_REF
+                #if TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE
+                #error TANGENT_SPACE_VIEW_SPACE not supported with RAY_MODE_SHORT_RAYS_REF
+                #endif
+                #endif
+                
+                // cast an initial ray to the start of the sampling range
+                RayDesc ray;
+                float3 followUpRayDir = mul(sampleDirV, float3x3(invViewMat));
+                float followUpRayMin = 0.0;
+                if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
+                    followUpRayMin = (linearDepth - sphereStart) * initialSamplePosLength / linearDepth;
+                else // TANGENT_SPACE_CAMERA_ORIENTED
+                    followUpRayMin = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
+
+                float3 followUpRayStart = gCamera.data.posW + followUpRayDir * followUpRayMin;
+                
+                ray.Origin = mul(float4(posV + normal * gData.radius, 1.0), invViewMat).xyz; // start of the sphere
+                ray.Direction = normalize(followUpRayStart - ray.Origin);
+                ray.TMin = 0.0;
+                ray.TMax = distance(ray.Origin, followUpRayStart);
+
+                SceneRayQuery < 1 > sceneRayQuery; // 1 = Use Alpha Test
+                HitInfo hit;
+                float hitT;
+
+                objectSpaceZ = sphereEnd; // assume nothing hit
+                if (sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff))
+                {
+                    // this means we have an occluder
+                    occluded = true;
                 }
             }
+            if (!occluded && (RAY_MODE == RAY_MODE_LONG_RAYS_FIRST_HIT || RAY_MODE == RAY_MODE_SHORT_RAYS_APPROX || RAY_MODE == RAY_MODE_SHORT_RAYS_REF))
+            {
+                // shoot a ray through the sample position
+                RayDesc ray;
+                ray.Origin = gCamera.data.posW; // offset a little bit in normal direction
+                ray.Direction = mul(sampleDirV, float3x3(invViewMat));
+
+                ray.TMin = 0.0;
+                if (RAY_MODE == RAY_MODE_SHORT_RAYS_APPROX || RAY_MODE == RAY_MODE_SHORT_RAYS_REF)
+                {
+                    if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
+                        ray.TMin = (linearDepth - sphereStart) * initialSamplePosLength / linearDepth;
+                    else // TANGENT_SPACE_CAMERA_ORIENTED
+                        ray.TMin = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
+                }
+
+                
+                if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
+                    ray.TMax = (linearDepth - sphereEnd) * initialSamplePosLength / linearDepth;
+                else // TANGENT_SPACE_CAMERA_ORIENTED
+                    ray.TMax = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
+
+                SceneRayQuery < 1 > sceneRayQuery; // 1 = Use Alpha Test
+                HitInfo hit;
+                float hitT;
+
+                objectSpaceZ = sphereEnd; // assume nothing hit
+                if (sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff)) // TODO value of hitT
+                {
+                    if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
+                    {
+                        float projectedHitT = hitT * linearDepth / initialSamplePosLength;
+                        objectSpaceZ = linearDepth - projectedHitT;
+                    }
+                    else
+                    { // TANGENT_SPACE_CAMERA_ORIENTED
+                        float projectedHitT = hitT * posVLength / initialSamplePosLength;
+                        objectSpaceZ = posVLength - projectedHitT;
+                    }
+                }
+            }
+            if(occluded) objectSpaceZ = sphereStart; // assume occlusion at entry point
         }
 
         float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
