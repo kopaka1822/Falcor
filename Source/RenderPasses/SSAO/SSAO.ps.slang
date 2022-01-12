@@ -406,34 +406,41 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             ray.Direction = mul(sampleDirV, float3x3(invViewMat));
             float initialSamplePosLength = length(initialSamplePosV);
             ray.TMin = 0.0;
-            ray.TMax = initialSamplePosLength - sphereEnd * initialSamplePosLength / posVLength;
+            if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
+                ray.TMax = (linearDepth - sphereEnd) * initialSamplePosLength / linearDepth;
+            else // TANGENT_SPACE_CAMERA_ORIENTED
+                ray.TMax = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
 
             SceneRayQuery<1> sceneRayQuery; // 1 = Use Alpha Test
             HitInfo hit;
             float hitT;
-            //gRaysTraced += 1;
-            //if (!sceneRayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
-            //return 0.0; // no occlusion (nothing hit)
+            gRaysTraced += 1;
+
             objectSpaceZ = sphereEnd; // assume nothing hit
             if (sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff)) // TODO value of hitT
             {
-                float projectedHitT = hitT * posVLength / initialSamplePosLength;
-                objectSpaceZ = posVLength - projectedHitT;
+                if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE) {
+                    float projectedHitT = hitT * linearDepth / initialSamplePosLength;
+                    objectSpaceZ = linearDepth - projectedHitT;
+                }
+                else
+                { // TANGENT_SPACE_CAMERA_ORIENTED
+                    float projectedHitT = hitT * posVLength / initialSamplePosLength;
+                    objectSpaceZ = posVLength - projectedHitT;
+                }
             }
         }
 
         float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
-        //float maxSampleRange = sphereStart - sphereEnd; // this does not work well
         float maxSampleRange = 2.0 * sphereHeight;
-        //if(maxSampleRange > 0.0)
-        visibility += sampleRange / maxSampleRange;
+        visibility += sampleRange / maxSampleRange; // divide sampled range by pdf (monte carlo)
 
         if (PREVENT_DARK_HALOS)
         {
             // get rid of shadowing around edges
             // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
             // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
-            visibility += saturate((objectSpaceZ - sphereHeight) / (gData.radius * 8.0))
+            visibility += saturate((objectSpaceZ - sphereHeight) / (gData.radius * 4.0))
                 * (sphereStart - sphereEnd) / maxSampleRange // this adjust the visibility to the sampling (hemi-)sphere
             ;
         }
