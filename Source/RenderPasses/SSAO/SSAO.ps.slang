@@ -57,7 +57,7 @@ import Scene.RaytracingInline;
 #define TANGENT_SPACE TANGENT_SPACE_CAMERA_ORIENTED
 #define HEMISPHERE_SAMPLING true
 #define PREVENT_DARK_HALOS true
-#define RAY_MODE RAY_MODE_SHORT_RAYS_REF
+#define RAY_MODE RAY_MODE_LONG_RAYS_FIRST_HIT
 
 cbuffer StaticCB
 {
@@ -303,6 +303,11 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
             // obtain actual view space position of the sample
             float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, samplePosUV, 0).r;
+            if(linearSampleDepth <= 0) // invalid depth sample => background hit
+            {
+                visibility += 1.0;
+                continue;
+            }
             float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
 
             // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
@@ -320,7 +325,9 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             
             // to be consistent with the rasterizer, we snap the uv coordinate as well to the pixel center,
             // but we do not clip it since we can shoot outside of the screen space
+            //samplePosUV = getScreenClampedUV(texC, samplePosUV);
             samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
+            
             float3 sampleDirV = normalize(UVToViewSpace(samplePosUV, 1.0)); // get sample direction in view space
             float initialSamplePosLength = length(initialSamplePosV);
 
