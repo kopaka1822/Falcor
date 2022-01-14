@@ -10,20 +10,42 @@ class Face:
         self.frontFace = frontFace
 
 
-# gets non occluded area in [ray_length - radius, ray_length]
-def get_visibility(faces, ray_length, radius):
-    sum = radius
+# gets non occluded area in [sphereStart, sphereEnd]
+def get_visibility(faces, sphereStart, sphereEnd):
+
+    sphereHeight = sphereEnd - sphereStart
+
+    firstFrontFaceInSphere = sphereEnd
+    firstBackFaceInSphere = sphereEnd
+    firstFrontFaceBeforeSphere = 0
+    firstBackFaceBeforeSphere = 0
+
+    # iterate over all faces
     for face in faces:
-        # skip faces with invalid values
-        if face.pos < 0 or face.pos > ray_length:
+        #skip invalid faces
+        if face.pos < 0.0 or face.pos > sphereEnd:
             continue
 
         if face.frontFace:
-            sum -= min(ray_length - face.pos, radius)
-        else:
-            sum += min(ray_length - face.pos, radius)
+            if face.pos > sphereStart:
+                if face.pos < firstFrontFaceInSphere:
+                    firstFrontFaceInSphere = face.pos
+            else: # face.pos <= sphereStart
+                if face.pos > firstFrontFaceBeforeSphere:
+                    firstFrontFaceBeforeSphere = face.pos
+        else: # back face
+            if face.pos > sphereStart:
+                if face.pos < firstBackFaceInSphere:
+                    firstBackFaceInSphere = face.pos
+            else: # face.pos <= sphereStart
+                if face.pos > firstBackFaceBeforeSphere:
+                    firstBackFaceBeforeSphere = face.pos
 
-    return sum
+    area = sphereHeight - (sphereEnd - firstFrontFaceInSphere)
+    if firstBackFaceInSphere < firstFrontFaceInSphere:
+        area = area - (firstBackFaceInSphere - sphereStart)
+
+    
 
 
 class TestVisibility(unittest.TestCase):
