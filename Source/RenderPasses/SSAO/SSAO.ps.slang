@@ -40,8 +40,8 @@ import Scene.RaytracingInline;
 #error please define shader variant to either raster, raytracing or hybrid
 #endif
 
-#define TANGENT_SPACE_VIEW_SPACE 0
-#define TANGENT_SPACE_CAMERA_ORIENTED 1
+//#define TANGENT_SPACE_VIEW_SPACE 0
+//#define TANGENT_SPACE_CAMERA_ORIENTED 1
 
 // shoots only a small ray inside the sphere between [+sphereHeight, -sphereHeight]
 #define RAY_MODE_SHORT_RAYS_APPROX 0
@@ -53,8 +53,8 @@ import Scene.RaytracingInline;
 // traces a single ray from the camera position to -sphereHeight but stops at the first hit (should be very similar to rasterizer)
 #define RAY_MODE_LONG_RAYS_FIRST_HIT 3
 
-
-#define TANGENT_SPACE TANGENT_SPACE_CAMERA_ORIENTED
+// removed and defaulted to tangent space
+//#define TANGENT_SPACE TANGENT_SPACE_CAMERA_ORIENTED
 #define HEMISPHERE_SAMPLING true
 #define PREVENT_DARK_HALOS true
 #define RAY_MODE RAY_MODE_LONG_RAYS_FIRST_HIT
@@ -232,22 +232,10 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     //randDir = float2(1.0f, 0.0f);
     
     // determine tangent space
-    float3 normal;
-    float3 tangent;
-    float3 bitangent;
-    if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
-    {
-        normal = float3(0.0, 0.0, 1.0);
-        tangent = float3(randDir, 0.0f);
-        bitangent = float3(Rotate90(randDir), 0.0f);
-    }
-    else // TANGENT_SPACE_CAMERA_ORIENTED
-    {
-        // consistent with notation above when normal = (0, 0, 1)
-        normal = -posV / posVLength;
-        bitangent = normalize(cross(normal, float3(randDir, 0.0f)));
-        tangent = cross(bitangent, normal);
-    }
+    float3 normal = -posV / posVLength;
+    float3 bitangent = normalize(cross(normal, float3(randDir, 0.0f)));
+    float3 tangent = cross(bitangent, normal);
+    
 
     // transfer view space normal to normal in object coordinates of the sampling sphere
     float3 normalO = float3(dot(normalV, tangent), dot(normalV, bitangent), dot(normalV, normal));
@@ -311,10 +299,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float3 samplePosV = UVToViewSpace(samplePosUV, linearSampleDepth);
 
             // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
-            if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
-                objectSpaceZ = linearDepth - linearSampleDepth;
-            else // TANGENT_SPACE_CAMERA_ORIENTED
-                objectSpaceZ = dot(samplePosV - posV, normal);
+            objectSpaceZ = dot(samplePosV - posV, normal);
 
             if(objectSpaceZ > sphereStart)
                 hybridRay = true;
@@ -333,22 +318,11 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
             bool occluded = false;
             if (RAY_MODE == RAY_MODE_SHORT_RAYS_REF)
-            { // THis assumes TANGENT_SPACE_VIEW_SPACE for now
-
-                #if RAY_MODE == RAY_MODE_SHORT_RAYS_REF
-                #if TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE
-                #error TANGENT_SPACE_VIEW_SPACE not supported with RAY_MODE_SHORT_RAYS_REF
-                #endif
-                #endif
-                
+            {
                 // cast an initial ray to the start of the sampling range
                 RayDesc ray;
                 float3 followUpRayDir = mul(sampleDirV, float3x3(invViewMat));
-                float followUpRayMin = 0.0;
-                if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
-                    followUpRayMin = (linearDepth - sphereStart) * initialSamplePosLength / linearDepth;
-                else // TANGENT_SPACE_CAMERA_ORIENTED
-                    followUpRayMin = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
+                float followUpRayMin = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
 
                 float3 followUpRayStart = gCamera.data.posW + followUpRayDir * followUpRayMin;
                 
@@ -378,17 +352,10 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 ray.TMin = 0.0;
                 if (RAY_MODE == RAY_MODE_SHORT_RAYS_APPROX || RAY_MODE == RAY_MODE_SHORT_RAYS_REF)
                 {
-                    if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
-                        ray.TMin = (linearDepth - sphereStart) * initialSamplePosLength / linearDepth;
-                    else // TANGENT_SPACE_CAMERA_ORIENTED
-                        ray.TMin = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
+                    ray.TMin = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
                 }
 
-                
-                if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
-                    ray.TMax = (linearDepth - sphereEnd) * initialSamplePosLength / linearDepth;
-                else // TANGENT_SPACE_CAMERA_ORIENTED
-                    ray.TMax = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
+                ray.TMax = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
 
                 SceneRayQuery < 1 > sceneRayQuery; // 1 = Use Alpha Test
                 HitInfo hit;
@@ -397,16 +364,8 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 objectSpaceZ = sphereEnd; // assume nothing hit
                 if (sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff)) // TODO value of hitT
                 {
-                    if (TANGENT_SPACE == TANGENT_SPACE_VIEW_SPACE)
-                    {
-                        float projectedHitT = hitT * linearDepth / initialSamplePosLength;
-                        objectSpaceZ = linearDepth - projectedHitT;
-                    }
-                    else
-                    { // TANGENT_SPACE_CAMERA_ORIENTED
-                        float projectedHitT = hitT * posVLength / initialSamplePosLength;
-                        objectSpaceZ = posVLength - projectedHitT;
-                    }
+                    float projectedHitT = hitT * posVLength / initialSamplePosLength;
+                    objectSpaceZ = posVLength - projectedHitT;
                 }
             }
             if(occluded) objectSpaceZ = sphereStart; // assume occlusion at entry point
