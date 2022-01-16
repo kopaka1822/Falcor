@@ -433,18 +433,20 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                             if (alphaTest(v, md, gScene.materialResources[materialID], 0.f))    
                                 continue; // alpha test failed => ignore this triangle
                         }
+                        bool isDoubleSided = EXTRACT_DOUBLE_SIDED(md.flags);
+                        frontFace = frontFace || isAlphaTested || isDoubleSided;
 
                         if (t <= tSphereStart)
                         {
-                            if(!isAlphaTested) occlusionStack += frontFace ? 1 : -1;
+                            if(!isAlphaTested && !isDoubleSided) occlusionStack += frontFace ? 1 : -1;
 
-                            if (frontFace || isAlphaTested)
+                            if (frontFace)
                                 tLastFrontFaceHalo = max(tLastFrontFaceHalo, t);
                             else
                                 tLastBackFaceHalo = max(tLastBackFaceHalo, t);
                         }
                         // inside sphere
-                        else if (frontFace || isAlphaTested)
+                        else if (frontFace)
                         {
                             tFirstFrontFaceInside = min(tFirstFrontFaceInside, t);
                             rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
