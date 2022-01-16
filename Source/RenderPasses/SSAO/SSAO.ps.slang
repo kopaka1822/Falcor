@@ -318,6 +318,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             objectSpaceZ = dot(samplePosV - posV, normal);
 
             if(objectSpaceZ > sphereStart)
+            //if (objectSpaceZ > sphereHeight + HALO_RADIUS)
                 hybridRay = true;
         }
         if (SHADER_VARIANT == SHADER_VARIANT_RAYTRACING || (SHADER_VARIANT == SHADER_VARIANT_HYBRID && hybridRay))
@@ -392,6 +393,8 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 ray.TMin = 0.0; // TODO set to depth buffer value
                 float tSphereStart = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
                 float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
+                float tHaloStart = (posVLength - sphereHeight - HALO_RADIUS) * initialSamplePosLength / posVLength;
+                ray.TMin = max(tHaloStart, 0.0);
                 ray.TMax = tSphereEnd;
 
                 // skip procedural and force all triangle to be handled by any-hit traversal
@@ -400,8 +403,10 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
                 // stack that gets increased for front faces, and decreased for back faces => 0 = unoccluded, > 0 = occluded
                 int occlusionStack = 0;
-                float tFirstFrontFace = tSphereEnd;
-                float tFirstBackFace = tSphereEnd;
+                float tFirstFrontFaceInside = tSphereEnd;
+                float tFirstBackFaceInside = tSphereEnd;
+                float tLastFrontFaceHalo = tHaloStart;
+                float tLastBackFaceHalo = tHaloStart;
 
                 while(rayQuery.Proceed())
                 {
@@ -418,8 +423,11 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                         // needs alpha testing?
                         if (isAlphaTested)
                         {
-                            if (t <= tSphereStart)
-                                continue; // alpha tested geometry can be ignored outside of the sphere
+                            // alpha tested geometry can be ignored outside of the sphere
+                            if (t <= tHaloStart)
+                                continue;
+                            //if (t <= tSphereStart)
+                            //    continue; 
 
                             const VertexData v = gScene.getVertexData(hit);
                             if (alphaTest(v, md, gScene.materialResources[materialID], 0.f))    
@@ -427,26 +435,53 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                         }
 
                         if (t <= tSphereStart)
-                            occlusionStack += frontFace ? 1 : -1;
+                        {
+                            if(!isAlphaTested) occlusionStack += frontFace ? 1 : -1;
+
+                            if (frontFace || isAlphaTested)
+                                tLastFrontFaceHalo = max(tLastFrontFaceHalo, t);
+                            else
+                                tLastBackFaceHalo = max(tLastBackFaceHalo, t);
+                        }
                         // inside sphere
                         else if (frontFace || isAlphaTested)
                         {
-                            tFirstFrontFace = min(tFirstFrontFace, t);
+                            tFirstFrontFaceInside = min(tFirstFrontFaceInside, t);
                             rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
                         }
                         else
-                            tFirstBackFace = min(tFirstBackFace, t);
+                            tFirstBackFaceInside = min(tFirstBackFaceInside, t);
                         
                     }
                 }
                 // set occluded based on encountered objects
                 occluded = occlusionStack > 0;
                 // calculate object z fron first front face hit
-                float projectedHitT = tFirstFrontFace * posVLength / initialSamplePosLength;
+                float projectedHitT = tFirstFrontFaceInside * posVLength / initialSamplePosLength;
                 objectSpaceZ = posVLength - projectedHitT;
+                //projectedHitT = max(tLastFrontFaceHalo, tLastBackFaceHalo) * posVLength / initialSamplePosLength;
+                projectedHitT = tLastFrontFaceHalo * posVLength / initialSamplePosLength;
+                float haloZ = posVLength - projectedHitT;
+
+                //if (occluded) objectSpaceZ = sphereStart;
+                float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
+                float maxSampleRange = 2.0 * sphereHeight;
+
+                float sphereVisibility = sampleRange / maxSampleRange;
+                float haloVisibility = saturate((haloZ - sphereHeight) / HALO_RADIUS) * (sphereStart - sphereEnd) / maxSampleRange;
+
+                visibility += min(sphereVisibility, haloVisibility); // divide sampled range by pdf (monte carlo)
+                //visibility += haloVisibility;
+                //visibility += sphereVisibility;
+                //if (haloVisibility > 0.01)  visibility += haloVisibility;
+                //else visibility += sphereVisibility;
+
+
+
+                continue; // all the calculation is done inside
                 // safety measure:
-                //occluded = occluded || tFirstBackFace < tFirstFrontFace;
-                //if (tFirstBackFace < tFirstFrontFace) occluded = false;
+                //occluded = occluded || tFirstBackFaceInside < tFirstFrontFaceInside;
+                //if (tFirstBackFaceInside < tFirstFrontFaceInside) occluded = false;
             }
             if(occluded) objectSpaceZ = sphereStart; // assume occlusion at entry point
         }
