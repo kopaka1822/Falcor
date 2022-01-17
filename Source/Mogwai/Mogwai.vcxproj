@@ -85,6 +85,9 @@
     <ProjectReference Include="..\RenderPasses\ImageLoader\ImageLoader.vcxproj">
       <Project>{8ce33f5f-cfb9-4b25-9298-990dae982991}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\LinearizeDepth\LinearizeDepth.vcxproj">
+      <Project>{bb0cceac-f82e-4219-8487-043e49911bdd}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\MegakernelPathTracer\MegakernelPathTracer.vcxproj">
       <Project>{873f13ca-a9c7-47ba-857d-8848c5e7f07e}</Project>
     </ProjectReference>
