@@ -322,9 +322,19 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
             objectSpaceZ = dot(samplePosV - posV, normal);
 
-            if(objectSpaceZ > sphereStart)
-            //if (objectSpaceZ > sphereHeight + HALO_RADIUS)
+            if(objectSpaceZ > sphereStart && !DUAL_DEPTH)
                 hybridRay = true;
+            else if(DUAL_DEPTH && objectSpaceZ > sphereStart)
+            {
+                linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
+                if (linearSampleDepth > 0)
+                {
+                    samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
+                    objectSpaceZ = dot(samplePosV - posV, normal);
+                    if (objectSpaceZ > sphereStart)
+                        hybridRay = true;
+                }
+            }
         }
         if (SHADER_VARIANT == SHADER_VARIANT_RAYTRACING || (SHADER_VARIANT == SHADER_VARIANT_HYBRID && hybridRay))
         {

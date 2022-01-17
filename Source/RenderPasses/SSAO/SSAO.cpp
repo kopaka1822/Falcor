@@ -227,7 +227,7 @@ void SSAO::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
 
-    widget.checkbox("Dual Depth", mDualDepth);
+    if (widget.checkbox("Dual Depth", mDualDepth)) setDualDepth(mDualDepth);
 
     uint32_t shaderVariant = (uint32_t)mShaderVariant;
     if(widget.dropdown("Variant", kShaderVariantDropdown, shaderVariant)) setShaderVariant(shaderVariant);
