@@ -265,7 +265,8 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         
         // height of the sphere at the requested sample position (not at the actual sampling position)
         float sphereHeight = sqrt(gData.radius * gData.radius - dot(rand.xy, rand.xy));
-        
+        //float adaptiveHaloHeight = sqrt((gData.radius + HALO_RADIUS) * (gData.radius + HALO_RADIUS) - dot(rand.xy, rand.xy));
+
         // determine distance within [-sphereHeight, +sphereHeight]
         float sphereStart = sphereHeight; // in object coordinates (bigger is closer to the camera)
         float sphereEnd = -sphereHeight; // in object coordinates (smaller is futher from the camera)
@@ -394,7 +395,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 float tSphereStart = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
                 float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
                 float tHaloStart = (posVLength - sphereHeight - HALO_RADIUS) * initialSamplePosLength / posVLength;
-                ray.TMin = max(tHaloStart, 0.0);
+                if (PREVENT_DARK_HALOS) ray.TMin = max(tHaloStart, 0.0);
                 ray.TMax = tSphereEnd;
 
                 // skip procedural and force all triangle to be handled by any-hit traversal
@@ -472,7 +473,12 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 float sphereVisibility = sampleRange / maxSampleRange;
                 float haloVisibility = saturate((haloZ - sphereHeight) / HALO_RADIUS) * (sphereStart - sphereEnd) / maxSampleRange;
 
-                visibility += min(sphereVisibility, haloVisibility); // divide sampled range by pdf (monte carlo)
+                if (PREVENT_DARK_HALOS) visibility += min(sphereVisibility, haloVisibility); // divide sampled range by pdf (monte carlo)
+                else
+                {
+                    if (occluded) sphereVisibility = 0.0;
+                    visibility += sphereVisibility;
+                }
                 //visibility += haloVisibility;
                 //visibility += sphereVisibility;
                 //if (haloVisibility > 0.01)  visibility += haloVisibility;
