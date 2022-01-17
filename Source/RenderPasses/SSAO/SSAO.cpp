@@ -215,13 +215,13 @@ const Texture::SharedPtr& pNormalTexture)
         mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
 
         // bind static resources
-        auto var = mpSSAOPass->getRootVar();
-        mpScene->setRaytracingShaderData(pContext, var);
-
         mpSSAOPass["StaticCB"].setBlob(mData);
         mDirty = false;
     }
 
+    // bind dynamic resources
+    auto var = mpSSAOPass->getRootVar();
+    mpScene->setRaytracingShaderData(pContext, var);
    
     pCamera->setShaderData(mpSSAOPass["PerFrameCB"]["gCamera"]);
     mpSSAOPass["PerFrameCB"]["frameIndex"] = mFrameIndex++;
