@@ -38,7 +38,6 @@ static void regSSAO(pybind11::module& m)
 {
     pybind11::class_<SSAO, RenderPass, SSAO::SharedPtr> pass(m, "SSAO");
     pass.def_property("enabled", &SSAO::getEnabled, &SSAO::setEnabled);
-    pass.def_property("halfResolution", &SSAO::getHalfResolution, &SSAO::setHalfResolution);
     pass.def_property("kernelRadius", &SSAO::getKernelSize, &SSAO::setKernelSize);
     pass.def_property("distribution", &SSAO::getDistribution, &SSAO::setDistribution);
     pass.def_property("sampleRadius", &SSAO::getSampleRadius, &SSAO::setSampleRadius);
@@ -77,7 +76,6 @@ namespace
     };
 
     const std::string kEnabled = "enabled";
-    const std::string kHalfResolution = "halfResolution";
     const std::string kKernelSize = "kernelSize";
     const std::string kNoiseSize = "noiseSize";
     const std::string kDistribution = "distribution";
@@ -86,6 +84,7 @@ namespace
 
     const std::string kAmbientMap = "ambientMap";
     const std::string kDepth = "depth";
+    const std::string kDepth2 = "depth2";
     const std::string kNormals = "normals";
 
     const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
@@ -104,6 +103,8 @@ SSAO::SSAO()
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpTextureSampler = Sampler::create(samplerDesc);
     setSampleRadius(mData.radius);
+
+    mpAOFbo = Fbo::create();
 }
 
 SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -113,7 +114,6 @@ SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& di
     for (const auto& [key, value] : dict)
     {
         if(key == kEnabled) pSSAO->mEnabled = value;
-        else if (key == kHalfResolution) pSSAO->mHalfResolution = value;
         else if (key == kKernelSize) pSSAO->mData.kernelSize = value;
         else if (key == kNoiseSize) pSSAO->mNoiseSize = value;
         else if (key == kDistribution) pSSAO->mHemisphereDistribution = value;
@@ -127,7 +127,6 @@ Dictionary SSAO::getScriptingDictionary()
 {
     Dictionary dict;
     dict[kEnabled] = mEnabled;
-    dict[kHalfResolution] = mHalfResolution;
     dict[kKernelSize] = mData.kernelSize;
     dict[kNoiseSize] = mNoiseSize;
     dict[kRadius] = mData.radius;
@@ -138,7 +137,8 @@ Dictionary SSAO::getScriptingDictionary()
 RenderPassReflection SSAO::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addInput(kDepth, "Depth-buffer");
+    reflector.addInput(kDepth, "Linear Depth-buffer");
+    reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(AMBIENT_MAP_FORMAT);
     
@@ -150,8 +150,7 @@ void SSAO::compile(RenderContext* pRenderContext, const CompileData& compileData
     setKernel();
     setNoiseTexture();
 
-    // reset framebufer
-    mpAOFbo.reset();
+    mDirty = true; // texture size may have changed => reupload data
 }
 
 void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -165,16 +164,51 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pDepth = renderData[kDepth]->asTexture();
     auto pNormals = renderData[kNormals]->asTexture();
     auto pAoDst = renderData[kAmbientMap]->asTexture();
+    Texture::SharedPtr pDepth2;
+    if (renderData[kDepth2]) pDepth2 = renderData[kDepth2]->asTexture();
+    else mDualDepth = false;
 
+    auto pCamera = mpScene->getCamera().get();
     //renderData["k"]->asBuffer();
 
 
     if(mEnabled)
     {
-        auto pAoMap = generateAOMap(pRenderContext, mpScene->getCamera().get(), pDepth, pNormals);
+        if (mDirty || !mpSSAOPass)
+        {
+            // program defines
+            Program::DefineList defines;
+            defines.add(mpScene->getSceneDefines());
+            defines.add("SHADER_VARIANT", std::to_string(uint32_t(mShaderVariant)));
+            defines.add("DUAL_DEPTH", std::to_string(mDualDepth));
 
-        // copy to ao destination TODO optimize
-        pRenderContext->copySubresource(pAoDst.get(), 0, pAoMap.get(), 0);
+            mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
+
+            // bind static resources
+            mData.noiseScale = float2(pDepth->getWidth(), pDepth->getHeight()) / float2(mNoiseSize.x, mNoiseSize.y);
+            mpSSAOPass["StaticCB"].setBlob(mData);
+            mDirty = false;
+        }
+
+        // bind dynamic resources
+        auto var = mpSSAOPass->getRootVar();
+        mpScene->setRaytracingShaderData(pRenderContext, var);
+
+        pCamera->setShaderData(mpSSAOPass["PerFrameCB"]["gCamera"]);
+        mpSSAOPass["PerFrameCB"]["frameIndex"] = mFrameIndex++;
+        mpSSAOPass["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
+
+        // Update state/vars
+        mpSSAOPass["gNoiseSampler"] = mpNoiseSampler;
+        mpSSAOPass["gTextureSampler"] = mpTextureSampler;
+        mpSSAOPass["gDepthTex"] = pDepth;
+        mpSSAOPass["gDepthTex2"] = pDepth2;
+        mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
+        mpSSAOPass["gNormalTex"] = pNormals;
+
+        // Generate AO
+        mpAOFbo->attachColorTarget(pAoDst, 0);
+        mpSSAOPass->execute(pRenderContext, mpAOFbo);
     }
     else // ! enabled
     {
@@ -188,67 +222,15 @@ void SSAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScen
     mDirty = true;
 }
 
-Texture::SharedPtr SSAO::generateAOMap(RenderContext* pContext, const Camera* pCamera, const Texture::SharedPtr& pDepthTexture,
-const Texture::SharedPtr& pNormalTexture)
-{
-    if(!mpAOFbo)
-    {
-        // create framebuffer
-        Fbo::Desc fboDesc;
-        fboDesc.setColorTarget(0, AMBIENT_MAP_FORMAT);
-
-        uint divisor = mHalfResolution ? 2 : 1; // half resolution of the ambient occlusion map if required (use resolution of the depth map for reference)
-        mpAOFbo = Fbo::create2D(pDepthTexture->getWidth() / divisor, pDepthTexture->getHeight() / divisor, fboDesc);
-        assert(mpAOFbo);
-
-        mData.noiseScale = float2(mpAOFbo->getWidth(), mpAOFbo->getHeight()) / float2(mNoiseSize.x, mNoiseSize.y);
-        mDirty = true; // modified mData
-    }
-
-    if (mDirty || !mpSSAOPass)
-    {
-        // program defines
-        Program::DefineList defines;
-        defines.add(mpScene->getSceneDefines());
-        defines.add("SHADER_VARIANT", std::to_string(uint32_t(mShaderVariant)));
-
-        mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
-
-        // bind static resources
-        mpSSAOPass["StaticCB"].setBlob(mData);
-        mDirty = false;
-    }
-
-    // bind dynamic resources
-    auto var = mpSSAOPass->getRootVar();
-    mpScene->setRaytracingShaderData(pContext, var);
-   
-    pCamera->setShaderData(mpSSAOPass["PerFrameCB"]["gCamera"]);
-    mpSSAOPass["PerFrameCB"]["frameIndex"] = mFrameIndex++;
-    mpSSAOPass["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
-
-    // Update state/vars
-    mpSSAOPass["gNoiseSampler"] = mpNoiseSampler;
-    mpSSAOPass["gTextureSampler"] = mpTextureSampler;
-    mpSSAOPass["gDepthTex"] = pDepthTexture;
-    mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
-    mpSSAOPass["gNormalTex"] = pNormalTexture;
-
-    // Generate AO
-    mpSSAOPass->execute(pContext, mpAOFbo);
-    return mpAOFbo->getColorTexture(0);
-}
-
 void SSAO::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
 
+    widget.checkbox("Dual Depth", mDualDepth);
+
     uint32_t shaderVariant = (uint32_t)mShaderVariant;
     if(widget.dropdown("Variant", kShaderVariantDropdown, shaderVariant)) setShaderVariant(shaderVariant);
-
-    bool halfRes = mHalfResolution;
-    if (widget.checkbox("Half Resolution", halfRes)) setHalfResolution(halfRes);
 
     uint32_t distribution = (uint32_t)mHemisphereDistribution;
     if (widget.dropdown("Kernel Distribution", kDistributionDropdown, distribution)) setDistribution(distribution);
@@ -262,11 +244,10 @@ void SSAO::renderUI(Gui::Widgets& widget)
     widget.text("noise size"); widget.text(std::to_string(mNoiseSize.x), true);
 }
 
-void SSAO::setHalfResolution(bool halfRes)
+void SSAO::setDualDepth(bool dualDepth)
 {
-    mHalfResolution = halfRes;
-    // reset framebufer
-    mpAOFbo.reset();
+    mDualDepth = dualDepth;
+    mDirty = true;
 }
 
 void SSAO::setSampleRadius(float radius)

@@ -64,6 +64,8 @@ import Scene.Shading;
 #define HALO_RADIUS (gData.radius * 4.0)
 #define RAY_MODE RAY_MODE_LONG_RAYS_REF
 
+//#define ENABLED(value) (value != 0)
+
 cbuffer StaticCB
 {
     SSAOData gData;
@@ -80,6 +82,8 @@ SamplerState gNoiseSampler;
 SamplerState gTextureSampler;
 
 Texture2D gDepthTex;
+Texture2D gDepthTex2;
+
 Texture2D gNormalTex;
 Texture2D gNoiseTex;
 
