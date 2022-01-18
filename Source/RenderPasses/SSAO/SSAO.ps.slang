@@ -231,10 +231,35 @@ float makeNonZero(float value, float epsilon)
     return value >= 0 ? absValue : -absValue;
 }
 
+// get rid of shadowing around edges
+// introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
+// and falls of to 1.0 when it gets further away from the sphere but closer to the camera
+float calcHaloVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
+{
+    if (!PREVENT_DARK_HALOS)
+        return 0.0;
+    
+    return saturate((objectSpaceZ - sphereStart) / HALO_RADIUS)
+        * (sphereStart - sphereEnd); // this adjust the visibility to the sampling (hemi-)sphere
+}
+
+float calcSphereVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
+{
+    float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
+    return sampleRange;
+}
+
+float calcVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
+{
+    return calcSphereVisibility(objectSpaceZ, sphereStart, sphereEnd)
+         + calcHaloVisibility(objectSpaceZ, sphereStart, sphereEnd);
+}
+
 float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
-    if(linearDepth <= 0.0) return 1.0f;
+    if (linearDepth >= gCamera.data.farZ)
+        return 1.0f;
 
     // view space position of current pixel
     const float3 posV = UVToViewSpace(texC, linearDepth);
@@ -268,12 +293,17 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         rand.xy *= gData.radius; // multiply 2D position with sample radius
         
         // height of the sphere at the requested sample position (not at the actual sampling position)
-        float sphereHeight = sqrt(gData.radius * gData.radius - dot(rand.xy, rand.xy));
+        const float sphereHeight = sqrt(gData.radius * gData.radius - dot(rand.xy, rand.xy));
+        // probability for choosing this sample
+        const float pdf = 2.0 * sphereHeight;
         //float adaptiveHaloHeight = sqrt((gData.radius + HALO_RADIUS) * (gData.radius + HALO_RADIUS) - dot(rand.xy, rand.xy));
 
         // determine distance within [-sphereHeight, +sphereHeight]
         float sphereStart = sphereHeight; // in object coordinates (bigger is closer to the camera)
         float sphereEnd = -sphereHeight; // in object coordinates (smaller is futher from the camera)
+        //float haloStart = sphereStart;
+        //if (PREVENT_DARK_HALOS)
+        //    haloStart = sphereStart + HALO_RADIUS;
 
         if (HEMISPHERE_SAMPLING) // determine correct sphereStart and sphereEnd for hemisphere
         {
@@ -296,7 +326,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         // calculate view position of sample and project to uv coordinates
         float3 initialSamplePosV = posV + tangent * rand.x + bitangent * rand.y;
         float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
-        float objectSpaceZ; // needs to be calculated by the respective variant
+        float curVisibility = 0.0f;
 
         bool hybridRay = false;
         if (SHADER_VARIANT == SHADER_VARIANT_RASTER || SHADER_VARIANT == SHADER_VARIANT_HYBRID)
@@ -308,32 +338,43 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float2 rasterSamplePosUV = screenUv;
             rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
             //if (isSamePixel(samplePosUV, texC))
-                //objectSpaceZ = 0.0;
+                //objectSpaceZ = 0.0;            
 
-            // obtain actual view space position of the sample
-            float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
-            if(linearSampleDepth <= 0) // invalid depth sample => background hit
+            if(!DUAL_DEPTH)
             {
-                visibility += 1.0;
-                continue;
+                float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
+                // TODO? could check for depth == farZ
+                float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
+                // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+                float objectSpaceZ = dot(samplePosV - posV, normal);
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                // require hybrid ray if intersection is outside of sphere radius
+                if (objectSpaceZ > sphereStart)
+                    hybridRay = true;
             }
-            float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-
-            // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
-            objectSpaceZ = dot(samplePosV - posV, normal);
-
-            if(objectSpaceZ > sphereStart && !DUAL_DEPTH)
-                hybridRay = true;
-            else if(DUAL_DEPTH && objectSpaceZ > sphereStart)
+            else // DUAL_DEPTH
             {
-                linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
-                if (linearSampleDepth > 0)
+                float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
+                float linearSampleDepth2 = gDepthTex2.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
+                float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
+                float3 samplePosV2 = UVToViewSpace(rasterSamplePosUV, linearSampleDepth2);
+                float objectSpaceZ = dot(samplePosV - posV, normal);
+                float objectSpaceZ2 = dot(samplePosV2 - posV, normal);
+                float vis = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                float vis2 = calcVisibility(objectSpaceZ2, sphereStart, sphereEnd);
+                // TODO case for no dark halo sampling
+                if (PREVENT_DARK_HALOS)
+                    curVisibility = min(vis, vis2);
+                else
                 {
-                    samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-                    objectSpaceZ = dot(samplePosV - posV, normal);
+                    // take first visibility that is inside sphere
+                    curVisibility = vis;
                     if (objectSpaceZ > sphereStart)
-                        hybridRay = true;
+                        curVisibility = vis2;
                 }
+                // only require hybrid ray if none of the two samples were inside
+                if (objectSpaceZ > sphereStart && objectSpaceZ2 > sphereStart)
+                    hybridRay = true;
             }
         }
         if (SHADER_VARIANT == SHADER_VARIANT_RAYTRACING || (SHADER_VARIANT == SHADER_VARIANT_HYBRID && hybridRay))
@@ -347,7 +388,6 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             
             float3 sampleDirV = normalize(UVToViewSpace(samplePosUV, 1.0)); // get sample direction in view space
             float initialSamplePosLength = length(initialSamplePosV);
-            objectSpaceZ = sphereEnd; // assume nothing hit
 
             bool occluded = false;
             if (RAY_MODE == RAY_MODE_SHORT_RAYS_REF)
@@ -396,7 +436,8 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 if (sceneRayQuery.traceRay(ray, hit, hitT, RAY_FLAG_NONE, 0xff)) // TODO value of hitT
                 {
                     float projectedHitT = hitT * posVLength / initialSamplePosLength;
-                    objectSpaceZ = posVLength - projectedHitT;
+                    float objectSpaceZ = posVLength - projectedHitT;
+                    curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                 }
             }
             if (RAY_MODE == RAY_MODE_LONG_RAYS_REF)
@@ -475,52 +516,34 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 occluded = occlusionStack > 0;
                 // calculate object z fron first front face hit
                 float projectedHitT = tFirstFrontFaceInside * posVLength / initialSamplePosLength;
-                objectSpaceZ = posVLength - projectedHitT;
+                float sphereZ = posVLength - projectedHitT;
                 //projectedHitT = max(tLastFrontFaceHalo, tLastBackFaceHalo) * posVLength / initialSamplePosLength;
                 projectedHitT = tLastFrontFaceHalo * posVLength / initialSamplePosLength;
                 float haloZ = posVLength - projectedHitT;
 
+                float sphereVisibility = calcSphereVisibility(sphereZ, sphereStart, sphereEnd);
+                float haloVisibility = calcHaloVisibility(haloZ, sphereStart, sphereEnd);
+
                 //if (occluded) objectSpaceZ = sphereStart;
-                float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
-                float maxSampleRange = 2.0 * sphereHeight;
 
-                float sphereVisibility = sampleRange / maxSampleRange;
-                float haloVisibility = saturate((haloZ - sphereHeight) / HALO_RADIUS) * (sphereStart - sphereEnd) / maxSampleRange;
-
-                if (PREVENT_DARK_HALOS) visibility += min(sphereVisibility, haloVisibility); // divide sampled range by pdf (monte carlo)
+                if (PREVENT_DARK_HALOS) curVisibility =  min(sphereVisibility, haloVisibility); // divide sampled range by pdf (monte carlo)
                 else
                 {
                     if (occluded) sphereVisibility = 0.0;
-                    visibility += sphereVisibility;
+                    curVisibility = sphereVisibility;
                 }
                 //visibility += haloVisibility;
                 //visibility += sphereVisibility;
                 //if (haloVisibility > 0.01)  visibility += haloVisibility;
                 //else visibility += sphereVisibility;
 
-
-
-                continue; // all the calculation is done inside
                 // safety measure:
                 //occluded = occluded || tFirstBackFaceInside < tFirstFrontFaceInside;
                 //if (tFirstBackFaceInside < tFirstFrontFaceInside) occluded = false;
             }
-            if(occluded) objectSpaceZ = sphereStart; // assume occlusion at entry point
         }
 
-        float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
-        float maxSampleRange = 2.0 * sphereHeight;
-        visibility += sampleRange / maxSampleRange; // divide sampled range by pdf (monte carlo)
-
-        if (PREVENT_DARK_HALOS)
-        {
-            // get rid of shadowing around edges
-            // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
-            // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
-            visibility += saturate((objectSpaceZ - sphereHeight) / HALO_RADIUS)
-                * (sphereStart - sphereEnd) / maxSampleRange // this adjust the visibility to the sampling (hemi-)sphere
-            ;
-        }
+        visibility += curVisibility / pdf;
     }
 
     float AO = visibility / float(gData.kernelSize);
