@@ -35,6 +35,13 @@ namespace
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
     const std::string kInteralDepth = "internalDepth";
+
+    const Gui::DropdownList kCullModeList =
+    {
+        { (uint32_t)RasterizerState::CullMode::None, "None" },
+        { (uint32_t)RasterizerState::CullMode::Back, "Back" },
+        { (uint32_t)RasterizerState::CullMode::Front, "Front" },
+    };
 }
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -141,5 +148,7 @@ DualDepthPass& DualDepthPass::setDepthStencilState(const DepthStencilState::Shar
 
 void DualDepthPass::renderUI(Gui::Widgets& widget)
 {
-    
+    uint32_t cullMode = (uint32_t)mCullMode;
+    if (widget.dropdown("Cull mode", kCullModeList, cullMode))
+        mCullMode = (RasterizerState::CullMode)cullMode;
 }
