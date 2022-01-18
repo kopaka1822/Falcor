@@ -2177,6 +2177,7 @@ namespace Falcor
                     // If this is an opaque mesh, set the opaque flag
                     const auto& material = mMaterials[mesh.materialID];
                     desc.Flags = material->isOpaque() ? D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE : D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
+                    //desc.Flags |= D3D12_RAYTRACING_GEOMETRY_FLAG_NO_DUPLICATE_ANYHIT_INVOCATION;
 
                     // Set the position data
                     desc.Triangles.VertexBuffer.StartAddress = pVb->getGpuAddress() + (mesh.vbOffset * pVbLayout->getStride());
@@ -2704,6 +2705,17 @@ namespace Falcor
             // Note that Falcor uses a right-handed coordinate system, so we have to invert the flag.
             // Since these winding direction rules are defined in object space, they are unaffected by instance transforms.
             if (frontFaceCW) desc.Flags |= D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_FRONT_COUNTERCLOCKWISE;
+
+            // TODO split culled and non-culled geometry into separate instances
+            //// Test for transparent or double sided flags
+            //bool transparentOrDoubleSided = false;
+            //for (auto meshId : meshList)
+            //{
+            //    const auto& mat = getMaterial(mMeshDesc[meshId].materialID);
+            //    transparentOrDoubleSided = transparentOrDoubleSided || mat->isDoubleSided() || !mat->isOpaque();
+            //}
+            //// disable back/front face culling for double sided or transparent triangles
+            //if(transparentOrDoubleSided) desc.Flags |= D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
 
             // From the scene builder we can expect the following:
             //
