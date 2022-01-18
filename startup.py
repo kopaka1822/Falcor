@@ -36,7 +36,7 @@ def render_graph_SSAO():
     loadRenderPassLibrary('Utils.dll')
     loadRenderPassLibrary('WhittedRayTracer.dll')
     loadRenderPassLibrary('LinearizeDepth.dll')
-    GBufferRaster = createPass('GBufferRaster', {'samplePattern': SamplePattern.Center, 'sampleCount': 16, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': True, 'cull': CullMode.CullNone})
+    GBufferRaster = createPass('GBufferRaster', {'samplePattern': SamplePattern.Center, 'sampleCount': 16, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': CullMode.CullNone})
     g.addPass(GBufferRaster, 'GBufferRaster')
     SSAO = createPass('SSAO', {'enabled': True, 'kernelSize': 8, 'noiseSize': uint2(4,4), 'radius': 0.5, 'distribution': SampleDistribution.Hammersley})
     g.addPass(SSAO, 'SSAO')

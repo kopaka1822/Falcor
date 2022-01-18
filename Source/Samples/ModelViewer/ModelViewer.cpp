@@ -162,7 +162,7 @@ void ModelViewer::onFrameRender(RenderContext* pRenderContext, const Fbo::Shared
             mpGraphicsState->setDepthStencilState(mpNoDepthDS);
             mpProgramVars["PerFrameCB"]["gConstColor"] = true;
 
-            mpScene->rasterize(pRenderContext, mpGraphicsState.get(), mpProgramVars.get(), mpWireframeRS, mpWireframeRS);
+            mpScene->rasterize(pRenderContext, mpGraphicsState.get(), mpProgramVars.get(), mpWireframeRS, mpWireframeRS, mpWireframeRS);
         }
         else
         {

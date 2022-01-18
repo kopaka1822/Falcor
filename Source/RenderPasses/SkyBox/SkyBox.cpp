@@ -152,7 +152,7 @@ void SkyBox::execute(RenderContext* pRenderContext, const RenderData& renderData
     mpVars["PerFrameCB"]["gViewMat"] = mpScene->getCamera()->getViewMatrix();
     mpVars["PerFrameCB"]["gProjMat"] = mpScene->getCamera()->getProjMatrix();
     mpState->setFbo(mpFbo);
-    mpCubeScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mpRsState, mpRsState);
+    mpCubeScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mpRsState, mpRsState, mpRsState);
 }
 
 void SkyBox::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)

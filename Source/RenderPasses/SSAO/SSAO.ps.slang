@@ -61,6 +61,7 @@ import Scene.Shading;
 //#define TANGENT_SPACE TANGENT_SPACE_CAMERA_ORIENTED
 #define HEMISPHERE_SAMPLING true
 #define PREVENT_DARK_HALOS true
+#define FRONT_FACE_NORMALS true
 #define HALO_RADIUS (gData.radius * 4.0)
 #define RAY_MODE RAY_MODE_LONG_RAYS_REF
 
@@ -268,7 +269,9 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     // view space normal of current pixel
     float3 normalW = gNormalTex.Sample(gTextureSampler, texC).xyz;
     float3 normalV = mul(normalW, float3x3(gCamera.data.viewMat));
-    
+    if (FRONT_FACE_NORMALS && dot(posV, normalV) > 0.0)
+        normalV = -normalV;
+
     // Calculate tangent space (use random direction for tangent orientation)
     float2 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xy;
     randDir = normalize(randDir); // should be normalized by default, but precision is lost in texture format
