@@ -108,9 +108,9 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
 
     // clear both depth textures
     //pRenderContext->clearDsv(dsv1.get(), 1, 0);
-    pRenderContext->clearDsv(dsv2.get(), 1, 0);
-    pRenderContext->clearUAV(depthUav.get(), uint4(glm::floatBitsToUint(1.0f)));
-
+    pRenderContext->clearDsv(dsv2.get(), 1.0f, 0, true, false);
+    pRenderContext->clearUAV(depthUav.get(), float4(1.0f));
+    
     mpFbo->attachDepthStencilTarget(pDepth2);
     mpState->setFbo(mpFbo);
 
