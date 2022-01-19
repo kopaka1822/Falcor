@@ -174,6 +174,7 @@ void StochasticDepthMap::compile(RenderContext* pContext, const CompileData& com
 {
     if (mLinearDepth) mpState->getProgram()->addDefine("LINEARIZE_DEPTHS");
     else mpState->getProgram()->removeDefine("LINEARIZE_DEPTHS");
+    mpState->getProgram()->addDefine("NUM_SAMPLES", std::to_string(mSampleCount));
 
     // always sample at pixel centers for our msaa resource
     static std::array<Fbo::SamplePosition, 16> samplePos = {};
