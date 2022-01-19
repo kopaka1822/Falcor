@@ -115,6 +115,9 @@
     <ProjectReference Include="..\RenderPasses\SSAO\SSAO.vcxproj">
       <Project>{6cc70b9f-ca56-4ef2-8075-a1be0005dcf4}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\StochasticDepthMap\StochasticDepthMap.vcxproj">
+      <Project>{8c2d88f9-4c6f-4e14-a043-b122f93858b7}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\SVGFPass\SVGFPass.vcxproj">
       <Project>{691f64dd-0941-49de-b52e-949341192154}</Project>
     </ProjectReference>

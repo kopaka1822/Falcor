@@ -6,4 +6,8 @@
   <ItemGroup>
     <ClInclude Include="StochasticDepthMap.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="StochasticDepth.ps.slang" />
+    <ShaderSource Include="DebugLayer.ps.slang" />
+  </ItemGroup>
 </Project>

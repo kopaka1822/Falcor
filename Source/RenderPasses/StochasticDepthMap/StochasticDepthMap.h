@@ -46,13 +46,30 @@ public:
     virtual std::string getDesc() override;
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pContext, const CompileData& compileData) override {}
+    virtual void compile(RenderContext* pContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
+    void setCullMode(RasterizerState::CullMode cullMode) { mCullMode = cullMode; }
 private:
-    StochasticDepthMap() = default;
+    StochasticDepthMap(const Dictionary& dict);
+    void parseDictionary(const Dictionary& dict);
+
+    Fbo::SharedPtr mpFbo;
+    GraphicsState::SharedPtr mpState;
+    GraphicsVars::SharedPtr mpVars;
+    RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
+    Scene::SharedPtr mpScene;
+
+    FullScreenPass::SharedPtr mpDebugPass;
+    Fbo::SharedPtr mpDebugFbo;
+
+    uint32_t mSampleCount = 8;
+    uint32_t mDebugLayer = 0;
+    bool mLinearDepth = true;
+    float mLastZNear = 0.0f;
+    float mLastZFar = 0.0f;
 };

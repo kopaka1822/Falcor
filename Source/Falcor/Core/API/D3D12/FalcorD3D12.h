@@ -193,7 +193,7 @@ namespace Falcor
 
     MAKE_SMART_COM_PTR(ID3D12StateObject);
     MAKE_SMART_COM_PTR(ID3D12Device);
-    MAKE_SMART_COM_PTR(ID3D12GraphicsCommandList);
+    MAKE_SMART_COM_PTR(ID3D12GraphicsCommandList4);
     MAKE_SMART_COM_PTR(ID3D12Debug);
     MAKE_SMART_COM_PTR(ID3D12CommandQueue);
     MAKE_SMART_COM_PTR(ID3D12CommandAllocator);
@@ -215,7 +215,7 @@ namespace Falcor
 
     using WindowHandle = HWND;
     using DeviceHandle = ID3D12DevicePtr;
-    using CommandListHandle = ID3D12GraphicsCommandListPtr;
+    using CommandListHandle = ID3D12GraphicsCommandList4Ptr;
     using CommandQueueHandle = ID3D12CommandQueuePtr;
     using ApiCommandQueueType = D3D12_COMMAND_LIST_TYPE;
     using CommandAllocatorHandle = ID3D12CommandAllocatorPtr;
