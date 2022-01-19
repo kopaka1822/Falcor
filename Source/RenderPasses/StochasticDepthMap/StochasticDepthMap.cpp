@@ -47,6 +47,7 @@ namespace
 
     const Gui::DropdownList kSampleCountList =
     {
+        { (uint32_t)1, "1" },
         { (uint32_t)2, "2" },
         { (uint32_t)4, "4" },
         { (uint32_t)8, "8" },
@@ -63,6 +64,57 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
     lib.registerClass("StochasticDepthMap", kDesc, StochasticDepthMap::create);
+}
+
+// code from stochastic-depth ambient occlusion:
+
+// Based on Pascal's Triangle, 
+// from https://www.geeksforgeeks.org/binomial-coefficient-dp-9/
+static int Binomial(int n, int k)
+{
+    std::vector<int> C(k + 1);
+    C[0] = 1;  // nC0 is 1 
+
+    for (int i = 1; i <= n; i++)
+    {
+        // Compute next row of pascal triangle using 
+        // the previous row 
+        for (int j = std::min(i, k); j > 0; j--)
+            C[j] = C[j] + C[j - 1];
+    }
+    return C[k];
+}
+
+static uint8_t count_bits(uint32_t v)
+{
+    uint8_t bits = 0;
+    for (; v; ++bits) { v &= v - 1; }
+    return bits;
+}
+
+void generateStratifiedLookupTable(int n, std::vector<int>& indices, std::vector<uint32_t>& lookUpTable) {
+
+    uint32_t maxEntries = uint32_t(std::pow(2, n));
+    //std::vector<int> indices(n + 1);
+    //std::vector<uint32_t> lookUpTable(maxEntries);
+    indices.resize(n + 1);
+    lookUpTable.resize(maxEntries);
+
+    // Generate index list
+    indices[0] = 0;
+    for (int i = 1; i <= n; i++) {
+        indices[i] = Binomial(n, i - 1) + indices[i - 1];
+    }
+
+    // Generate lookup table
+    std::vector<int> currentIndices(indices);
+    lookUpTable[0] = 0;
+    for (uint32_t i = 1; i < maxEntries; i++) {
+        int popCount = count_bits(i);
+        int index = currentIndices[popCount];
+        lookUpTable[index] = i;
+        currentIndices[popCount]++;
+    }
 }
 
 StochasticDepthMap::SharedPtr StochasticDepthMap::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -126,6 +178,16 @@ void StochasticDepthMap::compile(RenderContext* pContext, const CompileData& com
     // always sample at pixel centers for our msaa resource
     static std::array<Fbo::SamplePosition, 16> samplePos = {};
     mpFbo->setSamplePositions(mSampleCount, 1, samplePos.data());
+
+    // generate data for stratified sampling
+    std::vector<int> indices;
+    std::vector<uint32_t> lookUpTable;
+    generateStratifiedLookupTable(mSampleCount, indices, lookUpTable);
+
+    mpStratifiedLookUpBuffer = Buffer::createStructured(sizeof(lookUpTable[0]), uint32_t(lookUpTable.size()), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, lookUpTable.data(), false);
+
+    //auto var = mpVars->getRootVar();
+    //var["stratifiedLookUpTable"] = mpStratifiedLookUpBuffer;
 }
 
 void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -139,20 +201,21 @@ void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData
     mpFbo->attachDepthStencilTarget(psDepths);
     mpState->setFbo(mpFbo);
     pRenderContext->clearDsv(psDepths->getDSV().get(), 1.0f, 0, true, false);
+    auto var = mpVars->getRootVar();
 
-    // set consant buffer data
+    // set constant buffer data
     float zNear = pCamera->getNearPlane();
     float zFar = pCamera->getFarPlane();
     if (mLastZNear != zNear || mLastZFar != zFar)
     {
-        auto var = mpVars->getRootVar();
-
         var["CameraCB"]["zNear"] = zNear;
         var["CameraCB"]["zFar"] = zFar;
         mLastZNear = zNear;
         mLastZFar = zFar;
     }
-    
+
+    var["stratifiedLookUpTable"] = mpStratifiedLookUpBuffer;
+
     if (mpScene) mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mCullMode);
 
     // if debug, resolve a single layer onto the debug texture

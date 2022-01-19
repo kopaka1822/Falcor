@@ -63,6 +63,7 @@ private:
     GraphicsVars::SharedPtr mpVars;
     RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
     Scene::SharedPtr mpScene;
+    Buffer::SharedPtr mpStratifiedLookUpBuffer;
 
     FullScreenPass::SharedPtr mpDebugPass;
     Fbo::SharedPtr mpDebugFbo;
