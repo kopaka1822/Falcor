@@ -31,7 +31,9 @@
 namespace
 {
     const char kDesc[] = "Captures mutliple depth layers stochastically inside a msaa texture";
+    const std::string kDepthIn = "depthMap";
     const std::string ksDepth = "stochasticDepth";
+    //const std::string ksLinearDepth
     const std::string kDebug = "debugOutput";
     const std::string kProgramFile = "RenderPasses/StochasticDepthMap/StochasticDepth.ps.slang";
     const std::string kDebugFile = "RenderPasses/StochasticDepthMap/DebugLayer.ps.slang";
@@ -165,6 +167,7 @@ RenderPassReflection StochasticDepthMap::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
+    reflector.addInput(kDepthIn, "non-linear (primary) depth map").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(ksDepth, "stochastic depths. Values will always be in range [0, 1] even after linearization").bindFlags(ResourceBindFlags::AllDepthViews).format(Falcor::ResourceFormat::D32Float).texture2D(0, 0, mSampleCount);
     reflector.addOutput(kDebug, "single msaa layer").bindFlags(ResourceBindFlags::AllColorViews).format(Falcor::ResourceFormat::R32Float).texture2D(0, 0, 1).flags(RenderPassReflection::Field::Flags::Optional);
     return reflector;
@@ -193,6 +196,7 @@ void StochasticDepthMap::compile(RenderContext* pContext, const CompileData& com
 
 void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    auto pDepthIn = renderData[kDepthIn]->asTexture();
     auto psDepths = renderData[ksDepth]->asTexture();
     Texture::SharedPtr pDebug;
     if (renderData[kDebug]) pDebug = renderData[kDebug]->asTexture();
@@ -216,6 +220,7 @@ void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData
     }
 
     var["stratifiedLookUpTable"] = mpStratifiedLookUpBuffer;
+    var["depthBuffer"] = pDepthIn;
 
     if (mpScene) mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mCullMode);
 

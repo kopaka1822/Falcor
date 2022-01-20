@@ -8,6 +8,7 @@ import Scene.Raster;
 
 static const uint stratifiedIndices[] = { 0, 1, 17, 137, 697, 2517, 6885, 14893, 26333, 39203, 50643, 58651, 63019, 64839, 65399, 65519, 65535, };
 StructuredBuffer<uint> stratifiedLookUpTable;
+Texture2D<float> depthBuffer;
 
 cbuffer CameraCB
 {
@@ -46,11 +47,16 @@ PsOut main(VSOut vsOut, uint triangleIndex : SV_PrimitiveID)
     if (alphaTest(vsOut, triangleIndex)) discard;
     PsOut output;
 
+    // assume that a depth-map of the first layer is available => discard fragments with the same depth
+    float firstDepth = depthBuffer[uint2(vsOut.posH.xy)];
+    if (vsOut.posH.z <= firstDepth)
+        discard;
+
     // #if NON_STOCHASTIC_FIRST_LAYER // Potentially, you could create the regular depth map in this same pass by never discarding the first sample
     // 	if (gl_SampleID == 0) { return; } 
     // #endif
 
-    float rng = hash4D(float4(vsOut.posH.xyz, 1.438943289));
+    float rng = hash4D(float4(vsOut.posW.xyz, 1.438943289));
 
     int R = int(floor(ALPHA_VALUE * (NUM_SAMPLES) + rng));
 
