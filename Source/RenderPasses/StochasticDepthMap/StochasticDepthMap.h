@@ -68,9 +68,11 @@ private:
     FullScreenPass::SharedPtr mpDebugPass;
     Fbo::SharedPtr mpDebugFbo;
 
+    FullScreenPass::SharedPtr mpLinearizePass;
+    Fbo::SharedPtr mpLinearizeFbo;
+
     uint32_t mSampleCount = 8;
     uint32_t mDebugLayer = 0;
-    bool mLinearDepth = true;
     float mLastZNear = 0.0f;
     float mLastZFar = 0.0f;
 };

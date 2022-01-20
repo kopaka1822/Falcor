@@ -33,10 +33,11 @@ namespace
     const char kDesc[] = "Captures mutliple depth layers stochastically inside a msaa texture";
     const std::string kDepthIn = "depthMap";
     const std::string ksDepth = "stochasticDepth";
-    //const std::string ksLinearDepth
+    const std::string ksLinearDepth = "linearSDepth";
     const std::string kDebug = "debugOutput";
     const std::string kProgramFile = "RenderPasses/StochasticDepthMap/StochasticDepth.ps.slang";
     const std::string kDebugFile = "RenderPasses/StochasticDepthMap/DebugLayer.ps.slang";
+    const std::string kLinearizeFile = "RenderPasses/StochasticDepthMap/Linearize.ps.slang";
     const std::string kSampleCount = "SampleCount";
     const std::string kLinearize = "LinearizeDepth";
 
@@ -140,6 +141,9 @@ StochasticDepthMap::StochasticDepthMap(const Dictionary& dict)
     mpDebugPass = FullScreenPass::create(kDebugFile, defines);
     mpDebugFbo = Fbo::create();
 
+    mpLinearizePass = FullScreenPass::create(kLinearizeFile);
+    mpLinearizeFbo = Fbo::create();
+
     parseDictionary(dict);
 }
 
@@ -148,7 +152,6 @@ void StochasticDepthMap::parseDictionary(const Dictionary& dict)
     for (const auto& [key, value] : dict)
     {
         if (key == kSampleCount) mSampleCount = value;
-        else if (key == kLinearize) mLinearDepth = value;
         else logWarning("Unknown field '" + key + "' in a DepthPass dictionary");
     }
 }
@@ -159,7 +162,6 @@ Dictionary StochasticDepthMap::getScriptingDictionary()
 {
     Dictionary d;
     d[kSampleCount] = mSampleCount;
-    d[kLinearize] = mLinearDepth;
     return d;
 }
 
@@ -168,15 +170,14 @@ RenderPassReflection StochasticDepthMap::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addInput(kDepthIn, "non-linear (primary) depth map").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addOutput(ksDepth, "stochastic depths. Values will always be in range [0, 1] even after linearization").bindFlags(ResourceBindFlags::AllDepthViews).format(Falcor::ResourceFormat::D32Float).texture2D(0, 0, mSampleCount);
+    reflector.addOutput(ksDepth, "stochastic depths").bindFlags(ResourceBindFlags::AllDepthViews).format(Falcor::ResourceFormat::D32Float).texture2D(0, 0, mSampleCount);
+    reflector.addOutput(ksLinearDepth, "stochastic depths linearized").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget).format(Falcor::ResourceFormat::R32Float).texture2D(0, 0, mSampleCount).flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(kDebug, "single msaa layer").bindFlags(ResourceBindFlags::AllColorViews).format(Falcor::ResourceFormat::R32Float).texture2D(0, 0, 1).flags(RenderPassReflection::Field::Flags::Optional);
     return reflector;
 }
 
 void StochasticDepthMap::compile(RenderContext* pContext, const CompileData& compileData)
 {
-    if (mLinearDepth) mpState->getProgram()->addDefine("LINEARIZE_DEPTHS");
-    else mpState->getProgram()->removeDefine("LINEARIZE_DEPTHS");
     mpState->getProgram()->addDefine("NUM_SAMPLES", std::to_string(mSampleCount));
 
     // always sample at pixel centers for our msaa resource
@@ -198,40 +199,58 @@ void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData
 {
     auto pDepthIn = renderData[kDepthIn]->asTexture();
     auto psDepths = renderData[ksDepth]->asTexture();
+    Texture::SharedPtr psLinearDepths;
+    if (renderData[ksLinearDepth]) psLinearDepths = renderData[ksLinearDepth]->asTexture();
     Texture::SharedPtr pDebug;
     if (renderData[kDebug]) pDebug = renderData[kDebug]->asTexture();
 
     auto pCamera = mpScene->getCamera();
 
-    mpFbo->attachDepthStencilTarget(psDepths);
-    mpState->setFbo(mpFbo);
-    pRenderContext->clearDsv(psDepths->getDSV().get(), 1.0f, 0, true, false);
-    auto var = mpVars->getRootVar();
-
-    // set constant buffer data
-    float zNear = pCamera->getNearPlane();
-    float zFar = pCamera->getFarPlane();
-    if (mLastZNear != zNear || mLastZFar != zFar)
     {
-        var["CameraCB"]["zNear"] = zNear;
-        var["CameraCB"]["zFar"] = zFar;
-        mLastZNear = zNear;
-        mLastZFar = zFar;
+        PROFILE("Non-Linear Depths");
+        // rasterize non-linear depths
+        mpFbo->attachDepthStencilTarget(psDepths);
+        mpState->setFbo(mpFbo);
+        pRenderContext->clearDsv(psDepths->getDSV().get(), 1.0f, 0, true, false);
+        auto var = mpVars->getRootVar();
+        var["stratifiedLookUpTable"] = mpStratifiedLookUpBuffer;
+        var["depthBuffer"] = pDepthIn;
+
+        if (mpScene) mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mCullMode);
     }
 
-    var["stratifiedLookUpTable"] = mpStratifiedLookUpBuffer;
-    var["depthBuffer"] = pDepthIn;
+    // create linear depths
+    if (psLinearDepths)
+    {
+        PROFILE("Linearize");
+        mpLinearizeFbo->attachColorTarget(psLinearDepths, 0);
+        mpLinearizePass["sdepth"] = psDepths;
 
-    if (mpScene) mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mCullMode);
+        // set camera data
+        float zNear = pCamera->getNearPlane();
+        float zFar = pCamera->getFarPlane();
+        if (mLastZNear != zNear || mLastZFar != zFar)
+        {
+            mpLinearizePass["CameraCB"]["zNear"] = zNear;
+            mpLinearizePass["CameraCB"]["zFar"] = zFar;
+            mLastZNear = zNear;
+            mLastZFar = zFar;
+        }
+
+        mpLinearizePass->execute(pRenderContext, mpLinearizeFbo);
+    }
 
     // if debug, resolve a single layer onto the debug texture
     if (pDebug)
     {
+        PROFILE("Debug");
         mpDebugPass->addDefine("NUM_SAMPLES", std::to_string(psDepths->getSampleCount()));
         mpDebugPass->addDefine("SAMPLE_INDEX", std::to_string(mDebugLayer));
 
         mpDebugFbo->attachColorTarget(pDebug, 0);
-        mpDebugPass["sdepth"] = psDepths;
+        // bind linear depth if available, otherwise non linear
+        if(psLinearDepths) mpDebugPass["sdepth"] = psLinearDepths;
+        else mpDebugPass["sdepth"] = psDepths;
         mpDebugPass->execute(pRenderContext, mpDebugFbo);
     }
 }
