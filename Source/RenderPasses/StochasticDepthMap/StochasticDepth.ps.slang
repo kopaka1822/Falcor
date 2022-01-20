@@ -3,10 +3,12 @@ import Scene.Raster;
 #define ALPHA_VALUE 0.2
 #ifndef NUM_SAMPLES
 //#error define NUM_SAMPLES
-#define NUM_SAMPLES 4
+#define NUM_SAMPLES 8
 #endif
 
-static const uint stratifiedIndices[] = { 0, 1, 17, 137, 697, 2517, 6885, 14893, 26333, 39203, 50643, 58651, 63019, 64839, 65399, 65519, 65535, };
+//static const uint stratifiedIndices[] = { 0, 1, 17, 137, 697, 2517, 6885, 14893, 26333, 39203, 50643, 58651, 63019, 64839, 65399, 65519, 65535, };
+static const uint stratifiedIndices[] = { 0, 1, 9, 37, 93, 163, 219, 247, 255 };
+//StructuredBuffer<uint> stratifiedIndices // TODO fix
 StructuredBuffer<uint> stratifiedLookUpTable;
 Texture2D<float> depthBuffer;
 
@@ -57,7 +59,7 @@ PsOut main(VSOut vsOut, uint triangleIndex : SV_PrimitiveID)
     }
     else if (R != 0)
     {
-        float rng2 = hash3D(vsOut.posW.xyz);
+        float rng2 = hash3D(vsOut.posW.zyx);
         int index = int(lerp(stratifiedIndices[R], stratifiedIndices[R + 1], rng2));
         uint mask = stratifiedLookUpTable[index];
         output.SampleMask[0] = int(mask);
