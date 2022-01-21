@@ -1,14 +1,8 @@
 import Scene.Raster;
 
-#define ALPHA_VALUE 0.2
-#ifndef NUM_SAMPLES
-//#error define NUM_SAMPLES
-#define NUM_SAMPLES 8
-#endif
-
 //static const uint stratifiedIndices[] = { 0, 1, 17, 137, 697, 2517, 6885, 14893, 26333, 39203, 50643, 58651, 63019, 64839, 65399, 65519, 65535, };
-static const uint stratifiedIndices[] = { 0, 1, 9, 37, 93, 163, 219, 247, 255 };
-//StructuredBuffer<uint> stratifiedIndices // TODO fix
+//static const uint stratifiedIndices[] = { 0, 1, 9, 37, 93, 163, 219, 247, 255 };
+StructuredBuffer<uint> stratifiedIndices;
 StructuredBuffer<uint> stratifiedLookUpTable;
 Texture2D<float> depthBuffer;
 
@@ -51,7 +45,7 @@ PsOut main(VSOut vsOut, uint triangleIndex : SV_PrimitiveID)
 
     float rng = hash4D(float4(vsOut.posW.xyz, 1.438943289));
 
-    int R = int(floor(ALPHA_VALUE * (NUM_SAMPLES) + rng));
+    int R = int(floor(ALPHA * NUM_SAMPLES + rng));
 
     if (R >= NUM_SAMPLES)
     {

@@ -39,7 +39,8 @@ namespace
     const std::string kDebugFile = "RenderPasses/StochasticDepthMap/DebugLayer.ps.slang";
     const std::string kLinearizeFile = "RenderPasses/StochasticDepthMap/Linearize.ps.slang";
     const std::string kSampleCount = "SampleCount";
-    const std::string kLinearize = "LinearizeDepth";
+    const std::string kAlpha = "Alpha";
+    const std::string kCullMode = "CullMode";
 
     const Gui::DropdownList kCullModeList =
     {
@@ -128,16 +129,18 @@ StochasticDepthMap::SharedPtr StochasticDepthMap::create(RenderContext* pRenderC
 
 StochasticDepthMap::StochasticDepthMap(const Dictionary& dict)
 {
+    Program::DefineList defines;
+    defines.add("NUM_SAMPLES", std::to_string(mSampleCount));
+    defines.add("SAMPLE_INDEX", std::to_string(mDebugLayer));
+    defines.add("ALPHA", std::to_string(mAlpha));
+
     Program::Desc desc;
     desc.addShaderLibrary(kProgramFile).psEntry("main");
-    GraphicsProgram::SharedPtr pProgram = GraphicsProgram::create(desc);
+    GraphicsProgram::SharedPtr pProgram = GraphicsProgram::create(desc, defines);
     mpState = GraphicsState::create();
     mpState->setProgram(pProgram);
     mpFbo = Fbo::create();
 
-    Program::DefineList defines;
-    defines.add("NUM_SAMPLES", "4");
-    defines.add("SAMPLE_INDEX", "0");
     mpDebugPass = FullScreenPass::create(kDebugFile, defines);
     mpDebugFbo = Fbo::create();
 
@@ -152,6 +155,8 @@ void StochasticDepthMap::parseDictionary(const Dictionary& dict)
     for (const auto& [key, value] : dict)
     {
         if (key == kSampleCount) mSampleCount = value;
+        else if (key == kAlpha) mAlpha = value;
+        else if (key == kCullMode) mCullMode = value;
         else logWarning("Unknown field '" + key + "' in a DepthPass dictionary");
     }
 }
@@ -162,6 +167,8 @@ Dictionary StochasticDepthMap::getScriptingDictionary()
 {
     Dictionary d;
     d[kSampleCount] = mSampleCount;
+    d[kAlpha] = mAlpha;
+    d[kCullMode] = mCullMode;
     return d;
 }
 
@@ -179,6 +186,7 @@ RenderPassReflection StochasticDepthMap::reflect(const CompileData& compileData)
 void StochasticDepthMap::compile(RenderContext* pContext, const CompileData& compileData)
 {
     mpState->getProgram()->addDefine("NUM_SAMPLES", std::to_string(mSampleCount));
+    mpState->getProgram()->addDefine("ALPHA", std::to_string(mAlpha));
 
     // always sample at pixel centers for our msaa resource
     static std::array<Fbo::SamplePosition, 16> samplePos = {};
@@ -189,10 +197,11 @@ void StochasticDepthMap::compile(RenderContext* pContext, const CompileData& com
     std::vector<uint32_t> lookUpTable;
     generateStratifiedLookupTable(mSampleCount, indices, lookUpTable);
 
+    mpStratifiedIndices = Buffer::createStructured(sizeof(indices[0]), uint32_t(indices.size()), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, indices.data(), false);
     mpStratifiedLookUpBuffer = Buffer::createStructured(sizeof(lookUpTable[0]), uint32_t(lookUpTable.size()), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, lookUpTable.data(), false);
 
-    //auto var = mpVars->getRootVar();
-    //var["stratifiedLookUpTable"] = mpStratifiedLookUpBuffer;
+    if (mNormalizeDepths) mpLinearizePass->addDefine("NORMALIZE");
+    else mpLinearizePass->removeDefine("NORMALIZE");
 }
 
 void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -213,6 +222,7 @@ void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData
         mpState->setFbo(mpFbo);
         pRenderContext->clearDsv(psDepths->getDSV().get(), 1.0f, 0, true, false);
         auto var = mpVars->getRootVar();
+        var["stratifiedIndices"] = mpStratifiedIndices;
         var["stratifiedLookUpTable"] = mpStratifiedLookUpBuffer;
         var["depthBuffer"] = pDepthIn;
 
@@ -264,7 +274,12 @@ void StochasticDepthMap::renderUI(Gui::Widgets& widget)
     if (widget.dropdown("Sample Count", kSampleCountList, mSampleCount))
         mPassChangedCB(); // reload pass (recreate texture)
 
+    if (widget.var("Alpha", mAlpha, 0.0f, 1.0f, 0.01f))
+        mPassChangedCB();
+
     widget.var("Debug layer", mDebugLayer, 0u, mSampleCount - 1u);
+    if (widget.checkbox("Normalize Linear Depths", mNormalizeDepths))
+        mPassChangedCB();
 }
 
 void StochasticDepthMap::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)

@@ -64,6 +64,7 @@ private:
     RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
     Scene::SharedPtr mpScene;
     Buffer::SharedPtr mpStratifiedLookUpBuffer;
+    Buffer::SharedPtr mpStratifiedIndices;
 
     FullScreenPass::SharedPtr mpDebugPass;
     Fbo::SharedPtr mpDebugFbo;
@@ -75,4 +76,6 @@ private:
     uint32_t mDebugLayer = 0;
     float mLastZNear = 0.0f;
     float mLastZFar = 0.0f;
+    float mAlpha = 0.2f;
+    bool mNormalizeDepths = false;
 };
