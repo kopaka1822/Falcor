@@ -53,6 +53,13 @@ public:
         Hybrid = 2
     };
 
+    enum class DepthMode : uint32_t
+    {
+        SingleDepth,
+        DualDepth,
+        StochasticDepth
+    };
+
     static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
 
     std::string getDesc() override { return kDesc; }
@@ -64,13 +71,11 @@ public:
     virtual void renderUI(Gui::Widgets& widget) override;
 
     void setEnabled(bool enabled) {mEnabled = enabled;}
-    void setDualDepth(bool dualDepth);
     void setSampleRadius(float radius);
     void setKernelSize(uint32_t kernelSize);
     void setDistribution(uint32_t distribution);
     void setShaderVariant(uint32_t variant);
     bool getEnabled() {return mEnabled;}
-    bool getDualDepth() { return mDualDepth; }
     float getSampleRadius() { return mData.radius; }
     uint32_t getKernelSize() { return mData.kernelSize; }
     uint32_t getDistribution() { return (uint32_t)mHemisphereDistribution; }
@@ -85,7 +90,7 @@ private:
     bool mDirty = false;
 
     bool mEnabled = true;
-    bool mDualDepth = true;
+    DepthMode mDepthMode = DepthMode::DualDepth;
     Fbo::SharedPtr mpAOFbo;
     uint mFrameIndex = 0;
 

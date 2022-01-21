@@ -50,6 +50,11 @@ static void regSSAO(pybind11::module& m)
     shaderVariant.value("Raster", SSAO::ShaderVariant::Raster);
     shaderVariant.value("Raytracing", SSAO::ShaderVariant::Raytracing);
     shaderVariant.value("Hybrid", SSAO::ShaderVariant::Hybrid);
+
+    pybind11::enum_<SSAO::DepthMode> depthMode(m, "DepthMode");
+    depthMode.value("SingleDepth", SSAO::DepthMode::SingleDepth);
+    depthMode.value("DualDepth", SSAO::DepthMode::DualDepth);
+    depthMode.value("StochasticDepth", SSAO::DepthMode::StochasticDepth);
 }
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
@@ -75,16 +80,25 @@ namespace
         { (uint32_t)SSAO::ShaderVariant::Hybrid, "Hybrid" }
     };
 
+    const Gui::DropdownList kDepthModeDropdown =
+    {
+        { (uint32_t)SSAO::DepthMode::SingleDepth, "SingleDepth" },
+        { (uint32_t)SSAO::DepthMode::DualDepth, "DualDepth" },
+        { (uint32_t)SSAO::DepthMode::StochasticDepth, "StochasticDepth" },
+    };
+
     const std::string kEnabled = "enabled";
     const std::string kKernelSize = "kernelSize";
     const std::string kNoiseSize = "noiseSize";
     const std::string kDistribution = "distribution";
     const std::string kRadius = "radius";
     const std::string kShaderVariant = "shaderVariant";
+    const std::string kDepthMode = "depthMode";
 
     const std::string kAmbientMap = "ambientMap";
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
+    const std::string ksDepth = "stochasticDepth";
     const std::string kNormals = "normals";
 
     const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
@@ -113,11 +127,12 @@ SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& di
     Dictionary blurDict;
     for (const auto& [key, value] : dict)
     {
-        if(key == kEnabled) pSSAO->mEnabled = value;
+        if (key == kEnabled) pSSAO->mEnabled = value;
         else if (key == kKernelSize) pSSAO->mData.kernelSize = value;
         else if (key == kNoiseSize) pSSAO->mNoiseSize = value;
         else if (key == kDistribution) pSSAO->mHemisphereDistribution = value;
         else if (key == kRadius) pSSAO->mData.radius = value;
+        else if (key == kDepthMode) pSSAO->mDepthMode = value;
         else logWarning("Unknown field '" + key + "' in a SSAO dictionary");
     }
     return pSSAO;
@@ -131,15 +146,17 @@ Dictionary SSAO::getScriptingDictionary()
     dict[kNoiseSize] = mNoiseSize;
     dict[kRadius] = mData.radius;
     dict[kDistribution] = mHemisphereDistribution;
+    dict[kDepthMode] = mDepthMode;
     return dict;
 }
 
 RenderPassReflection SSAO::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addInput(kDepth, "Linear Depth-buffer");
-    reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addInput(kNormals, "World space normals, [0, 1] range").flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").flags(RenderPassReflection::Field::Flags::Optional).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kNormals, "World space normals, [0, 1] range").flags(RenderPassReflection::Field::Flags::Optional).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(ksDepth, "Linear Stochastic Depth Map").flags(RenderPassReflection::Field::Flags::Optional).texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(AMBIENT_MAP_FORMAT);
     
     return reflector;
@@ -166,7 +183,10 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pAoDst = renderData[kAmbientMap]->asTexture();
     Texture::SharedPtr pDepth2;
     if (renderData[kDepth2]) pDepth2 = renderData[kDepth2]->asTexture();
-    else mDualDepth = false;
+    else if (mDepthMode == DepthMode::DualDepth) mDepthMode = DepthMode::SingleDepth;
+    Texture::SharedPtr psDepth;
+    if (renderData[ksDepth]) psDepth = renderData[ksDepth]->asTexture();
+    else if (mDepthMode == DepthMode::StochasticDepth) mDepthMode = DepthMode::SingleDepth;
 
     auto pCamera = mpScene->getCamera().get();
     //renderData["k"]->asBuffer();
@@ -180,7 +200,8 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             Program::DefineList defines;
             defines.add(mpScene->getSceneDefines());
             defines.add("SHADER_VARIANT", std::to_string(uint32_t(mShaderVariant)));
-            defines.add("DUAL_DEPTH", std::to_string(mDualDepth));
+            defines.add("DEPTH_MODE", std::to_string(uint32_t(mDepthMode)));
+            if (psDepth) defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
 
             mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
 
@@ -203,6 +224,7 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpSSAOPass["gTextureSampler"] = mpTextureSampler;
         mpSSAOPass["gDepthTex"] = pDepth;
         mpSSAOPass["gDepthTex2"] = pDepth2;
+        mpSSAOPass["gsDepthTex"] = psDepth;
         mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
         mpSSAOPass["gNormalTex"] = pNormals;
 
@@ -227,7 +249,11 @@ void SSAO::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
 
-    if (widget.checkbox("Dual Depth", mDualDepth)) setDualDepth(mDualDepth);
+    uint32_t depthMode = (uint32_t)mDepthMode;
+    if (widget.dropdown("Depth Mode", kDepthModeDropdown, depthMode)) {
+        mDepthMode = (DepthMode)depthMode;
+        mDirty = true;
+    }
 
     uint32_t shaderVariant = (uint32_t)mShaderVariant;
     if(widget.dropdown("Variant", kShaderVariantDropdown, shaderVariant)) setShaderVariant(shaderVariant);
@@ -239,15 +265,9 @@ void SSAO::renderUI(Gui::Widgets& widget)
     if (widget.var("Kernel Size", size, 1u, SSAOData::kMaxSamples)) setKernelSize(size);
 
     float radius = mData.radius;
-    if (widget.var("Sample Radius", radius, 0.001f, FLT_MAX, 0.1f)) setSampleRadius(radius);
+    if (widget.var("Sample Radius", radius, 0.01f, FLT_MAX, 0.01f)) setSampleRadius(radius);
 
     widget.text("noise size"); widget.text(std::to_string(mNoiseSize.x), true);
-}
-
-void SSAO::setDualDepth(bool dualDepth)
-{
-    mDualDepth = dualDepth;
-    mDirty = true;
 }
 
 void SSAO::setSampleRadius(float radius)

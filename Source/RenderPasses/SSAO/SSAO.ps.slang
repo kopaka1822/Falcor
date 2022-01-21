@@ -41,7 +41,18 @@ import Scene.Shading;
 #define SHADER_VARIANT_HYBRID 2
 
 #ifndef SHADER_VARIANT
-#error please define shader variant to either raster, raytracing or hybrid
+#error please define SHADER_VARIANT
+#endif
+
+// single depth texture
+#define DEPTH_MODE_SINGLE 0
+// two depth textures
+#define DEPTH_MODE_DUAL 1
+// single depth texture + stochastic depth texture
+#define DEPTH_MODE_STOCHASTIC 2
+
+#ifndef DEPTH_MODE
+#error please define DEPTH_MODE
 #endif
 
 //#define TANGENT_SPACE_VIEW_SPACE 0
@@ -82,8 +93,10 @@ cbuffer PerFrameCB
 SamplerState gNoiseSampler;
 SamplerState gTextureSampler;
 
+// TODO change type to float
 Texture2D gDepthTex;
 Texture2D gDepthTex2;
+Texture2DMS<float> gsDepthTex;
 
 Texture2D gNormalTex;
 Texture2D gNoiseTex;
@@ -343,7 +356,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             //if (isSamePixel(samplePosUV, texC))
                 //objectSpaceZ = 0.0;            
 
-            if(!DUAL_DEPTH)
+            if (DEPTH_MODE == DEPTH_MODE_SINGLE)
             {
                 float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
                 // TODO? could check for depth == farZ
@@ -355,7 +368,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 if (objectSpaceZ > sphereStart)
                     hybridRay = true;
             }
-            else // DUAL_DEPTH
+            else if (DEPTH_MODE == DEPTH_MODE_DUAL)
             {
                 float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
                 float linearSampleDepth2 = gDepthTex2.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
@@ -378,6 +391,33 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 // only require hybrid ray if none of the two samples were inside
                 if (objectSpaceZ > sphereStart && objectSpaceZ2 > sphereStart)
                     hybridRay = true;
+            }
+            else // DEPTH_MODE_STOCHASTIC
+            {
+                float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
+                // TODO? could check for depth == farZ
+                float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
+                // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+                float objectSpaceZ = dot(samplePosV - posV, normal);
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                // look at stochastic samples int this case
+                if (objectSpaceZ > sphereStart)
+                {
+                    float width, height;
+                    gDepthTex.GetDimensions(width, height);
+                    // TODO try to use sampler
+                    int2 pixelCoord = int2(floor(rasterSamplePosUV * float2(width, height)));
+
+                    [unroll] for (uint i = 0; i < MSAA_SAMPLES; ++i)
+                    {
+                        float linearSampleDepth = gsDepthTex.Load(pixelCoord, i);
+                        float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
+                        float objectSpaceZ = dot(samplePosV - posV, normal);
+                        float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                        curVisibility = min(curVisibility, newVisibility);
+                    }
+                    // TODO when to trace hybrid rays?
+                }
             }
         }
         if (SHADER_VARIANT == SHADER_VARIANT_RAYTRACING || (SHADER_VARIANT == SHADER_VARIANT_HYBRID && hybridRay))
