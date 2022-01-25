@@ -7,6 +7,8 @@
     <ClInclude Include="DualDepthPass.h" />
   </ItemGroup>
   <ItemGroup>
-    <ShaderSource Include="DualDepthPass.ps.slang" />
+    <ShaderSource Include="DsvUavPass.slang" />
+    <ShaderSource Include="DepthPeel1.slang" />
+    <ShaderSource Include="DepthPeel2.slang" />
   </ItemGroup>
 </Project>

@@ -36,7 +36,9 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <ShaderSource Include="DualDepthPass.ps.slang" />
+    <ShaderSource Include="DepthPeel1.slang" />
+    <ShaderSource Include="DepthPeel2.slang" />
+    <ShaderSource Include="DsvUavPass.slang" />
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>

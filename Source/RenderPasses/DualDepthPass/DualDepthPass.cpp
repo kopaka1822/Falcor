@@ -31,7 +31,9 @@
 namespace
 {
     const char kDesc[] = "Creates two depth-buffers using the scene's active camera";
-    const std::string kProgramFile = "RenderPasses/DualDepthPass/DualDepthPass.ps.slang";
+    const std::string kDsvUavProgram = "RenderPasses/DualDepthPass/DsvUavPass.slang";
+    const std::string kDepthPeelProgram1 = "RenderPasses/DualDepthPass/DepthPeel1.slang";
+    const std::string kDepthPeelProgram2 = "RenderPasses/DualDepthPass/DepthPeel2.slang";
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
     const std::string kInteralDepth = "internalDepth";
@@ -41,6 +43,13 @@ namespace
         { (uint32_t)RasterizerState::CullMode::None, "None" },
         { (uint32_t)RasterizerState::CullMode::Back, "Back" },
         { (uint32_t)RasterizerState::CullMode::Front, "Front" },
+    };
+
+    const Gui::DropdownList kVariantList =
+    {
+        {(uint32_t)DualDepthPass::Variant::DepthAndUav, "DsvUav"},
+        {(uint32_t)DualDepthPass::Variant::UavOnly, "UavOnly"},
+        {(uint32_t)DualDepthPass::Variant::DepthPeel, "DepthPeel"},
     };
 }
 
@@ -63,12 +72,28 @@ DualDepthPass::SharedPtr DualDepthPass::create(RenderContext* pRenderContext, co
 
 DualDepthPass::DualDepthPass(const Dictionary& dict)
 {
-    Program::Desc desc;
-    desc.addShaderLibrary(kProgramFile).psEntry("main");
-    GraphicsProgram::SharedPtr pProgram = GraphicsProgram::create(desc);
-    mpState = GraphicsState::create();
-    mpState->setProgram(pProgram);
+    {
+        Program::Desc desc;
+        desc.addShaderLibrary(kDsvUavProgram).psEntry("main");
+        GraphicsProgram::SharedPtr pProgram = GraphicsProgram::create(desc);
+        mpDsvUavState = GraphicsState::create();
+        mpDsvUavState->setProgram(pProgram);
+    }
     mpFbo = Fbo::create();
+
+    {
+        Program::Desc desc;
+        desc.addShaderLibrary(kDepthPeelProgram1).psEntry("main");
+        mpDepthPeelState1 = GraphicsState::create();
+        mpDepthPeelState1->setProgram(GraphicsProgram::create(desc));
+    }
+
+    {
+        Program::Desc desc;
+        desc.addShaderLibrary(kDepthPeelProgram2).psEntry("main");
+        mpDepthPeelState2 = GraphicsState::create();
+        mpDepthPeelState2->setProgram(GraphicsProgram::create(desc));
+    }
 
     parseDictionary(dict);
 }
@@ -109,39 +134,83 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
     const auto& pDepth2 = renderData[kDepth2]->asTexture();
     const auto& pInternalDepth = renderData[kInteralDepth]->asTexture();
 
-    //auto dsv1 = pDepth->getDSV();
+    auto dsv1 = pDepth->getDSV();
     auto dsv2 = pDepth2->getDSV();
     auto depthUav = pInternalDepth->getUAV();
 
     // clear both depth textures
     //pRenderContext->clearDsv(dsv1.get(), 1, 0);
-    pRenderContext->clearDsv(dsv2.get(), 1.0f, 0, true, false);
-    pRenderContext->clearUAV(depthUav.get(), float4(1.0f));
-    
-    mpFbo->attachDepthStencilTarget(pDepth2);
-    mpState->setFbo(mpFbo);
 
-    // bind the uav
-    auto var = mpVars->getRootVar();
-    var["primaryDepth"] = pInternalDepth;
+    if (mVariant == Variant::DepthAndUav)
+    {
+        {
+            PROFILE("clear textures");
+            pRenderContext->clearDsv(dsv2.get(), 1.0f, 0, true, false);
+            pRenderContext->clearUAV(depthUav.get(), float4(1.0f));
+        }
 
-    // rasterize depth
-    if (mpScene) mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mCullMode);
+        mpFbo->attachDepthStencilTarget(pDepth2);
+        mpDsvUavState->setFbo(mpFbo);
 
-    // copy uav to dsv
-    pRenderContext->copySubresource(pDepth.get(), 0, pInternalDepth.get(), 0);
+        // bind the uav
+        auto var = mpDsvUavVars->getRootVar();
+        var["primaryDepth"] = pInternalDepth;
+
+        // rasterize depth
+        if (mpScene) mpScene->rasterize(pRenderContext, mpDsvUavState.get(), mpDsvUavVars.get(), mCullMode);
+
+        // copy uav to dsv
+        {
+            PROFILE("copy depth to dsv");
+            pRenderContext->copySubresource(pDepth.get(), 0, pInternalDepth.get(), 0);
+        }
+    }
+    else if (mVariant == Variant::DepthPeel)
+    {
+        {
+            PROFILE("clear textures");
+            pRenderContext->clearDsv(dsv1.get(), 1.0f, 0, true, false);
+            pRenderContext->clearDsv(dsv2.get(), 1.0f, 0, true, false);
+        }
+
+        {
+            PROFILE("first layer");
+            // render depth normally
+            mpFbo->attachDepthStencilTarget(pDepth);
+            mpDepthPeelState1->setFbo(mpFbo);
+            if (mpScene) mpScene->rasterize(pRenderContext, mpDepthPeelState1.get(), mpDepthPeelVars1.get(), mCullMode);
+        }
+
+        {
+            PROFILE("second layer");
+            // render second layer with first layer as input
+            auto var = mpDepthPeelVars2->getRootVar();
+            var["prevDepth"] = pDepth;
+            mpFbo->attachDepthStencilTarget(pDepth2);
+            mpDepthPeelState2->setFbo(mpFbo);
+            if (mpScene) mpScene->rasterize(pRenderContext, mpDepthPeelState2.get(), mpDepthPeelVars2.get(), mCullMode);
+        }
+    }
 }
 
 void DualDepthPass::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
 {
     mpScene = pScene;
-    if (mpScene) mpState->getProgram()->addDefines(mpScene->getSceneDefines());
-    mpVars = GraphicsVars::create(mpState->getProgram()->getReflector());
+    if (mpScene)
+    {
+        mpDsvUavState->getProgram()->addDefines(mpScene->getSceneDefines());
+        mpDepthPeelState1->getProgram()->addDefines(mpScene->getSceneDefines());
+        mpDepthPeelState2->getProgram()->addDefines(mpScene->getSceneDefines());
+    }
+
+    mpDsvUavVars = GraphicsVars::create(mpDsvUavState->getProgram()->getReflector());
+    mpDepthPeelVars1 = GraphicsVars::create(mpDepthPeelState1->getProgram()->getReflector());
+    mpDepthPeelVars2 = GraphicsVars::create(mpDepthPeelState2->getProgram()->getReflector());
 }
 
 DualDepthPass& DualDepthPass::setDepthStencilState(const DepthStencilState::SharedPtr& pDsState)
 {
-    mpState->setDepthStencilState(pDsState);
+    mpDsvUavState->setDepthStencilState(pDsState);
     return *this;
 }
 
@@ -151,4 +220,11 @@ void DualDepthPass::renderUI(Gui::Widgets& widget)
     uint32_t cullMode = (uint32_t)mCullMode;
     if (widget.dropdown("Cull mode", kCullModeList, cullMode))
         mCullMode = (RasterizerState::CullMode)cullMode;
+
+    uint32_t variant = (uint32_t)mVariant;
+    if (widget.dropdown("Variant", kVariantList, variant))
+    {
+        mVariant = (Variant)variant;
+        mPassChangedCB();
+    }
 }

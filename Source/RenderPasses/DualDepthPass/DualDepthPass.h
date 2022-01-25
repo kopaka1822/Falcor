@@ -38,6 +38,13 @@ public:
 
     static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
 
+    enum class Variant
+    {
+        UavOnly,
+        DepthAndUav,
+        DepthPeel,
+    };
+
     virtual std::string getDesc() override;
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
@@ -56,8 +63,16 @@ private:
     void parseDictionary(const Dictionary& dict);
 
     Fbo::SharedPtr mpFbo;
-    GraphicsState::SharedPtr mpState;
-    GraphicsVars::SharedPtr mpVars;
+
+    GraphicsState::SharedPtr mpDsvUavState;
+    GraphicsVars::SharedPtr mpDsvUavVars;
+
+    GraphicsState::SharedPtr mpDepthPeelState1;
+    GraphicsState::SharedPtr mpDepthPeelState2;
+    GraphicsVars::SharedPtr mpDepthPeelVars1;
+    GraphicsVars::SharedPtr mpDepthPeelVars2;
+
     RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
     Scene::SharedPtr mpScene;
+    Variant mVariant = Variant::DepthAndUav;
 };
