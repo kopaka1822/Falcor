@@ -267,13 +267,14 @@ void SSAO::renderUI(Gui::Widgets& widget)
     float radius = mData.radius;
     if (widget.var("Sample Radius", radius, 0.01f, FLT_MAX, 0.01f)) setSampleRadius(radius);
 
+    if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
+
     widget.text("noise size"); widget.text(std::to_string(mNoiseSize.x), true);
 }
 
 void SSAO::setSampleRadius(float radius)
 {
     mData.radius = radius;
-    mData.invRadiusSquared = 1.0f / (radius * radius);
     mDirty = true;
 }
 

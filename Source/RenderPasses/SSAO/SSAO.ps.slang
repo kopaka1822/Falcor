@@ -104,12 +104,6 @@ Texture2D gNoiseTex;
 static int gRaysTraced = 0;
 static int gInvalid = 0;
 
-float distanceWeight(float dsquared)
-{
-    //return saturate(1.0 - sqrt(dsquared) / gData.radius); // closer to HBAO
-    return saturate(1.0 - dsquared * gData.invRadiusSquared);
-    //return 1.0f;
-}
 
 // clamps uvend to screen space [0, 1]
 // uvstart: uv coordinate that is in screen space
@@ -593,7 +587,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     // since fully visibile are all values in [0.5, 1.0], scale accordingly
     AO = saturate(AO * 2.0);
     // do artistic modifications
-    //AO = pow(AO, 2.0);
+    AO = pow(AO, gData.exponent);
 
     float4 res = AO;
     float red = gRaysTraced / float(gData.kernelSize);
