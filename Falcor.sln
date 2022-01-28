@@ -110,6 +110,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "LinearizeDepth", "Source\Re
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "StochasticDepthMap", "Source\RenderPasses\StochasticDepthMap\StochasticDepthMap.vcxproj", "{8C2D88F9-4C6F-4E14-A043-B122F93858B7}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DepthPeelPass", "Source\RenderPasses\DepthPeelPass\DepthPeelPass.vcxproj", "{EB33A558-28BC-4229-9DDB-08DD2BB6CFEB}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		DebugD3D12|x64 = DebugD3D12|x64
@@ -292,6 +294,10 @@ Global
 		{8C2D88F9-4C6F-4E14-A043-B122F93858B7}.DebugD3D12|x64.Build.0 = Debug|x64
 		{8C2D88F9-4C6F-4E14-A043-B122F93858B7}.ReleaseD3D12|x64.ActiveCfg = Release|x64
 		{8C2D88F9-4C6F-4E14-A043-B122F93858B7}.ReleaseD3D12|x64.Build.0 = Release|x64
+		{EB33A558-28BC-4229-9DDB-08DD2BB6CFEB}.DebugD3D12|x64.ActiveCfg = Debug|x64
+		{EB33A558-28BC-4229-9DDB-08DD2BB6CFEB}.DebugD3D12|x64.Build.0 = Debug|x64
+		{EB33A558-28BC-4229-9DDB-08DD2BB6CFEB}.ReleaseD3D12|x64.ActiveCfg = Release|x64
+		{EB33A558-28BC-4229-9DDB-08DD2BB6CFEB}.ReleaseD3D12|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -340,6 +346,7 @@ Global
 		{227B9D60-F1E9-49DE-91CA-0D2100148CB3} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 		{BB0CCEAC-F82E-4219-8487-043E49911BDD} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 		{8C2D88F9-4C6F-4E14-A043-B122F93858B7} = {D16038A7-B031-4181-B4A1-2C416C02330C}
+		{EB33A558-28BC-4229-9DDB-08DD2BB6CFEB} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {357B2AE0-FE30-4AC6-8D41-B580232BC0DE}

@@ -64,6 +64,9 @@
     <ProjectReference Include="..\RenderPasses\DepthPass\DepthPass.vcxproj">
       <Project>{730aa5b9-7ddb-40af-a882-eb39b9d3ac7c}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\DepthPeelPass\DepthPeelPass.vcxproj">
+      <Project>{eb33a558-28bc-4229-9ddb-08dd2bb6cfeb}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\DualDepthPass\DualDepthPass.vcxproj">
       <Project>{c13653e6-8e5b-4971-ae65-cde1c2f10f3e}</Project>
     </ProjectReference>
