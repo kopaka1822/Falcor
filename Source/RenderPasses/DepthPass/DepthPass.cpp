@@ -46,6 +46,14 @@ namespace
 
     const std::string kDepth = "depth";
     const std::string kDepthFormat = "depthFormat";
+    const std::string kCullMode = "cullMode";
+
+    const Gui::DropdownList kCullModeList =
+    {
+        { (uint32_t)RasterizerState::CullMode::None, "None" },
+        { (uint32_t)RasterizerState::CullMode::Back, "Back" },
+        { (uint32_t)RasterizerState::CullMode::Front, "Front" },
+    };
 }
 
 void DepthPass::parseDictionary(const Dictionary& dict)
@@ -53,6 +61,7 @@ void DepthPass::parseDictionary(const Dictionary& dict)
     for (const auto& [key, value] : dict)
     {
         if (key == kDepthFormat) setDepthBufferFormat(value);
+        else if (key == kCullMode) setCullMode(value);
         else logWarning("Unknown field '" + key + "' in a DepthPass dictionary");
     }
 }
@@ -61,6 +70,7 @@ Dictionary DepthPass::getScriptingDictionary()
 {
     Dictionary d;
     d[kDepthFormat] = mDepthFormat;
+    d[kCullMode] = mCullMode;
     return d;
 }
 
@@ -137,6 +147,10 @@ static const Gui::DropdownList kDepthFormats =
 void DepthPass::renderUI(Gui::Widgets& widget)
 {
     uint32_t depthFormat = (uint32_t)mDepthFormat;
+    if (widget.dropdown("Buffer Format", kDepthFormats, depthFormat))
+        setDepthBufferFormat(ResourceFormat(depthFormat));
 
-    if (widget.dropdown("Buffer Format", kDepthFormats, depthFormat)) setDepthBufferFormat(ResourceFormat(depthFormat));
+    uint32_t cullMode = (uint32_t)mCullMode;
+    if (widget.dropdown("Cull mode", kCullModeList, cullMode))
+        setCullMode((RasterizerState::CullMode)cullMode);
 }
