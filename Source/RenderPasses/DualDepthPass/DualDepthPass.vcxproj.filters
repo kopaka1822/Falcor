@@ -11,5 +11,6 @@
     <ShaderSource Include="DepthPeel1.slang" />
     <ShaderSource Include="DepthPeel2.slang" />
     <ShaderSource Include="UavPass.slang" />
+    <ShaderSource Include="Ray.slang" />
   </ItemGroup>
 </Project>

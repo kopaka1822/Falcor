@@ -43,6 +43,7 @@ public:
         UavOnly,
         DepthAndUav,
         DepthPeel,
+        DepthAndRay
     };
 
     virtual std::string getDesc() override;
@@ -74,6 +75,9 @@ private:
 
     GraphicsState::SharedPtr mpUavState;
     GraphicsVars::SharedPtr mpUavVars;
+
+    RtProgram::SharedPtr mpRayProgram;
+    RtProgramVars::SharedPtr mpRayVars;
 
     RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
     Scene::SharedPtr mpScene;

@@ -35,6 +35,7 @@ namespace
     const std::string kDepthPeelProgram1 = "RenderPasses/DualDepthPass/DepthPeel1.slang";
     const std::string kDepthPeelProgram2 = "RenderPasses/DualDepthPass/DepthPeel2.slang";
     const std::string kUavProgram = "RenderPasses/DualDepthPass/UavPass.slang";
+    const std::string kRayProgram = "RenderPasses/DualDepthPass/Ray.slang";
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
     const std::string kInteralDepth = "internalDepth";
@@ -52,6 +53,7 @@ namespace
         {(uint32_t)DualDepthPass::Variant::DepthAndUav, "DsvUav"},
         //{(uint32_t)DualDepthPass::Variant::UavOnly, "UavOnly"},
         {(uint32_t)DualDepthPass::Variant::DepthPeel, "DepthPeel"},
+        {(uint32_t)DualDepthPass::Variant::DepthAndRay, "DepthAndRay"},
     };
 }
 
@@ -104,6 +106,8 @@ DualDepthPass::DualDepthPass(const Dictionary& dict)
         mpUavState->setProgram(GraphicsProgram::create(desc));
     }
 
+    
+
     parseDictionary(dict);
 }
 
@@ -147,7 +151,7 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
 
     auto dsv1 = pDepth->getDSV();
     auto dsv2 = pDepth2->getDSV();
-    auto depthUav = pInternalDepth->getUAV();
+    auto depthUav1 = pInternalDepth->getUAV();
     auto depthUav2 = pInternalDepth2->getUAV();
 
     // clear both depth textures
@@ -158,7 +162,7 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
         {
             PROFILE("clear textures");
             pRenderContext->clearDsv(dsv2.get(), 1.0f, 0, true, false);
-            pRenderContext->clearUAV(depthUav.get(), float4(1.0f));
+            pRenderContext->clearUAV(depthUav1.get(), float4(1.0f));
         }
 
         mpFbo->attachDepthStencilTarget(pDepth2);
@@ -207,7 +211,7 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
     {
         {
             PROFILE("clear textures");
-            pRenderContext->clearUAV(depthUav.get(), float4(1.0f));
+            pRenderContext->clearUAV(depthUav1.get(), float4(1.0f));
             pRenderContext->clearUAV(depthUav2.get(), float4(1.0f));
             pRenderContext->clearDsv(dsv2.get(), 1.0f, 0, true, false);
         }
@@ -231,17 +235,72 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
             //pRenderContext->copySubresource(pDepth2.get(), 0, pInternalDepth2.get(), 0);
         }
     }
+    else if(mVariant == Variant::DepthAndRay)
+    {
+
+        {
+            PROFILE("clear textures");
+            pRenderContext->clearDsv(dsv1.get(), 1.0f, 0, true, false);
+            pRenderContext->clearUAV(depthUav2.get(), float4(1.0f));
+        }
+            
+        // start with rendering primary depth
+        {
+            PROFILE("first layer (raster)");
+            // render depth normally
+            mpFbo->attachDepthStencilTarget(pDepth);
+            mpDepthPeelState1->setFbo(mpFbo);
+            if (mpScene) mpScene->rasterize(pRenderContext, mpDepthPeelState1.get(), mpDepthPeelVars1.get(), mCullMode);
+        }
+
+        // capture second layer with ray tracing
+        if(mpScene) {
+            PROFILE("second layer (ray)");
+            ShaderVar var = mpRayVars->getRootVar();
+            var["primaryDepth"] = pDepth; // srv
+            var["secondaryDepth"] = pInternalDepth2; // uav
+            mpScene->raytrace(pRenderContext, mpRayProgram.get(), mpRayVars, uint3(renderData.getDefaultTextureDims(), 1));
+        }
+
+        // copy uav to dsv/srv
+        {
+            PROFILE("copy depth to dsv");
+            pRenderContext->copySubresource(pDepth2.get(), 0, pInternalDepth2.get(), 0);
+        }
+    }
 }
 
 void DualDepthPass::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
 {
     mpScene = pScene;
+    mpRayProgram.reset();
+    mpRayVars.reset();
+
     if (mpScene)
     {
         mpDsvUavState->getProgram()->addDefines(mpScene->getSceneDefines());
         mpDepthPeelState1->getProgram()->addDefines(mpScene->getSceneDefines());
         mpDepthPeelState2->getProgram()->addDefines(mpScene->getSceneDefines());
         mpUavState->getProgram()->addDefines(mpScene->getSceneDefines());
+
+        // ray tracing program
+        RtProgram::Desc desc;
+        desc.addShaderLibrary(kRayProgram);
+        desc.setMaxPayloadSize(sizeof(float)); // secondary depth
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1);
+        desc.addDefines(mpScene->getSceneDefines());
+
+        // TODO add procedural primitives (only triangles for now)
+        RtBindingTable::SharedPtr sbt = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setMiss(0, desc.addMiss("miss"));
+        sbt->setHitGroupByType(0, mpScene, Scene::GeometryType::TriangleMesh, desc.addHitGroup("closestHit", "anyHit"));
+
+        // TODO add other hit groups here
+
+        mpRayProgram = RtProgram::create(desc);
+        mpRayVars = RtProgramVars::create(mpRayProgram, sbt);
     }
 
     mpDsvUavVars = GraphicsVars::create(mpDsvUavState->getProgram()->getReflector());

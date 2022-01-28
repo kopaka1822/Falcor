@@ -39,6 +39,7 @@
     <ShaderSource Include="DepthPeel1.slang" />
     <ShaderSource Include="DepthPeel2.slang" />
     <ShaderSource Include="DsvUavPass.slang" />
+    <ShaderSource Include="Ray.slang" />
     <ShaderSource Include="UavPass.slang" />
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
