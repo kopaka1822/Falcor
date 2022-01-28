@@ -1,6 +1,6 @@
 import Scene.Raster;
 
-RasterizerOrderedTexture2D<float> prevDepth;
+Texture2D<float> prevDepth;
 
 void main(VSOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_TARGET
 {

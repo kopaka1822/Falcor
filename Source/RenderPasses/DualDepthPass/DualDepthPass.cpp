@@ -121,8 +121,8 @@ RenderPassReflection DualDepthPass::reflect(const CompileData& compileData)
     ResourceFormat depthFormat = ResourceFormat::D32Float;
     ResourceFormat stagingFormat = ResourceFormat::R32Float;
 
-    reflector.addOutput(kDepth, "Depth-buffer").bindFlags(Resource::BindFlags::DepthStencil).format(depthFormat);
-    reflector.addOutput(kDepth2, "2nd Depth-buffer").bindFlags(Resource::BindFlags::DepthStencil).format(depthFormat);
+    reflector.addOutput(kDepth, "Depth-buffer").bindFlags(Resource::BindFlags::AllDepthViews).format(depthFormat);
+    reflector.addOutput(kDepth2, "2nd Depth-buffer").bindFlags(Resource::BindFlags::AllDepthViews).format(depthFormat);
     // unfortunately one can not write into a depth buffer as unordered access view
     reflector.addInternal(kInteralDepth, "staging resource for depth buffer").bindFlags(Resource::BindFlags::UnorderedAccess).format(stagingFormat);
     return reflector;
