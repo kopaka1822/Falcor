@@ -72,7 +72,10 @@ private:
     GraphicsVars::SharedPtr mpDepthPeelVars1;
     GraphicsVars::SharedPtr mpDepthPeelVars2;
 
+    GraphicsState::SharedPtr mpUavState;
+    GraphicsVars::SharedPtr mpUavVars;
+
     RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
     Scene::SharedPtr mpScene;
-    Variant mVariant = Variant::DepthAndUav;
+    Variant mVariant = Variant::DepthPeel;
 };

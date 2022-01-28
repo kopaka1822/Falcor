@@ -10,5 +10,6 @@
     <ShaderSource Include="DsvUavPass.slang" />
     <ShaderSource Include="DepthPeel1.slang" />
     <ShaderSource Include="DepthPeel2.slang" />
+    <ShaderSource Include="UavPass.slang" />
   </ItemGroup>
 </Project>
