@@ -213,11 +213,25 @@ void RenderGraphEditor::onGuiRender(Gui* pGui)
 
     passWindow.columns(5);
     auto renderPasses = RenderPassLibrary::instance().enumerateClasses();
+    // sort render passes alphabetically before display
+    std::sort(renderPasses.begin(), renderPasses.end(), [](const RenderPassLibrary::RenderPassDesc& l, const RenderPassLibrary::RenderPassDesc& r) {
+        return strcmp(l.className, r.className) < 0;
+    });
     for (size_t i = 0; i < renderPasses.size(); i++)
     {
         const auto& pass = renderPasses[i];
         passWindow.rect({ 148.0f, 64.0f }, pGui->pickUniqueColor(pass.className), false);
-        passWindow.image(("RenderPass##" + std::to_string(i)).c_str(), mpDefaultIconTex, { 148.0f, 44.0f });
+        const std::string customIconPath = std::string(pass.className) + ".png";
+        const std::string iconLabel = "RenderPass##" + std::to_string(i);
+        auto customIcon = Texture::createFromFile(customIconPath, false, true);
+        if (customIcon)
+        {
+            passWindow.image(iconLabel.c_str(), customIcon, { 148.0f, 44.0f });
+        }
+        else
+        {
+            passWindow.image(iconLabel.c_str(), mpDefaultIconTex, { 148.0f, 44.0f });
+        }
         passWindow.dragDropSource(pass.className, "RenderPassType", pass.className);
         passWindow.text(pass.className);
         passWindow.tooltip(pass.desc, true);
