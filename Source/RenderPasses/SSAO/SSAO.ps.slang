@@ -402,9 +402,13 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                     // TODO try to use sampler
                     int2 pixelCoord = int2(floor(rasterSamplePosUV * float2(width, height)));
 
+                    const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
+                    const float depthOffset = gCamera.data.nearZ;
                     [unroll] for (uint i = 0; i < MSAA_SAMPLES; ++i)
                     {
                         float linearSampleDepth = gsDepthTex.Load(pixelCoord, i);
+                        // linearSampleDepth is in [0, 1] => scale accordingly
+                        linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
                         float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
                         float objectSpaceZ = dot(samplePosV - posV, normal);
                         float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);

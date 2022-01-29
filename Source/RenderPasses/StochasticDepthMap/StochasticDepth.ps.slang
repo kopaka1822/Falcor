@@ -6,6 +6,12 @@ StructuredBuffer<uint> stratifiedIndices;
 StructuredBuffer<uint> stratifiedLookUpTable;
 Texture2D<float> depthBuffer;
 
+cbuffer CameraCB
+{
+    float zNear;
+    float zFar;
+};
+
 // Hash function from "Improved Alpha Testing Using Hashed Sampling"
 float hash(float2 v)
 {
@@ -27,6 +33,9 @@ float hash4D(float4 v)
 struct PsOut
 {
     uint SampleMask[1] : SV_Coverage; // let this be an array to avoid compiler bugs
+#ifdef LINEARIZE
+    float depth : SV_Depth;
+#endif
 };
 
 PsOut main(VSOut vsOut, uint triangleIndex : SV_PrimitiveID)
@@ -60,6 +69,10 @@ PsOut main(VSOut vsOut, uint triangleIndex : SV_PrimitiveID)
     }
     else
         discard;
+
+    #ifdef LINEARIZE
+    output.depth = (vsOut.posH.w - zNear) / (zFar - zNear); // linear depth normalizedto [0,1] because a depth target cannot store higher values
+    #endif
 
     //output.SampleMask[0] = 0xffff;
     return output;

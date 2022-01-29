@@ -37,7 +37,6 @@
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="DebugLayer.ps.slang" />
-    <ShaderSource Include="Linearize.ps.slang" />
     <ShaderSource Include="StochasticDepth.ps.slang" />
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">

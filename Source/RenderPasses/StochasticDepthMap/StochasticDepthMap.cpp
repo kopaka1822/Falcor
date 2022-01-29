@@ -33,14 +33,13 @@ namespace
     const char kDesc[] = "Captures mutliple depth layers stochastically inside a msaa texture";
     const std::string kDepthIn = "depthMap";
     const std::string ksDepth = "stochasticDepth";
-    const std::string ksLinearDepth = "linearSDepth";
     const std::string kDebug = "debugOutput";
     const std::string kProgramFile = "RenderPasses/StochasticDepthMap/StochasticDepth.ps.slang";
     const std::string kDebugFile = "RenderPasses/StochasticDepthMap/DebugLayer.ps.slang";
-    const std::string kLinearizeFile = "RenderPasses/StochasticDepthMap/Linearize.ps.slang";
     const std::string kSampleCount = "SampleCount";
     const std::string kAlpha = "Alpha";
     const std::string kCullMode = "CullMode";
+    const std::string kLinearize = "linearize";
 
     const Gui::DropdownList kCullModeList =
     {
@@ -144,9 +143,6 @@ StochasticDepthMap::StochasticDepthMap(const Dictionary& dict)
     mpDebugPass = FullScreenPass::create(kDebugFile, defines);
     mpDebugFbo = Fbo::create();
 
-    mpLinearizePass = FullScreenPass::create(kLinearizeFile);
-    mpLinearizeFbo = Fbo::create();
-
     parseDictionary(dict);
 }
 
@@ -157,6 +153,7 @@ void StochasticDepthMap::parseDictionary(const Dictionary& dict)
         if (key == kSampleCount) mSampleCount = value;
         else if (key == kAlpha) mAlpha = value;
         else if (key == kCullMode) mCullMode = value;
+        else if (key == kLinearize) mLinearizeDepth = value;
         else logWarning("Unknown field '" + key + "' in a DepthPass dictionary");
     }
 }
@@ -169,6 +166,7 @@ Dictionary StochasticDepthMap::getScriptingDictionary()
     d[kSampleCount] = mSampleCount;
     d[kAlpha] = mAlpha;
     d[kCullMode] = mCullMode;
+    d[kLinearize] = mLinearizeDepth;
     return d;
 }
 
@@ -177,8 +175,7 @@ RenderPassReflection StochasticDepthMap::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addInput(kDepthIn, "non-linear (primary) depth map").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addOutput(ksDepth, "stochastic depths").bindFlags(ResourceBindFlags::AllDepthViews).format(Falcor::ResourceFormat::D32Float).texture2D(0, 0, mSampleCount);
-    reflector.addOutput(ksLinearDepth, "stochastic depths linearized").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget).format(Falcor::ResourceFormat::R32Float).texture2D(0, 0, mSampleCount).flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addOutput(ksDepth, "stochastic depths in [0,1]").bindFlags(ResourceBindFlags::AllDepthViews).format(Falcor::ResourceFormat::D32Float).texture2D(0, 0, mSampleCount);
     reflector.addOutput(kDebug, "single msaa layer").bindFlags(ResourceBindFlags::AllColorViews).format(Falcor::ResourceFormat::R32Float).texture2D(0, 0, 1).flags(RenderPassReflection::Field::Flags::Optional);
     return reflector;
 }
@@ -187,6 +184,8 @@ void StochasticDepthMap::compile(RenderContext* pContext, const CompileData& com
 {
     mpState->getProgram()->addDefine("NUM_SAMPLES", std::to_string(mSampleCount));
     mpState->getProgram()->addDefine("ALPHA", std::to_string(mAlpha));
+    if (mLinearizeDepth) mpState->getProgram()->addDefine("LINEARIZE");
+    else mpState->getProgram()->removeDefine("LINEARIZE");
 
     // always sample at pixel centers for our msaa resource
     static std::array<Fbo::SamplePosition, 16> samplePos = {};
@@ -199,24 +198,19 @@ void StochasticDepthMap::compile(RenderContext* pContext, const CompileData& com
 
     mpStratifiedIndices = Buffer::createStructured(sizeof(indices[0]), uint32_t(indices.size()), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, indices.data(), false);
     mpStratifiedLookUpBuffer = Buffer::createStructured(sizeof(lookUpTable[0]), uint32_t(lookUpTable.size()), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, lookUpTable.data(), false);
-
-    if (mNormalizeDepths) mpLinearizePass->addDefine("NORMALIZE");
-    else mpLinearizePass->removeDefine("NORMALIZE");
 }
 
 void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     auto pDepthIn = renderData[kDepthIn]->asTexture();
     auto psDepths = renderData[ksDepth]->asTexture();
-    Texture::SharedPtr psLinearDepths;
-    if (renderData[ksLinearDepth]) psLinearDepths = renderData[ksLinearDepth]->asTexture();
     Texture::SharedPtr pDebug;
     if (renderData[kDebug]) pDebug = renderData[kDebug]->asTexture();
 
     auto pCamera = mpScene->getCamera();
 
     {
-        PROFILE("Non-Linear Depths");
+        PROFILE("Stochastic Depths");
         // rasterize non-linear depths
         mpFbo->attachDepthStencilTarget(psDepths);
         mpState->setFbo(mpFbo);
@@ -226,28 +220,18 @@ void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData
         var["stratifiedLookUpTable"] = mpStratifiedLookUpBuffer;
         var["depthBuffer"] = pDepthIn;
 
-        if (mpScene) mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mCullMode);
-    }
-
-    // create linear depths
-    if (psLinearDepths)
-    {
-        PROFILE("Linearize");
-        mpLinearizeFbo->attachColorTarget(psLinearDepths, 0);
-        mpLinearizePass["sdepth"] = psDepths;
-
         // set camera data
         float zNear = pCamera->getNearPlane();
         float zFar = pCamera->getFarPlane();
         if (mLastZNear != zNear || mLastZFar != zFar)
         {
-            mpLinearizePass["CameraCB"]["zNear"] = zNear;
-            mpLinearizePass["CameraCB"]["zFar"] = zFar;
+            var["CameraCB"]["zNear"] = zNear;
+            var["CameraCB"]["zFar"] = zFar;
             mLastZNear = zNear;
             mLastZFar = zFar;
         }
 
-        mpLinearizePass->execute(pRenderContext, mpLinearizeFbo);
+        if (mpScene) mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mCullMode);
     }
 
     // if debug, resolve a single layer onto the debug texture
@@ -259,8 +243,7 @@ void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData
 
         mpDebugFbo->attachColorTarget(pDebug, 0);
         // bind linear depth if available, otherwise non linear
-        if(psLinearDepths) mpDebugPass["sdepth"] = psLinearDepths;
-        else mpDebugPass["sdepth"] = psDepths;
+        mpDebugPass["sdepth"] = psDepths;
         mpDebugPass->execute(pRenderContext, mpDebugFbo);
     }
 }
@@ -278,8 +261,9 @@ void StochasticDepthMap::renderUI(Gui::Widgets& widget)
         mPassChangedCB();
 
     widget.var("Debug layer", mDebugLayer, 0u, mSampleCount - 1u);
-    if (widget.checkbox("Normalize Linear Depths", mNormalizeDepths))
+    if (widget.checkbox("Linearize Depths", mLinearizeDepth))
         mPassChangedCB();
+
 }
 
 void StochasticDepthMap::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
@@ -287,4 +271,7 @@ void StochasticDepthMap::setScene(RenderContext* pRenderContext, const Scene::Sh
     mpScene = pScene;
     if (mpScene) mpState->getProgram()->addDefines(mpScene->getSceneDefines());
     mpVars = GraphicsVars::create(mpState->getProgram()->getReflector());
+    // force reload of camera cbuffer
+    mLastZNear = 0.0f;
+    mLastZFar = 0.0f;
 }

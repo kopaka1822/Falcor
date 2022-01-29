@@ -53,7 +53,7 @@ def render_graph_SSAO():
     g.addPass(LinearizeDepth, 'LinearizeDepth')
     LinearizeDepth_ = createPass('LinearizeDepth')
     g.addPass(LinearizeDepth_, 'LinearizeDepth_')
-    StochasticDepthMap = createPass('StochasticDepthMap', {'SampleCount': 8, 'Alpha': 0.20000000298023224, 'CullMode': CullMode.CullBack})
+    StochasticDepthMap = createPass('StochasticDepthMap', {'SampleCount': 8, 'Alpha': 0.20000000298023224, 'CullMode': CullMode.CullBack, 'linearize': True})
     g.addPass(StochasticDepthMap, 'StochasticDepthMap')
     g.addEdge('LinearizeDepth_.linearDepth', 'SSAO.depth')
     g.addEdge('GBufferRaster.faceNormalW', 'SSAO.normals')
@@ -65,7 +65,7 @@ def render_graph_SSAO():
     g.addEdge('LinearizeDepth_.linearDepth', 'CrossBilateralBlur.linear depth')
     g.addEdge('ConvertFormat_.out', 'CrossBilateralBlur.color')
     g.addEdge('DualDepthPass.depth', 'StochasticDepthMap.depthMap')
-    g.addEdge('StochasticDepthMap.linearSDepth', 'SSAO.stochasticDepth')
+    g.addEdge('StochasticDepthMap.stochasticDepth', 'SSAO.stochasticDepth')
     g.markOutput('SSAO.ambientMap')
     g.markOutput('ConvertFormat___.out')
     return g
