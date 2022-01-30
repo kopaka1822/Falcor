@@ -133,6 +133,9 @@
     <ProjectReference Include="..\RenderPasses\TemporalDelayPass\TemporalDelayPass.vcxproj">
       <Project>{6b527e70-c2c6-4c87-bb7d-e1154f6a6fef}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\Texture2DArrayExtract\Texture2DArrayExtract.vcxproj">
+      <Project>{0713ec42-fc34-4c01-8fcb-ac29f48675a4}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\ToneMapper\ToneMapper.vcxproj">
       <Project>{e58db0ed-58cd-4724-91ea-99419084cb3a}</Project>
     </ProjectReference>
