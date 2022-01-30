@@ -46,7 +46,7 @@ public:
     virtual std::string getDesc() override;
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pContext, const CompileData& compileData) override {}
+    virtual void compile(RenderContext* pContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
@@ -54,5 +54,14 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    InterleaveTexture() = default;
+    InterleaveTexture();
+
+    const uint32_t mWidth = 4;
+    const uint32_t mHeight = 4;
+    const uint32_t mSize = mWidth * mHeight;
+    ResourceFormat mLastFormat = ResourceFormat::RGBA32Float;
+    bool mReady = false;
+
+    Fbo::SharedPtr mpFbo;
+    FullScreenPass::SharedPtr mpPass;
 };

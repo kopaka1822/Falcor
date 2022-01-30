@@ -6,4 +6,7 @@
   <ItemGroup>
     <ClInclude Include="InterleaveTexture.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="Interleave.slang" />
+  </ItemGroup>
 </Project>

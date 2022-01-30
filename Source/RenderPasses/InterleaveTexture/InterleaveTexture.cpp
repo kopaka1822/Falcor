@@ -30,7 +30,12 @@
 
 namespace
 {
-    const char kDesc[] = "Insert pass description here";    
+    const char kDesc[] = "Interleaves a 4x4 Texture2DArray back into a Texture2D";
+
+    const std::string kTexIn = "texIn";
+    const std::string kTexOut = "texOut";
+
+    const std::string kProgram = "RenderPasses/InterleaveTexture/Interleave.slang";
 }
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -57,21 +62,68 @@ Dictionary InterleaveTexture::getScriptingDictionary()
     return Dictionary();
 }
 
+InterleaveTexture::InterleaveTexture()
+{
+    mpFbo = Fbo::create();
+    mpPass = FullScreenPass::create(kProgram);
+}
+
 RenderPassReflection InterleaveTexture::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
-    //reflector.addOutput("dst");
-    //reflector.addInput("src");
+    reflector.addInput(kTexIn, "Texture2DArray").texture2D(0, 0, 1, 1, 0);
+    auto& outField = reflector.addOutput(kTexOut, "Texture2D").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource).format(mLastFormat);
+    mReady = false;
+
+    auto edge = compileData.connectedResources.getField(kTexIn);
+    if (edge)
+    {
+        const auto inputFormat = edge->getFormat();
+        auto srcWidth = edge->getWidth();
+        auto srcHeight = edge->getHeight();
+        // TODO calculate output texture size based on input texture size
+
+        mLastFormat = inputFormat;
+
+        outField.format(inputFormat);
+        mReady = true;
+    }
+
     return reflector;
+}
+
+void InterleaveTexture::compile(RenderContext* pContext, const CompileData& compileData)
+{
+    if (!mReady) throw std::runtime_error("InterleaveTexture::compile - missing incoming reflection information");
+
+    auto edge = compileData.connectedResources.getField(kTexIn);
+    if (!edge) throw std::runtime_error("InterleaveTexture::compile - missing input information");
+
+    auto inFormat = edge->getFormat();
+    auto formatDesc = kFormatDesc[(uint32_t)inFormat];
+
+    // set correct format type
+    switch (formatDesc.channelCount)
+    {
+    case 1: mpPass->getProgram()->addDefine("type", "float"); break;
+    case 2: mpPass->getProgram()->addDefine("type", "float2"); break;
+    case 3: mpPass->getProgram()->addDefine("type", "float3"); break;
+    case 4: mpPass->getProgram()->addDefine("type", "float4"); break;
+    }
 }
 
 void InterleaveTexture::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // renderData holds the requested resources
-    // auto& pTexture = renderData["src"]->asTexture();
+    auto pTexIn = renderData[kTexIn]->asTexture();
+    auto pTexOut = renderData[kTexOut]->asTexture();
+
+    mpFbo->attachColorTarget(pTexOut, 0);
+    mpPass["src"] = pTexIn;
+    mpPass->execute(pRenderContext, mpFbo);
 }
 
 void InterleaveTexture::renderUI(Gui::Widgets& widget)
 {
+
 }
