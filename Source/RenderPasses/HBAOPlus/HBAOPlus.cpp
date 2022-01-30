@@ -158,7 +158,7 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     else mparams.EnableDualLayerAO = false; // force this to be false if no 2nd depth was supplied
 
     Texture::SharedPtr pNormal = nullptr;
-    if(renderData[kNormal]) renderData[kNormal]->asTexture();
+    if(renderData[kNormal]) pNormal = renderData[kNormal]->asTexture();
     else m_useNormalData = false; // force this to be false if no normals were supplied
     auto pAmientMap = renderData[kAmbientMap]->asTexture();
     auto ambientRtv = pAmientMap->getRTV();
@@ -204,8 +204,10 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
     {
         // initialize srv description for normal
         D3D12_SHADER_RESOURCE_VIEW_DESC normalSrvDesc = {};
-        assert(pNormal->getFormat() == Falcor::ResourceFormat::RGBA32Float);
-        normalSrvDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        //assert(pNormal->getFormat() == Falcor::ResourceFormat::RGBA32Float);
+        //normalSrvDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        assert(pNormal->getFormat() == Falcor::ResourceFormat::RGBA8Snorm);
+        normalSrvDesc.Format = DXGI_FORMAT_R8G8B8A8_SNORM;
         normalSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         normalSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         normalSrvDesc.Texture2D.MipLevels = 1;
@@ -250,7 +252,7 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
         input.NormalData.FullResNormalTextureSRV.pResource = pNormal->getApiHandle();
         input.NormalData.FullResNormalTextureSRV.GpuHandle = mSSAODescriptorHeapCBVSRVUAV->GetGPUDescriptorHandleForHeapStart().ptr + 2 * gpDevice->getApiHandle()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);;
         // normals are already in -1 to 1 space
-        //input.NormalData.DecodeScale = -1.0f;
+        input.NormalData.DecodeScale = -1.0f;
         //input.NormalData.DecodeBias = 0.0f;
     }
 

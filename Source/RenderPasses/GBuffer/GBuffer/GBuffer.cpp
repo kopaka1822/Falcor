@@ -33,7 +33,7 @@
 const ChannelList GBuffer::kGBufferChannels =
 {
     { "posW",           "gPosW",            "world space position",         true /* optional */, ResourceFormat::RGBA32Float },
-    { "normW",          "gNormW",           "world space normal",           true /* optional */, ResourceFormat::RGBA32Float },
+    { "normW",          "gNormW",           "world space normal",           true /* optional */, ResourceFormat::RGBA8Snorm },
     { "tangentW",       "gTangentW",        "world space tangent",          true /* optional */, ResourceFormat::RGBA32Float },
     { "texC",           "gTexC",            "texture coordinates",          true /* optional */, ResourceFormat::RGBA32Float },
     { "diffuseOpacity", "gDiffuseOpacity",  "diffuse color and opacity",    true /* optional */, ResourceFormat::RGBA32Float },
