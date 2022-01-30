@@ -68,4 +68,5 @@ private:
 
     FullScreenPass::SharedPtr mpBlurX;
     FullScreenPass::SharedPtr mpBlurY;
+    ResourceFormat mLastFormat = ResourceFormat::RGBA32Float;
 };

@@ -95,11 +95,13 @@ RenderPassReflection CrossBilateralBlur::reflect(const CompileData& compileData)
         const auto srcWidth = edge->getWidth();
         const auto srcHeight = edge->getHeight();
 
+        mLastFormat = inputFormat;
         colorField.format(inputFormat).texture2D(srcWidth, srcHeight, 1, 1, 1);
         pingpongField.format(inputFormat).texture2D(srcWidth, srcHeight, 1, 1, 1);
 
         mReady = true;
     }
+    else colorField.format(mLastFormat);
     
     return reflector;
 }
@@ -126,7 +128,7 @@ void CrossBilateralBlur::compile(RenderContext* pContext, const CompileData& com
 
 void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if(!mEnabled || !mReady) return;
+    if(!mEnabled) return;
 
     auto pColor = renderData[kColor]->asTexture();
     auto pPingPong = renderData[kPingPong]->asTexture();
