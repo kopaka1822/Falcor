@@ -61,6 +61,9 @@
     <ProjectReference Include="..\RenderPasses\DebugPasses\DebugPasses.vcxproj">
       <Project>{e92137d5-b374-4216-9a96-6ad67965b2ee}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\DeinterleaveTexture\DeinterleaveTexture.vcxproj">
+      <Project>{5dd08471-1a5a-428f-83c0-044342cae4ba}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\DepthPass\DepthPass.vcxproj">
       <Project>{730aa5b9-7ddb-40af-a882-eb39b9d3ac7c}</Project>
     </ProjectReference>
@@ -87,6 +90,9 @@
     </ProjectReference>
     <ProjectReference Include="..\RenderPasses\ImageLoader\ImageLoader.vcxproj">
       <Project>{8ce33f5f-cfb9-4b25-9298-990dae982991}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\InterleaveTexture\InterleaveTexture.vcxproj">
+      <Project>{16cfd448-7146-4109-b292-a26d6810fadf}</Project>
     </ProjectReference>
     <ProjectReference Include="..\RenderPasses\LinearizeDepth\LinearizeDepth.vcxproj">
       <Project>{bb0cceac-f82e-4219-8487-043e49911bdd}</Project>
