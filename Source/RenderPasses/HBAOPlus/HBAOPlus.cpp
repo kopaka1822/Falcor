@@ -39,6 +39,7 @@ namespace
     const std::string kDualDepth = "dualDepth";
     const std::string kDepthBias = "depthBias";
     const std::string kExponent = "exponent";
+    const std::string kBlur = "blur";
 }
 
 // additional descriptors needed to pass in depth x2 and normals
@@ -76,6 +77,7 @@ Dictionary HBAOPlus::getScriptingDictionary()
     d[kDualDepth] = bool(mparams.EnableDualLayerAO);
     d[kDepthBias] = mparams.Bias;
     d[kExponent] = mparams.PowerExponent;
+    d[kBlur] = bool(mparams.Blur.Enable);
     return d;
 }
 
@@ -114,6 +116,7 @@ HBAOPlus::HBAOPlus(const Dictionary& dict)
         else if (key == kDualDepth) mparams.EnableDualLayerAO = bool(value);
         else if (key == kDepthBias) mparams.Bias = value;
         else if (key == kExponent) mparams.PowerExponent = value;
+        else if (key == kBlur) mparams.Blur.Enable = bool(value);
         else logWarning("Unknown field '" + key + "' in a HBAOPlusNonInterleaved dictionary");
     }
 
