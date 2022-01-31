@@ -113,8 +113,8 @@ RenderPassReflection HBAOPlus::reflect(const CompileData& compileData)
     RenderPassReflection reflector;
     reflector.addInput(kDepth, "non-linear depth map").bindFlags(Falcor::ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepth2, "2nd non-linear depth map").bindFlags(Falcor::ResourceBindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addInput(kNormal, "surface normals").bindFlags(Falcor::ResourceBindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);;
-    reflector.addOutput(kAmbientMap, "ambient occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA8Unorm);//.format(ResourceFormat::R8Unorm);
+    reflector.addInput(kNormal, "surface normals").bindFlags(Falcor::ResourceBindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addOutput(kAmbientMap, "ambient occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
     return reflector;
 }
 

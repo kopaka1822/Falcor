@@ -28,81 +28,31 @@
 #pragma once
 #include "Falcor.h"
 #include "FalcorExperimental.h"
-#include "SSAOData.slang"
-#include "../Utils/GaussianBlur/GaussianBlur.h"
 
 using namespace Falcor;
 
-class SSAO : public RenderPass
+class HBAOPlusInterleaved : public RenderPass
 {
 public:
-    using SharedPtr = std::shared_ptr<SSAO>;
+    using SharedPtr = std::shared_ptr<HBAOPlusInterleaved>;
 
-    static const char* kDesc;
-
-    enum class SampleDistribution : uint32_t
-    {
-        Random,
-        Hammersley,
-    };
-
-    enum class ShaderVariant : uint32_t
-    {
-        Raster = 0,
-        Raytracing = 1,
-        Hybrid = 2
-    };
-
-    enum class DepthMode : uint32_t
-    {
-        SingleDepth,
-        DualDepth,
-        StochasticDepth
-    };
-
+    /** Create a new render pass object.
+        \param[in] pRenderContext The render context.
+        \param[in] dict Dictionary of serialized parameters.
+        \return A new object, or an exception is thrown if creation failed.
+    */
     static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
 
-    std::string getDesc() override { return kDesc; }
+    virtual std::string getDesc() override;
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
+    virtual void compile(RenderContext* pContext, const CompileData& compileData) override {}
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-
-    void setEnabled(bool enabled) {mEnabled = enabled;}
-    void setSampleRadius(float radius);
-    void setKernelSize(uint32_t kernelSize);
-    void setDistribution(uint32_t distribution);
-    void setShaderVariant(uint32_t variant);
-    bool getEnabled() {return mEnabled;}
-    float getSampleRadius() { return mData.radius; }
-    uint32_t getKernelSize() { return mData.kernelSize; }
-    uint32_t getDistribution() { return (uint32_t)mHemisphereDistribution; }
-    uint32_t getShaderVariant() { return (uint32_t)mShaderVariant; }
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
+    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
+    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    SSAO();
-    void setNoiseTexture();
-    void setKernel();
-
-    SSAOData mData;
-    bool mDirty = true;
-
-    bool mEnabled = true;
-    DepthMode mDepthMode = DepthMode::DualDepth;
-    Fbo::SharedPtr mpAOFbo;
-    uint mFrameIndex = 0;
-
-    Sampler::SharedPtr mpNoiseSampler;
-    Texture::SharedPtr mpNoiseTexture;
-    uint2 mNoiseSize = uint2(4);
-
-    Sampler::SharedPtr mpTextureSampler;
-    SampleDistribution mHemisphereDistribution = SampleDistribution::Hammersley;
-    ShaderVariant mShaderVariant = ShaderVariant::Raster;
-
-    FullScreenPass::SharedPtr mpSSAOPass;
-
-    Scene::SharedPtr mpScene;
+    HBAOPlusInterleaved() = default;
 };

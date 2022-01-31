@@ -85,6 +85,12 @@
     <ProjectReference Include="..\RenderPasses\GBuffer\GBuffer.vcxproj">
       <Project>{ca155b01-7528-4d81-b5cd-e801b4aa4027}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\HBAOPlusInterleaved\HBAOPlusInterleaved.vcxproj">
+      <Project>{3d9c1e43-9d48-4fa4-96ac-724f0b8bb73f}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\HBAOPlusNonInterleaved\HBAOPlusNonInterleaved.vcxproj">
+      <Project>{5709f7e1-ee49-4f7a-a0c6-0e09fdafb381}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\HBAOPlus\HBAOPlus.vcxproj">
       <Project>{30f55fe5-a6ca-479b-aa5d-3179b8453b0a}</Project>
     </ProjectReference>
