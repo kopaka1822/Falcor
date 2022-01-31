@@ -14,6 +14,7 @@ struct HBAOData
     float powerExponent = 2.0f;
 
     float2 noiseScale = float2(1, 1);
+    float2 invQuarterResolution; // for interleaved
 };
 
 END_NAMESPACE_FALCOR

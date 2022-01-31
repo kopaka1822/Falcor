@@ -6,4 +6,8 @@
   <ItemGroup>
     <ClInclude Include="HBAOPlusInterleaved.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="HBAOPlus.slang" />
+    <ShaderSource Include="HBAOData.slang" />
+  </ItemGroup>
 </Project>

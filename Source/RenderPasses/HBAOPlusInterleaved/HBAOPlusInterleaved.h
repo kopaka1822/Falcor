@@ -28,6 +28,8 @@
 #pragma once
 #include "Falcor.h"
 #include "FalcorExperimental.h"
+#include "HBAOData.slang"
+#include "../SSAO/DepthMode.h"
 
 using namespace Falcor;
 
@@ -46,13 +48,33 @@ public:
     virtual std::string getDesc() override;
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pContext, const CompileData& compileData) override {}
+    virtual void compile(RenderContext* pContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override { mpScene = pScene; }
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
+    void setRadius(float r);
+    void setDepthMode(DepthMode m);
+
+    std::vector<float4> genNoiseTexture();
 private:
-    HBAOPlusInterleaved() = default;
+    HBAOPlusInterleaved(const Dictionary& dict);
+
+    Fbo::SharedPtr mpFbo;
+    FullScreenPass::SharedPtr mpPass;
+
+    Sampler::SharedPtr mpTextureSampler;
+
+    Scene::SharedPtr mpScene;
+
+    DepthMode mDepthMode = DepthMode::DualDepth;
+    bool mEnabled = true;
+
+    HBAOData mData;
+    bool mDirty = true;
+
+    bool mReady = false;
+    std::vector<float4> mNoiseTexture;
 };

@@ -168,7 +168,7 @@ void HBAOPlusNonInterleaved::execute(RenderContext* pRenderContext, const Render
     if(mDirty)
     {
         // static data
-        mData.resolution = float2(pDepth->getWidth(), pDepth->getHeight());
+        mData.resolution = float2(renderData.getDefaultTextureDims().x, renderData.getDefaultTextureDims().y);
         mData.invResolution = float2(1.0f) / mData.resolution;
         mData.noiseScale = mData.resolution / 4.0f; // noise texture is 4x4 resolution
         mpPass["StaticCB"].setBlob(mData);
