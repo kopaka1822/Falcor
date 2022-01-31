@@ -32,6 +32,7 @@ Texture2D<float> gDepthTex;
 Texture2D<float> gDepthTex2;
 
 Texture2D gNormalTex;
+Texture2D gNoiseTex; // xy = random normalized direciton, zw = normalized random number => SNORM texture format
 
 
 float2 Rotate2D(float2 vec, float theta) // TODO use this
@@ -133,7 +134,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     float StepSizePixels = RadiusInPixels / (NUM_STEPS + 1);
 
     // TODO replace with texture lookup
-    float4 Rand = float4(1, 0, 0.5, 1);
+    float4 Rand = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale);
+    //Rand = float4(1, 0, 0.5, 1);
     const float Alpha = 2.0 * 3.141f / NUM_DIRECTIONS;
 
     float AO = 0.0;

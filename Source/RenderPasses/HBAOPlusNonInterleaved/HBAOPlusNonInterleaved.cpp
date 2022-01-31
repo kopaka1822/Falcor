@@ -27,6 +27,8 @@
  **************************************************************************/
 #include "HBAOPlusNonInterleaved.h"
 
+#include <glm/gtc/random.hpp>
+
 
 namespace
 {
@@ -91,6 +93,8 @@ HBAOPlusNonInterleaved::HBAOPlusNonInterleaved()
 
     setDualLayer(mDualLayer);
     setRadius(mData.radius);
+
+    mpNoiseTexture = genNoiseTexture();
 }
 
 RenderPassReflection HBAOPlusNonInterleaved::reflect(const CompileData& compileData)
@@ -125,10 +129,12 @@ void HBAOPlusNonInterleaved::execute(RenderContext* pRenderContext, const Render
     mpFbo->attachColorTarget(pAmbient, 0);
     mData.resolution = float2(pDepth->getWidth(), pDepth->getHeight());
     mData.invResolution = float2(1.0f) / mData.resolution;
+    mData.noiseScale = mData.resolution / 4.0f; // noise texture is 4x4 resolution
     mpPass["StaticCB"].setBlob(mData);
     pCamera->setShaderData(mpPass["PerFrameCB"]["gCamera"]);
     mpPass["gNoiseSampler"] = mpNoiseSampler;
     mpPass["gTextureSampler"] = mpTextureSampler;
+    mpPass["gNoiseTex"] = mpNoiseTexture;
     mpPass["gDepthTex"] = pDepth;
     mpPass["gDepthTex2"] = pDepth2;
     mpPass["gNormalTex"] = pNormal;
@@ -145,4 +151,22 @@ void HBAOPlusNonInterleaved::renderUI(Gui::Widgets& widget)
     widget.slider("Depth Bias", mData.NdotVBias, 0.0f, 0.5f);
     widget.slider("Power Exponent", mData.powerExponent, 1.0f, 4.0f);
     if (widget.checkbox("Dual Depth", mDualLayer)) setDualLayer(mDualLayer);
+}
+
+Texture::SharedPtr HBAOPlusNonInterleaved::genNoiseTexture()
+{
+    std::vector<uint32_t> data;
+    data.resize(4u * 4u);
+
+    std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
+    for (uint32_t i = 0; i < data.size(); i++)
+    {
+        // Random directions on the XY plane
+        auto theta = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
+        auto r1 = glm::linearRand(0.0f, 1.0f);
+        auto r2 = glm::linearRand(0.0f, 1.0f);
+        data[i] = glm::packSnorm4x8(float4(sin(theta), cos(theta), r1, r2));
+    }
+
+    return Texture::create2D(4, 4, ResourceFormat::RGBA8Snorm, 1, 1, data.data());
 }

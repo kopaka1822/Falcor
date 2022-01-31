@@ -56,6 +56,8 @@ public:
 
     void setRadius(float r);
     void setDualLayer(bool dual);
+
+    Texture::SharedPtr genNoiseTexture();
 private:
     HBAOPlusNonInterleaved();
 

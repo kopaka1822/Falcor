@@ -11,6 +11,7 @@ struct HBAOData
     float negInvRsq = -1.0f;
     float NdotVBias = 0.1f;
     float powerExponent = 2.0f;
+    float2 noiseScale = float2(1, 1);
 };
 
 END_NAMESPACE_FALCOR
