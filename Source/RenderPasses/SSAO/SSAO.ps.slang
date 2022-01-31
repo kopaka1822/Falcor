@@ -365,26 +365,21 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             else if (DEPTH_MODE == DEPTH_MODE_DUAL)
             {
                 float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
-                float linearSampleDepth2 = gDepthTex2.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
                 float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-                float3 samplePosV2 = UVToViewSpace(rasterSamplePosUV, linearSampleDepth2);
+                // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
                 float objectSpaceZ = dot(samplePosV - posV, normal);
-                float objectSpaceZ2 = dot(samplePosV2 - posV, normal);
-                float vis = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
-                float vis2 = calcVisibility(objectSpaceZ2, sphereStart, sphereEnd);
-                // TODO case for no dark halo sampling
-                if (PREVENT_DARK_HALOS)
-                    curVisibility = min(vis, vis2);
-                else
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                // look at second sample in this case
+                if (objectSpaceZ > sphereStart)
                 {
-                    // take first visibility that is inside sphere
-                    curVisibility = vis;
-                    if (objectSpaceZ > sphereStart)
-                        curVisibility = vis2;
+                    float linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
+                    float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
+                    // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+                    float objectSpaceZ = dot(samplePosV - posV, normal);
+                    curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
+                    if(objectSpaceZ > sphereStart) // both samples were before the sphere starts
+                        hybridRay = true;
                 }
-                // only require hybrid ray if none of the two samples were inside
-                if (objectSpaceZ > sphereStart && objectSpaceZ2 > sphereStart)
-                    hybridRay = true;
             }
             else // DEPTH_MODE_STOCHASTIC
             {

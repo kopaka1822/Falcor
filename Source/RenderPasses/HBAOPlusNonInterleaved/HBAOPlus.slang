@@ -176,12 +176,17 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             }
             else if (DEPTH_MODE == DEPTH_MODE_DUAL)
             {
-                float linearSampleDepth1 = gDepthTex.SampleLevel(gTextureSampler, snappedSampleUV, 0);
-                float linearSampleDepth2 = gDepthTex2.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+                float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, snappedSampleUV, 0);
                 // TODO? could check for depth == farZ
-                float3 S1 = UVToViewSpace(snappedSampleUV, linearSampleDepth1);
-                float3 S2 = UVToViewSpace(snappedSampleUV, linearSampleDepth2);
-                AO += max(ComputeAO(ViewPosition, ViewNormal, S1), ComputeAO(ViewPosition, ViewNormal, S2));
+                float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
+                float ao = 0.0;
+                [branch] if (RecomputeAO(ViewPosition, ViewNormal, S, ao))
+                {
+                    float linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+                    float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
+                    ao = max(ao, ComputeAO(ViewPosition, ViewNormal, S));
+                }
+                AO += ao;
             }
             else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
             {
