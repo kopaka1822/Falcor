@@ -35,7 +35,7 @@ Texture2D gNormalTex;
 Texture2D gNoiseTex; // xy = random normalized direciton, zw = normalized random number => SNORM texture format
 
 
-float2 Rotate2D(float2 vec, float theta) // TODO use this
+float2 Rotate2D(float2 vec, float theta)
 {
     float cosTheta = cos(theta);
     float sinTheta = sin(theta);
@@ -82,19 +82,13 @@ float GetAORadiusInPixels(float ViewDepth)
     return lerp(radiusUV.x * gData.resolution.x, radiusUV.y * gData.resolution.y, 0.5); // take mean between width and height radii TODO  test
 }
 
-float2 RotateDirection(float2 V, float2 RotationCosSin)
-{
-    // RotationCosSin is (cos(alpha),sin(alpha)) where alpha is the rotation angle
-    // A 2D rotation matrix is applied (see https://en.wikipedia.org/wiki/Rotation_matrix)
-    return float2(V.x * RotationCosSin.x - V.y * RotationCosSin.y,
-                  V.x * RotationCosSin.y + V.y * RotationCosSin.x);
-}
-
 // distance falloff function
 float Falloff(float DistanceSquare)
 {
     // 1.0 - (d*d)/(r*r)
     return DistanceSquare * gData.negInvRsq + 1.0;
+    //return 1.0 - DistanceSquare / (gData.radius * gData.radius);
+
 }
 
 // ambient occlusion kernel
@@ -125,7 +119,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         ViewNormal = -ViewNormal;
 
     float RadiusInPixels = GetAORadiusInPixels(linearDepth);
-
+    
     // early out when radius is too small
     [branch] if (RadiusInPixels < 1.0) return 1.0;
 
@@ -145,8 +139,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         float Angle = Alpha * float(i);
 
         // random normalized 2D direction
-        //float2 Direction = RotateDirection(Rand.xy, float2(cos(Angle), sin(Angle)));
-        float2 Direction = RotateDirection(float2(cos(Angle), sin(Angle)), Rand.xy);
+        float2 Direction = Rotate2D(Rand.xy, Angle);
 
         // Jitter starting sample within the first step
         float RayPixels = (Rand.z * StepSizePixels + 1.0);
