@@ -29,6 +29,7 @@
 #include "Falcor.h"
 #include "FalcorExperimental.h"
 #include "HBAOData.slang"
+#include "../SSAO/DepthMode.h"
 
 using namespace Falcor;
 
@@ -55,11 +56,11 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
     void setRadius(float r);
-    void setDualLayer(bool dual);
+    void setDepthMode(DepthMode m);
 
     Texture::SharedPtr genNoiseTexture();
 private:
-    HBAOPlusNonInterleaved();
+    HBAOPlusNonInterleaved(const Dictionary& d);
 
     Fbo::SharedPtr mpFbo;
     FullScreenPass::SharedPtr mpPass;
@@ -70,7 +71,7 @@ private:
 
     Scene::SharedPtr mpScene;
 
-    bool mDualLayer = true;
+    DepthMode mDepthMode = DepthMode::DualDepth;
     bool mEnabled = true;
 
     HBAOData mData;

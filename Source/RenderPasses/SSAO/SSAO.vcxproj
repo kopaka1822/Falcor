@@ -28,6 +28,7 @@
     <ClCompile Include="SSAO.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DepthMode.h" />
     <ClInclude Include="SSAO.h" />
   </ItemGroup>
   <ItemGroup>

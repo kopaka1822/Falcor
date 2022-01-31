@@ -34,6 +34,11 @@ namespace
     const std::string kDepth2 = "depth2";
     const std::string kNormal = "normals";
     const std::string kAmbientMap = "ambientMap";
+
+    const std::string kRadius = "radius";
+    const std::string kDualDepth = "dualDepth";
+    const std::string kDepthBias = "depthBias";
+    const std::string kExponent = "exponent";
 }
 
 // additional descriptors needed to pass in depth x2 and normals
@@ -58,7 +63,7 @@ extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 
 HBAOPlus::SharedPtr HBAOPlus::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new HBAOPlus);
+    SharedPtr pPass = SharedPtr(new HBAOPlus(dict));
     return pPass;
 }
 
@@ -66,10 +71,15 @@ std::string HBAOPlus::getDesc() { return kDesc; }
 
 Dictionary HBAOPlus::getScriptingDictionary()
 {
-    return Dictionary();
+    Dictionary d;
+    d[kRadius] = mparams.Radius;
+    d[kDualDepth] = bool(mparams.EnableDualLayerAO);
+    d[kDepthBias] = mparams.Bias;
+    d[kExponent] = mparams.PowerExponent;
+    return d;
 }
 
-HBAOPlus::HBAOPlus()
+HBAOPlus::HBAOPlus(const Dictionary& dict)
 {
     auto pDevice = gpDevice->getApiHandle();
 
@@ -96,6 +106,17 @@ HBAOPlus::HBAOPlus()
     mparams.Blur.Radius = GFSDK_SSAO_BLUR_RADIUS_4;
     mparams.Blur.Sharpness = 16.0f;
     mparams.EnableDualLayerAO = true;
+
+    // load from scripting dictionary
+    for (const auto& [key, value] : dict)
+    {
+        if (key == kRadius) mparams.Radius = value;
+        else if (key == kDualDepth) mparams.EnableDualLayerAO = bool(value);
+        else if (key == kDepthBias) mparams.Bias = value;
+        else if (key == kExponent) mparams.PowerExponent = value;
+        else logWarning("Unknown field '" + key + "' in a HBAOPlusNonInterleaved dictionary");
+    }
+
     // can be done to increase precision of linear depths:
     //mparams.DepthStorage = GFSDK_SSAO_DepthStorage::GFSDK_SSAO_FP32_VIEW_DEPTHS;
 }

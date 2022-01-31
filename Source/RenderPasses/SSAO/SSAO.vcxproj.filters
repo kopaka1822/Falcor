@@ -5,6 +5,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SSAO.h" />
+    <ClInclude Include="DepthMode.h" />
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="SSAO.ps.slang" />

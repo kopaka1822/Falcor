@@ -51,10 +51,10 @@ static void regSSAO(pybind11::module& m)
     shaderVariant.value("Raytracing", SSAO::ShaderVariant::Raytracing);
     shaderVariant.value("Hybrid", SSAO::ShaderVariant::Hybrid);
 
-    pybind11::enum_<SSAO::DepthMode> depthMode(m, "DepthMode");
-    depthMode.value("SingleDepth", SSAO::DepthMode::SingleDepth);
-    depthMode.value("DualDepth", SSAO::DepthMode::DualDepth);
-    depthMode.value("StochasticDepth", SSAO::DepthMode::StochasticDepth);
+    pybind11::enum_<Falcor::DepthMode> depthMode(m, "DepthMode");
+    depthMode.value("SingleDepth", Falcor::DepthMode::SingleDepth);
+    depthMode.value("DualDepth", Falcor::DepthMode::DualDepth);
+    depthMode.value("StochasticDepth", Falcor::DepthMode::StochasticDepth);
 }
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
@@ -82,9 +82,9 @@ namespace
 
     const Gui::DropdownList kDepthModeDropdown =
     {
-        { (uint32_t)SSAO::DepthMode::SingleDepth, "SingleDepth" },
-        { (uint32_t)SSAO::DepthMode::DualDepth, "DualDepth" },
-        { (uint32_t)SSAO::DepthMode::StochasticDepth, "StochasticDepth" },
+        { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
+        { (uint32_t)DepthMode::DualDepth, "DualDepth" },
+        { (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
     };
 
     const std::string kEnabled = "enabled";

@@ -40,6 +40,18 @@ namespace
     const std::string kAmbientMap = "ambientMap";
 
     const std::string kProgram = "RenderPasses/HBAOPlusNonInterleaved/HBAOPlus.slang";
+
+    const Gui::DropdownList kDepthModeDropdown =
+    {
+        { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
+        { (uint32_t)DepthMode::DualDepth, "DualDepth" },
+        { (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
+    };
+
+    const std::string kRadius = "radius";
+    const std::string kDepthMode = "depthMode";
+    const std::string kDepthBias = "depthBias";
+    const std::string kExponent = "exponent";
 }
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -55,7 +67,7 @@ extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 
 HBAOPlusNonInterleaved::SharedPtr HBAOPlusNonInterleaved::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new HBAOPlusNonInterleaved);
+    SharedPtr pPass = SharedPtr(new HBAOPlusNonInterleaved(dict));
     return pPass;
 }
 
@@ -63,7 +75,12 @@ std::string HBAOPlusNonInterleaved::getDesc() { return kDesc; }
 
 Dictionary HBAOPlusNonInterleaved::getScriptingDictionary()
 {
-    return Dictionary();
+    Dictionary d;
+    d[kRadius] = mData.radius;
+    d[kDepthMode] = mDepthMode;
+    d[kDepthBias] = mData.NdotVBias;
+    d[kExponent] = mData.powerExponent;
+    return d;
 }
 
 void HBAOPlusNonInterleaved::setRadius(float r)
@@ -72,14 +89,13 @@ void HBAOPlusNonInterleaved::setRadius(float r)
     mData.negInvRsq = -1.0f / (r * r);
 }
 
-void HBAOPlusNonInterleaved::setDualLayer(bool dual)
+void HBAOPlusNonInterleaved::setDepthMode(DepthMode m)
 {
-    mDualLayer = dual;
-    if(dual) mpPass->getProgram()->addDefine("DEPTH_MODE", "DEPTH_MODE_DUAL");
-    else mpPass->getProgram()->addDefine("DEPTH_MODE", "DEPTH_MODE_SINGLE");
+    mDepthMode = m;
+    mpPass->getProgram()->addDefine("DEPTH_MODE", std::to_string(uint32_t(m)));
 }
 
-HBAOPlusNonInterleaved::HBAOPlusNonInterleaved()
+HBAOPlusNonInterleaved::HBAOPlusNonInterleaved(const Dictionary& dict)
 {
     mpFbo = Fbo::create();
     mpPass = FullScreenPass::create(kProgram);
@@ -91,7 +107,17 @@ HBAOPlusNonInterleaved::HBAOPlusNonInterleaved()
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpTextureSampler = Sampler::create(samplerDesc);
 
-    setDualLayer(mDualLayer);
+    // load scripting data
+    for (const auto& [key, value] : dict)
+    {
+        if (key == kRadius) mData.radius = value;
+        else if (key == kDepthMode) mDepthMode = value;
+        else if (key == kDepthBias) mData.NdotVBias = value;
+        else if (key == kExponent) mData.powerExponent = value;
+        else logWarning("Unknown field '" + key + "' in a HBAOPlusNonInterleaved dictionary");
+    }
+
+    setDepthMode(mDepthMode);
     setRadius(mData.radius);
 
     mpNoiseTexture = genNoiseTexture();
@@ -150,7 +176,9 @@ void HBAOPlusNonInterleaved::renderUI(Gui::Widgets& widget)
 
     widget.slider("Depth Bias", mData.NdotVBias, 0.0f, 0.5f);
     widget.slider("Power Exponent", mData.powerExponent, 1.0f, 4.0f);
-    if (widget.checkbox("Dual Depth", mDualLayer)) setDualLayer(mDualLayer);
+    uint32_t depthMode = uint32_t(mDepthMode);
+    if (widget.dropdown("Depth Mode", kDepthModeDropdown, depthMode))
+        setDepthMode(DepthMode(depthMode));
 }
 
 Texture::SharedPtr HBAOPlusNonInterleaved::genNoiseTexture()

@@ -171,6 +171,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     }
 
     AO /= (NUM_DIRECTIONS * NUM_STEPS);
+    // artistic modifications
     float res = saturate(1.0 - AO * 2.0);
     res = pow(res, gData.powerExponent);
 

@@ -30,6 +30,7 @@
 #include "FalcorExperimental.h"
 #include "SSAOData.slang"
 #include "../Utils/GaussianBlur/GaussianBlur.h"
+#include "DepthMode.h"
 
 using namespace Falcor;
 
@@ -51,13 +52,6 @@ public:
         Raster = 0,
         Raytracing = 1,
         Hybrid = 2
-    };
-
-    enum class DepthMode : uint32_t
-    {
-        SingleDepth,
-        DualDepth,
-        StochasticDepth
     };
 
     static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});

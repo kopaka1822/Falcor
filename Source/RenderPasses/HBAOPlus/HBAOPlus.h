@@ -57,7 +57,7 @@ public:
 
     ~HBAOPlus();
 private:
-    HBAOPlus();
+    HBAOPlus(const Dictionary& dict);
 
     ID3D12DescriptorHeap* mSSAODescriptorHeapCBVSRVUAV = nullptr;
     ID3D12DescriptorHeap* mSSAODescriptorHeapRTV = nullptr;
