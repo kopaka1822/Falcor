@@ -36,6 +36,7 @@ namespace
 
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
+    const std::string ksDepth = "stochasticDepth";
     const std::string kNormal = "normals";
     const std::string kAmbientMap = "ambientMap";
 
@@ -87,6 +88,7 @@ void HBAOPlusNonInterleaved::setRadius(float r)
 {
     mData.radius = r;
     mData.negInvRsq = -1.0f / (r * r);
+    mDirty = true;
 }
 
 void HBAOPlusNonInterleaved::setDepthMode(DepthMode m)
@@ -130,8 +132,20 @@ RenderPassReflection HBAOPlusNonInterleaved::reflect(const CompileData& compileD
     reflector.addInput(kDepth, "linear-depth").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepth2, "linear-depth2").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormal, "normals").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(ksDepth, "linearized stochastic depths").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 0);
     reflector.addOutput(kAmbientMap, "ambient occlusion").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Unorm);
     return reflector;
+}
+
+void HBAOPlusNonInterleaved::compile(RenderContext* pContext, const CompileData& compileData)
+{
+    mDirty = true;
+
+    // static defines
+    auto sdepths = compileData.connectedResources.getField(ksDepth);
+    if (!sdepths) return;
+
+    mpPass->getProgram()->addDefine("MSAA_SAMPLES", std::to_string(sdepths->getSampleCount()));
 }
 
 void HBAOPlusNonInterleaved::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -140,6 +154,7 @@ void HBAOPlusNonInterleaved::execute(RenderContext* pRenderContext, const Render
 
     auto pDepth = renderData[kDepth]->asTexture();
     auto pDepth2 = renderData[kDepth2]->asTexture();
+    auto psDepth = renderData[ksDepth]->asTexture();
     auto pNormal = renderData[kNormal]->asTexture();
     auto pAmbient = renderData[kAmbientMap]->asTexture();
 
@@ -150,32 +165,43 @@ void HBAOPlusNonInterleaved::execute(RenderContext* pRenderContext, const Render
         return;
     }
 
+    if(mDirty)
+    {
+        // static data
+        mData.resolution = float2(pDepth->getWidth(), pDepth->getHeight());
+        mData.invResolution = float2(1.0f) / mData.resolution;
+        mData.noiseScale = mData.resolution / 4.0f; // noise texture is 4x4 resolution
+        mpPass["StaticCB"].setBlob(mData);
+
+        mpPass["gNoiseSampler"] = mpNoiseSampler;
+        mpPass["gTextureSampler"] = mpTextureSampler;
+        mpPass["gNoiseTex"] = mpNoiseTexture;
+        mDirty = false;
+    }
+
     auto pCamera = mpScene->getCamera().get();
 
     mpFbo->attachColorTarget(pAmbient, 0);
-    mData.resolution = float2(pDepth->getWidth(), pDepth->getHeight());
-    mData.invResolution = float2(1.0f) / mData.resolution;
-    mData.noiseScale = mData.resolution / 4.0f; // noise texture is 4x4 resolution
-    mpPass["StaticCB"].setBlob(mData);
     pCamera->setShaderData(mpPass["PerFrameCB"]["gCamera"]);
-    mpPass["gNoiseSampler"] = mpNoiseSampler;
-    mpPass["gTextureSampler"] = mpTextureSampler;
-    mpPass["gNoiseTex"] = mpNoiseTexture;
     mpPass["gDepthTex"] = pDepth;
     mpPass["gDepthTex2"] = pDepth2;
     mpPass["gNormalTex"] = pNormal;
+    mpPass["gsDepthTex"] = psDepth;
 
     mpPass->execute(pRenderContext, mpFbo);
 }   
 
 void HBAOPlusNonInterleaved::renderUI(Gui::Widgets& widget)
 {
+    widget.checkbox("Enabled", mEnabled);
+    if (!mEnabled) return;
+
     float radius = mData.radius;
     if (widget.var("Radius", radius, 0.01f, FLT_MAX, 0.01f))
         setRadius(radius);
 
-    widget.slider("Depth Bias", mData.NdotVBias, 0.0f, 0.5f);
-    widget.slider("Power Exponent", mData.powerExponent, 1.0f, 4.0f);
+    if (widget.slider("Depth Bias", mData.NdotVBias, 0.0f, 0.5f)) mDirty = true;
+    if (widget.slider("Power Exponent", mData.powerExponent, 1.0f, 4.0f)) mDirty = true;
     uint32_t depthMode = uint32_t(mDepthMode);
     if (widget.dropdown("Depth Mode", kDepthModeDropdown, depthMode))
         setDepthMode(DepthMode(depthMode));

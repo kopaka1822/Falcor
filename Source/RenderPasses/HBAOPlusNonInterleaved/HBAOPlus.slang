@@ -15,6 +15,10 @@ import HBAOData;
 #define DEPTH_MODE DEPTH_MODE_DUAL
 #endif
 
+#ifndef MSAA_SAMPLES
+#define MSAA_SAMPLES 1
+#endif
+
 cbuffer StaticCB
 {
     HBAOData gData;
@@ -30,6 +34,7 @@ SamplerState gTextureSampler;
 
 Texture2D<float> gDepthTex;
 Texture2D<float> gDepthTex2;
+Texture2DMS<float> gsDepthTex;
 
 Texture2D gNormalTex;
 Texture2D gNoiseTex; // xy = random normalized direciton, zw = normalized random number => SNORM texture format
@@ -104,6 +109,19 @@ float ComputeAO(float3 P, float3 N, float3 S)
     return saturate(NdotV - gData.NdotVBias) * saturate(Falloff(VdotV));
 }
 
+// returns true if the given sample requires more depth layers
+bool RecomputeAO(float3 P, float3 N, float3 S, inout float ao)
+{
+    float3 V = S - P;
+    float VdotV = dot(V, V);
+    float NdotV = dot(N, V) * rsqrt(VdotV);
+
+    float angleTerm = saturate(NdotV - gData.NdotVBias);
+    float distanceTerm = saturate(Falloff(VdotV));
+    ao = angleTerm * distanceTerm;
+    return angleTerm > 0.0 && distanceTerm <= 0.0; // sample is in positive hemisphere but further away than the radius
+}
+
 float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
@@ -164,6 +182,29 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 float3 S1 = UVToViewSpace(snappedSampleUV, linearSampleDepth1);
                 float3 S2 = UVToViewSpace(snappedSampleUV, linearSampleDepth2);
                 AO += max(ComputeAO(ViewPosition, ViewNormal, S1), ComputeAO(ViewPosition, ViewNormal, S2));
+            }
+            else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
+            {
+                float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+                // TODO? could check for depth == farZ
+                float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
+                float ao = 0.0;
+                [branch] if (RecomputeAO(ViewPosition, ViewNormal, S, ao))
+                {
+                    // TODO try to use sampler
+                    int2 pixelCoord = int2(floor(snappedSampleUV * gData.resolution));
+                    const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
+                    const float depthOffset = gCamera.data.nearZ;
+                    [unroll] for (uint i = 0; i < MSAA_SAMPLES; ++i)
+                    {
+                        float linearSampleDepth = gsDepthTex.Load(pixelCoord, i);
+                        // linearSampleDepth is in [0, 1] => scale accordingly
+                        linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
+                        float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
+                        ao = max(ao, ComputeAO(ViewPosition, ViewNormal, S));
+                    }
+                }
+                AO += ao;
             }
 
             RayPixels += StepSizePixels;
