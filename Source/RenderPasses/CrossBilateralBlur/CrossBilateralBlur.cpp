@@ -124,6 +124,9 @@ void CrossBilateralBlur::compile(RenderContext* pContext, const CompileData& com
 
     mpBlurX["gSampler"] = mpSampler;
     mpBlurY["gSampler"] = mpSampler;
+
+    if ((compileData.defaultTexDims.x % 4 != 0) || (compileData.defaultTexDims.y % 4 != 0))
+        logWarning("CrossBilateralBlur textures pixels are not a mutliple of size 4, this might results in artifacts!");
 }
 
 void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData& renderData)

@@ -112,7 +112,7 @@ static int gInvalid = 0;
 float2 getScreenClampedUV(float2 uvstart, float2 uvend)
 {
     return saturate(uvend); // this actually does not make much of a difference but costs a little bit more...
-    float2 satuv = saturate(uvend);
+    /*float2 satuv = saturate(uvend);
     if (all(satuv == uvend))
         return uvend;
 
@@ -135,7 +135,7 @@ float2 getScreenClampedUV(float2 uvstart, float2 uvend)
         uvend.x = t * uvstart.x + (1.0 - t) * uvend.x;
     }
     
-    return uvend;
+    return uvend;*/
 }
 
 float2 getSnappedUV(float2 uv)
