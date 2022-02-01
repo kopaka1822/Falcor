@@ -144,12 +144,25 @@ namespace Falcor
             // Write errors to stderr unconditionally, other messages to stdout if enabled.
             if (level > Logger::Level::Error)
             {
-                if (sLogToConsole) std::cout << s;
+                if (sLogToConsole) {
+                    static HANDLE coutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+                    if(level == Level::Warning) SetConsoleTextAttribute(coutHandle, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                    if(level == Level::Debug) SetConsoleTextAttribute(coutHandle, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                    std::cout << s;
+                    std::cout.flush();
+                    SetConsoleTextAttribute(coutHandle, 7); // default color
+                }
             }
             else
             {
+                // color errors red
+                static HANDLE cerrHandle = GetStdHandle(STD_ERROR_HANDLE);
+                SetConsoleTextAttribute(cerrHandle, FOREGROUND_RED | FOREGROUND_INTENSITY);
                 std::cerr << s;
+
             }
+
+
         }
 #endif
 
