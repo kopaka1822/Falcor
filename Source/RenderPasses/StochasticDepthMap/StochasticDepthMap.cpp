@@ -40,6 +40,7 @@ namespace
     const std::string kAlpha = "Alpha";
     const std::string kCullMode = "CullMode";
     const std::string kLinearize = "linearize";
+    const std::string kDepthFormat = "depthFormat";
 
     const Gui::DropdownList kCullModeList =
     {
@@ -154,6 +155,7 @@ void StochasticDepthMap::parseDictionary(const Dictionary& dict)
         else if (key == kAlpha) mAlpha = value;
         else if (key == kCullMode) mCullMode = value;
         else if (key == kLinearize) mLinearizeDepth = value;
+        else if (key == kDepthFormat) mDepthFormat = value;
         else logWarning("Unknown field '" + key + "' in a DepthPass dictionary");
     }
 }
@@ -167,6 +169,7 @@ Dictionary StochasticDepthMap::getScriptingDictionary()
     d[kAlpha] = mAlpha;
     d[kCullMode] = mCullMode;
     d[kLinearize] = mLinearizeDepth;
+    d[kDepthFormat] = mDepthFormat;
     return d;
 }
 
@@ -175,7 +178,7 @@ RenderPassReflection StochasticDepthMap::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addInput(kDepthIn, "non-linear (primary) depth map").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addOutput(ksDepth, "stochastic depths in [0,1]").bindFlags(ResourceBindFlags::AllDepthViews).format(Falcor::ResourceFormat::D32Float).texture2D(0, 0, mSampleCount);
+    reflector.addOutput(ksDepth, "stochastic depths in [0,1]").bindFlags(ResourceBindFlags::AllDepthViews).format(mDepthFormat).texture2D(0, 0, mSampleCount);
     reflector.addOutput(kDebug, "single msaa layer").bindFlags(ResourceBindFlags::AllColorViews).format(Falcor::ResourceFormat::R32Float).texture2D(0, 0, 1).flags(RenderPassReflection::Field::Flags::Optional);
     return reflector;
 }
@@ -248,8 +251,23 @@ void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData
     }
 }
 
+static const Gui::DropdownList kDepthFormats =
+{
+    { (uint32_t)ResourceFormat::D16Unorm, "D16Unorm"},
+    { (uint32_t)ResourceFormat::D32Float, "D32Float" },
+    //{ (uint32_t)ResourceFormat::D24UnormS8, "D24UnormS8" },
+    //{ (uint32_t)ResourceFormat::D32FloatS8X24, "D32FloatS8X24" },
+};
+
 void StochasticDepthMap::renderUI(Gui::Widgets& widget)
 {
+    uint32_t depthFormat = (uint32_t)mDepthFormat;
+    if (widget.dropdown("Buffer Format", kDepthFormats, depthFormat))
+    {
+        mDepthFormat = ResourceFormat(depthFormat);
+        mPassChangedCB();
+    }
+
     uint32_t cullMode = (uint32_t)mCullMode;
     if (widget.dropdown("Cull mode", kCullModeList, cullMode))
         mCullMode = (RasterizerState::CullMode)cullMode;

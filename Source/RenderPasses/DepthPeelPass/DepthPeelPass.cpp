@@ -38,6 +38,7 @@ namespace
     const std::string kDepthPeelProgram = "RenderPasses/DepthPeelPass/DepthPeel.slang";
 
     const std::string kCullMode = "cullMode";
+    const std::string kDepthFormat = "depthFormat";
 
     const Gui::DropdownList kCullModeList =
     {
@@ -70,6 +71,7 @@ Dictionary DepthPeelPass::getScriptingDictionary()
 {
     Dictionary d;
     d[kCullMode] = mCullMode;
+    d[kDepthFormat] = mDepthFormat;
     return Dictionary();
 }
 
@@ -86,6 +88,7 @@ DepthPeelPass::DepthPeelPass(const Dictionary& dict)
     for (const auto& [key, value] : dict)
     {
         if (key == kCullMode) mCullMode = value;
+        else if (key == kDepthFormat) mDepthFormat = value;
         else logWarning("Unknown field '" + key + "' in a DepthPeelPass dictionary");
     }
 }
@@ -95,27 +98,14 @@ RenderPassReflection DepthPeelPass::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     auto& inField = reflector.addInput(kDepthIn, "non-linearized depth").bindFlags(ResourceBindFlags::ShaderResource);
-    auto& outField = reflector.addOutput(kDepthOut, "next layer of depth (non-linear)").format(ResourceFormat::D32Float).bindFlags(ResourceBindFlags::AllDepthViews); // set backup depth format
-    mReady = false;
+    auto& outField = reflector.addOutput(kDepthOut, "next layer of depth (non-linear)").format(mDepthFormat).bindFlags(ResourceBindFlags::AllDepthViews); // set backup depth format
 
-    // set proper format for output resource
-    auto edge = compileData.connectedResources.getField(kDepthIn);
-    if(edge)
-    {
-        const auto inputFormat = edge->getFormat();
-        const auto srcWidth = edge->getWidth();
-        const auto srcHeight = edge->getHeight();
-
-        outField.format(inputFormat).texture2D(srcWidth, srcHeight, 1, 1, 1);
-        mReady = true;
-    }
 
     return reflector;
 }
 
 void DepthPeelPass::compile(RenderContext* pContext, const CompileData& compileData)
 {
-    if (!mReady) throw std::runtime_error("DepthPeelPass::compile - missing incoming reflection information");
 }
 
 void DepthPeelPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -152,9 +142,26 @@ void DepthPeelPass::setScene(RenderContext* pRenderContext, const Scene::SharedP
     mpDepthPeelVars = GraphicsVars::create(mpDepthPeelState->getProgram()->getReflector());
 }
 
+static const Gui::DropdownList kDepthFormats =
+{
+    { (uint32_t)ResourceFormat::D16Unorm, "D16Unorm"},
+    { (uint32_t)ResourceFormat::D32Float, "D32Float" },
+    //{ (uint32_t)ResourceFormat::D24UnormS8, "D24UnormS8" },
+    //{ (uint32_t)ResourceFormat::D32FloatS8X24, "D32FloatS8X24" },
+};
+
 void DepthPeelPass::renderUI(Gui::Widgets& widget)
 {
+    uint32_t depthFormat = (uint32_t)mDepthFormat;
+    if (widget.dropdown("Buffer Format", kDepthFormats, depthFormat))
+    {
+        mDepthFormat = ResourceFormat(depthFormat);
+        mPassChangedCB();
+    }
+
     uint32_t cullMode = (uint32_t)mCullMode;
     if (widget.dropdown("Cull mode", kCullModeList, cullMode))
         mCullMode = (RasterizerState::CullMode)cullMode;
+
+
 }

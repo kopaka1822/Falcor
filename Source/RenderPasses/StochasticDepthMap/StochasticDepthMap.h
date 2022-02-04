@@ -76,4 +76,6 @@ private:
     float mAlpha = 0.2f;
 
     bool mLinearizeDepth = true;
+
+    ResourceFormat mDepthFormat = ResourceFormat::D32Float;
 };

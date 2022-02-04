@@ -64,5 +64,5 @@ private:
     RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
     Scene::SharedPtr mpScene;
 
-    bool mReady = false;
+    ResourceFormat mDepthFormat = ResourceFormat::D32Float;
 };

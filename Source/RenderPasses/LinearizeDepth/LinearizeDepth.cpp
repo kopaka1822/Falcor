@@ -34,6 +34,8 @@ namespace
     const std::string kDepthIn = "depth";
     const std::string kDepthOut = "linearDepth";
     const std::string kShaderFilename = "RenderPasses/LinearizeDepth/linearize.slang";
+
+    const std::string kDepthFormat = "depthFormat";
 }
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -49,7 +51,7 @@ extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 
 LinearizeDepth::SharedPtr LinearizeDepth::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new LinearizeDepth);
+    SharedPtr pPass = SharedPtr(new LinearizeDepth(dict));
     return pPass;
 }
 
@@ -57,10 +59,12 @@ std::string LinearizeDepth::getDesc() { return kDesc; }
 
 Dictionary LinearizeDepth::getScriptingDictionary()
 {
-    return Dictionary();
+    Dictionary d;
+    d[kDepthFormat] = mDepthFormat;
+    return d;
 }
 
-LinearizeDepth::LinearizeDepth()
+LinearizeDepth::LinearizeDepth(const Dictionary& dict)
 {
     mpPass = FullScreenPass::create(kShaderFilename);
     Sampler::Desc samplerDesc;
@@ -68,6 +72,12 @@ LinearizeDepth::LinearizeDepth()
     mpPass["s"] = Sampler::create(samplerDesc);
 
     mpFbo = Fbo::create();
+
+    for (const auto& [key, value] : dict)
+    {
+        if (key == kDepthFormat) mDepthFormat = value;
+        else logWarning("Unknown field '" + key + "' in a LinearizeDepth dictionary");
+    }
 }
 
 RenderPassReflection LinearizeDepth::reflect(const CompileData& compileData)
@@ -75,7 +85,7 @@ RenderPassReflection LinearizeDepth::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addInput(kDepthIn, "non-linear depth").bindFlags(Resource::BindFlags::ShaderResource);
-    reflector.addOutput(kDepthOut, "linear view-depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews);
+    reflector.addOutput(kDepthOut, "linear view-depth").format(mDepthFormat).bindFlags(ResourceBindFlags::AllColorViews);
     return reflector;
 }
 
@@ -104,6 +114,18 @@ void LinearizeDepth::execute(RenderContext* pRenderContext, const RenderData& re
     mpPass->execute(pRenderContext, mpFbo);
 }
 
+static const Gui::DropdownList kDepthFormats =
+{
+    { (uint32_t)ResourceFormat::R16Float, "R16Float"},
+    { (uint32_t)ResourceFormat::R32Float, "R32Float" },
+};
+
 void LinearizeDepth::renderUI(Gui::Widgets& widget)
 {
+    uint32_t depthFormat = (uint32_t)mDepthFormat;
+    if (widget.dropdown("Buffer Format", kDepthFormats, depthFormat))
+    {
+        mDepthFormat = ResourceFormat(depthFormat);
+        mPassChangedCB();
+    }
 }

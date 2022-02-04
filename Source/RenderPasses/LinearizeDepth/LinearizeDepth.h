@@ -54,7 +54,7 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    LinearizeDepth();
+    LinearizeDepth(const Dictionary& dict);
 
     FullScreenPass::SharedPtr mpPass;
     Fbo::SharedPtr mpFbo;
@@ -62,4 +62,6 @@ private:
 
     float mLastZNear = 0.0f;
     float mLastZFar = 0.0f;
+
+    ResourceFormat mDepthFormat = ResourceFormat::R32Float;
 };
