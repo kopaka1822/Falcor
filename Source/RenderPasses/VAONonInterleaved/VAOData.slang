@@ -28,15 +28,15 @@
 #pragma once
 #include "Utils/HostDeviceShared.slangh"
 
+#define NUM_DIRECTIONS 8
+
 BEGIN_NAMESPACE_FALCOR
 
-struct SSAOData
+struct VAOData
 {
-    static const uint32_t kMaxSamples = 32;
-
-    float4 sampleKernel[kMaxSamples];
+    //float2 samples[NUM_DIRECTIONS];
+    float4 samples[NUM_DIRECTIONS]; // TODO pack this
     float2 noiseScale = float2(1, 1);
-    uint32_t kernelSize = 8;
     float radius = 0.5f;
     float exponent = 1.0f;
 };

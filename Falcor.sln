@@ -122,6 +122,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HBAOPlusInterleaved", "Sour
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HBAOPlusNonInterleaved", "Source\RenderPasses\HBAOPlusNonInterleaved\HBAOPlusNonInterleaved.vcxproj", "{5709F7E1-EE49-4F7A-A0C6-0E09FDAFB381}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "VAONonInterleaved", "Source\RenderPasses\VAONonInterleaved\VAONonInterleaved.vcxproj", "{B1110211-2F62-4195-AC8D-BCD758F07654}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		DebugD3D12|x64 = DebugD3D12|x64
@@ -328,6 +330,10 @@ Global
 		{5709F7E1-EE49-4F7A-A0C6-0E09FDAFB381}.DebugD3D12|x64.Build.0 = Debug|x64
 		{5709F7E1-EE49-4F7A-A0C6-0E09FDAFB381}.ReleaseD3D12|x64.ActiveCfg = Release|x64
 		{5709F7E1-EE49-4F7A-A0C6-0E09FDAFB381}.ReleaseD3D12|x64.Build.0 = Release|x64
+		{B1110211-2F62-4195-AC8D-BCD758F07654}.DebugD3D12|x64.ActiveCfg = Debug|x64
+		{B1110211-2F62-4195-AC8D-BCD758F07654}.DebugD3D12|x64.Build.0 = Debug|x64
+		{B1110211-2F62-4195-AC8D-BCD758F07654}.ReleaseD3D12|x64.ActiveCfg = Release|x64
+		{B1110211-2F62-4195-AC8D-BCD758F07654}.ReleaseD3D12|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -382,6 +388,7 @@ Global
 		{0713EC42-FC34-4C01-8FCB-AC29F48675A4} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 		{3D9C1E43-9D48-4FA4-96AC-724F0B8BB73F} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 		{5709F7E1-EE49-4F7A-A0C6-0E09FDAFB381} = {D16038A7-B031-4181-B4A1-2C416C02330C}
+		{B1110211-2F62-4195-AC8D-BCD758F07654} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {357B2AE0-FE30-4AC6-8D41-B580232BC0DE}

@@ -148,6 +148,9 @@
     <ProjectReference Include="..\RenderPasses\Utils\Utils.vcxproj">
       <Project>{bca3ccd2-6118-4821-bf30-23b725b0c230}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\VAONonInterleaved\VAONonInterleaved.vcxproj">
+      <Project>{b1110211-2f62-4195-ac8d-bcd758f07654}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\WhittedRayTracer\WhittedRayTracer.vcxproj">
       <Project>{431c3127-e613-424c-b964-fb53daa87789}</Project>
     </ProjectReference>

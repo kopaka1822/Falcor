@@ -154,9 +154,9 @@ RenderPassReflection SSAO::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").flags(RenderPassReflection::Field::Flags::Optional).bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(kNormals, "World space normals, [0, 1] range").flags(RenderPassReflection::Field::Flags::Optional).bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(ksDepth, "Linear Stochastic Depth Map").flags(RenderPassReflection::Field::Flags::Optional).texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(AMBIENT_MAP_FORMAT);
     
     return reflector;
