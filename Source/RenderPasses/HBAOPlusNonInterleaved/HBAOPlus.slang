@@ -70,21 +70,10 @@ float2 ViewSpaceToUV(float3 posV)
     return ndc * float2(-0.5, 0.5) + 0.5; // since posV.z is negative, the sign order is inversed
 }
 
-// z: positive linear depth in view space
-// r: radius in view/world space
-float2 ViewSpaceRadiusToUVRadius(float z, float r)
-{
-    const float2 imageScale = 0.5 * float2(gCamera.data.frameWidth / gCamera.data.focalLength, gCamera.data.frameHeight / gCamera.data.focalLength);
-    float2 ndc = float2(r) / (imageScale * z); // radius in normalized device coordinates
-    return ndc * 0.5; // scale to uv radius
-}
-
 float GetAORadiusInPixels(float ViewDepth)
 {
-    // convert radius to screen pixels
-    float2 radiusUV = ViewSpaceRadiusToUVRadius(ViewDepth, gData.radius);
-    // convert uv radius to pixel radius
-    return lerp(radiusUV.x * gData.resolution.x, radiusUV.y * gData.resolution.y, 0.5); // take mean between width and height radii TODO  test
+    float uvRadius = (gData.radius * gCamera.data.focalLength) / (ViewDepth * gCamera.data.frameWidth);
+    return uvRadius * gData.resolution.x;
 }
 
 // distance falloff function
@@ -149,12 +138,13 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     float4 Rand = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale);
     //Rand = float4(1, 0, 0.5, 1);
     const float Alpha = 2.0 * 3.141f / NUM_DIRECTIONS;
+    //const float AngleOffset = 2.0f * 3.141f * Rand.w;
 
     float AO = 0.0;
     // sample NUM_DIRECTIONS directions on the view space disc
     [unroll] for (int i = 0; i < NUM_DIRECTIONS; ++i)
     {
-        float Angle = Alpha * float(i);
+        float Angle = Alpha * float(i); // + AngleOffset;
 
         // random normalized 2D direction
         float2 Direction = Rotate2D(Rand.xy, Angle);

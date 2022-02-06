@@ -158,49 +158,50 @@ float calcVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
          + calcHaloVisibility(objectSpaceZ, sphereStart, sphereEnd);
 }
 
+float getAORadiusInPixels(float viewZ)
+{
+    float uvRadius = (gData.radius * gCamera.data.focalLength) / (viewZ * gCamera.data.frameWidth);
+    return uvRadius * gData.resolution.x;
+}
+
 float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
     if (linearDepth >= gCamera.data.farZ)
         return 1.0f;
 
+    float radiusInPixels = getAORadiusInPixels(linearDepth);
+    if (radiusInPixels < 1.0)
+        return 1.0;
+
     // view space position of current pixel
     const float3 posV = UVToViewSpace(texC, linearDepth);
-    const float posVLength = length(posV);
+    //const float posVLength = length(posV);
 
     // view space normal of current pixel
     float3 normalW = gNormalTex.Sample(gTextureSampler, texC).xyz;
     float3 normalV = mul(normalW, float3x3(gCamera.data.viewMat));
-    if (dot(posV, normalV) > 0.0) // front face normals
-        normalV = -normalV;
+    // TODO front face normals?
+    //if (dot(posV, normalV) > 0.0) // front face normals
+    //if (normalV.z > 0.0)
+    //    normalV = -normalV;
+    normalV.y = -normalV.y; // y needs to be reversed because texture cordinate y is opposite of screen space
 
     // Calculate tangent space (use random direction for tangent orientation)
-    float2 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xy;
-    randDir = normalize(randDir); // should be normalized by default, but precision is lost in texture format
-    //randDir = float2(1.0f, 0.0f);
-    
-    // determine tangent space
-    float3 normal = -posV / posVLength;
-    float3 bitangent = normalize(cross(normal, float3(randDir, 0.0f)));
-    float3 tangent = cross(bitangent, normal);
-    
-
-    // transfer view space normal to normal in object coordinates of the sampling sphere
-    float3 normalO = float3(dot(normalV, tangent), dot(normalV, bitangent), dot(normalV, normal));
+    float alphaOffset = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).x;
     
     float visibility = 0.0f;
 
     for (uint i = 0; i < NUM_DIRECTIONS; i++)
     {
-        // obtain sample position on disc around view space position
-        float2 rand = gData.samples[i].xy; // xy = random location on unit disc
-        rand.xy *= gData.radius; // multiply 2D position with sample radius
-        
-        // height of the sphere at the requested sample position (not at the actual sampling position)
-        const float sphereHeight = sqrt(gData.radius * gData.radius - dot(rand.xy, rand.xy));
-        // probability for choosing this sample
-        const float pdf = 2.0 * sphereHeight;
-        //float adaptiveHaloHeight = sqrt((gData.radius + HALO_RADIUS) * (gData.radius + HALO_RADIUS) - dot(rand.xy, rand.xy));
+        // random angle on view space disc
+        float alpha = (float(i) / NUM_DIRECTIONS + alphaOffset) * 2.0 * 3.141;
+        float radius = gData.samples[i].x;
+        float2 dir = radius * float2(sin(alpha), cos(alpha));
+
+        float2 offsetInPixels = round(dir * radiusInPixels);
+
+        const float sphereHeight = sqrt(1.0f - radius * radius) * gData.radius;
 
         // determine distance within [-sphereHeight, +sphereHeight]
         float sphereStart = sphereHeight; // in object coordinates (bigger is closer to the camera)
@@ -208,9 +209,9 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         { // HEMISPHERE SAMPLING
             //float zIntersect = -dot(rand.xy, normalO.xy) / normalO.z;
-            float zIntersect = -dot(rand.xy, normalO.xy) / makeNonZero(normalO.z, 0.0001);
+            float zIntersect = -gData.radius *  dot(dir.xy, normalV.xy) / makeNonZero(normalV.z, 0.0001);
             float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
-            if (normalO.z >= 0.0)
+            if (normalV.z >= 0.0)
                 sphereEnd = zIntersectClamped;
             else
                 sphereStart = zIntersectClamped;
@@ -219,14 +220,18 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
         if (sphereStart - sphereEnd < 0.01)
         {
-            continue;
+            continue; // skip sample (no visibility)
+        }
+        if (all(offsetInPixels == float2(0.0f)))
+        {
+            visibility += (sphereStart - sphereEnd) / (2.0 * sphereHeight);
+            continue; // skip sample (full visibility)
+
         }
 
-        // calculate view position of sample and project to uv coordinates
-        float3 initialSamplePosV = posV + tangent * rand.x + bitangent * rand.y;
-        float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
+        // sample position (guaranteed to be at a centered pixel)
+        float2 samplePosUV = texC + offsetInPixels * gData.invResolution;
         float curVisibility = 0.0f;
-
         bool hybridRay = false;
 
         { // RASTER PART
@@ -234,6 +239,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
             if (any(samplePosUV != screenUv))
                 hybridRay = true; // always shoot rays for screen border
+            // TODO adjust this
             float2 rasterSamplePosUV = screenUv;
             rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
             //if (isSamePixel(samplePosUV, texC))
@@ -242,10 +248,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             if (DEPTH_MODE == DEPTH_MODE_SINGLE)
             {
                 float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
-                // TODO? could check for depth == farZ
-                float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-                // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
-                float objectSpaceZ = dot(samplePosV - posV, normal);
+                float objectSpaceZ = linearDepth - linearSampleDepth;
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                 // require hybrid ray if intersection is outside of sphere radius
                 if (objectSpaceZ > sphereStart)
@@ -254,17 +257,13 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             else if (DEPTH_MODE == DEPTH_MODE_DUAL)
             {
                 float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
-                float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-                // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
-                float objectSpaceZ = dot(samplePosV - posV, normal);
+                float objectSpaceZ = linearDepth - linearSampleDepth;
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                 // look at second sample in this case
                 if (objectSpaceZ > sphereStart)
                 {
                     float linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
-                    float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-                    // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
-                    float objectSpaceZ = dot(samplePosV - posV, normal);
+                    float objectSpaceZ = linearDepth - linearSampleDepth;
                     curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
                     if (objectSpaceZ > sphereStart) // both samples were before the sphere starts
                         hybridRay = true;
@@ -273,10 +272,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             else // DEPTH_MODE_STOCHASTIC
             {
                 float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
-                // TODO? could check for depth == farZ
-                float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-                // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
-                float objectSpaceZ = dot(samplePosV - posV, normal);
+                float objectSpaceZ = linearDepth - linearSampleDepth;
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                 // look at stochastic samples int this case
                 if (objectSpaceZ > sphereStart)
@@ -294,8 +290,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                         float linearSampleDepth = gsDepthTex.Load(pixelCoord, i);
                         // linearSampleDepth is in [0, 1] => scale accordingly
                         linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
-                        float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-                        float objectSpaceZ = dot(samplePosV - posV, normal);
+                        float objectSpaceZ = linearDepth - linearSampleDepth;
                         float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                         curVisibility = min(curVisibility, newVisibility);
                     }
@@ -304,7 +299,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             }
         }
 
-        if (USE_RAYS && hybridRay)
+        /*if (USE_RAYS && hybridRay)
         {
             gRaysTraced += 1;
             
@@ -380,8 +375,9 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float haloVisibility = calcHaloVisibility(haloZ, sphereStart, sphereEnd);
 
             curVisibility =  min(sphereVisibility, haloVisibility); // divide sampled range by pdf (monte carlo)
-        }
+        }*/
 
+        const float pdf = 2.0 * sphereHeight;
         visibility += curVisibility / pdf;
     }
 
