@@ -34,8 +34,6 @@ BEGIN_NAMESPACE_FALCOR
 
 struct VAOData
 {
-    //float2 samples[NUM_DIRECTIONS];
-    float4 samples[NUM_DIRECTIONS]; // TODO pack this
     float2 noiseScale = float2(1, 1);
     float2 resolution;
     float2 invResolution;

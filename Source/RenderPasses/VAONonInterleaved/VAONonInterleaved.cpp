@@ -80,7 +80,6 @@ VAONonInterleaved::VAONonInterleaved(const Dictionary& dict)
     mpFbo = Fbo::create();
 
     mpNoiseTexture = genNoiseTexture();
-    initSampleDirections();
 
     for (const auto& [key, value] : dict)
     {
@@ -209,9 +208,9 @@ void VAONonInterleaved::setScene(RenderContext* pRenderContext, const Scene::Sha
 
 Texture::SharedPtr VAONonInterleaved::genNoiseTexture()
 {
-    std::vector<uint8_t> data;
+    std::vector<uint16_t> data;
     data.resize(16u);
-    /*
+    
     std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
     for (uint32_t i = 0; i < 16u; i++)
     {
@@ -220,30 +219,5 @@ Texture::SharedPtr VAONonInterleaved::genNoiseTexture()
         data[i] = uint16_t(glm::packSnorm4x8(float4(sin(theta), cos(theta), 0.0f, 0.0f)));
     }
 
-    return Texture::create2D(4u, 4u, ResourceFormat::RG8Snorm, 1, 1, data.data());*/
-
-    std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
-    for (uint32_t i = 0; i < 16u; i++)
-    {
-        // random value in [0, 1]
-        data[i] = uint8_t(glm::linearRand(0.0f, 256.0f));
-    }
-
-    return Texture::create2D(4u, 4u, ResourceFormat::R8Unorm, 1, 1, data.data());
-}
-
-void VAONonInterleaved::initSampleDirections()
-{
-    auto tst = radicalInverse(0);
-    std::srand(5960372); // same seed for kernel
-    for (uint32_t i = 0; i < NUM_DIRECTIONS; i++)
-    {
-        auto& s = mData.samples[i];
-        float2 rand = float2((float)(i + 1) / (float)(NUM_DIRECTIONS + 1), radicalInverse(i + 1));
-        float theta = rand.x * 2.0f * glm::pi<float>();
-        float r = glm::sqrt(1.0f - glm::pow(rand.y, 2.0f / 3.0f));
-        //s.x = r * sin(theta);
-        //s.y = r * cos(theta);
-        s.x = r;
-    }
+    return Texture::create2D(4u, 4u, ResourceFormat::RG8Snorm, 1, 1, data.data());
 }

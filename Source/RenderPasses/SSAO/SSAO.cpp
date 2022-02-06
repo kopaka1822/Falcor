@@ -313,7 +313,7 @@ void SSAO::setKernel()
         case SampleDistribution::Hammersley:
             // skip 0 because it will results in (0, 0) which results in sample point (0, 0)
             // => this means that we sample the same position for all tangent space rotations
-            rand = float2((float)(i + 1) / (float)(mData.kernelSize + 1), radicalInverse(i + 1));
+            rand = float2((float)(i) / (float)(mData.kernelSize), radicalInverse(i + 1));
             break;
 
         default: throw std::runtime_error("unknown kernel distribution");

@@ -58,7 +58,6 @@ public:
 private:
     VAONonInterleaved(const Dictionary& dict);
     Texture::SharedPtr genNoiseTexture();
-    void initSampleDirections();
 
     VAOData mData;
     bool mDirty = true;
