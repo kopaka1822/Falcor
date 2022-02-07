@@ -154,6 +154,9 @@
     <ProjectReference Include="..\RenderPasses\WhittedRayTracer\WhittedRayTracer.vcxproj">
       <Project>{431c3127-e613-424c-b964-fb53daa87789}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\WriteStencil\WriteStencil.vcxproj">
+      <Project>{b11706ec-0abc-403a-b7ce-80e6ba2c9e0c}</Project>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <None Include="Data\BSDFViewer.py" />
