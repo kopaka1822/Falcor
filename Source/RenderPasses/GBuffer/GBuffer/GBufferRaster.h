@@ -47,12 +47,11 @@ public:
     std::string getDesc(void) override { return kDesc; }
     virtual void compile(RenderContext* pContext, const CompileData& compileData) override;
 
+
 private:
     GBufferRaster(const Dictionary& dict);
 
     // Internal state
-    DepthPass::SharedPtr            mpDepthPrePass;
-    RenderGraph::SharedPtr          mpDepthPrePassGraph;
     Fbo::SharedPtr                  mpFbo;
 
     // Rasterization resources

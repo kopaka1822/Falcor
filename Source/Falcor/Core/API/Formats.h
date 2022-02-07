@@ -345,8 +345,7 @@ namespace Falcor
         case ResourceFormat::D32Float:
             return ResourceFormat::R32Float;
         case ResourceFormat::D32FloatS8X24:
-            should_not_get_here();
-            return ResourceFormat::Unknown;
+            return ResourceFormat::R32FloatX32; // this is meant 99% of the time
         default:
             assert(isDepthFormat(format) == false);
             return format;

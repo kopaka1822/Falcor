@@ -60,9 +60,7 @@ namespace
 RenderPassReflection GBufferRaster::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-
-    // Add the required depth output. This always exists.
-    reflector.addOutput(kDepthName, "Depth buffer").format(ResourceFormat::D32Float).bindFlags(Resource::BindFlags::DepthStencil);
+    reflector.addInputOutput(kDepthName, "(non-linear) Depth buffer").bindFlags(Resource::BindFlags::DepthStencil);
 
     // Add all the other outputs.
     // The default channels are written as render targets, the rest as UAVs as there is way to assign/pack render targets yet.
@@ -115,13 +113,6 @@ GBufferRaster::GBufferRaster(const Dictionary& dict)
 void GBufferRaster::compile(RenderContext* pContext, const CompileData& compileData)
 {
     GBuffer::compile(pContext, compileData);
-
-    mpDepthPrePassGraph = RenderGraph::create("Depth Pre-Pass");
-    mpDepthPrePass = DepthPass::create(pContext);
-    mpDepthPrePass->setDepthBufferFormat(ResourceFormat::D32Float);
-    mpDepthPrePassGraph->addPass(mpDepthPrePass, "DepthPrePass");
-    mpDepthPrePassGraph->markOutput("DepthPrePass.depth");
-    mpDepthPrePassGraph->setScene(mpScene);
 }
 
 void GBufferRaster::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
@@ -139,8 +130,6 @@ void GBufferRaster::setScene(RenderContext* pRenderContext, const Scene::SharedP
 
         mRaster.pProgram->addDefines(pScene->getSceneDefines());
     }
-
-    if (mpDepthPrePassGraph) mpDepthPrePassGraph->setScene(pScene);
 }
 
 void GBufferRaster::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -188,14 +177,8 @@ void GBufferRaster::execute(RenderContext* pRenderContext, const RenderData& ren
         mRaster.pVars = GraphicsVars::create(mRaster.pProgram.get());
     }
 
-    // Setup depth pass to use same culling mode.
-    RasterizerState::CullMode cullMode = mForceCullMode ? mCullMode : kDefaultCullMode;
-    mpDepthPrePass->setCullMode(cullMode);
-
     // Copy depth buffer.
-    mpDepthPrePassGraph->execute(pRenderContext);
-    mpFbo->attachDepthStencilTarget(mpDepthPrePassGraph->getOutput("DepthPrePass.depth")->asTexture());
-    pRenderContext->copyResource(renderData[kDepthName].get(), mpDepthPrePassGraph->getOutput("DepthPrePass.depth").get());
+    mpFbo->attachDepthStencilTarget(renderData[kDepthName]->asTexture());
 
     // Bind extra channels as UAV buffers.
     for (const auto& channel : kGBufferExtraChannels)
@@ -208,6 +191,7 @@ void GBufferRaster::execute(RenderContext* pRenderContext, const RenderData& ren
     mRaster.pState->setFbo(mpFbo); // Sets the viewport
 
     // Rasterize the scene.
+    RasterizerState::CullMode cullMode = mForceCullMode ? mCullMode : kDefaultCullMode;
     mpScene->rasterize(pRenderContext, mRaster.pState.get(), mRaster.pVars.get(), cullMode);
 
     mFrameCount++;
