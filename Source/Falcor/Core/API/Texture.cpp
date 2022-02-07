@@ -31,6 +31,7 @@
 #include "RenderContext.h"
 #include "Utils/Threading.h"
 #include "RenderGraph/BasePasses/FullScreenPass.h"
+#include "gli/gli/gli.hpp"
 
 #include <mutex>
 
@@ -302,13 +303,40 @@ namespace Falcor
 
     void Texture::captureToFile(uint32_t mipLevel, uint32_t arraySlice, const std::string& filename, Bitmap::FileFormat format, Bitmap::ExportFlags exportFlags)
     {
+        RenderContext* pContext = gpDevice->getRenderContext();
+
         if (format == Bitmap::FileFormat::DdsFile)
         {
-            throw std::exception("Texture::captureToFile does not yet support saving to DDS.");
+            gli::dx dxc;
+            auto dxgiFormat = getDxgiFormat(mFormat);
+            auto gliFormat = dxc.find(gli::dx::D3DFMT_DX10, gli::dx::dxgiFormat{ gli::dx::dxgi_format_dds(dxgiFormat) });
+            //auto swizzles = gli::detail::get_format_info(gliFormat).Swizzles;
+            
+            if (mType != Type::Texture2D) throw std::runtime_error("Texture::captureToFile dds files must be texture 2d");
+            gli::texture2d_array gliTex = gli::texture2d_array(
+                gliFormat,
+                gli::extent2d(mWidth, mHeight),
+                mArraySize, mMipLevels);
+
+            // transfer data
+            for (uint32_t level = 0; level < mMipLevels; ++level)
+            {
+                const auto size = gliTex.size(level);
+                for (uint32_t layer = 0; layer < mArraySize; ++layer)
+                {
+                    auto subresourceIndex = getSubresourceIndex(layer, mipLevel);
+                    auto srcData = pContext->readTextureSubresource(this, subresourceIndex);
+                    auto dstData = gliTex.data(layer, 0, level);
+                    assert(size <= srcData.size());
+                    memcpy(dstData, srcData.data(), size);
+                }
+            }
+
+            gli::save_dds(gliTex, filename);
+            return;
         }
 
         assert(mType == Type::Texture2D);
-        RenderContext* pContext = gpDevice->getRenderContext();
         // Handle the special case where we have an HDR texture with less then 3 channels
         FormatType type = getFormatType(mFormat);
         uint32_t channels = getFormatChannelCount(mFormat);
