@@ -9,5 +9,6 @@
   <ItemGroup>
     <ShaderSource Include="StochasticDepth.ps.slang" />
     <ShaderSource Include="DebugLayer.ps.slang" />
+    <ShaderSource Include="Stencil.ps.slang" />
   </ItemGroup>
 </Project>

@@ -179,6 +179,7 @@ namespace Falcor
         */
         const DepthStencilStateHandle& getApiHandle() const;
 
+        const Desc& getDesc() const { return mDesc; }
     private:
         DepthStencilStateHandle mApiHandle;
         DepthStencilState(const Desc& Desc) : mDesc(Desc) {}

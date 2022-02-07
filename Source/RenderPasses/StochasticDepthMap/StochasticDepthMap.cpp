@@ -36,11 +36,13 @@ namespace
     const std::string kDebug = "debugOutput";
     const std::string kProgramFile = "RenderPasses/StochasticDepthMap/StochasticDepth.ps.slang";
     const std::string kDebugFile = "RenderPasses/StochasticDepthMap/DebugLayer.ps.slang";
+    const std::string kStencilFile = "RenderPasses/StochasticDepthMap/Stencil.ps.slang";
     const std::string kSampleCount = "SampleCount";
     const std::string kAlpha = "Alpha";
     const std::string kCullMode = "CullMode";
     const std::string kLinearize = "linearize";
     const std::string kDepthFormat = "depthFormat";
+    const std::string kStencil = "stencilMask";
 
     const Gui::DropdownList kCullModeList =
     {
@@ -143,8 +145,32 @@ StochasticDepthMap::StochasticDepthMap(const Dictionary& dict)
 
     mpDebugPass = FullScreenPass::create(kDebugFile, defines);
     mpDebugFbo = Fbo::create();
+    
+    DepthStencilState::Desc dsdesc;
+    // set stencil test to pass when values > 0 are present (not equal to 0)
+    dsdesc.setStencilEnabled(true);
+    //dsdesc.setStencilWriteMask(0);
+    //dsdesc.setStencilReadMask(1);
+    dsdesc.setStencilOp(DepthStencilState::Face::FrontAndBack, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep);
+    dsdesc.setStencilFunc(DepthStencilState::Face::FrontAndBack, DepthStencilState::Func::NotEqual);
+    dsdesc.setStencilRef(0);
+    mpStencilState = DepthStencilState::create(dsdesc);
+    
+
+    mpStencilPass = FullScreenPass::create(kStencilFile);
+    // modify stencil to write always a 1 if the depth test passes (pixel was not discarded)
+    //dsdesc.setStencilWriteMask(0xff);
+    dsdesc.setStencilOp(DepthStencilState::Face::FrontAndBack, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Replace);
+    dsdesc.setStencilFunc(DepthStencilState::Face::FrontAndBack, DepthStencilState::Func::Always);
+    dsdesc.setStencilRef(1);
+    // disable depth write
+    dsdesc.setDepthEnabled(false);
+    dsdesc.setDepthWriteMask(false);
+    mpStencilPass->getState()->setDepthStencilState(DepthStencilState::create(dsdesc));
 
     parseDictionary(dict);
+
+
 }
 
 void StochasticDepthMap::parseDictionary(const Dictionary& dict)
@@ -178,6 +204,7 @@ RenderPassReflection StochasticDepthMap::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addInput(kDepthIn, "non-linear (primary) depth map").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kStencil, "(optional) stencil-mask").format(ResourceFormat::R8Uint).flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(ksDepth, "stochastic depths in [0,1]").bindFlags(ResourceBindFlags::AllDepthViews).format(mDepthFormat).texture2D(0, 0, mSampleCount);
     reflector.addOutput(kDebug, "single msaa layer").bindFlags(ResourceBindFlags::AllColorViews).format(Falcor::ResourceFormat::R32Float).texture2D(0, 0, 1).flags(RenderPassReflection::Field::Flags::Optional);
     return reflector;
@@ -209,15 +236,37 @@ void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData
     auto psDepths = renderData[ksDepth]->asTexture();
     Texture::SharedPtr pDebug;
     if (renderData[kDebug]) pDebug = renderData[kDebug]->asTexture();
+    Texture::SharedPtr pStencilMask;
+    if (renderData[kStencil])
+    {
+        pStencilMask = renderData[kStencil]->asTexture();
+        if(!isStencilFormat(mDepthFormat))
+        {
+            logWarning("StochasticDepthMap depth format must have stencil to enable writing to stencil");
+            pStencilMask.reset();
+        }
+    }
 
     auto pCamera = mpScene->getCamera();
+
+    // clear
+    pRenderContext->clearDsv(psDepths->getDSV().get(), 1.0f, 0, true, pStencilMask != nullptr);
+    mpFbo->attachDepthStencilTarget(psDepths);
+
+    if(pStencilMask)
+    {
+        PROFILE("Stencil Copy");
+        mpStencilPass["mask"] = pStencilMask;
+        mpStencilPass->execute(pRenderContext, mpFbo);
+
+        mpState->setDepthStencilState(mpStencilState);
+    }
+    else mpState->setDepthStencilState(nullptr);
 
     {
         PROFILE("Stochastic Depths");
         // rasterize non-linear depths
-        mpFbo->attachDepthStencilTarget(psDepths);
         mpState->setFbo(mpFbo);
-        pRenderContext->clearDsv(psDepths->getDSV().get(), 1.0f, 0, true, false);
         auto var = mpVars->getRootVar();
         var["stratifiedIndices"] = mpStratifiedIndices;
         var["stratifiedLookUpTable"] = mpStratifiedLookUpBuffer;
@@ -255,7 +304,7 @@ static const Gui::DropdownList kDepthFormats =
 {
     { (uint32_t)ResourceFormat::D16Unorm, "D16Unorm"},
     { (uint32_t)ResourceFormat::D32Float, "D32Float" },
-    //{ (uint32_t)ResourceFormat::D24UnormS8, "D24UnormS8" },
+    { (uint32_t)ResourceFormat::D24UnormS8, "D24UnormS8" },
     //{ (uint32_t)ResourceFormat::D32FloatS8X24, "D32FloatS8X24" },
 };
 

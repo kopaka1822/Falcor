@@ -66,6 +66,9 @@ private:
     Buffer::SharedPtr mpStratifiedLookUpBuffer;
     Buffer::SharedPtr mpStratifiedIndices;
 
+    FullScreenPass::SharedPtr mpStencilPass;
+    DepthStencilState::SharedPtr mpStencilState;
+
     FullScreenPass::SharedPtr mpDebugPass;
     Fbo::SharedPtr mpDebugFbo;
 
