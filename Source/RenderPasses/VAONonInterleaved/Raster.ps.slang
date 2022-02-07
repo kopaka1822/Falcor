@@ -75,6 +75,8 @@ Texture2DMS<float> gsDepthTex;
 Texture2D gNormalTex;
 Texture2D gNoiseTex;
 
+RWTexture2D<uint> gDepthAccess; // indicates depth accesses for the secondary pass
+
 static int gRaysTraced = 0;
 
 float2 getScreenClampedUV(float2 uvstart, float2 uvend)
@@ -249,14 +251,16 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         float curVisibility = 0.0f;
         bool hybridRay = false;
 
+        float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
+        //if (any(samplePosUV != screenUv))
+        //    hybridRay = true; // always shoot rays for screen border
+            
+        float2 rasterSamplePosUV = screenUv;
+        rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
+
         { // RASTER PART
             // clip sample position uv and snap to pixel center
-            float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
-            if (any(samplePosUV != screenUv))
-                hybridRay = true; // always shoot rays for screen border
             
-            float2 rasterSamplePosUV = screenUv;
-            rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
             //if (isSamePixel(samplePosUV, texC))
                 //objectSpaceZ = 0.0;            
 
@@ -403,6 +407,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
             output.ao2 += curVisibility / pdf;
             // remember that this was a hybrid ray
             output.stencil |= 1u << i;
+            // remember that an access was requested
+            gDepthAccess[uint2(rasterSamplePosUV * gData.resolution)] = 1u;
         }
         else
         {

@@ -41,7 +41,8 @@ namespace
 
     const std::string kAmbientMap = "ao";
     const std::string kAmbientMap2 = "ao2";
-    const std::string kStencil = "stencil";
+    const std::string kAoStencil = "stencil";
+    const std::string kAccessStencil = "accessStencil";
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
     const std::string ksDepth = "stochasticDepth";
@@ -107,15 +108,15 @@ RenderPassReflection VAONonInterleaved::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
-    //reflector.addInput(kStencil, "(Depth-) Stencil Buffer for the ao mask").format(ResourceFormat::D32FloatS8X24);
+    //reflector.addInput(kAoStencil, "(Depth-) Stencil Buffer for the ao mask").format(ResourceFormat::D32FloatS8X24);
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion (primary)").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
     reflector.addOutput(kAmbientMap2, "Ambient Occlusion (secondary)").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
-    reflector.addOutput(kStencil, "Stencil Bitmask for primary / secondary ao").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Uint);
-    //reflector.addInputOutput(kStencil, "Stencil Bitmask for primary / secondary ao").format(ResourceFormat::D32FloatS8X24);
+    reflector.addOutput(kAoStencil, "Stencil Bitmask for primary / secondary ao").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Uint);
+    reflector.addOutput(kAccessStencil, "Stencil Bitmask for secondary depth map accesses").bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Uint);
     return reflector;
 }
 
@@ -136,7 +137,8 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     auto psDepth = renderData[ksDepth]->asTexture();
 
     auto pAoDst2 = renderData[kAmbientMap2]->asTexture();
-    auto pStencil = renderData[kStencil]->asTexture();
+    auto pStencil = renderData[kAoStencil]->asTexture();
+    auto pAccessStencil = renderData[kAccessStencil]->asTexture();
 
     if (!mEnabled)
     {
@@ -171,6 +173,9 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
         mDirty = false;
     }
 
+    auto accessStencilUAV = pAccessStencil->getUAV(0);
+    pRenderContext->clearUAV(accessStencilUAV.get(), uint4(0u));
+
     mpFbo->attachColorTarget(pAoDst, 0);
     mpFbo->attachColorTarget(pAoDst2, 1);
     mpFbo->attachColorTarget(pStencil, 2);
@@ -182,6 +187,8 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     mpRasterPass["gDepthTex2"] = pDepth2;
     mpRasterPass["gNormalTex"] = pNormal;
     mpRasterPass["gsDepthTex"] = psDepth;
+    //mpRasterPass["gDepthAccess"] = pAccessStencil;
+    mpRasterPass["gDepthAccess"].setUav(accessStencilUAV);
 
     mpRasterPass->execute(pRenderContext, mpFbo);
 }
