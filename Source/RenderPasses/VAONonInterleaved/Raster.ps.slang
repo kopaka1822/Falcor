@@ -166,15 +166,24 @@ float getAORadiusInPixels(float viewZ)
     return uvRadius * gData.resolution.x;
 }
 
-float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+struct PSOut
+{
+    float ao1 : SV_TARGET0;
+    float ao2 : SV_TARGET1;
+    uint stencil : SV_TARGET2;
+};
+
+PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 {
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
     if (linearDepth >= gCamera.data.farZ)
-        return 1.0f;
-
-    float radiusInPixels = getAORadiusInPixels(linearDepth);
-    if (radiusInPixels < 1.0)
-        return 1.0;
+    {
+        PSOut output;
+        output.ao1 = 1.0;
+        output.ao2 = 0.0;
+        output.stencil = 0;
+        return output;
+    }
 
     // view space position of current pixel
     const float3 posV = UVToViewSpace(texC, linearDepth);
@@ -200,6 +209,10 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     float3 normalO = float3(dot(normalV, tangent), dot(normalV, bitangent), dot(normalV, normal));
     
     float visibility = 0.0f;
+    PSOut output;
+    output.ao1 = 0.0;
+    output.ao2 = 0.0;
+    output.stencil = 0;
 
     [unroll] for (uint i = 0; i < NUM_DIRECTIONS; i++)
     {
@@ -385,14 +398,31 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         }*/
 
         const float pdf = 2.0 * sphereHeight;
-        visibility += curVisibility / pdf;
+        if(hybridRay)
+        {
+            output.ao2 += curVisibility / pdf;
+            // remember that this was a hybrid ray
+            output.stencil |= 1u << i;
+        }
+        else
+        {
+            output.ao1 += curVisibility / pdf;
+        }
+        //visibility += curVisibility / pdf;
     }
 
-    float AO = visibility / float(NUM_DIRECTIONS);
-    // since fully visibile are all values in [0.5, 1.0], scale accordingly
-    AO = saturate(AO * 2.0);
-    // do artistic modifications
-    AO = pow(AO, gData.exponent);
 
-    return AO;
+
+    //float AO = visibility / float(NUM_DIRECTIONS);
+    // since fully visibile are all values in [0.5, 1.0], scale accordingly
+    //AO = saturate(AO * 2.0);
+    // do artistic modifications
+    //AO = pow(AO, gData.exponent);
+
+    //return AO;
+
+    output.ao1 *= 2.0 / float(NUM_DIRECTIONS);
+    output.ao2 *= 2.0 / float(NUM_DIRECTIONS);
+
+    return output;
 }

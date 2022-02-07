@@ -40,6 +40,8 @@ namespace
     const std::string kExponent = "exponent";
 
     const std::string kAmbientMap = "ao";
+    const std::string kAmbientMap2 = "ao2";
+    const std::string kStencil = "stencil";
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
     const std::string ksDepth = "stochasticDepth";
@@ -105,11 +107,15 @@ RenderPassReflection VAONonInterleaved::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
+    //reflector.addInput(kStencil, "(Depth-) Stencil Buffer for the ao mask").format(ResourceFormat::D32FloatS8X24);
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
+    reflector.addOutput(kAmbientMap, "Ambient Occlusion (primary)").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
+    reflector.addOutput(kAmbientMap2, "Ambient Occlusion (secondary)").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
+    reflector.addOutput(kStencil, "Stencil Bitmask for primary / secondary ao").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Uint);
+    //reflector.addInputOutput(kStencil, "Stencil Bitmask for primary / secondary ao").format(ResourceFormat::D32FloatS8X24);
     return reflector;
 }
 
@@ -128,6 +134,9 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     auto pAoDst = renderData[kAmbientMap]->asTexture();
     auto pDepth2 = renderData[kDepth2]->asTexture();
     auto psDepth = renderData[ksDepth]->asTexture();
+
+    auto pAoDst2 = renderData[kAmbientMap2]->asTexture();
+    auto pStencil = renderData[kStencil]->asTexture();
 
     if (!mEnabled)
     {
@@ -163,6 +172,8 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     }
 
     mpFbo->attachColorTarget(pAoDst, 0);
+    mpFbo->attachColorTarget(pAoDst2, 1);
+    mpFbo->attachColorTarget(pStencil, 2);
 
     auto pCamera = mpScene->getCamera().get();
     pCamera->setShaderData(mpRasterPass["PerFrameCB"]["gCamera"]);
