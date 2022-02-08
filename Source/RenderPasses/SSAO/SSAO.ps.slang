@@ -71,9 +71,16 @@ import Scene.Shading;
 // removed and defaulted to tangent space
 //#define TANGENT_SPACE TANGENT_SPACE_CAMERA_ORIENTED
 #define HEMISPHERE_SAMPLING true
-#define PREVENT_DARK_HALOS true
+#define PREVENT_DARK_HALOS 1
 #define FRONT_FACE_NORMALS true
-#define HALO_RADIUS (gData.radius * 4.0)
+// full radius of the halo
+#define HALO_RADIUS (gData.radius * 3.0)
+// area where the halo effect remains constant at 0.0
+#if PREVENT_DARK_HALOS
+#define CONST_RADIUS gData.radius
+#else
+#define CONST_RADIUS 0.0
+#endif
 #define RAY_MODE RAY_MODE_LONG_RAYS_REF
 
 //#define ENABLED(value) (value != 0)
@@ -247,7 +254,7 @@ float calcHaloVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
     if (!PREVENT_DARK_HALOS)
         return 0.0;
     
-    return saturate((objectSpaceZ - sphereStart) / HALO_RADIUS)
+    return saturate((objectSpaceZ - sphereStart - CONST_RADIUS) / HALO_RADIUS)
         * (sphereStart - sphereEnd); // this adjust the visibility to the sampling (hemi-)sphere
 }
 
@@ -359,7 +366,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 float objectSpaceZ = dot(samplePosV - posV, normal);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                 // require hybrid ray if intersection is outside of sphere radius
-                if (objectSpaceZ > sphereStart)
+                if (objectSpaceZ > sphereStart + CONST_RADIUS)
                     hybridRay = true;
             }
             else if (DEPTH_MODE == DEPTH_MODE_DUAL)
@@ -370,14 +377,14 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 float objectSpaceZ = dot(samplePosV - posV, normal);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                 // look at second sample in this case
-                if (objectSpaceZ > sphereStart)
+                if (objectSpaceZ > sphereStart + CONST_RADIUS)
                 {
                     float linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
                     float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
                     // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
                     float objectSpaceZ = dot(samplePosV - posV, normal);
                     curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
-                    if(objectSpaceZ > sphereStart) // both samples were before the sphere starts
+                    if(objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
                         hybridRay = true;
                 }
             }
@@ -390,7 +397,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 float objectSpaceZ = dot(samplePosV - posV, normal);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                 // look at stochastic samples int this case
-                if (objectSpaceZ > sphereStart)
+                if (objectSpaceZ > sphereStart + CONST_RADIUS)
                 {
                     float width, height;
                     gDepthTex.GetDimensions(width, height);
@@ -428,6 +435,9 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             bool occluded = false;
             if (RAY_MODE == RAY_MODE_SHORT_RAYS_REF)
             {
+#if RAY_MODE == RAY_MODE_SHORT_RAYS_REF
+#error RAY_MODE_SHORT_RAYS_REF needs to be adjusted for const radius
+#endif
                 // cast an initial ray to the start of the sampling range
                 RayDesc ray;
                 float3 followUpRayDir = mul(sampleDirV, float3x3(invViewMat));
@@ -452,6 +462,9 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             }
             if (!occluded && (RAY_MODE == RAY_MODE_LONG_RAYS_FIRST_HIT || RAY_MODE == RAY_MODE_SHORT_RAYS_APPROX || RAY_MODE == RAY_MODE_SHORT_RAYS_REF))
             {
+#if RAY_MODE == RAY_MODE_LONG_RAYS_FIRST_HIT || RAY_MODE == RAY_MODE_SHORT_RAYS_APPROX
+#error RAY_MODE_LONG_RAYS_FIRST_HIT and RAY_MODE_SHORT_RAYS_APPROX needs to be adjusted for const radius
+#endif
                 // shoot a ray through the sample position
                 RayDesc ray;
                 ray.Origin = gCamera.data.posW; // offset a little bit in normal direction
@@ -483,9 +496,9 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 ray.Direction = mul(sampleDirV, float3x3(invViewMat));
 
                 ray.TMin = 0.0; // TODO set to depth buffer value
-                float tSphereStart = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
+                float tSphereStart = (posVLength - sphereStart - CONST_RADIUS) * initialSamplePosLength / posVLength;
                 float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
-                float tHaloStart = (posVLength - sphereHeight - HALO_RADIUS) * initialSamplePosLength / posVLength;
+                float tHaloStart = (posVLength - sphereHeight - CONST_RADIUS - HALO_RADIUS) * initialSamplePosLength / posVLength;
                 if (PREVENT_DARK_HALOS) ray.TMin = max(tHaloStart, 0.0);
                 ray.TMax = tSphereEnd;
 
@@ -594,6 +607,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     //float red = gRaysTraced;
     float green = 1.0 - red - blue;
 
+    //return float4(red, green, blue, 1.0);
     res.r *= red;
     res.g *= green;
     res.b *= blue;

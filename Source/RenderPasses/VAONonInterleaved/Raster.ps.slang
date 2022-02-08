@@ -47,11 +47,20 @@ import Scene.Shading;
 #define USE_RAYS true
 #endif
 
-#define HALO_RADIUS (gData.radius * 4.0)
+//#define HALO_RADIUS gData.radius
+//#define CONST_RADIUS gData.radius
+//#define HALO_RADIUS (gData.radius * 2.0)
+//#define CONST_RADIUS (gData.radius * 2.0)
+#define HALO_RADIUS (gData.radius * 3.0)
+#define CONST_RADIUS (gData.radius * 1.0)
+//#define HALO_RADIUS (gData.radius * 4.0)
+//#define CONST_RADIUS 0.0
 
 #define NUM_DIRECTIONS 8
 // normalized radius for each of the NUM_DIRECTION samples (distributed with radical inverse => see SSAO::setKernel() radius)
-static const float sampleRadius[NUM_DIRECTIONS] = { 0.608308673, 0.776627183, 0.417753726, 0.866025388, 0.518647850, 0.692805171, 0.291845083, 0.917883337 };
+//static const float sampleRadius[NUM_DIRECTIONS] = { 0.608308673, 0.776627183, 0.417753726, 0.866025388, 0.518647850, 0.692805171, 0.291845083, 0.917883337 };
+// same as above, but distributed uniformly (0.5/8, 1.5/8, 2.5/8, ... 7.5/8) => shuffled afterwards because the rotation follows an increasing angle
+static const float sampleRadius[NUM_DIRECTIONS] = { 0.917883, 0.470149, 0.205215, 0.650919, 0.734504, 0.359545, 0.564429, 0.820004 };
 
 cbuffer StaticCB
 {
@@ -146,7 +155,7 @@ float makeNonZero(float value, float epsilon)
 // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
 float calcHaloVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
 {
-    return saturate((objectSpaceZ - sphereStart) / HALO_RADIUS)
+    return saturate((objectSpaceZ - sphereStart - CONST_RADIUS) / HALO_RADIUS)
         * (sphereStart - sphereEnd); // this adjust the visibility to the sampling (hemi-)sphere
 }
 
@@ -272,7 +281,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
                 float objectSpaceZ = dot(samplePosV - posV, normal);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                 // require hybrid ray if intersection is outside of sphere radius
-                if (objectSpaceZ > sphereStart)
+                if (objectSpaceZ > sphereStart + CONST_RADIUS)
                     hybridRay = true;
             }
             else if (DEPTH_MODE == DEPTH_MODE_DUAL)
@@ -282,23 +291,24 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
                 float objectSpaceZ = dot(samplePosV - posV, normal);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                 // look at second sample in this case
-                if (objectSpaceZ > sphereStart)
+                if (objectSpaceZ > sphereStart + CONST_RADIUS)
                 {
                     float linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
                     float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
                     float objectSpaceZ = dot(samplePosV - posV, normal);
                     curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
-                    if (objectSpaceZ > sphereStart) // both samples were before the sphere starts
+                    if (objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
                         hybridRay = true;
                 }
             }
             else // DEPTH_MODE_STOCHASTIC
             {
                 float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
-                float objectSpaceZ = linearDepth - linearSampleDepth;
+                float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
+                float objectSpaceZ = dot(samplePosV - posV, normal);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                 // look at stochastic samples int this case
-                if (objectSpaceZ > sphereStart)
+                if (objectSpaceZ > sphereStart + CONST_RADIUS)
                 {
                     float width, height;
                     gDepthTex.GetDimensions(width, height);
@@ -430,5 +440,6 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     output.ao1 *= 2.0 / float(NUM_DIRECTIONS);
     output.ao2 *= 2.0 / float(NUM_DIRECTIONS);
 
+    output.ao1 += output.ao2;
     return output;
 }
