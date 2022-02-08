@@ -43,6 +43,7 @@ def render_graph_HBAOPlusInterleaved():
     loadRenderPassLibrary('ToneMapper.dll')
     loadRenderPassLibrary('Utils.dll')
     loadRenderPassLibrary('WhittedRayTracer.dll')
+    loadRenderPassLibrary('WriteStencil.dll')
     DeinterleaveTexture = createPass('DeinterleaveTexture')
     g.addPass(DeinterleaveTexture, 'DeinterleaveTexture')
     HBAOPlusInterleaved = createPass('HBAOPlusInterleaved', {'radius': 1.0, 'depthMode': DepthMode.DualDepth, 'depthBias': 0.10000000149011612, 'exponent': 2.0})
@@ -74,7 +75,6 @@ def render_graph_HBAOPlusInterleaved():
     g.addEdge('StochasticDepthMap.stochasticDepth', 'HBAOPlusInterleaved.stochasticDepth')
     g.addEdge('GBufferRaster', 'DepthPeelPass')
     g.addEdge('GBufferRaster.depth', 'LinearizeDepth.depth')
-    g.addEdge('GBufferRaster.normW', 'HBAOPlusInterleaved.normals')
     g.addEdge('HBAOPlusInterleaved.ambientMap', 'InterleaveTexture.texIn')
     g.addEdge('LinearizeDepth.linearDepth', 'DeinterleaveTexture.texIn')
     g.addEdge('LinearizeDepth', 'LinearizeDepth_')
@@ -94,6 +94,7 @@ def render_graph_HBAOPlusInterleaved():
     g.addEdge('DepthPeelPass.depth2', 'LinearizeDepth_.depth')
     g.addEdge('DepthPeelPass', 'LinearizeDepth')
     g.addEdge('DepthPass.depth', 'GBufferRaster.depth')
+    g.addEdge('GBufferRaster.faceNormalW', 'HBAOPlusInterleaved.normals')
     g.markOutput('Ambient.out')
     g.markOutput('Diffuse.out')
     return g

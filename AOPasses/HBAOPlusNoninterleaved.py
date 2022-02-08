@@ -43,6 +43,7 @@ def render_graph_HBAOPlusNoninterleaved():
     loadRenderPassLibrary('ToneMapper.dll')
     loadRenderPassLibrary('Utils.dll')
     loadRenderPassLibrary('WhittedRayTracer.dll')
+    loadRenderPassLibrary('WriteStencil.dll')
     DepthPeelPass = createPass('DepthPeelPass')
     g.addPass(DepthPeelPass, 'DepthPeelPass')
     HBAOPlusNonInterleaved = createPass('HBAOPlusNonInterleaved', {'radius': 0.10000000149011612, 'depthMode': DepthMode.DualDepth, 'depthBias': 0.10000000149011612, 'exponent': 2.0})
@@ -68,7 +69,6 @@ def render_graph_HBAOPlusNoninterleaved():
     g.addEdge('DepthPeelPass.depth2', 'LinearizeDepth_.depth')
     g.addEdge('LinearizeDepth_.linearDepth', 'HBAOPlusNonInterleaved.depth2')
     g.addEdge('LinearizeDepth.linearDepth', 'HBAOPlusNonInterleaved.depth')
-    g.addEdge('GBufferRaster.normW', 'HBAOPlusNonInterleaved.normals')
     g.addEdge('GBufferRaster.diffuseOpacity', 'Diffuse.I1')
     g.addEdge('HBAOPlusNonInterleaved.ambientMap', 'CrossBilateralBlur.color')
     g.addEdge('CrossBilateralBlur.color', 'Ambient.I0')
@@ -82,6 +82,7 @@ def render_graph_HBAOPlusNoninterleaved():
     g.addEdge('GBufferRaster.depth', 'StochasticDepthMap.depthMap')
     g.addEdge('StochasticDepthMap.stochasticDepth', 'HBAOPlusNonInterleaved.stochasticDepth')
     g.addEdge('DepthPass.depth', 'GBufferRaster.depth')
+    g.addEdge('GBufferRaster.faceNormalW', 'HBAOPlusNonInterleaved.normals')
     g.markOutput('Ambient.out')
     g.markOutput('Diffuse.out')
     return g
