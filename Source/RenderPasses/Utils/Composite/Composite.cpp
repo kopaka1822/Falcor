@@ -28,7 +28,7 @@
 #include "Composite.h"
 #include "CompositeMode.slangh"
 
-const char* Composite::kDesc = "Composite pass";
+const RenderPass::Info Composite::kInfo { "Composite", "Composite pass." };
 
 namespace
 {
@@ -56,6 +56,7 @@ Composite::SharedPtr Composite::create(RenderContext* pRenderContext, const Dict
 }
 
 Composite::Composite(const Dictionary& dict)
+    : RenderPass(kInfo)
 {
     // Parse dictionary.
     for (const auto& [key, value] : dict)
@@ -64,7 +65,7 @@ Composite::Composite(const Dictionary& dict)
         else if (key == kScaleA) mScaleA = value;
         else if (key == kScaleB) mScaleB = value;
         else if (key == kOutputFormat) mOutputFormat = value;
-        else logWarning("Unknown field '" + key + "' in Composite pass dictionary");
+        else logWarning("Unknown field '{}' in Composite pass dictionary.", key);
     }
 
     // Create resources.
@@ -90,7 +91,7 @@ RenderPassReflection Composite::reflect(const CompileData& compileData)
     return reflector;
 }
 
-void Composite::compile(RenderContext* pContext, const CompileData& compileData)
+void Composite::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
     mFrameDim = compileData.defaultTexDims;
 }
@@ -99,7 +100,7 @@ void Composite::execute(RenderContext* pRenderContext, const RenderData& renderD
 {
     // Prepare program.
     const auto& pOutput = renderData[kOutput]->asTexture();
-    assert(pOutput);
+    FALCOR_ASSERT(pOutput);
     mOutputFormat = pOutput->getFormat();
 
     if (mCompositePass->getProgram()->addDefines(getDefines()))
@@ -139,11 +140,11 @@ Program::DefineList Composite::getDefines() const
         compositeMode = COMPOSITE_MODE_MULTIPLY;
         break;
     default:
-        should_not_get_here();
+        FALCOR_UNREACHABLE();
         break;
     }
 
-    assert(mOutputFormat != ResourceFormat::Unknown);
+    FALCOR_ASSERT(mOutputFormat != ResourceFormat::Unknown);
     uint32_t outputFormat = 0;
     switch (getFormatType(mOutputFormat))
     {

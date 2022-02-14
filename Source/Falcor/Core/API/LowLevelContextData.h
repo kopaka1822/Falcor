@@ -32,7 +32,7 @@ namespace Falcor
 {
     struct LowLevelContextApiData;
 
-    class dlldecl LowLevelContextData : public std::enable_shared_from_this<LowLevelContextData>
+    class FALCOR_API LowLevelContextData
     {
     public:
         using SharedPtr = std::shared_ptr<LowLevelContextData>;
@@ -66,6 +66,10 @@ namespace Falcor
 #ifdef FALCOR_D3D12
         // Used in DXR
         void setCommandList(CommandListHandle pList) { mpList = pList; }
+#endif
+#ifdef FALCOR_GFX
+        void closeCommandBuffer();
+        void openCommandBuffer();
 #endif
     protected:
         LowLevelContextData(CommandQueueType type, CommandQueueHandle queue);

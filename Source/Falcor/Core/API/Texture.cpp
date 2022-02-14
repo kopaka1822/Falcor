@@ -52,9 +52,8 @@ namespace Falcor
             supported |= ResourceBindFlags::Shared;
             if ((flags & supported) != flags)
             {
-                logError("Error when creating " + texType + " of format " + to_string(format) + ". The requested bind-flags are not supported.\n"
-                    "Requested = (" + to_string(flags) + "), supported = (" + to_string(supported) + ").\n\n"
-                    "The texture will be created only with the supported bind flags, which may result in a crash or a rendering error.");
+                throw RuntimeError("Error when creating {} of format {}. The requested bind-flags are not supported. Requested = ({}), supported = ({}).",
+                    texType, to_string(format), to_string(flags), to_string(supported));
                 flags = flags & supported;
             }
 
@@ -64,26 +63,26 @@ namespace Falcor
 
     Texture::SharedPtr Texture::createFromApiHandle(ApiHandle handle, Type type, uint32_t width, uint32_t height, uint32_t depth, ResourceFormat format, uint32_t sampleCount, uint32_t arraySize, uint32_t mipLevels, State initState, BindFlags bindFlags)
     {
-        assert(handle);
+        FALCOR_ASSERT(handle);
         switch (type)
         {
             case Resource::Type::Texture1D:
-                assert(height == 1 && depth == 1 && sampleCount == 1);
+                FALCOR_ASSERT(height == 1 && depth == 1 && sampleCount == 1);
                 break;
             case Resource::Type::Texture2D:
-                assert(depth == 1 && sampleCount == 1);
+                FALCOR_ASSERT(depth == 1 && sampleCount == 1);
                 break;
             case Resource::Type::Texture2DMultisample:
-                assert(depth == 1);
+                FALCOR_ASSERT(depth == 1);
                 break;
             case Resource::Type::Texture3D:
-                assert(sampleCount == 1);
+                FALCOR_ASSERT(sampleCount == 1);
                 break;
             case Resource::Type::TextureCube:
-                assert(depth == 1 && sampleCount == 1);
+                FALCOR_ASSERT(depth == 1 && sampleCount == 1);
                 break;
             default:
-                should_not_get_here();
+                FALCOR_UNREACHABLE();
                 break;
         }
         Texture::SharedPtr pTexture = SharedPtr(new Texture(width, height, depth, arraySize, mipLevels, sampleCount, format, type, bindFlags));
@@ -138,14 +137,21 @@ namespace Falcor
         std::string fullpath;
         if (findFileInDataDirectories(filename, fullpath) == false)
         {
-            logWarning("Error when loading image file. Can't find image file '" + filename + "'");
+            logWarning("Error when loading image file. Can't find image file '{}'.", filename);
             return nullptr;
         }
 
         Texture::SharedPtr pTex;
         if (hasSuffix(filename, ".dds"))
         {
-            pTex = ImageIO::loadTextureFromDDS(filename, loadAsSrgb);
+            try
+            {
+                pTex = ImageIO::loadTextureFromDDS(filename, loadAsSrgb);
+            }
+            catch (const std::exception& e)
+            {
+                logWarning("Error loading '{}': {}", fullpath, e.what());
+            }
         }
         else
         {
@@ -173,9 +179,9 @@ namespace Falcor
     Texture::Texture(uint32_t width, uint32_t height, uint32_t depth, uint32_t arraySize, uint32_t mipLevels, uint32_t sampleCount, ResourceFormat format, Type type, BindFlags bindFlags)
         : Resource(type, bindFlags, 0), mWidth(width), mHeight(height), mDepth(depth), mMipLevels(mipLevels), mSampleCount(sampleCount), mArraySize(arraySize), mFormat(format)
     {
-        assert(width > 0 && height > 0 && depth > 0);
-        assert(arraySize > 0 && mipLevels > 0 && sampleCount > 0);
-        assert(format != ResourceFormat::Unknown);
+        FALCOR_ASSERT(width > 0 && height > 0 && depth > 0);
+        FALCOR_ASSERT(arraySize > 0 && mipLevels > 0 && sampleCount > 0);
+        FALCOR_ASSERT(format != ResourceFormat::Unknown);
 
         if (mMipLevels == kMaxPossible)
         {
@@ -269,15 +275,15 @@ namespace Falcor
         return getUAV(0);
     }
 
-#if _ENABLE_CUDA
+#if FALCOR_ENABLE_CUDA
     void* Texture::getCUDADeviceAddress() const
     {
-        throw std::exception("Texture::getCUDADeviceAddress() - unimplemented");
+        throw RuntimeError("Texture::getCUDADeviceAddress() unimplemented");
     }
 
     void* Texture::getCUDADeviceAddress(ResourceViewInfo const& viewInfo) const
     {
-        throw std::exception("Texture::getCUDADeviceAddress() - unimplemented");
+        throw RuntimeError("Texture::getCUDADeviceAddress() unimplemented");
     }
 #endif
 
@@ -336,8 +342,9 @@ namespace Falcor
             return;
         }
 
-        assert(mType == Type::Texture2D);
-        // Handle the special case where we have an HDR texture with less then 3 channels
+        if (mType != Type::Texture2D) throw RuntimeError("Texture::captureToFile only supported for 2D textures.");
+
+        // Handle the special case where we have an HDR texture with less then 3 channels.
         FormatType type = getFormatType(mFormat);
         uint32_t channels = getFormatChannelCount(mFormat);
         std::vector<uint8_t> textureData;
@@ -373,7 +380,7 @@ namespace Falcor
         static std::mutex mutex;
         std::lock_guard<std::mutex> lock(mutex);
 
-        assert(gpDevice);
+        FALCOR_ASSERT(gpDevice);
         auto pRenderContext = gpDevice->getRenderContext();
         if (autoGenMips)
         {
@@ -416,13 +423,13 @@ namespace Falcor
                 auto rtv = getRTV(m + 1, a, 1);
                 if (!minMaxMips)
                 {
-                    pContext->blit(srv, rtv, uint4(-1), uint4(-1), Sampler::Filter::Linear);
+                    pContext->blit(srv, rtv, RenderContext::kMaxRect, RenderContext::kMaxRect, Sampler::Filter::Linear);
                 }
                 else
                 {
                     const Sampler::ReductionMode redModes[] = { Sampler::ReductionMode::Standard, Sampler::ReductionMode::Min, Sampler::ReductionMode::Max, Sampler::ReductionMode::Standard };
                     const float4 componentsTransform[] = { float4(1.0f, 0.0f, 0.0f, 0.0f), float4(0.0f, 1.0f, 0.0f, 0.0f), float4(0.0f, 0.0f, 1.0f, 0.0f), float4(0.0f, 0.0f, 0.0f, 1.0f) };
-                    pContext->blit(srv, rtv, uint4(-1), uint4(-1), Sampler::Filter::Linear, redModes, componentsTransform);
+                    pContext->blit(srv, rtv, RenderContext::kMaxRect, RenderContext::kMaxRect, Sampler::Filter::Linear, redModes, componentsTransform);
                 }
             }
         }
@@ -443,30 +450,28 @@ namespace Falcor
         for (uint32_t i = 0; i < getMipCount(); i++)
         {
             uint64_t texelsInMip = (uint64_t)getWidth(i) * getHeight(i) * getDepth(i);
-            assert(texelsInMip > 0);
+            FALCOR_ASSERT(texelsInMip > 0);
             count += texelsInMip;
         }
         count *= getArraySize();
-        assert(count > 0);
+        FALCOR_ASSERT(count > 0);
         return count;
     }
 
-    uint64_t Texture::getTextureSizeInBytes() const
+    bool Texture::compareDesc(const Texture* pOther) const
     {
-        ID3D12DevicePtr pDevicePtr = gpDevice->getApiHandle();
-        ID3D12ResourcePtr pTexResource = this->getApiHandle();
-
-        D3D12_RESOURCE_ALLOCATION_INFO d3d12ResourceAllocationInfo;
-        D3D12_RESOURCE_DESC desc = pTexResource->GetDesc();
-
-        assert(desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D || desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D);
-
-        d3d12ResourceAllocationInfo = pDevicePtr->GetResourceAllocationInfo(0, 1, &desc);
-        assert(d3d12ResourceAllocationInfo.SizeInBytes > 0);
-        return d3d12ResourceAllocationInfo.SizeInBytes;
+        return mWidth == pOther->mWidth &&
+            mHeight == pOther->mHeight &&
+            mDepth == pOther->mDepth &&
+            mMipLevels == pOther->mMipLevels &&
+            mSampleCount == pOther->mSampleCount &&
+            mArraySize == pOther->mArraySize &&
+            mFormat == pOther->mFormat &&
+            mIsSparse == pOther->mIsSparse &&
+            mSparsePageRes == pOther->mSparsePageRes;
     }
 
-    SCRIPT_BINDING(Texture)
+    FALCOR_SCRIPT_BINDING(Texture)
     {
         pybind11::class_<Texture, Texture::SharedPtr> texture(m, "Texture");
         texture.def_property_readonly("width", &Texture::getWidth);

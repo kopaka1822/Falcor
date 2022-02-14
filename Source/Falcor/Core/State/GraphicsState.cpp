@@ -43,7 +43,7 @@ namespace Falcor
         case Vao::Topology::TriangleStrip:
             return GraphicsStateObject::PrimitiveType::Triangle;
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
             return GraphicsStateObject::PrimitiveType::Undefined;
         }
     }
@@ -77,14 +77,6 @@ namespace Falcor
             mpGsoGraph->walk((void*)pProgramKernels.get());
         }
 
-        RootSignature::SharedPtr pRoot = pProgramKernels ? pProgramKernels->getRootSignature() : RootSignature::getEmpty();
-
-        if (mCachedData.pRootSig != pRoot.get())
-        {
-            mCachedData.pRootSig = pRoot.get();
-            mpGsoGraph->walk((void*)mCachedData.pRootSig);
-        }
-
         const Fbo::Desc* pFboDesc = mpFbo ? &mpFbo->getDesc() : nullptr;
         if(mCachedData.pFboDesc != pFboDesc)
         {
@@ -97,12 +89,8 @@ namespace Falcor
         {
             mDesc.setProgramKernels(pProgramKernels);
             mDesc.setFboFormats(mpFbo ? mpFbo->getDesc() : Fbo::Desc());
-#ifdef FALCOR_VK
-            mDesc.setRenderPass(mpFbo ? (VkRenderPass)mpFbo->getApiHandle() : VK_NULL_HANDLE);
-#endif
             mDesc.setVertexLayout(mpVao->getVertexLayout());
             mDesc.setPrimitiveType(topology2Type(mpVao->getPrimitiveTopology()));
-            mDesc.setRootSignature(pRoot);
 
             StateGraph::CompareFunc cmpFunc = [&desc = mDesc](GraphicsStateObject::SharedPtr pGso) -> bool
             {
@@ -144,11 +132,8 @@ namespace Falcor
 
     void GraphicsState::popFbo(bool setVp0Sc0)
     {
-        if (mFboStack.empty())
-        {
-            logError("PipelineState::popFbo() - can't pop FBO since the FBO stack is empty.");
-            return;
-        }
+        checkInvariant(!mFboStack.empty(), "Empty stack.");
+
         setFbo(mFboStack.top(), setVp0Sc0);
         mFboStack.pop();
     }
@@ -158,11 +143,6 @@ namespace Falcor
         if(mpVao != pVao)
         {
             mpVao = pVao;
-
-#ifdef FALCOR_VK
-            mDesc.setVao(pVao);
-#endif
-
             mpGsoGraph->walk(pVao ? (void*)pVao->getVertexLayout().get() : nullptr);
         }
         return *this;
@@ -210,17 +190,17 @@ namespace Falcor
 
     void GraphicsState::pushViewport(uint32_t index, const GraphicsState::Viewport& vp, bool setScissors)
     {
+        checkArgument(index < mVpStack.size(), "'index' is out of range.");
+
         mVpStack[index].push(mViewports[index]);
         setViewport(index, vp, setScissors);
     }
 
     void GraphicsState::popViewport(uint32_t index, bool setScissors)
     {
-        if (mVpStack[index].empty())
-        {
-            logError("PipelineState::popViewport() - can't pop viewport since the viewport stack is empty.");
-            return;
-        }
+        checkArgument(index < mVpStack.size(), "'index' is out of range.");
+        checkInvariant(!mVpStack[index].empty(), "Empty stack.");
+
         const auto& VP = mVpStack[index].top();
         setViewport(index, VP, setScissors);
         mVpStack[index].pop();
@@ -228,17 +208,17 @@ namespace Falcor
 
     void GraphicsState::pushScissors(uint32_t index, const GraphicsState::Scissor& sc)
     {
+        checkArgument(index < mScStack.size(), "'index' is out of range.");
+
         mScStack[index].push(mScissors[index]);
         setScissors(index, sc);
     }
 
     void GraphicsState::popScissors(uint32_t index)
     {
-        if (mScStack[index].empty())
-        {
-            logError("PipelineState::popScissors() - can't pop scissors since the scissors stack is empty.");
-            return;
-        }
+        checkArgument(index < mScStack.size(), "'index' is out of range.");
+        checkInvariant(!mScStack[index].empty(), "Empty stack.");
+
         const auto& sc = mScStack[index].top();
         setScissors(index, sc);
         mScStack[index].pop();
@@ -264,7 +244,7 @@ namespace Falcor
         mScissors[index] = sc;
     }
 
-    SCRIPT_BINDING(GraphicsState)
+    FALCOR_SCRIPT_BINDING(GraphicsState)
     {
         pybind11::class_<GraphicsState, GraphicsState::SharedPtr>(m, "GraphicsState");
     }

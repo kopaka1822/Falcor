@@ -28,6 +28,8 @@
 #include "ErrorMeasurePass.h"
 #include <sstream>
 
+const RenderPass::Info ErrorMeasurePass::kInfo { "ErrorMeasurePass", "Measures error with respect to a reference image." };
+
 namespace
 {
     const std::string kErrorComputationShaderFile = "RenderPasses/ErrorMeasurePass/ErrorMeasurer.cs.slang";
@@ -62,14 +64,14 @@ static void regErrorMeasurePass(pybind11::module& m)
 }
 
 // Don't remove this. it's required for hot-reload to function properly
-extern "C" __declspec(dllexport) const char* getProjDir()
+extern "C" FALCOR_API_EXPORT const char* getProjDir()
 {
     return PROJECT_DIR;
 }
 
-extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
+extern "C" FALCOR_API_EXPORT void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("ErrorMeasurePass", "Error Measurement Pass", ErrorMeasurePass::create);
+    lib.registerPass(ErrorMeasurePass::kInfo, ErrorMeasurePass::create);
     ScriptBindings::registerBinding(regErrorMeasurePass);
 }
 
@@ -91,6 +93,7 @@ ErrorMeasurePass::SharedPtr ErrorMeasurePass::create(RenderContext* pRenderConte
 }
 
 ErrorMeasurePass::ErrorMeasurePass(const Dictionary& dict)
+    : RenderPass(kInfo)
 {
     for (const auto& [key, value] : dict)
     {
@@ -105,7 +108,7 @@ ErrorMeasurePass::ErrorMeasurePass(const Dictionary& dict)
         else if (key == kSelectedOutputId) mSelectedOutputId = value;
         else
         {
-            logWarning("Unknown field '" + key + "' in ErrorMeasurePass dictionary");
+            logWarning("Unknown field '{}' in ErrorMeasurePass dictionary.", key);
         }
     }
 
@@ -156,7 +159,7 @@ void ErrorMeasurePass::execute(RenderContext* pRenderContext, const RenderData& 
     {
         mpDifferenceTexture = Texture::create2D(width, height, ResourceFormat::RGBA32Float, 1, 1, nullptr,
                                                 Resource::BindFlags::ShaderResource | Resource::BindFlags::UnorderedAccess);
-        assert(mpDifferenceTexture);
+        FALCOR_ASSERT(mpDifferenceTexture);
     }
 
     mMeasurements.valid = false;
@@ -184,7 +187,7 @@ void ErrorMeasurePass::execute(RenderContext* pRenderContext, const RenderData& 
         pRenderContext->blit(mpDifferenceTexture->getSRV(), pOutputImageTexture->getRTV());
         break;
     default:
-        throw std::exception("Unhandled OutputId case in ErrorMeasurePass");
+        throw RuntimeError("ErrorMeasurePass: Unhandled OutputId case");
     }
 
     saveMeasurementsToFile();
@@ -215,10 +218,7 @@ void ErrorMeasurePass::runDifferencePass(RenderContext* pRenderContext, const Re
 void ErrorMeasurePass::runReductionPasses(RenderContext* pRenderContext, const RenderData& renderData)
 {
     float4 error;
-    if (!mpParallelReduction->execute(pRenderContext, mpDifferenceTexture, ComputeParallelReduction::Type::Sum, &error))
-    {
-        throw std::exception("Error running parallel reduction in ErrorMeasurePass");
-    }
+    mpParallelReduction->execute(pRenderContext, mpDifferenceTexture, ComputeParallelReduction::Type::Sum, &error);
 
     const float pixelCountf = static_cast<float>(mpDifferenceTexture->getWidth() * mpDifferenceTexture->getHeight());
     mMeasurements.error = error / pixelCountf;
@@ -361,7 +361,7 @@ void ErrorMeasurePass::loadReference()
     mpReferenceTexture = Texture::createFromFile(mReferenceImagePath, false /* no MIPs */, false /* linear color */);
     if (!mpReferenceTexture)
     {
-        logError("Failed to load texture " + mReferenceImagePath);
+        reportError("Failed to load texture " + mReferenceImagePath);
         mReferenceImagePath = "";
     }
 
@@ -381,7 +381,7 @@ void ErrorMeasurePass::openMeasurementsFile()
     mMeasurementsFile = std::ofstream(mMeasurementsFilePath, std::ios::trunc);
     if (!mMeasurementsFile)
     {
-        logError("Failed to open file " + mMeasurementsFilePath);
+        reportError("Failed to open file " + mMeasurementsFilePath);
         mMeasurementsFilePath = "";
     }
     else
@@ -402,7 +402,7 @@ void ErrorMeasurePass::saveMeasurementsToFile()
 {
     if (!mMeasurementsFile) return;
 
-    assert(mMeasurements.valid);
+    FALCOR_ASSERT(mMeasurements.valid);
     mMeasurementsFile << mMeasurements.avgError << ",";
     mMeasurementsFile << mMeasurements.error.r << ',' << mMeasurements.error.g << ',' << mMeasurements.error.b;
     mMeasurementsFile << std::endl;

@@ -32,6 +32,12 @@ namespace Falcor
 {
     namespace
     {
+        // Verify channel flags use same bit pattern as the shader.
+        static_assert((uint32_t)TextureChannelFlags::Red == 0x1);
+        static_assert((uint32_t)TextureChannelFlags::Green == 0x2);
+        static_assert((uint32_t)TextureChannelFlags::Blue == 0x4);
+        static_assert((uint32_t)TextureChannelFlags::Alpha == 0x8);
+
         const char kShaderFilename[] = "Utils/Image/TextureAnalyzer.cs.slang";
     }
 
@@ -53,9 +59,9 @@ namespace Falcor
 
     void TextureAnalyzer::analyze(RenderContext* pRenderContext, const Texture::SharedPtr pInput, uint32_t mipLevel, uint32_t arraySlice, Buffer::SharedPtr pResult, uint64_t resultOffset, bool clearResult)
     {
-        assert(pRenderContext && pInput);
-        assert(pResult && resultOffset + getResultSize() <= pResult->getSize());
-        assert(resultOffset < std::numeric_limits<uint32_t>::max());
+        FALCOR_ASSERT(pRenderContext && pInput);
+        FALCOR_ASSERT(pResult && resultOffset + getResultSize() <= pResult->getSize());
+        FALCOR_ASSERT(resultOffset < std::numeric_limits<uint32_t>::max());
 
         checkFormatSupport(pInput, mipLevel, arraySlice);
 
@@ -65,10 +71,10 @@ namespace Falcor
         }
 
         auto pSRV = pInput->getSRV(mipLevel, 1, arraySlice, 1);
-        assert(pSRV);
+        FALCOR_ASSERT(pSRV);
 
         uint2 dim = { pInput->getWidth(mipLevel), pInput->getHeight(mipLevel) };
-        assert(dim.x > 0 && dim.y > 0);
+        FALCOR_ASSERT(dim.x > 0 && dim.y > 0);
 
         // Bind resources.
         auto var = mpAnalyzePass->getRootVar()["gTextureAnalyzer"];
@@ -82,8 +88,8 @@ namespace Falcor
 
     void TextureAnalyzer::analyze(RenderContext* pRenderContext, const std::vector<Texture::SharedPtr>& inputs, Buffer::SharedPtr pResult, bool clearResult)
     {
-        assert(pRenderContext && !inputs.empty());
-        assert(pResult && inputs.size() * getResultSize() <= pResult->getSize());
+        FALCOR_ASSERT(pRenderContext && !inputs.empty());
+        FALCOR_ASSERT(pResult && inputs.size() * getResultSize() <= pResult->getSize());
 
         if (clearResult)
         {
@@ -101,9 +107,9 @@ namespace Falcor
 
     void TextureAnalyzer::clear(RenderContext* pRenderContext, Buffer::SharedPtr pResult, uint64_t resultOffset, size_t resultCount) const
     {
-        assert(pRenderContext);
-        assert(pResult && resultOffset + resultCount * getResultSize() <= pResult->getSize());
-        assert(resultCount > 0 && resultOffset < std::numeric_limits<uint32_t>::max());
+        FALCOR_ASSERT(pRenderContext);
+        FALCOR_ASSERT(pResult && resultOffset + resultCount * getResultSize() <= pResult->getSize());
+        FALCOR_ASSERT(resultCount > 0 && resultOffset < std::numeric_limits<uint32_t>::max());
 
         // Bind resources.
         auto var = mpClearPass->getRootVar()["gTextureAnalyzer"];
@@ -119,15 +125,15 @@ namespace Falcor
         // Validate that input is supported.
         if (pInput->getDepth() > 1)
         {
-            throw std::runtime_error("TextureAnalyzer::analyze() - 3D textures are not supported");
+            throw RuntimeError("3D textures are not supported");
         }
         if (mipLevel >= pInput->getMipCount() || arraySlice >= pInput->getArraySize())
         {
-            throw std::runtime_error("TextureAnalyzer::analyze() - Mip level and/or array slice is out of range");
+            throw RuntimeError("Mip level and/or array slice is out of range");
         }
         if (pInput->getSampleCount() != 1)
         {
-            throw std::runtime_error("TextureAnalyzer::analyze() - Multi-sampled textures are not supported");
+            throw RuntimeError("Multi-sampled textures are not supported");
         }
 
         auto format = pInput->getFormat();
@@ -140,10 +146,10 @@ namespace Falcor
             break;
         case FormatType::Sint:
         case FormatType::Uint:
-            throw std::runtime_error("TextureAnalyzer::analyze() - Format " + to_string(format) + " is not supported");
+            throw RuntimeError("Format {} is not supported", to_string(format));
         default:
-            assert(false);
-            throw std::runtime_error("Unknown format type");
+            FALCOR_ASSERT(false);
+            throw RuntimeError("Unknown format type");
         }
     }
 }

@@ -30,7 +30,7 @@
 
 namespace Falcor
 {
-    class dlldecl QueryHeap : public std::enable_shared_from_this<QueryHeap>
+    class FALCOR_API QueryHeap
     {
     public:
         using SharedPtr = std::shared_ptr<QueryHeap>;
@@ -73,7 +73,7 @@ namespace Falcor
 
         void release(uint32_t entry)
         {
-            assert(entry != kInvalidIndex),
+            FALCOR_ASSERT(entry != kInvalidIndex);
             mFreeQueries.push_back(entry);
         }
 

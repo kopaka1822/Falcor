@@ -27,8 +27,10 @@
  **************************************************************************/
 #include "CSM.h"
 
+const RenderPass::Info CSM::kInfo { "CSM", "Generates a visibility map for a single light source using the CSM technique." };
+
 // Don't remove this. it's required for hot-reload to function properly
-extern "C" __declspec(dllexport) const char* getProjDir()
+extern "C" FALCOR_API_EXPORT const char* getProjDir()
 {
     return PROJECT_DIR;
 }
@@ -59,14 +61,11 @@ static void regCSM(pybind11::module& m)
     partitionMode.value("PSSM", CSM::PartitionMode::PSSM);
 }
 
-extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
+extern "C" FALCOR_API_EXPORT void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("CSM", "Generates a visibility map for a single light source using the CSM technique", CSM::create);
+    lib.registerPass(CSM::kInfo, CSM::create);
     ScriptBindings::registerBinding(regCSM);
 }
-
-const char* CSM::kDesc = "The pass generates a visibility-map using the CSM technique. The map is for a single light-source.\n"
-"It supports common filtering modes, including EVSM. It also supports PSSM and SDSM";
 
 namespace
 {
@@ -123,11 +122,11 @@ public:
 
     void setDepthClamp(bool enable) { mDepthClamp = enable; }
 
-    void renderScene(RenderContext* pContext, GraphicsState* pState, GraphicsVars* pVars, const Camera* pCamera) override
+    void renderScene(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const Camera* pCamera) override
     {
         pState->setRasterizerState(nullptr);
         mpLastSetRs = nullptr;
-        SceneRenderer::renderScene(pContext, pState, pVars, pCamera);
+        SceneRenderer::renderScene(pRenderContext, pState, pVars, pCamera);
     }
 
 protected:
@@ -171,7 +170,7 @@ protected:
 
     RasterizerState::SharedPtr getRasterizerState(const Material* pMaterial)
     {
-        if (pMaterial->getAlphaMode() == AlphaModeMask)
+        if (pMaterial->getAlphaMode() == AlphaMode::Mask)
         {
             return mDepthClamp ? mpDepthClampNoCullRS : mpNoCullRS;
         }
@@ -184,7 +183,7 @@ protected:
     bool setPerMaterialData(const CurrentWorkingData& currentData, const Material* pMaterial) override
     {
         mMaterialChanged = true;
-        if (currentData.pMaterial->getAlphaMode() == AlphaModeMask)
+        if (currentData.pMaterial->getAlphaMode() == AlphaMode::Mask)
         {
             float alphaThreshold = currentData.pMaterial->getAlphaThreshold();
             auto& pDefaultBlock = currentData.pVars;
@@ -252,7 +251,7 @@ static void createShadowMatrix(const Light* pLight, const float3& center, float 
     case LightType::Point:
         return createShadowMatrix((PointLight*)pLight, center, radius, fboAspectRatio, shadowVP);
     default:
-        should_not_get_here();
+        FALCOR_UNREACHABLE();
     }
 }
 
@@ -326,6 +325,10 @@ void CSM::createShadowPassResources()
     desc.vsEntry("vsMain").gsEntry("gsMain").psEntry("psMain");
 
     mShadowPass.pProgram = GraphicsProgram::create(desc, defines);
+    if (mpScene)
+    {
+        mShadowPass.pProgram->addDefines(mpScene->getSceneDefines());
+    }
     mShadowPass.pState = GraphicsState::create();
     mShadowPass.pState->setProgram(mShadowPass.pProgram);
     mShadowPass.pState->setDepthStencilState(nullptr);
@@ -338,6 +341,7 @@ void CSM::createShadowPassResources()
 }
 
 CSM::CSM()
+    : RenderPass(kInfo)
 {
     createDepthPassResources();
     createVisibilityPassResources();
@@ -370,7 +374,7 @@ CSM::SharedPtr CSM::create(RenderContext* pRenderContext, const Dictionary& dict
         else if (key == kSdsmReadbackLatency) pCSM->setSdsmReadbackLatency(value);
         else if (key == kBlurKernelWidth) pCSM->mBlurDict["kernelWidth"] = (uint32_t)value;
         else if (key == kBlurSigma) pCSM->mBlurDict["sigma"] = (float)value;
-        else logWarning("Unknown field '" + key + "' in a CSM dictionary");
+        else logWarning("Unknown field '{}' in a CSM dictionary.", key);
     }
     pCSM->createShadowPassResources();
     return pCSM;
@@ -402,7 +406,7 @@ static ResourceFormat getVisBufferFormat(uint32_t bitsPerChannel, bool visualize
     case 32:
         return visualizeCascades ? ResourceFormat::RGBA32Float : ResourceFormat::R32Float;
     default:
-        should_not_get_here();
+        FALCOR_UNREACHABLE();
         return ResourceFormat::Unknown;
     }
 }
@@ -417,10 +421,10 @@ RenderPassReflection CSM::reflect(const CompileData& compileData)
     return reflector;
 }
 
-void CSM::compile(RenderContext* pContext, const CompileData& compileData)
+void CSM::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
     mpBlurGraph = RenderGraph::create("Gaussian Blur");
-    GaussianBlur::SharedPtr pBlurPass = GaussianBlur::create(pContext, mBlurDict);
+    GaussianBlur::SharedPtr pBlurPass = GaussianBlur::create(pRenderContext, mBlurDict);
     mpBlurGraph->addPass(pBlurPass, kBlurPass);
     mpBlurGraph->markOutput(kBlurPass + ".dst");
 
@@ -462,7 +466,7 @@ void camClipSpaceToWorldSpace(const Camera* pCamera, float3 viewFrustum[8], floa
     }
 }
 
-forceinline float calcPssmPartitionEnd(float nearPlane, float camDepthRange, const float2& distanceRange, float linearBlend, uint32_t cascade, uint32_t cascadeCount)
+FALCOR_FORCEINLINE float calcPssmPartitionEnd(float nearPlane, float camDepthRange, const float2& distanceRange, float linearBlend, uint32_t cascade, uint32_t cascadeCount)
 {
     // Convert to camera space
     float minDepth = nearPlane + distanceRange.x * camDepthRange;
@@ -551,7 +555,7 @@ void CSM::partitionCascades(const Camera* pCamera, const float2& distanceRange)
             nextCascadeStart = calcPssmPartitionEnd(nearPlane, depthRange, distanceRange, mControls.pssmLambda, c, mCsmData.cascadeCount);
             break;
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
         }
 
         // If we blend between cascades, we need to expand the range to make sure we will not try to read off the edge of the shadow-map
@@ -586,25 +590,10 @@ void CSM::partitionCascades(const Camera* pCamera, const float2& distanceRange)
     }
 }
 
-static bool checkOffset(size_t cbOffset, size_t cppOffset, const char* field)
-{
-    if (cbOffset != cppOffset)
-    {
-        logError("CsmData::" + std::string(field) + " CB offset mismatch. CB offset is " + std::to_string(cbOffset) + ", C++ data offset is " + std::to_string(cppOffset));
-        return false;
-    }
-    return true;
-}
-
-#if _LOG_ENABLED
-#define check_offset(_a) {static bool b = true; if(b) {assert(checkOffset(pCB["gCsmData"][#_a].getByteOffset(), offsetof(CsmData, _a), #_a));} b = false;}
-#else
-#define check_offset(_a)
-#endif
-
 void CSM::renderScene(RenderContext* pCtx)
 {
     auto pCB = mShadowPass.pVars->getParameterBlock(mPerLightCbLoc);
+#define check_offset(_a) FALCOR_ASSERT(pCB["gCsmData"][#_a].getByteOffset() == offsetof(CsmData, _a))
     check_offset(globalMat);
     check_offset(cascadeScale);
     check_offset(cascadeOffset);
@@ -617,7 +606,7 @@ void CSM::renderScene(RenderContext* pCtx)
     check_offset(lightBleedingReduction);
     check_offset(evsmExponents);
     check_offset(cascadeBlendThreshold);
-
+#undef check_offset
 
     pCB->setBlob(&mCsmData, 0, sizeof(mCsmData));
     mpLightCamera->setProjectionMatrix(mCsmData.globalMat);
@@ -738,7 +727,7 @@ void CSM::setupVisibilityPassFbo(const Texture::SharedPtr& pVisBuffer)
     if (rebind) mVisibilityPass.pFbo->attachColorTarget(pTex, 0);
 }
 
-void CSM::execute(RenderContext* pContext, const RenderData& renderData)
+void CSM::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpLight || !mpScene) return;
 
@@ -748,10 +737,10 @@ void CSM::execute(RenderContext* pContext, const RenderData& renderData)
     //const auto pCamera = mpCsmSceneRenderer->getScene()->getActiveCamera().get();
 
     const float4 clearColor(0);
-    pContext->clearFbo(mShadowPass.pFbo.get(), clearColor, 1, 0, FboAttachmentType::All);
+    pRenderContext->clearFbo(mShadowPass.pFbo.get(), clearColor, 1, 0, FboAttachmentType::All);
 
     // Calc the bounds
-    float2 distanceRange = calcDistanceRange(pContext, pCamera, pDepth);
+    float2 distanceRange = calcDistanceRange(pRenderContext, pCamera, pDepth);
 
     GraphicsState::Viewport VP;
     VP.originX = 0;
@@ -765,18 +754,18 @@ void CSM::execute(RenderContext* pContext, const RenderData& renderData)
     mShadowPass.pState->setViewport(0, VP);
     /*mpCsmSceneRenderer->setDepthClamp(mControls.depthClamp);*/
     partitionCascades(pCamera, distanceRange);
-    renderScene(pContext);
+    renderScene(pRenderContext);
 
     if ((CsmFilter)mCsmData.filterMode == CsmFilter::Vsm || (CsmFilter)mCsmData.filterMode == CsmFilter::Evsm2 || (CsmFilter)mCsmData.filterMode == CsmFilter::Evsm4)
     {
         mpBlurGraph->setInput(kBlurPass + ".src", mShadowPass.pFbo->getColorTexture(0));
-        mpBlurGraph->execute(pContext);
+        mpBlurGraph->execute(pRenderContext);
         mShadowPass.pFbo->attachColorTarget(mpBlurGraph->getOutput(kBlurPass + ".dst")->asTexture(), 0);
-        mShadowPass.pFbo->getColorTexture(0)->generateMips(pContext);
+        mShadowPass.pFbo->getColorTexture(0)->generateMips(pRenderContext);
     }
 
     // Clear visibility buffer
-    pContext->clearFbo(mVisibilityPass.pFbo.get(), float4(1, 0, 0, 0), 1, 0, FboAttachmentType::All);
+    pRenderContext->clearFbo(mVisibilityPass.pFbo.get(), float4(1, 0, 0, 0), 1, 0, FboAttachmentType::All);
 
     // Update Vars
     mVisibilityPass.pPass["gDepth"] = pDepth ? pDepth : mDepthPass.pState->getFbo()->getDepthStencilTexture();
@@ -789,7 +778,7 @@ void CSM::execute(RenderContext* pContext, const RenderData& renderData)
     mVisibilityPass.pPass["PerFrameCB"][mVisibilityPass.mPassDataOffset].setBlob(mVisibilityPassData);
 
     // Render visibility buffer
-    mVisibilityPass.pPass->execute(pContext, mVisibilityPass.pFbo);
+    mVisibilityPass.pPass->execute(pRenderContext, mVisibilityPass.pFbo);
 }
 
 void CSM::setLight(const Light::SharedConstPtr& pLight)
@@ -966,7 +955,7 @@ void CSM::setSdsmReadbackLatency(uint32_t latency)
 
 void CSM::createSdsmData(Texture::SharedPtr pTexture)
 {
-    assert(pTexture);
+    FALCOR_ASSERT(pTexture);
     // Only create a new technique if it doesn't exist or the dimensions changed
     if (mSdsmData.minMaxReduction)
     {
@@ -1011,7 +1000,7 @@ void CSM::setVisibilityBufferBitsPerChannel(uint32_t bitsPerChannel)
     }
     mVisibilityPassData.mapBitsPerChannel = bitsPerChannel;
     mVisibilityPass.pFbo->attachColorTarget(nullptr, 0);
-    mPassChangedCB();
+    requestRecompile();
 }
 
 void CSM::resizeShadowMap(const uint2& smDims)

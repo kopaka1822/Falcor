@@ -30,8 +30,9 @@
 
 namespace Falcor
 {
-    MaterialTextureLoader::MaterialTextureLoader(bool useSrgb)
-        : mUseSrgb(useSrgb)
+    MaterialTextureLoader::MaterialTextureLoader(const TextureManager::SharedPtr& pTextureManager, bool useSrgb)
+        : mpTextureManager(pTextureManager)
+        , mUseSrgb(useSrgb)
     {
     }
 
@@ -42,42 +43,31 @@ namespace Falcor
 
     void MaterialTextureLoader::loadTexture(const Material::SharedPtr& pMaterial, Material::TextureSlot slot, const std::string& filename)
     {
-        assert(pMaterial);
-
-        bool srgb = mUseSrgb && pMaterial->isSrgbTextureRequired(slot);
-
-        std::string fullPath;
-        if (!findFileInDataDirectories(filename, fullPath))
+        FALCOR_ASSERT(pMaterial);
+        if (!pMaterial->hasTextureSlot(slot))
         {
-            logWarning("Can't find texture image file '" + filename + "'");
+            logWarning("MaterialTextureLoader::loadTexture() - Material '{}' does not have texture slot '{}'. Ignoring call.", pMaterial->getName(), to_string(slot));
             return;
         }
 
-        TextureKey textureKey{fullPath, srgb};
+        bool srgb = mUseSrgb && pMaterial->getTextureSlotInfo(slot).srgb;
 
-        // Load texture if not already requested before.
-        if (mRequestedTextures.find(textureKey) == mRequestedTextures.end())
-        {
-            mRequestedTextures[textureKey] = mAsyncTextureLoader.loadFromFile(fullPath, true, srgb);
-        }
+        // Request texture to be loaded.
+        auto handle = mpTextureManager->loadTexture(filename, true, srgb);
 
         // Store assignment to material for later.
-        mTextureAssignments.emplace_back(TextureAssignment{ pMaterial, slot, textureKey });
+        mTextureAssignments.emplace_back(TextureAssignment{ pMaterial, slot, handle });
     }
 
     void MaterialTextureLoader::assignTextures()
     {
-        // Wait for all textures to be loaded.
-        std::map<TextureKey, Texture::SharedPtr> loadedTextures;
-        for (auto &[key, texture] : mRequestedTextures)
-        {
-            loadedTextures[key] = texture.get();
-        }
+        mpTextureManager->waitForAllTexturesLoading();
 
         // Assign textures to materials.
         for (const auto& assignment : mTextureAssignments)
         {
-            assignment.pMaterial->setTexture(assignment.textureSlot, loadedTextures[assignment.textureKey]);
+            auto pTexture = mpTextureManager->getTexture(assignment.handle);
+            assignment.pMaterial->setTexture(assignment.textureSlot, pTexture);
         }
     }
 }

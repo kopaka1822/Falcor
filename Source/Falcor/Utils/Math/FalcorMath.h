@@ -75,14 +75,13 @@ namespace Falcor
         // Convert from [0, 1] to [-1, 1] range
         const float x = mousePos.x * 2.0f - 1.0f;
 
-        // Vulkan has flipped Y in clip space. Otherwise Y has to be flipped
-        const float y =
-#ifdef FALCOR_VK
-            mousePos.y
+#ifdef FALCOR_FLIP_Y
+        // NDC Y is top-to-bottom
+        const float y = mousePos.y * 2.0f - 1.0f;
 #else
-            (1.0f - mousePos.y)
+        // NDC Y is bottom-to-top
+        const float y = (1.0f - mousePos.y) * 2.0f - 1.0f;
 #endif
-            * 2.0f - 1.0f;
 
         // NDC/Clip
         float4 ray(x, y, -1.0f, 1.0f);
@@ -165,7 +164,7 @@ namespace Falcor
     */
     inline float apertureFNumberToRadius(float fNumber, float focalLength, float sceneUnit)
     {
-        assert(fNumber > 0.0f && focalLength > 0.f && sceneUnit > 0.f);
+        FALCOR_ASSERT(fNumber > 0.0f && focalLength > 0.f && sceneUnit > 0.f);
         float radius = 0.5f * focalLength / fNumber; // in mm
         return radius * 0.001f / sceneUnit;
     }
@@ -177,7 +176,7 @@ namespace Falcor
     */
     inline float apertureRadiusToFNumber(float apertureRadius, float focalLength, float sceneUnit)
     {
-        assert(focalLength > 0.f && sceneUnit > 0.f);
+        FALCOR_ASSERT(focalLength > 0.f && sceneUnit > 0.f);
         float radius = apertureRadius * sceneUnit * 1000.f; // in mm
         return 0.5f * focalLength / radius;
     }

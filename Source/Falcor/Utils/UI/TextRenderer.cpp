@@ -85,7 +85,7 @@ namespace Falcor
             vpTransform[1][1] = -2 / height;
             vpTransform[3][0] = -1;
             vpTransform[3][1] = 1;
-#ifdef FALCOR_VK
+#ifdef FALCOR_FLIP_Y
             vpTransform[1][1] *= -1.0f;
             vpTransform[3][1] *= -1.0f;
 #endif
@@ -98,7 +98,7 @@ namespace Falcor
         void renderText(RenderContext* pRenderContext, const std::string& text, const Fbo::SharedPtr& pDstFbo, float2 pos)
         {
             // Make sure we enough space for the next char
-            assert(text.size() < kMaxCharCount);
+            FALCOR_ASSERT(text.size() < kMaxCharCount);
             setCbData(pDstFbo);
             Vertex* verts = (Vertex*)gTextData.pVb->map(Buffer::MapType::WriteDiscard);
 

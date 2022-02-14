@@ -32,30 +32,19 @@ namespace Falcor
 {
     namespace
     {
-        std::string sLogFilePath;
-        bool sLogToConsole = false;
-        bool sShowBoxOnError = true;
         Logger::Level sVerbosity = Logger::Level::Info;
+        Logger::OutputFlags sOutputs = Logger::OutputFlags::Console | Logger::OutputFlags::File | Logger::OutputFlags::DebugWindow;
+        std::string sLogFilePath;
 
-#if _LOG_ENABLED
+#if FALCOR_ENABLE_LOGGER
         bool sInitialized = false;
         FILE* sLogFile = nullptr;
 
         std::string generateLogFilePath()
         {
-            // Get current process name
-            std::string filename = getExecutableName();
-
-            // Now we have a folder and a filename, look for an available filename (we don't overwrite existing files)
-            std::string prefix = std::string(filename);
-            std::string executableDir = getExecutableDirectory();
-            std::string path;
-            if (findAvailableFilename(prefix, executableDir, "log", path))
-            {
-                return path;
-            }
-            should_not_get_here();
-            return "";
+            std::string prefix = getExecutableName();
+            std::string directory = getExecutableDirectory();
+            return findAvailableFilename(prefix, directory, "log");
         }
 
         FILE* openLogFile()
@@ -75,7 +64,7 @@ namespace Falcor
             }
 
             // If we got here, we couldn't create a log file
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
             return pFile;
         }
 
@@ -98,7 +87,7 @@ namespace Falcor
 
     void Logger::shutdown()
     {
-#if _LOG_ENABLED
+#if FALCOR_ENABLE_LOGGER
         if(sLogFile)
         {
             fclose(sLogFile);
@@ -123,92 +112,55 @@ namespace Falcor
         case Logger::Level::Debug:
             return "(Debug)";
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
             return nullptr;
         }
     }
 
-    void Logger::log(Level level, const std::string& msg, MsgBox mbox, bool terminateOnError)
+    void Logger::log(Level level, const std::string_view msg)
     {
-#if _LOG_ENABLED
+#if FALCOR_ENABLE_LOGGER
         if (level <= sVerbosity)
         {
-            std::string s = getLogLevelString(level) + std::string(" ") + msg + "\n";
+            std::string s = fmt::format("{} {}\n", getLogLevelString(level), msg);
 
-            // Write to log file.
-            printToLogFile(s);
-
-            // Write to debug window if debugger is attached.
-            if (isDebuggerPresent()) printToDebugWindow(s);
-
-            // Write errors to stderr unconditionally, other messages to stdout if enabled.
-            if (level > Logger::Level::Error)
+            // Write to console.
+            if (is_set(sOutputs, OutputFlags::Console))
             {
-                if (sLogToConsole) {
-                    static HANDLE coutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
-                    if(level == Level::Warning) SetConsoleTextAttribute(coutHandle, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-                    if(level == Level::Debug) SetConsoleTextAttribute(coutHandle, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-                    std::cout << s;
-                    std::cout.flush();
-                    SetConsoleTextAttribute(coutHandle, 7); // default color
+                if (level > Logger::Level::Error){
+                   static HANDLE coutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+                   if(level == Level::Warning) SetConsoleTextAttribute(coutHandle, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                   if(level == Level::Debug) SetConsoleTextAttribute(coutHandle, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                   std::cout << s;
+                   SetConsoleTextAttribute(coutHandle, 7); // default color
+                }
+                else 
+                {
+                   // color errors red
+                   static HANDLE cerrHandle = GetStdHandle(STD_ERROR_HANDLE);
+                   SetConsoleTextAttribute(cerrHandle, FOREGROUND_RED | FOREGROUND_INTENSITY);
+                   std::cerr << s;
                 }
             }
-            else
-            {
-                // color errors red
-                static HANDLE cerrHandle = GetStdHandle(STD_ERROR_HANDLE);
-                SetConsoleTextAttribute(cerrHandle, FOREGROUND_RED | FOREGROUND_INTENSITY);
-                std::cerr << s;
 
+            // Write to file.
+            if (is_set(sOutputs, OutputFlags::File))
+            {
+                printToLogFile(s);
             }
 
-
+            // Write to debug window if debugger is attached.
+            if (is_set(sOutputs, OutputFlags::DebugWindow) && isDebuggerPresent())
+            {
+                printToDebugWindow(s);
+            }
         }
 #endif
-
-        if (sShowBoxOnError)
-        {
-            if (mbox == MsgBox::Auto)
-            {
-                mbox = (level <= Level::Error) ? MsgBox::ContinueAbort : MsgBox::None;
-            }
-
-            if (mbox != MsgBox::None)
-            {
-                enum ButtonId {
-                    ContinueOrRetry,
-                    Debug,
-                    Abort
-                };
-
-                // Setup message box buttons
-                std::vector<MsgBoxCustomButton> buttons;
-                if (level != Level::Fatal) buttons.push_back({ContinueOrRetry, mbox == MsgBox::ContinueAbort ? "Continue" : "Retry"});
-                if (isDebuggerPresent()) buttons.push_back({Debug, "Debug"});
-                buttons.push_back({Abort, "Abort"});
-
-                // Setup icon
-                MsgBoxIcon icon = MsgBoxIcon::Info;
-                if (level == Level::Warning) icon = MsgBoxIcon::Warning;
-                else if (level <= Level::Error) icon = MsgBoxIcon::Error;
-
-                // Show message box
-                auto result = msgBox(msg, buttons, icon);
-                if (result == Debug) debugBreak();
-                else if (result == Abort) exit(1);
-            }
-        }
-
-        // Terminate on errors if not displaying message box and terminateOnError is enabled
-        if (level == Level::Error && !sShowBoxOnError && terminateOnError) exit(1);
-
-        // Always terminate on fatal errors
-        if (level == Level::Fatal) exit(1);
     }
 
     bool Logger::setLogFilePath(const std::string& path)
     {
-#if _LOG_ENABLED
+#if FALCOR_ENABLE_LOGGER
         if (sLogFile)
         {
             return false;
@@ -223,10 +175,11 @@ namespace Falcor
 #endif
     }
 
-    const std::string& Logger::getLogFilePath() { return sLogFilePath; }
-    void Logger::logToConsole(bool enable) { sLogToConsole = enable; }
-    bool Logger::shouldLogToConsole() { return sLogToConsole; }
-    void Logger::showBoxOnError(bool showBox) { sShowBoxOnError = showBox; }
-    bool Logger::isBoxShownOnError() { return sShowBoxOnError; }
     void Logger::setVerbosity(Level level) { sVerbosity = level; }
+    Logger::Level Logger::getVerbosity() { return sVerbosity; }
+
+    void Logger::setOutputs(OutputFlags outputs) { sOutputs = outputs; }
+    Logger::OutputFlags Logger::getOutputs() { return sOutputs; }
+
+    const std::string& Logger::getLogFilePath() { return sLogFilePath; }
 }

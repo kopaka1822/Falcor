@@ -31,10 +31,10 @@
 
 namespace Falcor
 {
-    /** Abstracts vertex array objects. A VAO must at least specify a primitive topology. You may additionally specify a number of vertex buffer layouts 
+    /** Abstracts vertex array objects. A VAO must at least specify a primitive topology. You may additionally specify a number of vertex buffer layouts
         corresponding to the number of vertex buffers to be bound. The number of vertex buffers to be bound must match the number described in the layout.
     */
-    class dlldecl Vao : public std::enable_shared_from_this<Vao>
+    class FALCOR_API Vao
     {
     public:
         using SharedPtr = std::shared_ptr<Vao>;
@@ -83,7 +83,7 @@ namespace Falcor
 
         /** Get a vertex buffer
         */
-        const Buffer::SharedPtr& getVertexBuffer(uint32_t index) const { assert(index < (uint32_t)mpVBs.size()); return mpVBs[index]; }
+        const Buffer::SharedPtr& getVertexBuffer(uint32_t index) const { FALCOR_ASSERT(index < (uint32_t)mpVBs.size()); return mpVBs[index]; }
 
         /** Get a vertex buffer layout
         */

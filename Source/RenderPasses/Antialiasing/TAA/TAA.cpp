@@ -27,7 +27,7 @@
  **************************************************************************/
 #include "TAA.h"
 
-const char* TAA::kDesc = "Temporal Anti-Aliasing";
+const RenderPass::Info TAA::kInfo { "TAA", "Temporal Anti-Aliasing." };
 
 namespace
 {
@@ -42,6 +42,7 @@ namespace
 }
 
 TAA::TAA()
+    : RenderPass(kInfo)
 {
     mpPass = FullScreenPass::create(kShaderFilename);
     mpFbo = Fbo::create();
@@ -57,7 +58,7 @@ TAA::SharedPtr TAA::create(RenderContext* pRenderContext, const Dictionary& dict
     {
         if (key == kAlpha) pTAA->mControls.alpha = value;
         else if (key == kColorBoxSigma) pTAA->mControls.colorBoxSigma = value;
-        else logWarning("Unknown field '" + key + "' in a TemporalAA dictionary");
+        else logWarning("Unknown field '{}' in a TemporalAA dictionary.", key);
     }
     return pTAA;
 }
@@ -79,7 +80,7 @@ RenderPassReflection TAA::reflect(const CompileData& compileData)
     return reflection;
 }
 
-void TAA::execute(RenderContext* pContext, const RenderData& renderData)
+void TAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     const auto& pColorIn = renderData[kColorIn]->asTexture();
     const auto& pColorOut = renderData[kColorOut]->asTexture();
@@ -88,9 +89,9 @@ void TAA::execute(RenderContext* pContext, const RenderData& renderData)
     mpFbo->attachColorTarget(pColorOut, 0);
 
     // Make sure the dimensions match
-    assert((pColorIn->getWidth() == mpPrevColor->getWidth()) && (pColorIn->getWidth() == pMotionVec->getWidth()));
-    assert((pColorIn->getHeight() == mpPrevColor->getHeight()) && (pColorIn->getHeight() == pMotionVec->getHeight()));
-    assert(pColorIn->getSampleCount() == 1 && mpPrevColor->getSampleCount() == 1 && pMotionVec->getSampleCount() == 1);
+    FALCOR_ASSERT((pColorIn->getWidth() == mpPrevColor->getWidth()) && (pColorIn->getWidth() == pMotionVec->getWidth()));
+    FALCOR_ASSERT((pColorIn->getHeight() == mpPrevColor->getHeight()) && (pColorIn->getHeight() == pMotionVec->getHeight()));
+    FALCOR_ASSERT(pColorIn->getSampleCount() == 1 && mpPrevColor->getSampleCount() == 1 && pMotionVec->getSampleCount() == 1);
 
     mpPass["PerFrameCB"]["gAlpha"] = mControls.alpha;
     mpPass["PerFrameCB"]["gColorBoxSigma"] = mControls.colorBoxSigma;
@@ -99,8 +100,8 @@ void TAA::execute(RenderContext* pContext, const RenderData& renderData)
     mpPass["gTexPrevColor"] = mpPrevColor;
     mpPass["gSampler"] = mpLinearSampler;
 
-    mpPass->execute(pContext, mpFbo);
-    pContext->blit(pColorOut->getSRV(), mpPrevColor->getRTV());
+    mpPass->execute(pRenderContext, mpFbo);
+    pRenderContext->blit(pColorOut->getSRV(), mpPrevColor->getRTV());
 }
 
 void TAA::allocatePrevColor(const Texture* pColorOut)
@@ -110,7 +111,7 @@ void TAA::allocatePrevColor(const Texture* pColorOut)
     allocate = allocate || (mpPrevColor->getHeight() != pColorOut->getHeight());
     allocate = allocate || (mpPrevColor->getDepth() != pColorOut->getDepth());
     allocate = allocate || (mpPrevColor->getFormat() != pColorOut->getFormat());
-    assert(pColorOut->getSampleCount() == 1);
+    FALCOR_ASSERT(pColorOut->getSampleCount() == 1);
 
     if (allocate) mpPrevColor = Texture::create2D(pColorOut->getWidth(), pColorOut->getHeight(), pColorOut->getFormat(), 1, 1, nullptr, Resource::BindFlags::RenderTarget | Resource::BindFlags::ShaderResource);
 }

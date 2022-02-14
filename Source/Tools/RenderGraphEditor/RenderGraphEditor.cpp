@@ -26,7 +26,6 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "RenderGraphEditor.h"
-#include "RenderGraphEditor.h"
 #include "dear_imgui/imgui.h"
 #include "dear_imgui/imgui_internal.h"
 
@@ -34,6 +33,10 @@
 
 #include <fstream>
 #include <filesystem>
+
+#ifdef FALCOR_D3D12
+FALCOR_EXPORT_D3D12_AGILITY_SDK
+#endif
 
 namespace
 {
@@ -64,7 +67,7 @@ RenderGraphEditor::~RenderGraphEditor()
 void RenderGraphEditor::onLoad(RenderContext* pRenderContext)
 {
     mpDefaultIconTex = Texture::createFromFile(kDefaultPassIcon, false, false);
-    if (!mpDefaultIconTex) throw std::exception("Failed to load icon");
+    if (!mpDefaultIconTex) throw RuntimeError("Failed to load icon");
 
     loadAllPassLibraries();
 
@@ -215,13 +218,13 @@ void RenderGraphEditor::onGuiRender(Gui* pGui)
     auto renderPasses = RenderPassLibrary::instance().enumerateClasses();
     // sort render passes alphabetically before display
     std::sort(renderPasses.begin(), renderPasses.end(), [](const RenderPassLibrary::RenderPassDesc& l, const RenderPassLibrary::RenderPassDesc& r) {
-        return strcmp(l.className, r.className) < 0;
+        return strcmp(l.info.type.c_str(), r.info.type.c_str()) < 0;
     });
     for (size_t i = 0; i < renderPasses.size(); i++)
     {
         const auto& pass = renderPasses[i];
-        passWindow.rect({ 148.0f, 64.0f }, pGui->pickUniqueColor(pass.className), false);
-        const std::string customIconPath = std::string(pass.className) + ".png";
+        passWindow.rect({ 148.0f, 64.0f }, pGui->pickUniqueColor(pass.info.type), false);
+        const std::string customIconPath = std::string(pass.info.type) + ".png";
         const std::string iconLabel = "RenderPass##" + std::to_string(i);
 
         auto cachedEntry = mRenderPassImageCache.find(iconLabel);
@@ -239,9 +242,9 @@ void RenderGraphEditor::onGuiRender(Gui* pGui)
             passWindow.image(iconLabel.c_str(), icon, { 148.0f, 44.0f });
         }
 
-        passWindow.dragDropSource(pass.className, "RenderPassType", pass.className);
-        passWindow.text(pass.className);
-        passWindow.tooltip(pass.desc, true);
+        passWindow.dragDropSource(pass.info.type.c_str(), "RenderPassType", pass.info.type);
+        passWindow.text(pass.info.type);
+        passWindow.tooltip(pass.info.desc, true);
         passWindow.nextColumn();
     }
 
@@ -357,7 +360,7 @@ void RenderGraphEditor::onGuiRender(Gui* pGui)
             // load application for the editor given it the name of the mapped file
             std::string commandLineArgs = kScriptSwitch + " " + mUpdateFilePath;
             mViewerProcess = executeProcess(kViewerExecutableName, commandLineArgs);
-            assert(mViewerProcess);
+            FALCOR_ASSERT(mViewerProcess);
             mViewerRunning = true;
         }
     }
@@ -448,7 +451,7 @@ void RenderGraphEditor::deserializeRenderGraph(const std::string& fileName)
 
 void RenderGraphEditor::loadGraphsFromFile(const std::string& fileName, const std::string& graphName)
 {
-    assert(fileName.size());
+    FALCOR_ASSERT(fileName.size());
 
     // behavior is load each graph defined within the file as a separate editor ui
     std::vector <RenderGraph::SharedPtr> newGraphs;

@@ -38,7 +38,7 @@ namespace Falcor
         The prefix sum is computed in place using exclusive scan.
         Each new element is y[i] = x[0] + ... + x[i-1], for i=1..N and y[0] = 0.
     */
-    class dlldecl PrefixSum : public std::enable_shared_from_this<PrefixSum>
+    class FALCOR_API PrefixSum
     {
     public:
         using SharedPtr = std::shared_ptr<PrefixSum>;
@@ -58,7 +58,7 @@ namespace Falcor
             \param[in] pTotalSumBuffer (Optional) Buffer on the GPU to which the total sum is copied (uint32_t).
             \param[in] pTotalSumOffset (Optional) Byte offset into pTotalSumBuffer to where the sum should be written.
         */
-        bool execute(RenderContext* pRenderContext, Buffer::SharedPtr pData, uint32_t elementCount, uint32_t* pTotalSum = nullptr, Buffer::SharedPtr pTotalSumBuffer = nullptr, uint64_t pTotalSumOffset = 0);
+        void execute(RenderContext* pRenderContext, Buffer::SharedPtr pData, uint32_t elementCount, uint32_t* pTotalSum = nullptr, Buffer::SharedPtr pTotalSumBuffer = nullptr, uint64_t pTotalSumOffset = 0);
 
     protected:
         PrefixSum();
@@ -72,5 +72,7 @@ namespace Falcor
         ComputeVars::SharedPtr      mpPrefixSumFinalizeVars;
 
         Buffer::SharedPtr           mpPrefixGroupSums;              ///< Temporary buffer for prefix sum computation.
+        Buffer::SharedPtr           mpTotalSum;                     ///< Temporary buffer for total sum of an iteration.
+        Buffer::SharedPtr           mpPrevTotalSum;                 ///< Temporary buffer for prev total sum of an iteration.
     };
 }

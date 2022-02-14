@@ -34,8 +34,8 @@ namespace Falcor
 
     BitonicSort::BitonicSort()
     {
-#if !_ENABLE_NVAPI
-        throw std::exception("BitonicSort requires NVAPI. Set _ENABLE_NVAPI to true in FalcorConfig.h.");
+#if !FALCOR_ENABLE_NVAPI
+        throw RuntimeError("BitonicSort requires NVAPI. See installation instructions in README.");
 #endif
         mSort.pState = ComputeState::create();
 
@@ -55,13 +55,13 @@ namespace Falcor
 
     bool BitonicSort::execute(RenderContext* pRenderContext, Buffer::SharedPtr pData, uint32_t totalSize, uint32_t chunkSize, uint32_t groupSize)
     {
-        PROFILE("BitonicSort::execute");
+        FALCOR_PROFILE("BitonicSort::execute");
 
         // Validate inputs.
-        assert(pRenderContext);
-        assert(pData);
-        assert(chunkSize >= 1 && chunkSize <= groupSize && isPowerOf2(chunkSize));
-        assert(groupSize >= 1 && groupSize <= 1024 && isPowerOf2(groupSize));
+        FALCOR_ASSERT(pRenderContext);
+        FALCOR_ASSERT(pData);
+        FALCOR_ASSERT(chunkSize >= 1 && chunkSize <= groupSize && isPowerOf2(chunkSize));
+        FALCOR_ASSERT(groupSize >= 1 && groupSize <= 1024 && isPowerOf2(groupSize));
 
         // Early out if there is nothing to be done.
         if (totalSize == 0 || chunkSize <= 1) return true;
@@ -75,7 +75,7 @@ namespace Falcor
         const uint32_t numGroups = div_round_up(totalSize, groupSize);
         const uint32_t groupsX = std::max((uint32_t)sqrt(numGroups), 1u);
         const uint32_t groupsY = div_round_up(numGroups, groupsX);
-        assert(groupsX * groupsY * groupSize >= totalSize);
+        FALCOR_ASSERT(groupsX * groupsY * groupSize >= totalSize);
 
         // Constants. The buffer size as a runtime constant as it may be variable and we don't want to recompile each time it changes.
         mSort.pVars["CB"]["gTotalSize"] = totalSize;
@@ -83,7 +83,7 @@ namespace Falcor
 
         // Bind the data.
         bool success = mSort.pVars->setBuffer("gData", pData);
-        assert(success);
+        FALCOR_ASSERT(success);
 
         // Execute.
         pRenderContext->dispatch(mSort.pState.get(), mSort.pVars.get(), {groupsX, groupsY, 1});

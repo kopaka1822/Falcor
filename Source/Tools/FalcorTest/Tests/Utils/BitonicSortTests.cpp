@@ -63,7 +63,7 @@ namespace Falcor
 
             // Compare results.
             const uint32_t* result = (const uint32_t*)pTestDataBuffer->map(Buffer::MapType::Read);
-            assert(result);
+            FALCOR_ASSERT(result);
             for (uint32_t i = 0; i < n; i++)
             {
                 EXPECT_EQ(testData[i], result[i]) << "i = " << i;
@@ -72,7 +72,7 @@ namespace Falcor
         }
     }
 
-#if _ENABLE_NVAPI
+#if FALCOR_ENABLE_NVAPI
     GPU_TEST(BitonicSort)
 #else
     GPU_TEST(BitonicSort, "Requires NVAPI")

@@ -33,7 +33,7 @@ namespace Falcor
     struct KeyboardEvent;
     struct MouseEvent;
 
-    class dlldecl Window
+    class FALCOR_API Window
     {
     public:
         using SharedPtr = std::shared_ptr<Window>;
@@ -75,7 +75,7 @@ namespace Falcor
         /** Create a new window.
             \param[in] desc Window configuration
             \param[in] pCallbacks User callbacks
-            \return A new object if creation succeeded, otherwise nullptr
+            \return A new object, or throws an exception if creation failed.
         */
         static SharedPtr create(const Desc& desc, ICallbacks* pCallbacks);
 
