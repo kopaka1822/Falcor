@@ -41,7 +41,7 @@ namespace Falcor
         The LightCollection can be used standalone, but more commonly it will be wrapped
         by an emissive light sampler.
     */
-    class dlldecl LightCollection : public std::enable_shared_from_this<LightCollection>
+    class FALCOR_API LightCollection
     {
     public:
         using SharedPtr = std::shared_ptr<LightCollection>;
@@ -110,7 +110,7 @@ namespace Falcor
             Note that update() must be called before the collection is ready to use.
             \param[in] pRenderContext The render context.
             \param[in] pScene The scene.
-            \return Ptr to the created object, or nullptr if an error occured.
+            \return A pointer to a new light collection object, or throws an exception if creation failed.
         */
         static SharedPtr create(RenderContext* pRenderContext, const std::shared_ptr<Scene>& pScene);
 
@@ -123,9 +123,8 @@ namespace Falcor
 
         /** Bind the light collection data to a given shader var
             \param[in] var The shader variable to set the data into.
-            \return True if successful, false otherwise.
         */
-        bool setShaderData(const ShaderVar& var) const;
+        void setShaderData(const ShaderVar& var) const;
 
         /** Returns the total number of active (non-culled) triangle lights.
         */
@@ -161,7 +160,7 @@ namespace Falcor
         */
         uint64_t getMemoryUsageInBytes() const;
 
-        // Internal update flags. This only public for enum_class_operators() to work.
+        // Internal update flags. This only public for FALCOR_ENUM_CLASS_OPERATORS() to work.
         enum class CPUOutOfDateFlags : uint32_t
         {
             None         = 0,
@@ -172,11 +171,10 @@ namespace Falcor
         };
 
     protected:
-        LightCollection() = default;
+        LightCollection(RenderContext* pRenderContext, const std::shared_ptr<Scene>& pScene);
 
-        bool init(RenderContext* pRenderContext, const std::shared_ptr<Scene>& pScene);
-        bool initIntegrator(const Scene& scene);
-        bool setupMeshLights(const Scene& scene);
+        void initIntegrator(const Scene& scene);
+        void setupMeshLights(const Scene& scene);
         void build(RenderContext* pRenderContext, const Scene& scene);
         void prepareTriangleData(RenderContext* pRenderContext, const Scene& scene);
         void prepareMeshData(const Scene& scene);
@@ -230,6 +228,6 @@ namespace Falcor
         mutable bool                            mStagingBufferValid = true;                 ///< Flag to indicate if the contents of the staging buffer is up-to-date.
     };
 
-    enum_class_operators(LightCollection::CPUOutOfDateFlags);
-    enum_class_operators(LightCollection::UpdateFlags);
+    FALCOR_ENUM_CLASS_OPERATORS(LightCollection::CPUOutOfDateFlags);
+    FALCOR_ENUM_CLASS_OPERATORS(LightCollection::UpdateFlags);
 }

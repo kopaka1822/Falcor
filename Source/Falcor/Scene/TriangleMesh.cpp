@@ -193,7 +193,7 @@ namespace Falcor
         std::string fullPath;
         if (!findFileInDataDirectories(filename, fullPath))
         {
-            logWarning("Error when loading triangle mesh. Can't find mesh file '" + filename + "'");
+            logWarning("Error when loading triangle mesh. Can't find mesh file '{}'.", filename);
             return nullptr;
         }
 
@@ -208,7 +208,7 @@ namespace Falcor
         auto scene = importer.ReadFile(fullPath.c_str(), flags);
         if (!scene)
         {
-            logWarning("Failed to load triangle mesh from '" + fullPath + "' (" + importer.GetErrorString() + ")");
+            logWarning("Failed to load triangle mesh from '{}': {}", fullPath, importer.GetErrorString());
             return nullptr;
         }
 
@@ -255,7 +255,7 @@ namespace Falcor
     uint32_t TriangleMesh::addVertex(float3 position, float3 normal, float2 texCoord)
     {
         mVertices.emplace_back(Vertex{position, normal, texCoord});
-        assert(mVertices.size() < std::numeric_limits<uint32_t>::max());
+        FALCOR_ASSERT(mVertices.size() < std::numeric_limits<uint32_t>::max());
         return (uint32_t)(mVertices.size() - 1);
     }
 
@@ -287,7 +287,7 @@ namespace Falcor
         , mFrontFaceCW(frontFaceCW)
     {}
 
-    SCRIPT_BINDING(TriangleMesh)
+    FALCOR_SCRIPT_BINDING(TriangleMesh)
     {
         pybind11::class_<TriangleMesh, TriangleMesh::SharedPtr> triangleMesh(m, "TriangleMesh");
         triangleMesh.def_property("name", &TriangleMesh::getName, &TriangleMesh::setName);

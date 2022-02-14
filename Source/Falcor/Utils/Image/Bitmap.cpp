@@ -34,16 +34,8 @@
 
 namespace Falcor
 {
-#ifdef FALCOR_VK
-    static bool isRGB32fSupported()
-    {
-        VkFormatProperties p;
-        vkGetPhysicalDeviceFormatProperties(gpDevice->getApiHandle(), VK_FORMAT_R32G32B32_SFLOAT, &p);
-        return p.optimalTilingFeatures != 0;
-    }
-#else
     static bool isRGB32fSupported() { return false; } // FIX THIS
-#endif
+
     static void genWarning(const std::string& errMsg, const std::string& filename)
     {
         std::string err = "Error when loading image file from '" + filename + "' (" + errMsg + ")";
@@ -104,7 +96,7 @@ namespace Falcor
     */
     static std::vector<float> convertToRGBA32Float(ResourceFormat format, uint32_t width, uint32_t height, const void* pData)
     {
-        assert(isConvertibleToRGBA32Float(format));
+        FALCOR_ASSERT(isConvertibleToRGBA32Float(format));
 
         FormatType type = getFormatType(format);
         uint32_t channelCount = getFormatChannelCount(format);
@@ -134,7 +126,7 @@ namespace Falcor
         }
         else
         {
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
         }
 
         // Default alpha channel to 1.
@@ -193,7 +185,7 @@ namespace Falcor
         std::string fullpath;
         if (findFileInDataDirectories(filename, fullpath) == false)
         {
-            logWarning("Error when loading image file. Can't find image file '" + filename + "'");
+            logWarning("Error when loading image file. Can't find image file '{}'.", filename);
             return nullptr;
         }
 
@@ -319,7 +311,7 @@ namespace Falcor
         if (isCompressedFormat(format))
         {
             uint32_t blockSizeY = getFormatHeightCompressionRatio(format);
-            assert(height % blockSizeY == 0); // Should divide evenly
+            FALCOR_ASSERT(height % blockSizeY == 0); // Should divide evenly
             mSize = mRowPitch * (height / blockSizeY);
         }
         else
@@ -353,7 +345,7 @@ namespace Falcor
         case Bitmap::FileFormat::ExrFile:
             return FIF_EXR;
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
         }
         return FIF_PNG;
     }
@@ -369,7 +361,7 @@ namespace Falcor
         case 16:
             return FIT_RGBAF;
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
         }
         return FIT_BITMAP;
     }
@@ -391,7 +383,7 @@ namespace Falcor
         {
             if (kExtensions[i] == ext) return Bitmap::FileFormat(i);
         }
-        logError("Can't find a matching format for file extension '" + ext + "'");
+        reportError("Can't find a matching format for file extension '" + ext + "'");
         return Bitmap::FileFormat(-1);
     }
 
@@ -457,19 +449,19 @@ namespace Falcor
     {
         if (pData == nullptr)
         {
-            logError("Bitmap::saveImage provided no data to save.");
+            reportError("Bitmap::saveImage provided no data to save.");
             return;
         }
 
         if (is_set(exportFlags, ExportFlags::Uncompressed) && is_set(exportFlags, ExportFlags::Lossy))
         {
-            logError("Bitmap::saveImage incompatible flags: lossy cannot be combined with uncompressed.");
+            reportError("Bitmap::saveImage incompatible flags: lossy cannot be combined with uncompressed.");
             return;
         }
 
         if (fileFormat == FileFormat::DdsFile)
         {
-            logError("Bitmap::saveImage cannot save DDS files. Use ImageIO instead.");
+            reportError("Bitmap::saveImage cannot save DDS files. Use ImageIO instead.");
             return;
         }
 
@@ -477,10 +469,11 @@ namespace Falcor
         FIBITMAP* pImage = nullptr;
         uint32_t bytesPerPixel = getFormatBytesPerBlock(resourceFormat);
 
-        // TODO: Replace this code for swapping channels. Can't use freeimage masks b/c they only care about 16 bpp images.
+        // Convert 8-bit RGBA to BGRA byte order.
+        // TODO: Replace this code for swapping channels. Can't use FreeImage masks b/c they only care about 16 bpp images.
         if (resourceFormat == ResourceFormat::RGBA8Unorm || resourceFormat == ResourceFormat::RGBA8Snorm || resourceFormat == ResourceFormat::RGBA8UnormSrgb)
         {
-            for (uint32_t a = 0; a < width*height; a++)
+            for (uint32_t a = 0; a < width * height; a++)
             {
                 uint32_t* pPixel = (uint32_t*)pData;
                 pPixel += a;
@@ -505,7 +498,7 @@ namespace Falcor
             }
             else if (bytesPerPixel != 16 && bytesPerPixel != 12)
             {
-                logError("Bitmap::saveImage supports only 32-bit/channel RGB/RGBA or 16-bit RGBA images as PFM/EXR files.");
+                reportError("Bitmap::saveImage supports only 32-bit/channel RGB/RGBA or 16-bit RGBA images as PFM/EXR files.");
                 return;
             }
 
@@ -515,19 +508,19 @@ namespace Falcor
             {
                 if (is_set(exportFlags, ExportFlags::Lossy))
                 {
-                    logError("Bitmap::saveImage: PFM does not support lossy compression mode.");
+                    reportError("Bitmap::saveImage: PFM does not support lossy compression mode.");
                     return;
                 }
                 if (exportAlpha)
                 {
-                    logError("Bitmap::saveImage: PFM does not support alpha channel.");
+                    reportError("Bitmap::saveImage: PFM does not support alpha channel.");
                     return;
                 }
             }
 
             if (exportAlpha && bytesPerPixel != 16)
             {
-                logError("Bitmap::saveImage requesting to export alpha-channel to EXR file, but the resource doesn't have an alpha-channel");
+                reportError("Bitmap::saveImage requesting to export alpha-channel to EXR file, but the resource doesn't have an alpha-channel");
                 return;
             }
 
@@ -545,7 +538,7 @@ namespace Falcor
                 }
                 else
                 {
-                    assert(exportAlpha == false);
+                    FALCOR_ASSERT(exportAlpha == false);
                     for (unsigned x = 0; x < width; x++)
                     {
                         dstBits[x*3 + 0] = (((float*)head)[x*4 + 0]);
@@ -625,18 +618,18 @@ namespace Falcor
                 break;
 
             default:
-                should_not_get_here();
+                FALCOR_UNREACHABLE();
             }
 
             if (warnings.empty() == false)
             {
-                logWarning("Bitmap::saveImage: " + joinStrings(warnings, " "));
+                logWarning("Bitmap::saveImage: {}", joinStrings(warnings, " "));
             }
         }
 
         if (!FreeImage_Save(toFreeImageFormat(fileFormat), pImage, filename.c_str(), flags))
         {
-            logError("Bitmap::saveImage: FreeImage failed to save image");
+            reportError("Bitmap::saveImage: FreeImage failed to save image");
         }
         FreeImage_Unload(pImage);
     }

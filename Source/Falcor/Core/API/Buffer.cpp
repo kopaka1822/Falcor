@@ -45,10 +45,10 @@ namespace Falcor
             const ReflectionResourceType* pResourceType = pType->unwrapArray()->asResourceType();
             if (!pResourceType || pResourceType->getType() != ReflectionResourceType::Type::StructuredBuffer)
             {
-                throw std::exception(("Can't create a structured buffer from the variable '" + varName + "'. The variable is not a structured buffer.").c_str());
+                throw RuntimeError("Can't create a structured buffer from the variable '{}'. The variable is not a structured buffer.", varName);
             }
 
-            assert(pResourceType->getSize() <= std::numeric_limits<uint32_t>::max());
+            FALCOR_ASSERT(pResourceType->getSize() <= std::numeric_limits<uint32_t>::max());
             return Buffer::createStructured((uint32_t)pResourceType->getSize(), elementCount, bindFlags, cpuAccess, pInitData, createCounter);
         }
     }
@@ -60,11 +60,13 @@ namespace Falcor
         : Resource(Type::Buffer, bindFlags, size)
         , mCpuAccess(cpuAccess)
     {
+        checkArgument(size > 0, "Can't create GPU buffer of size zero");
+
         // Check that buffer size is within 4GB limit. Larger buffers are currently not well supported in D3D12.
         // TODO: Revisit this check in the future.
         if (size > (1ull << 32))
         {
-            logWarning("Creating GPU buffer of size " + std::to_string(size) + " bytes. Buffers above 4GB are not currently well supported.");
+            logWarning("Creating GPU buffer of size {} bytes. Buffers above 4GB are not currently well supported.", size);
         }
     }
 
@@ -81,7 +83,7 @@ namespace Falcor
     {
         size_t size = (size_t)elementCount * getFormatBytesPerBlock(format);
         SharedPtr pBuffer = create(size, bindFlags, cpuAccess, pInitData);
-        assert(pBuffer);
+        FALCOR_ASSERT(pBuffer);
 
         pBuffer->mFormat = format;
         pBuffer->mElementCount = elementCount;
@@ -98,7 +100,7 @@ namespace Falcor
     {
         size_t size = (size_t)structSize * elementCount;
         Buffer::SharedPtr pBuffer = create(size, bindFlags, cpuAccess, pInitData);
-        assert(pBuffer);
+        FALCOR_ASSERT(pBuffer);
 
         pBuffer->mElementCount = elementCount;
         pBuffer->mStructSize = structSize;
@@ -134,32 +136,20 @@ namespace Falcor
         const ReflectionVar* pVar = pDefaultBlock ? pDefaultBlock->getResource(name).get() : nullptr;
         if (pVar == nullptr)
         {
-            throw std::exception(("Can't find a structured buffer named '" + name + "' in the program").c_str());
+            throw RuntimeError("Can't find a structured buffer named '{}' in the program", name);
         }
         return createStructuredFromType(pVar->getType().get(), name, elementCount, bindFlags, cpuAccess, pInitData, createCounter);
     }
 
     Buffer::SharedPtr Buffer::aliasResource(Resource::SharedPtr pBaseResource, GpuAddress offset, size_t size, Resource::BindFlags bindFlags)
     {
-        assert(pBaseResource->asBuffer()); // Only aliasing buffers for now
+        FALCOR_ASSERT(pBaseResource->asBuffer()); // Only aliasing buffers for now
         CpuAccess cpuAccess = pBaseResource->asBuffer() ? pBaseResource->asBuffer()->getCpuAccess() : CpuAccess::None;
-        if (cpuAccess != CpuAccess::None)
-        {
-            logError("Buffer::aliasResource() - trying to alias a buffer with CpuAccess::" + to_string(cpuAccess) + " which is illegal. Aliased resource must have CpuAccess::None");
-            return nullptr;
-        }
-
-        if ((pBaseResource->getBindFlags() & bindFlags) != bindFlags)
-        {
-            logError("Buffer::aliasResource() - requested buffer bind-flags don't match the aliased resource bind flags.\nRequested = " + to_string(bindFlags) + "\nAliased = " + to_string(pBaseResource->getBindFlags()));
-            return nullptr;
-        }
-
+        checkArgument(cpuAccess != CpuAccess::None, "'pBaseResource' has CpuAccess:{} which is illegal. Aliased resources must have CpuAccess::None.", to_string(cpuAccess));
+        checkArgument((pBaseResource->getBindFlags() & bindFlags) != bindFlags, "'bindFlags' ({}) don't match aliased resource bind flags {}.", to_string(bindFlags), to_string(pBaseResource->getBindFlags()));
         if (offset >= pBaseResource->getSize() || (offset + size) >= pBaseResource->getSize())
         {
-            logError("Buffer::aliasResource() - requested offset and size don't fit inside the alias resource dimensions. Requested size = " +
-                std::to_string(size) + ", offset = " + std::to_string(offset) + ". Aliased resource size = " + std::to_string(pBaseResource->getSize()));
-            return nullptr;
+            throw ArgumentError("'offset' ({}) and 'size' ({}) don't fit inside the aliased resource size {}.", offset, size, pBaseResource->getSize());
         }
 
         SharedPtr pBuffer = SharedPtr(new Buffer(size, bindFlags, CpuAccess::None));
@@ -171,7 +161,7 @@ namespace Falcor
 
     Buffer::SharedPtr Buffer::createFromApiHandle(ApiHandle handle, size_t size, Resource::BindFlags bindFlags, CpuAccess cpuAccess)
     {
-        assert(handle);
+        FALCOR_ASSERT(handle);
         Buffer::SharedPtr pBuffer = SharedPtr(new Buffer(size, bindFlags, cpuAccess));
         pBuffer->mApiHandle = handle;
         return pBuffer;
@@ -187,7 +177,11 @@ namespace Falcor
         }
         else
         {
+#ifdef FALCOR_D3D12
             gpDevice->releaseResource(mApiHandle);
+#elif defined(FALCOR_GFX)
+            gpDevice->releaseResource(static_cast<ApiObjectHandle>(mApiHandle.get()));
+#endif
         }
     }
 
@@ -237,12 +231,11 @@ namespace Falcor
         return getUAV(0);
     }
 
-    bool Buffer::setBlob(const void* pData, size_t offset, size_t size)
+    void Buffer::setBlob(const void* pData, size_t offset, size_t size)
     {
         if (offset + size > mSize)
         {
-            logError("Error when setting blob to buffer. Blob to large and will result in an overflow. Ignoring call");
-            return false;
+            throw ArgumentError("'offset' ({}) and 'size' ({}) don't fit the buffer size {}.", offset, size, mSize);
         }
 
         if (mCpuAccess == CpuAccess::Write)
@@ -254,27 +247,18 @@ namespace Falcor
         {
             gpDevice->getRenderContext()->updateBuffer(this, pData, offset, size);
         }
-        return true;
     }
 
     void* Buffer::map(MapType type)
     {
         if (type == MapType::Write)
         {
-            if (mCpuAccess != CpuAccess::Write)
-            {
-                logError("Trying to map a buffer for write, but it wasn't created with the write permissions");
-                return nullptr;
-            }
+            checkArgument(mCpuAccess == CpuAccess::Write, "Trying to map a buffer for write, but it wasn't created with the write permissions.");
             return mDynamicData.pData;
         }
         else if (type == MapType::WriteDiscard)
         {
-            if (mCpuAccess != CpuAccess::Write)
-            {
-                logError("Trying to map a buffer for write, but it wasn't created with the write permissions");
-                return nullptr;
-            }
+            checkArgument(mCpuAccess == CpuAccess::Write, "Trying to map a buffer for write, but it wasn't created with the write permissions.");
 
             // Allocate a new buffer
             if (mDynamicData.pResourceHandle)
@@ -290,18 +274,18 @@ namespace Falcor
         }
         else
         {
-            assert(type == MapType::Read);
+            FALCOR_ASSERT(type == MapType::Read);
 
             if (mCpuAccess == CpuAccess::Write)
             {
                 // Buffers on the upload heap are already mapped, just return the ptr.
-                assert(mDynamicData.pResourceHandle);
-                assert(mDynamicData.pData);
+                FALCOR_ASSERT(mDynamicData.pResourceHandle);
+                FALCOR_ASSERT(mDynamicData.pData);
                 return mDynamicData.pData;
             }
             else if (mCpuAccess == CpuAccess::Read)
             {
-                assert(mBindFlags == BindFlags::None);
+                FALCOR_ASSERT(mBindFlags == BindFlags::None);
                 return mapBufferApi(mApiHandle, mSize);
             }
             else
@@ -315,7 +299,7 @@ namespace Falcor
 
                 // Copy the buffer and flush the pipeline
                 RenderContext* pContext = gpDevice->getRenderContext();
-                assert(mGpuVaOffset == 0);
+                FALCOR_ASSERT(mGpuVaOffset == 0);
                 pContext->copyResource(mpStagingResource.get(), this);
                 pContext->flush(true);
                 return mpStagingResource->map(MapType::Read);
@@ -334,10 +318,10 @@ namespace Falcor
         if (mStructSize != 0) return mStructSize;
         if (mFormat == ResourceFormat::Unknown) return 1;
 
-        throw std::exception("Buffer::getElementSize() - inferring element size from resourec format is unimplemented");
+        throw RuntimeError("Inferring element size from resource format is not implemented");
     }
 
-    SCRIPT_BINDING(Buffer)
+    FALCOR_SCRIPT_BINDING(Buffer)
     {
         pybind11::class_<Buffer, Buffer::SharedPtr>(m, "Buffer");
     }

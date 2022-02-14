@@ -33,7 +33,8 @@
 #include "glm/gtc/type_ptr.hpp"
 #include "Utils/StringUtils.h"
 
-#pragma warning (disable : 4756) // overflow in constant arithmetic caused by calculating the setFloat*() functions (when calculating the step and min/max are +/- INF)
+#pragma warning(disable : 4756) // overflow in constant arithmetic caused by calculating the setFloat*() functions (when calculating the step and min/max are +/- INF)
+
 namespace Falcor
 {
     class GuiImpl
@@ -224,6 +225,7 @@ namespace Falcor
     void GuiImpl::createVao(uint32_t vertexCount, uint32_t indexCount)
     {
         static_assert(sizeof(ImDrawIdx) == sizeof(uint16_t), "ImDrawIdx expected size is a word");
+        FALCOR_ASSERT(vertexCount > 0 && indexCount > 0);
         uint32_t requiredVbSize = vertexCount * sizeof(ImDrawVert);
         uint32_t requiredIbSize = indexCount * sizeof(uint16_t);
         bool createVB = true;
@@ -231,8 +233,9 @@ namespace Falcor
 
         if (mpVao)
         {
-            createVB = mpVao->getVertexBuffer(0)->getSize() <= requiredVbSize;
-            createIB = mpVao->getIndexBuffer()->getSize() <= requiredIbSize;
+            FALCOR_ASSERT(mpVao->getVertexBuffer(0) && mpVao->getIndexBuffer());
+            createVB = mpVao->getVertexBuffer(0)->getSize() < requiredVbSize;
+            createIB = mpVao->getIndexBuffer()->getSize() < requiredIbSize;
 
             if (!createIB && !createVB)
             {
@@ -339,8 +342,7 @@ namespace Falcor
         {
             if (!is_set(flags, Gui::WindowFlags::ShowTitleBar))
             {
-                std::string warning("Asking for a close button on  window ");
-                logWarning(warning.append(label).append(", but the ShowTitleBar flag is not set on the window. The window will not be able to display a close button."));
+                logWarning("Asking for a close button on window '{}' but the ShowTitleBar flag is not set on the window. The window will not be able to display a close button.", label);
             }
         }
 
@@ -396,23 +398,12 @@ namespace Falcor
         ImGuiTreeNodeFlags flags = beginExpanded ? ImGuiTreeNodeFlags_DefaultOpen : 0;
         bool visible = mGroupStackSize ? ImGui::TreeNodeEx(name, flags) : ImGui::CollapsingHeader(name, flags);
         if (visible) mGroupStackSize++;
-
-        std::string popupName = std::string("HeaderOptions##") + nameString;
-        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(1)) ImGui::OpenPopup(popupName.c_str());
-
-        if (ImGui::BeginPopup(popupName.c_str()))
-        {
-            if (ImGui::Button("Open in Window")) ImGui::CloseCurrentPopup();
-            if (ImGui::Button("Cancel")) { ImGui::CloseCurrentPopup(); }
-            ImGui::EndPopup();
-        }
-
         return visible;
     }
 
     void GuiImpl::endGroup()
     {
-        assert(mGroupStackSize >= 1);
+        FALCOR_ASSERT(mGroupStackSize >= 1);
         mGroupStackSize--;
         if (mGroupStackSize) ImGui::TreePop();
     }
@@ -455,10 +446,12 @@ namespace Falcor
 
     bool GuiImpl::addDropdown(const char label[], const Gui::DropdownList& values, uint32_t& var, bool sameLine)
     {
+        if (values.size() == 0) return false;
+
         if (sameLine) ImGui::SameLine();
         // Check if we need to update the currentItem
         const auto& iter = mDropDownValues.find(label);
-        int curItem;
+        int curItem = -1;
         if ((iter == mDropDownValues.end()) || (iter->second.lastVal != var))
         {
             // Search the current val
@@ -653,7 +646,7 @@ namespace Falcor
 
     void GuiImpl::addImage(const char label[], const Texture::SharedPtr& pTex, float2 size, bool maintainRatio, bool sameLine)
     {
-        assert(pTex);
+        FALCOR_ASSERT(pTex);
         if (size == float2(0))
         {
             ImVec2 windowSize = ImGui::GetWindowSize();
@@ -670,7 +663,7 @@ namespace Falcor
 
     bool GuiImpl::addImageButton(const char label[], const Texture::SharedPtr& pTex, float2 size, bool maintainRatio, bool sameLine)
     {
-        assert(pTex);
+        FALCOR_ASSERT(pTex);
         mpImages.push_back(pTex);
         if (sameLine) ImGui::SameLine();
         float aspectRatio = maintainRatio ? (static_cast<float>(pTex->getHeight()) / static_cast<float>(pTex->getWidth())) : 1.0f;
@@ -691,30 +684,37 @@ namespace Falcor
     template<typename T>
     bool GuiImpl::addScalarVar(const char label[], T& var, T minVal, T maxVal, float step, bool sameLine, const char* displayFormat)
     {
-        if (std::is_same<T, int32_t>::value)
+        if constexpr (std::is_same<T, int32_t>::value)
         {
             return addScalarVarHelper(label, var, ImGuiDataType_S32, minVal, maxVal, step, sameLine, displayFormat);
         }
-        else if (std::is_same<T, uint32_t>::value)
+        else if constexpr (std::is_same<T, uint32_t>::value)
         {
             return addScalarVarHelper(label, var, ImGuiDataType_U32, minVal, maxVal, step, sameLine, displayFormat);
         }
-        else if (std::is_same<T, float>::value)
+        else if constexpr (std::is_same<T, int64_t>::value)
         {
-            return addScalarVarHelper(label, var, ImGuiDataType_Float, minVal, maxVal, step, sameLine, displayFormat);
+            return addScalarVarHelper(label, var, ImGuiDataType_S64, minVal, maxVal, step, sameLine, displayFormat);
         }
-        else if (std::is_same<T, uint64_t>::value)
+        else if constexpr (std::is_same<T, uint64_t>::value)
         {
             return addScalarVarHelper(label, var, ImGuiDataType_U64, minVal, maxVal, step, sameLine, displayFormat);
         }
-        else if (std::is_same<T, double>::value)
+        else if constexpr (std::is_same<T, float>::value)
+        {
+            return addScalarVarHelper(label, var, ImGuiDataType_Float, minVal, maxVal, step, sameLine, displayFormat);
+        }
+        else if constexpr (std::is_same<T, uint64_t>::value)
+        {
+            return addScalarVarHelper(label, var, ImGuiDataType_U64, minVal, maxVal, step, sameLine, displayFormat);
+        }
+        else if constexpr (std::is_same<T, double>::value)
         {
             return addScalarVarHelper(label, var, ImGuiDataType_Double, minVal, maxVal, step, sameLine, displayFormat);
         }
         else
         {
-            logError("Unsupported slider type");
-            return false;
+            static_assert(false, "Unsupported data type");
         }
     }
 
@@ -731,26 +731,33 @@ namespace Falcor
     template<typename T>
     bool GuiImpl::addScalarSlider(const char label[], T& var, T minVal, T maxVal, bool sameLine, const char* displayFormat)
     {
-        if (std::is_same<T, int32_t>::value)
+        if constexpr (std::is_same<T, int32_t>::value)
         {
             return addScalarSliderHelper(label, var, ImGuiDataType_S32, minVal, maxVal, sameLine, displayFormat);
         }
-        else if (std::is_same<T, uint32_t>::value)
+        else if constexpr (std::is_same<T, uint32_t>::value)
         {
             return addScalarSliderHelper(label, var, ImGuiDataType_U32, minVal, maxVal, sameLine, displayFormat);
         }
-        else if (std::is_same<T, float>::value)
+        else if constexpr (std::is_same<T, int64_t>::value)
+        {
+            return addScalarSliderHelper(label, var, ImGuiDataType_S64, minVal, maxVal, sameLine, displayFormat);
+        }
+        else if constexpr (std::is_same<T, uint64_t>::value)
+        {
+            return addScalarSliderHelper(label, var, ImGuiDataType_U64, minVal, maxVal, sameLine, displayFormat);
+        }
+        else if constexpr (std::is_same<T, float>::value)
         {
             return addScalarSliderHelper(label, var, ImGuiDataType_Float, minVal, maxVal, sameLine, displayFormat);
         }
-        else if (std::is_same<T, double>::value)
+        else if constexpr (std::is_same<T, double>::value)
         {
             return addScalarSliderHelper(label, var, ImGuiDataType_Double, minVal, maxVal, sameLine, displayFormat);
         }
         else
         {
-            logError("Unsupported slider type");
-            return false;
+            static_assert(false, "Unsupported data type");
         }
     }
 
@@ -768,26 +775,33 @@ namespace Falcor
     template<typename T>
     bool GuiImpl::addVecVar(const char label[], T& var, typename T::value_type minVal, typename T::value_type maxVal, float step, bool sameLine, const char* displayFormat)
     {
-        if (std::is_same<T::value_type, int32_t>::value)
+        if constexpr (std::is_same<T::value_type, int32_t>::value)
         {
             return addVecVarHelper(label, var, ImGuiDataType_S32, minVal, maxVal, step, sameLine, displayFormat);
         }
-        else if (std::is_same<T::value_type, uint32_t>::value)
+        else if constexpr (std::is_same<T::value_type, uint32_t>::value)
         {
             return addVecVarHelper(label, var, ImGuiDataType_U32, minVal, maxVal, step, sameLine, displayFormat);
         }
-        else if (std::is_same<T::value_type, float>::value)
+        else if constexpr (std::is_same<T::value_type, int64_t>::value)
+        {
+            return addVecVarHelper(label, var, ImGuiDataType_S64, minVal, maxVal, step, sameLine, displayFormat);
+        }
+        else if constexpr (std::is_same<T::value_type, uint64_t>::value)
+        {
+            return addVecVarHelper(label, var, ImGuiDataType_U64, minVal, maxVal, step, sameLine, displayFormat);
+        }
+        else if constexpr (std::is_same<T::value_type, float>::value)
         {
             return addVecVarHelper(label, var, ImGuiDataType_Float, minVal, maxVal, step, sameLine, displayFormat);
         }
-        else if (std::is_same<T::value_type, uint64_t>::value)
+        else if constexpr (std::is_same<T::value_type, uint64_t>::value)
         {
             return addVecVarHelper(label, var, ImGuiDataType_U64, minVal, maxVal, step, sameLine, displayFormat);
         }
         else
         {
-            logError("Unsupported slider type");
-            return false;
+            static_assert(false, "Unsupported data type");
         }
     }
 
@@ -804,22 +818,29 @@ namespace Falcor
     template<typename T>
     bool GuiImpl::addVecSlider(const char label[], T& var, typename T::value_type minVal, typename T::value_type maxVal, bool sameLine, const char* displayFormat)
     {
-        if (std::is_same<T::value_type, int32_t>::value)
+        if constexpr (std::is_same<T::value_type, int32_t>::value)
         {
             return addVecSliderHelper(label, var, ImGuiDataType_S32, minVal, maxVal, sameLine, displayFormat);
         }
-        else if (std::is_same<T::value_type, uint32_t>::value)
+        else if constexpr (std::is_same<T::value_type, uint32_t>::value)
         {
             return addVecSliderHelper(label, var, ImGuiDataType_U32, minVal, maxVal, sameLine, displayFormat);
         }
-        else if (std::is_same<T::value_type, float>::value)
+        else if constexpr (std::is_same<T::value_type, int64_t>::value)
+        {
+            return addVecSliderHelper(label, var, ImGuiDataType_S64, minVal, maxVal, sameLine, displayFormat);
+        }
+        else if constexpr (std::is_same<T::value_type, uint64_t>::value)
+        {
+            return addVecSliderHelper(label, var, ImGuiDataType_U64, minVal, maxVal, sameLine, displayFormat);
+        }
+        else if constexpr (std::is_same<T::value_type, float>::value)
         {
             return addVecSliderHelper(label, var, ImGuiDataType_Float, minVal, maxVal, sameLine, displayFormat);
         }
         else
         {
-            logError("Unsupported slider type");
-            return false;
+            static_assert(false, "Unsupported data type");
         }
     }
 
@@ -912,7 +933,7 @@ namespace Falcor
         std::string fullpath;
         if (findFileInDataDirectories(filename, fullpath) == false)
         {
-            logWarning("Can't find font file '" + filename + "'");
+            logWarning("Can't find font file '{}'.", filename);
             return;
         }
 
@@ -927,7 +948,7 @@ namespace Falcor
         const auto& it = mpWrapper->mFontMap.find(font);
         if (it == mpWrapper->mFontMap.end())
         {
-            logWarning("Can't find a font named '" + font + "'");
+            logWarning("Can't find a font named '{}'.", font);
             mpWrapper->mpActiveFont = nullptr;
         }
         mpWrapper->mpActiveFont = it->second;
@@ -963,61 +984,64 @@ namespace Falcor
 
         mpWrapper->resetMouseEvents();
 
-        // Update the VAO
-        mpWrapper->createVao(pDrawData->TotalVtxCount, pDrawData->TotalIdxCount);
-        mpWrapper->mpPipelineState->setVao(mpWrapper->mpVao);
-
-        // Upload the data
-        ImDrawVert* pVerts = (ImDrawVert*)mpWrapper->mpVao->getVertexBuffer(0)->map(Buffer::MapType::WriteDiscard);
-        uint16_t* pIndices = (uint16_t*)mpWrapper->mpVao->getIndexBuffer()->map(Buffer::MapType::WriteDiscard);
-
-        for (int n = 0; n < pDrawData->CmdListsCount; n++)
+        if (pDrawData->CmdListsCount > 0)
         {
-            const ImDrawList* pCmdList = pDrawData->CmdLists[n];
-            memcpy(pVerts, pCmdList->VtxBuffer.Data, pCmdList->VtxBuffer.Size * sizeof(ImDrawVert));
-            memcpy(pIndices, pCmdList->IdxBuffer.Data, pCmdList->IdxBuffer.Size * sizeof(ImDrawIdx));
-            pVerts += pCmdList->VtxBuffer.Size;
-            pIndices += pCmdList->IdxBuffer.Size;
-        }
-        mpWrapper->mpVao->getVertexBuffer(0)->unmap();
-        mpWrapper->mpVao->getIndexBuffer()->unmap();
-        mpWrapper->mpPipelineState->setFbo(pFbo);
+            // Update the VAO
+            mpWrapper->createVao(pDrawData->TotalVtxCount, pDrawData->TotalIdxCount);
+            mpWrapper->mpPipelineState->setVao(mpWrapper->mpVao);
 
-        // Setup viewport
-        GraphicsState::Viewport vp;
-        vp.originX = 0;
-        vp.originY = 0;
-        vp.width = ImGui::GetIO().DisplaySize.x;
-        vp.height = ImGui::GetIO().DisplaySize.y;
-        vp.minDepth = 0;
-        vp.maxDepth = 1;
-        mpWrapper->mpPipelineState->setViewport(0, vp);
+            // Upload the data
+            ImDrawVert* pVerts = (ImDrawVert*)mpWrapper->mpVao->getVertexBuffer(0)->map(Buffer::MapType::WriteDiscard);
+            uint16_t* pIndices = (uint16_t*)mpWrapper->mpVao->getIndexBuffer()->map(Buffer::MapType::WriteDiscard);
 
-        // Render command lists
-        uint32_t vtxOffset = 0;
-        uint32_t idxOffset = 0;
-
-        for (int n = 0; n < pDrawData->CmdListsCount; n++)
-        {
-            const ImDrawList* pCmdList = pDrawData->CmdLists[n];
-            for (int32_t cmd = 0; cmd < pCmdList->CmdBuffer.Size; cmd++)
+            for (int n = 0; n < pDrawData->CmdListsCount; n++)
             {
-                const ImDrawCmd* pCmd = &pCmdList->CmdBuffer[cmd];
-                GraphicsState::Scissor scissor((int32_t)pCmd->ClipRect.x, (int32_t)pCmd->ClipRect.y, (int32_t)pCmd->ClipRect.z, (int32_t)pCmd->ClipRect.w);
-                if (pCmd->TextureId)
-                {
-                    mpWrapper->mpProgramVars->setSrv(mpWrapper->mGuiImageLoc, (mpWrapper->mpImages[reinterpret_cast<size_t>(pCmd->TextureId) - 1])->getSRV());
-                    mpWrapper->mpProgramVars["PerFrameCB"]["useGuiImage"] = true;
-                }
-                else
-                {
-                    mpWrapper->mpProgramVars["PerFrameCB"]["useGuiImage"] = false;
-                }
-                mpWrapper->mpPipelineState->setScissors(0, scissor);
-                pContext->drawIndexed(mpWrapper->mpPipelineState.get(), mpWrapper->mpProgramVars.get(), pCmd->ElemCount, idxOffset, vtxOffset);
-                idxOffset += pCmd->ElemCount;
+                const ImDrawList* pCmdList = pDrawData->CmdLists[n];
+                memcpy(pVerts, pCmdList->VtxBuffer.Data, pCmdList->VtxBuffer.Size * sizeof(ImDrawVert));
+                memcpy(pIndices, pCmdList->IdxBuffer.Data, pCmdList->IdxBuffer.Size * sizeof(ImDrawIdx));
+                pVerts += pCmdList->VtxBuffer.Size;
+                pIndices += pCmdList->IdxBuffer.Size;
             }
-            vtxOffset += pCmdList->VtxBuffer.Size;
+            mpWrapper->mpVao->getVertexBuffer(0)->unmap();
+            mpWrapper->mpVao->getIndexBuffer()->unmap();
+            mpWrapper->mpPipelineState->setFbo(pFbo);
+
+            // Setup viewport
+            GraphicsState::Viewport vp;
+            vp.originX = 0;
+            vp.originY = 0;
+            vp.width = ImGui::GetIO().DisplaySize.x;
+            vp.height = ImGui::GetIO().DisplaySize.y;
+            vp.minDepth = 0;
+            vp.maxDepth = 1;
+            mpWrapper->mpPipelineState->setViewport(0, vp);
+
+            // Render command lists
+            uint32_t vtxOffset = 0;
+            uint32_t idxOffset = 0;
+
+            for (int n = 0; n < pDrawData->CmdListsCount; n++)
+            {
+                const ImDrawList* pCmdList = pDrawData->CmdLists[n];
+                for (int32_t cmd = 0; cmd < pCmdList->CmdBuffer.Size; cmd++)
+                {
+                    const ImDrawCmd* pCmd = &pCmdList->CmdBuffer[cmd];
+                    GraphicsState::Scissor scissor((int32_t)pCmd->ClipRect.x, (int32_t)pCmd->ClipRect.y, (int32_t)pCmd->ClipRect.z, (int32_t)pCmd->ClipRect.w);
+                    if (pCmd->TextureId)
+                    {
+                        mpWrapper->mpProgramVars->setSrv(mpWrapper->mGuiImageLoc, (mpWrapper->mpImages[reinterpret_cast<size_t>(pCmd->TextureId) - 1])->getSRV());
+                        mpWrapper->mpProgramVars["PerFrameCB"]["useGuiImage"] = true;
+                    }
+                    else
+                    {
+                        mpWrapper->mpProgramVars["PerFrameCB"]["useGuiImage"] = false;
+                    }
+                    mpWrapper->mpPipelineState->setScissors(0, scissor);
+                    pContext->drawIndexed(mpWrapper->mpPipelineState.get(), mpWrapper->mpProgramVars.get(), pCmd->ElemCount, idxOffset, vtxOffset);
+                    idxOffset += pCmd->ElemCount;
+                }
+                vtxOffset += pCmdList->VtxBuffer.Size;
+            }
         }
 
         // Prepare for the next frame
@@ -1033,7 +1057,7 @@ namespace Falcor
         ImGuiIO& io = ImGui::GetIO();
         io.DisplaySize.x = (float)width;
         io.DisplaySize.y = (float)height;
-#ifdef FALCOR_VK
+#ifdef FALCOR_FLIP_Y
         mpWrapper->mpProgramVars["PerFrameCB"]["scale"] = 2.0f / float2(io.DisplaySize.x, io.DisplaySize.y);
         mpWrapper->mpProgramVars["PerFrameCB"]["offset"] = float2(-1.0f);
 #else
@@ -1102,7 +1126,7 @@ namespace Falcor
                 io.KeysDown[key] = false;
                 break;
             default:
-                should_not_get_here();
+                FALCOR_UNREACHABLE();
             }
 
             io.KeyCtrl = event.mods.isCtrlDown;
@@ -1159,13 +1183,13 @@ namespace Falcor
     }
 
     template<>
-    dlldecl bool Gui::Widgets::checkbox<bool>(const char label[], bool& var, bool sameLine)
+    FALCOR_API bool Gui::Widgets::checkbox<bool>(const char label[], bool& var, bool sameLine)
     {
         return mpGui ? mpGui->mpWrapper->addCheckbox(label, var, sameLine) : false;
     }
 
     template<>
-    dlldecl bool Gui::Widgets::checkbox<int>(const char label[], int& var, bool sameLine)
+    FALCOR_API bool Gui::Widgets::checkbox<int>(const char label[], int& var, bool sameLine)
     {
         return mpGui ? mpGui->mpWrapper->addCheckbox(label, var, sameLine) : false;
     }
@@ -1176,7 +1200,7 @@ namespace Falcor
         return mpGui ? mpGui->mpWrapper->addBoolVecVar<T>(label, var, sameLine) : false;
     }
 
-#define add_bool_vec_type(TypeName)  template dlldecl bool Gui::Widgets::checkbox<TypeName>(const char[], TypeName&, bool)
+#define add_bool_vec_type(TypeName)  template FALCOR_API bool Gui::Widgets::checkbox<TypeName>(const char[], TypeName&, bool)
 
     add_bool_vec_type(bool2);
     add_bool_vec_type(bool3);
@@ -1200,7 +1224,7 @@ namespace Falcor
         return mpGui ? mpGui->mpWrapper->addScalarVar(label, var, minVal, maxVal, step, sameLine, displayFormat) : false;
     }
 
-#define add_scalarVar_type(TypeName) template dlldecl bool Gui::Widgets::var<TypeName>(const char[], TypeName&, TypeName, TypeName, float, bool, const char*)
+#define add_scalarVar_type(TypeName) template FALCOR_API bool Gui::Widgets::var<TypeName>(const char[], TypeName&, TypeName, TypeName, float, bool, const char*)
 
     add_scalarVar_type(int32_t);
     add_scalarVar_type(uint32_t);
@@ -1218,7 +1242,7 @@ namespace Falcor
         return mpGui ? mpGui->mpWrapper->addScalarSlider(label, var, lowerBound, upperBound, sameLine, displayFormat) : false;
     }
 
-#define add_scalarSlider_type(TypeName) template dlldecl bool Gui::Widgets::slider<TypeName>(const char[], TypeName&, TypeName, TypeName, bool, const char*)
+#define add_scalarSlider_type(TypeName) template FALCOR_API bool Gui::Widgets::slider<TypeName>(const char[], TypeName&, TypeName, TypeName, bool, const char*)
 
     add_scalarSlider_type(int32_t);
     add_scalarSlider_type(uint32_t);
@@ -1234,7 +1258,7 @@ namespace Falcor
         return mpGui ? mpGui->mpWrapper->addVecVar(label, var, minVal, maxVal, step, sameLine, displayFormat) : false;
     }
 
-#define add_vecVar_type(TypeName) template dlldecl bool Gui::Widgets::var<TypeName>(const char[], TypeName&, typename TypeName::value_type, typename TypeName::value_type, float, bool, const char*)
+#define add_vecVar_type(TypeName) template FALCOR_API bool Gui::Widgets::var<TypeName>(const char[], TypeName&, typename TypeName::value_type, typename TypeName::value_type, float, bool, const char*)
 
     add_vecVar_type(int2);
     add_vecVar_type(int3);
@@ -1256,7 +1280,7 @@ namespace Falcor
         return mpGui ? mpGui->mpWrapper->addVecSlider(label, var, lowerBound, upperBound, sameLine, displayFormat) : false;
     }
 
-#define add_vecSlider_type(TypeName) template dlldecl bool Gui::Widgets::slider<TypeName>(const char[], TypeName&, typename TypeName::value_type, typename TypeName::value_type, bool, const char*)
+#define add_vecSlider_type(TypeName) template FALCOR_API bool Gui::Widgets::slider<TypeName>(const char[], TypeName&, typename TypeName::value_type, typename TypeName::value_type, bool, const char*)
 
     add_vecSlider_type(int2);
     add_vecSlider_type(int3);
@@ -1326,7 +1350,7 @@ namespace Falcor
         return mpGui ? mpGui->mpWrapper->addMatrixVar(label, var, minVal, maxVal, sameLine) : false;
     }
 
-#define add_matrix_var(TypeName) template dlldecl bool Gui::Widgets::matrix<TypeName>(const char[], TypeName&, float, float, bool)
+#define add_matrix_var(TypeName) template FALCOR_API bool Gui::Widgets::matrix<TypeName>(const char[], TypeName&, float, float, bool)
 
     add_matrix_var(glm::mat2x2);
     add_matrix_var(glm::mat2x3);

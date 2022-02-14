@@ -39,44 +39,38 @@ namespace Falcor
     {
         if (gpDevice)
         {
-            logError("Falcor only supports a single device");
-            return nullptr;
+            throw RuntimeError("Falcor only supports a single device.");
         }
         gpDevice = SharedPtr(new Device(pWindow, desc));
-        if (gpDevice->init() == false) { gpDevice = nullptr;}
+        if (!gpDevice->init())
+        {
+            throw RuntimeError("Failed to create device.");
+        }
         return gpDevice;
     }
 
     bool Device::init()
     {
         const uint32_t kDirectQueueIndex = (uint32_t)LowLevelContextData::CommandQueueType::Direct;
-        assert(mDesc.cmdQueues[kDirectQueueIndex] > 0);
+        FALCOR_ASSERT(mDesc.cmdQueues[kDirectQueueIndex] > 0);
         if (apiInit() == false) return false;
 
-        // Create the descriptor pools
-        DescriptorPool::Desc poolDesc;
-        // For DX12 there is no difference between the different SRV/UAV types. For Vulkan it matters, hence the #ifdef
-        // DX12 guarantees at least 1,000,000 descriptors
-        poolDesc.setDescCount(DescriptorPool::Type::TextureSrv, 1000000).setDescCount(DescriptorPool::Type::Sampler, 2048).setShaderVisible(true);
-#ifndef FALCOR_D3D12
-        poolDesc.setDescCount(DescriptorPool::Type::Cbv, 16 * 1024).setDescCount(DescriptorPool::Type::TextureUav, 16 * 1024);
-        poolDesc.setDescCount(DescriptorPool::Type::StructuredBufferSrv, 2 * 1024)
-            .setDescCount(DescriptorPool::Type::StructuredBufferUav, 2 * 1024)
-            .setDescCount(DescriptorPool::Type::TypedBufferSrv, 2 * 1024)
-            .setDescCount(DescriptorPool::Type::TypedBufferUav, 2 * 1024)
-            .setDescCount(DescriptorPool::Type::RawBufferSrv, 2 * 1024)
-            .setDescCount(DescriptorPool::Type::RawBufferUav, 2 * 1024);
-#endif
         mpFrameFence = GpuFence::create();
-        mpGpuDescPool = DescriptorPool::create(poolDesc, mpFrameFence);
-        poolDesc.setShaderVisible(false).setDescCount(DescriptorPool::Type::Rtv, 16 * 1024).setDescCount(DescriptorPool::Type::Dsv, 1024);
-        mpCpuDescPool = DescriptorPool::create(poolDesc, mpFrameFence);
+
+#ifdef FALCOR_D3D12
+        // Create the descriptor pools
+        D3D12DescriptorPool::Desc poolDesc;
+        poolDesc.setDescCount(ShaderResourceType::TextureSrv, 1000000).setDescCount(ShaderResourceType::Sampler, 2048).setShaderVisible(true);
+        mpD3D12GpuDescPool = D3D12DescriptorPool::create(poolDesc, mpFrameFence);
+        poolDesc.setShaderVisible(false).setDescCount(ShaderResourceType::Rtv, 16 * 1024).setDescCount(ShaderResourceType::Dsv, 1024);
+        mpD3D12CpuDescPool = D3D12DescriptorPool::create(poolDesc, mpFrameFence);
+#endif // FALCOR_D3D12
 
         mpUploadHeap = GpuMemoryHeap::create(GpuMemoryHeap::Type::Upload, 1024 * 1024 * 2, mpFrameFence);
         createNullViews();
         mpRenderContext = RenderContext::create(mCmdQueues[(uint32_t)LowLevelContextData::CommandQueueType::Direct][0]);
 
-        assert(mpRenderContext);
+        FALCOR_ASSERT(mpRenderContext);
         mpRenderContext->flush();  // This will bind the descriptor heaps.
         // TODO: Do we need to flush here or should RenderContext::create() bind the descriptor heaps automatically without flush? See #749.
 
@@ -155,6 +149,11 @@ namespace Falcor
         return is_set(mSupportedFeatures, flags);
     }
 
+    bool Device::isShaderModelSupported(ShaderModel shaderModel) const
+    {
+        return ((uint32_t)shaderModel <= (uint32_t)mSupportedShaderModel);
+    }
+
     void Device::executeDeferredReleases()
     {
         mpUploadHeap->executeDeferredReleases();
@@ -163,8 +162,11 @@ namespace Falcor
         {
             mDeferredReleases.pop();
         }
-        mpCpuDescPool->executeDeferredReleases();
-        mpGpuDescPool->executeDeferredReleases();
+
+#ifdef FALCOR_D3D12
+        mpD3D12CpuDescPool->executeDeferredReleases();
+        mpD3D12GpuDescPool->executeDeferredReleases();
+#endif // FALCOR_D3D12
     }
 
     void Device::toggleVSync(bool enable)
@@ -183,8 +185,12 @@ namespace Falcor
         releaseNullViews();
         mpRenderContext.reset();
         mpUploadHeap.reset();
-        mpCpuDescPool.reset();
-        mpGpuDescPool.reset();
+
+#ifdef FALCOR_D3D12
+        mpD3D12CpuDescPool.reset();
+        mpD3D12GpuDescPool.reset();
+#endif // FALCOR_D3D12
+
         mpFrameFence.reset();
         for (auto& heap : mTimestampQueryHeaps) heap.reset();
 
@@ -212,7 +218,7 @@ namespace Falcor
 
     Fbo::SharedPtr Device::resizeSwapChain(uint32_t width, uint32_t height)
     {
-        assert(width > 0 && height > 0);
+        FALCOR_ASSERT(width > 0 && height > 0);
 
         mpRenderContext->flush(true);
 
@@ -232,19 +238,19 @@ namespace Falcor
         std::array<Resource::State, kSwapChainBuffersCount> fboDepthStates;
         for (uint32_t i = 0; i < kSwapChainBuffersCount; i++)
         {
-            assert(mpSwapChainFbos[i]->getColorTexture(0)->isStateGlobal());
+            FALCOR_ASSERT(mpSwapChainFbos[i]->getColorTexture(0)->isStateGlobal());
             fboColorStates[i] = mpSwapChainFbos[i]->getColorTexture(0)->getGlobalState();
 
             const auto& pSwapChainDepth = mpSwapChainFbos[i]->getDepthStencilTexture();
             if (pSwapChainDepth != nullptr)
             {
-                assert(pSwapChainDepth->isStateGlobal());
+                FALCOR_ASSERT(pSwapChainDepth->isStateGlobal());
                 fboDepthStates[i] = pSwapChainDepth->getGlobalState();
             }
         }
 #endif
 
-        assert(mpSwapChainFbos[0]->getSampleCount() == 1);
+        FALCOR_ASSERT(mpSwapChainFbos[0]->getSampleCount() == 1);
 
         // Delete all the FBOs
         releaseFboData();
@@ -255,25 +261,25 @@ namespace Falcor
         // Restore FBO resource states
         for (uint32_t i = 0; i < kSwapChainBuffersCount; i++)
         {
-            assert(mpSwapChainFbos[i]->getColorTexture(0)->isStateGlobal());
+            FALCOR_ASSERT(mpSwapChainFbos[i]->getColorTexture(0)->isStateGlobal());
             mpSwapChainFbos[i]->getColorTexture(0)->setGlobalState(fboColorStates[i]);
             const auto& pSwapChainDepth = mpSwapChainFbos[i]->getDepthStencilTexture();
             if (pSwapChainDepth != nullptr)
             {
-                assert(pSwapChainDepth->isStateGlobal());
+                FALCOR_ASSERT(pSwapChainDepth->isStateGlobal());
                 pSwapChainDepth->setGlobalState(fboDepthStates[i]);
             }
         }
 #endif
 
-#if !defined(FALCOR_D3D12) && !defined(FALCOR_VK)
+#if !defined(FALCOR_D3D12) && !defined(FALCOR_GFX)
 #error Verify state handling on swapchain resize for this API
 #endif
 
         return getSwapChainFbo();
     }
 
-    SCRIPT_BINDING(Device)
+    FALCOR_SCRIPT_BINDING(Device)
     {
         ScriptBindings::SerializableStruct<Device::Desc> deviceDesc(m, "DeviceDesc");
 #define field(f_) field(#f_, &Device::Desc::f_)

@@ -36,7 +36,7 @@ namespace Falcor
     bool Scripting::sRunning = false;
     std::unique_ptr<Scripting::Context> Scripting::sDefaultContext;
 
-    bool Scripting::start()
+    void Scripting::start()
     {
         if (!sRunning)
         {
@@ -57,12 +57,9 @@ namespace Falcor
             }
             catch (const std::exception& e)
             {
-                logError("Can't start the python interpreter. Exception says " + std::string(e.what()));
-                return false;
+                throw RuntimeError("Failed to start the Python interpreter: {}", e.what());
             }
         }
-
-        return true;
     }
 
     void Scripting::shutdown()
@@ -77,7 +74,7 @@ namespace Falcor
 
     Scripting::Context& Scripting::getDefaultContext()
     {
-        assert(sDefaultContext);
+        FALCOR_ASSERT(sDefaultContext);
         return *sDefaultContext;
     }
 
@@ -150,7 +147,7 @@ namespace Falcor
             context.setObject("__file__", nullptr); // There seems to be no API on pybind11::dict to remove a key.
             return result;
         }
-        throw std::exception(std::string("Failed to run script. Can't find the file '" + filename + "'.").c_str());
+        throw RuntimeError("Failed to run script. Can't find the file '{}'.", filename);
     }
 
     std::string Scripting::interpretScript(const std::string& script, Context& context)

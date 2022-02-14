@@ -27,7 +27,7 @@
  **************************************************************************/
 #include "ColorMapPass.h"
 
-const char* ColorMapPass::kDesc = "Pass that applies a color map to the input.";
+const RenderPass::Info ColorMapPass::kInfo { "ColorMapPass", "Pass that applies a color map to the input." };
 
 namespace
 {
@@ -65,6 +65,7 @@ void ColorMapPass::registerScriptBindings(pybind11::module& m)
 }
 
 ColorMapPass::ColorMapPass(const Dictionary& dict)
+    : RenderPass(kInfo)
 {
     for (const auto& [key, value] : dict)
     {
@@ -73,7 +74,7 @@ ColorMapPass::ColorMapPass(const Dictionary& dict)
         else if (key == kAutoRange) mAutoRange = value;
         else if (key == kMinValue) mMinValue = value;
         else if (key == kMaxValue) mMaxValue = value;
-        else logWarning("Unknown field '" + key + "' in a ColorMapPass dictionary");
+        else logWarning("Unknown field '{}' in a ColorMapPass dictionary.", key);
     }
 
     mpFbo = Fbo::create();
@@ -194,9 +195,9 @@ ColorMapPass::AutoRanging::AutoRanging()
 
 std::optional<std::pair<double, double>> ColorMapPass::AutoRanging::getMinMax(RenderContext* pRenderContext, const Texture::SharedPtr& texture, uint32_t channel)
 {
-    assert(pRenderContext);
-    assert(texture);
-    assert(channel < 4);
+    FALCOR_ASSERT(pRenderContext);
+    FALCOR_ASSERT(texture);
+    FALCOR_ASSERT(channel < 4);
 
     std::optional<std::pair<double, double>> result;
 

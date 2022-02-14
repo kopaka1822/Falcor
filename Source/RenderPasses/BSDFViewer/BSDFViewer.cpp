@@ -26,26 +26,49 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "BSDFViewer.h"
-#include "Experimental/Scene/Material/BxDFConfig.slangh"
+#include "Rendering/Materials/BxDFConfig.slangh"
+
+const RenderPass::Info BSDFViewer::kInfo { "BSDFViewer", "BSDF inspection utility." };
 
 // Don't remove this. it's required for hot-reload to function properly
-extern "C" __declspec(dllexport) const char* getProjDir()
+extern "C" FALCOR_API_EXPORT const char* getProjDir()
 {
     return PROJECT_DIR;
 }
 
-extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
+extern "C" FALCOR_API_EXPORT void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("BSDFViewer", BSDFViewer::sDesc, BSDFViewer::create);
+    lib.registerPass(BSDFViewer::kInfo, BSDFViewer::create);
+    ScriptBindings::registerBinding(BSDFViewer::registerBindings);
 }
 
 namespace
 {
     const char kFileViewerPass[] = "RenderPasses/BSDFViewer/BSDFViewer.cs.slang";
+    const char kParameterBlockName[] = "gBSDFViewer";
     const char kOutput[] = "output";
+
+    // Scripting options.
+    const char kMaterialID[] = "materialID";
+    const char kViewerMode[] = "viewerMode";
+    const char kUseEnvMap[] = "useEnvMap";
+    const char kTexCoords[] = "texCoords";
+    const char kOutputAlbedo[] = "outputAlbedo";
+
+    // UI elements.
+    Gui::DropdownList kViewerModeList =
+    {
+        { (uint32_t)BSDFViewerMode::Material, "Material" },
+        { (uint32_t)BSDFViewerMode::Slice, "Slice" },
+    };
 }
 
-const char* BSDFViewer::sDesc = "BSDF Viewer";
+void BSDFViewer::registerBindings(pybind11::module& m)
+{
+    pybind11::enum_<BSDFViewerMode> mode(m, "BSDFViewerMode");
+    mode.value("Material", BSDFViewerMode::Material);
+    mode.value("Slice", BSDFViewerMode::Slice);
+}
 
 BSDFViewer::SharedPtr BSDFViewer::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
@@ -53,31 +76,50 @@ BSDFViewer::SharedPtr BSDFViewer::create(RenderContext* pRenderContext, const Di
 }
 
 BSDFViewer::BSDFViewer(const Dictionary& dict)
+    : RenderPass(kInfo)
 {
+    parseDictionary(dict);
+
     // Create a high-quality pseudorandom number generator.
     mpSampleGenerator = SampleGenerator::create(SAMPLE_GENERATOR_UNIFORM);
 
-    // Defines to disable discard and gradient operations in Falcor's material system.
-    Program::DefineList defines =
-    {
-        {"SCENE_MATERIAL_COUNT", "1"},
-        {"SCENE_GRID_COUNT", "0"},
-    };
-
+    // Set defines for the program. The defines are updated later if a scene is loaded.
+    Program::DefineList defines;
     defines.add(mpSampleGenerator->getDefines());
 
-    // Create programs.
-    mpViewerPass = ComputePass::create(kFileViewerPass, "main", defines);
-
-    // Create readback buffer.
-    mPixelDataBuffer = Buffer::createStructured(mpViewerPass->getProgram().get(), "gPixelData", 1u, ResourceBindFlags::UnorderedAccess);
+    // Create program.
+    mpViewerPass = ComputePass::create(kFileViewerPass, "main", defines, false);
 
     mpPixelDebug = PixelDebug::create();
+    mpFence = GpuFence::create();
+}
+
+void BSDFViewer::parseDictionary(const Dictionary& dict)
+{
+    for (const auto& [key, value] : dict)
+    {
+        if (key == kMaterialID) mParams.materialID = value;
+        else if (key == kViewerMode) mParams.viewerMode = value;
+        else if (key == kUseEnvMap) mUseEnvMap = value;
+        else if (key == kTexCoords)
+        {
+            mParams.useFixedTexCoords = true;
+            mParams.texCoords = value;
+        }
+        else if (key == kOutputAlbedo) mParams.outputAlbedo = value;
+        else logWarning("Unknown field '{}' in BSDFViewer dictionary.", key);
+    }
 }
 
 Dictionary BSDFViewer::getScriptingDictionary()
 {
-    return Dictionary();
+    Dictionary d;
+    d[kMaterialID] = mParams.materialID;
+    d[kViewerMode] = mParams.viewerMode;
+    d[kUseEnvMap] = mUseEnvMap;
+    if (mParams.useFixedTexCoords) d[kTexCoords] = mParams.texCoords;
+    if (mParams.outputAlbedo != 0) d[kOutputAlbedo] = mParams.outputAlbedo;
+    return d;
 }
 
 RenderPassReflection BSDFViewer::reflect(const CompileData& compileData)
@@ -87,7 +129,7 @@ RenderPassReflection BSDFViewer::reflect(const CompileData& compileData)
     return r;
 }
 
-void BSDFViewer::compile(RenderContext* pContext, const CompileData& compileData)
+void BSDFViewer::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
     mParams.frameDim = compileData.defaultTexDims;
 
@@ -105,35 +147,37 @@ void BSDFViewer::setScene(RenderContext* pRenderContext, const Scene::SharedPtr&
     mpScene = pScene;
     mpEnvMap = nullptr;
     mMaterialList.clear();
-    mParams.materialID = 0;
+    mPixelDataValid = mPixelDataAvailable = false;
 
-    if (pScene == nullptr)
+    if (mpScene != nullptr)
     {
-        mParams.useSceneMaterial = false;
-        mParams.useEnvMap = false;
-    }
-    else
-    {
-        mParams.useSceneMaterial = true;
-
-        // Bind the scene to our program.
+        // Configure program for the scene.
         mpViewerPass->getProgram()->addDefines(mpScene->getSceneDefines());
+        mpViewerPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
+
+        // Compile program and bind the scene.
         mpViewerPass->setVars(nullptr); // Trigger vars creation
         mpViewerPass["gScene"] = mpScene->getParameterBlock();
 
-        // Load and bind environment map.
-        if (const auto &pEnvMap = mpScene->getEnvMap()) loadEnvMap(pEnvMap->getFilename());
-        mParams.useEnvMap = mpEnvMap != nullptr;
+        // Setup environment map.
+        mpEnvMap = mpScene->getEnvMap();
+
+        // Setup material ID.
+        uint32_t materialCount = mpScene->getMaterialCount();
+        if (materialCount > 0 && mParams.materialID >= materialCount)
+        {
+            mParams.materialID = materialCount - 1;
+            logWarning("BSDFViewer: materialID is out of range. Clamping to ID {}.", mParams.materialID);
+        }
 
         // Prepare UI list of materials.
-        mMaterialList.reserve(mpScene->getMaterialCount());
-        for (uint32_t i = 0; i < mpScene->getMaterialCount(); i++)
+        mMaterialList.reserve(materialCount);
+        for (uint32_t i = 0; i < materialCount; i++)
         {
             auto mtl = mpScene->getMaterial(i);
             std::string name = std::to_string(i) + ": " + mtl->getName();
             mMaterialList.push_back({ i, name });
         }
-        assert(mMaterialList.size() > 0);
     }
 }
 
@@ -148,6 +192,17 @@ void BSDFViewer::execute(RenderContext* pRenderContext, const RenderData& render
         mOptionsChanged = false;
     }
 
+    auto pOutput = renderData[kOutput]->asTexture();
+    if (!mpScene || mpScene->getMaterialCount() == 0)
+    {
+        pRenderContext->clearUAV(pOutput->getUAV().get(), uint4(0));
+        return;
+    }
+
+    // Read back pixel data from the previous frame if available.
+    // This ensures parameters get updated even if the UI wasn't rendered.
+    readPixelData();
+
     // Set compile-time constants.
     if (mParams.useDisneyDiffuse) mpViewerPass->addDefine("DiffuseBrdf", "DiffuseBrdfDisney");
     else mpViewerPass->removeDefine("DiffuseBrdf");
@@ -156,12 +211,23 @@ void BSDFViewer::execute(RenderContext* pRenderContext, const RenderData& render
 
     // Setup constants.
     mParams.cameraViewportScale = std::tan(glm::radians(mParams.cameraFovY / 2.f)) * mParams.cameraDistance;
+    mParams.useEnvMap = mUseEnvMap && mpEnvMap != nullptr;
 
     // Set resources.
-    if (!mpSampleGenerator->setShaderData(mpViewerPass->getVars()->getRootVar())) throw std::exception("Failed to bind sample generator");
-    mpViewerPass["gOutput"] = renderData[kOutput]->asTexture();
-    mpViewerPass["gPixelData"] = mPixelDataBuffer;
-    mpViewerPass["PerFrameCB"]["gParams"].setBlob(mParams);
+    auto var = mpViewerPass->getRootVar()[kParameterBlockName];
+
+    if (!mpPixelDataBuffer)
+    {
+        mpPixelDataBuffer = Buffer::createStructured(var["pixelData"], 1, ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false);
+        mpPixelStagingBuffer = Buffer::createStructured(var["pixelData"], 1, ResourceBindFlags::None, Buffer::CpuAccess::Read, nullptr, false);
+    }
+
+    var["params"].setBlob(mParams);
+    var["outputColor"] = pOutput;
+    var["pixelData"] = mpPixelDataBuffer;
+
+    if (mParams.useEnvMap) mpEnvMap->setShaderData(var["envMap"]);
+    mpSampleGenerator->setShaderData(mpViewerPass->getVars()->getRootVar());
 
     mpPixelDebug->beginFrame(pRenderContext, renderData.getDefaultTextureDims());
     mpPixelDebug->prepareProgram(mpViewerPass->getProgram(), mpViewerPass->getRootVar());
@@ -169,71 +235,79 @@ void BSDFViewer::execute(RenderContext* pRenderContext, const RenderData& render
     // Execute pass.
     mpViewerPass->execute(pRenderContext, uint3(mParams.frameDim, 1));
 
-    mpPixelDebug->endFrame(pRenderContext);
-
+    // Copy pixel data to staging buffer for readback.
+    // This is to avoid a full flush and the associated perf warning.
+    pRenderContext->copyResource(mpPixelStagingBuffer.get(), mpPixelDataBuffer.get());
+    pRenderContext->flush(false);
+    mpFence->gpuSignal(pRenderContext->getLowLevelData()->getCommandQueue());
+    mPixelDataAvailable = true;
     mPixelDataValid = false;
-    if (mParams.readback)
+
+    mpPixelDebug->endFrame(pRenderContext);
+    mParams.frameCount++;
+}
+
+void BSDFViewer::readPixelData()
+{
+    if (mPixelDataAvailable)
     {
-        const PixelData* pData = static_cast<const PixelData*>(mPixelDataBuffer->map(Buffer::MapType::Read));
-        mPixelData = *pData;
-        mPixelDataBuffer->unmap();
+        mpFence->syncCpu();
+        FALCOR_ASSERT(mpPixelStagingBuffer);
+        mPixelData = *static_cast<const PixelData*>(mpPixelStagingBuffer->map(Buffer::MapType::Read));
+        mpPixelStagingBuffer->unmap();
+
+        mPixelDataAvailable = false;
         mPixelDataValid = true;
 
-        // Copy values from selected pixel.
+        // Update parameters from values at selected pixel.
         mParams.texCoords = mPixelData.texC;
     }
-
-    mParams.frameCount++;
 }
 
 void BSDFViewer::renderUI(Gui::Widgets& widget)
 {
+    if (!mpScene || mpScene->getMaterialCount() == 0)
+    {
+        widget.text("No scene/materials loaded");
+        return;
+    }
+
     bool dirty = false;
 
-    dirty |= widget.checkbox("Enable BSDF slice viewer", mParams.sliceViewer);
-    widget.tooltip("Run BSDF slice viewer.\nOtherise the default mode shows a shaded sphere of the specified material.", true);
+    dirty |= widget.dropdown("Mode", kViewerModeList, (uint32_t&)mParams.viewerMode);
 
-    if (mParams.sliceViewer)
+    switch (mParams.viewerMode)
     {
-        widget.text("The current mode shows a slice of the BSDF.\n"
-                    "The x-axis is theta_h (angle between H and normal)\n"
-                    "and y-axis is theta_d (angle between H and wi/wo),\n"
-                    "both in [0,pi/2] with origin in the lower/left.");
-    }
-    else
-    {
+    case BSDFViewerMode::Material:
         widget.text("The current mode shows a shaded unit sphere.\n"
-                    "The coordinate frame is right-handed with xy\n"
-                    "pointing right/up and +z towards the viewer.\n"
-                    " ");
+            "The coordinate frame is right-handed with xy\n"
+            "pointing right/up and +z towards the viewer.\n"
+            " ");
+        break;
+    case BSDFViewerMode::Slice:
+        widget.text("The current mode shows a slice of the BSDF.\n"
+            "The x-axis is theta_h (angle between H and normal)\n"
+            "and y-axis is theta_d (angle between H and wi/wo),\n"
+            "both in [0,pi/2] with origin in the lower/left.");
+        break;
+    default:
+        FALCOR_UNREACHABLE();
     }
 
     if (auto mtlGroup = widget.group("Material", true))
     {
-        bool prevMode = mParams.useSceneMaterial;
-        mtlGroup.checkbox("Use scene material", mParams.useSceneMaterial);
         mtlGroup.tooltip("Choose material in the dropdown below.\n\n"
             "Left/right arrow keys step to the previous/next material in the list.", true);
 
-        if (!mpScene) mParams.useSceneMaterial = false;
-        dirty |= ((bool)mParams.useSceneMaterial != prevMode);
+        FALCOR_ASSERT(mMaterialList.size() > 0);
+        dirty |= mtlGroup.dropdown("Materials", mMaterialList, mParams.materialID);
 
-        if (mParams.useSceneMaterial)
-        {
-            assert(mMaterialList.size() > 0);
-            dirty |= mtlGroup.dropdown("Materials", mMaterialList, mParams.materialID);
+        auto type = mpScene->getMaterial(mParams.materialID)->getType();
+        mtlGroup.text("Material type: " + to_string(type));
 
-            dirty |= mtlGroup.checkbox("Normal mapping", mParams.useNormalMapping);
-            dirty |= mtlGroup.checkbox("Fixed tex coords", mParams.useFixedTexCoords);
-            dirty |= mtlGroup.var("Tex coords", mParams.texCoords, -std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), 0.01f);
-        }
-        else
-        {
-            dirty |= mtlGroup.rgbColor("Base color", mParams.baseColor);
-            dirty |= mtlGroup.var("Roughness", mParams.linearRoughness, 0.f, 1.f, 1e-2f);
-            dirty |= mtlGroup.var("Metallic", mParams.metallic, 0.f, 1.f, 1e-2f);
-            dirty |= mtlGroup.var("IoR", mParams.IoR, 1.f, std::numeric_limits<float>::max(), 1e-2f);
-        }
+        dirty |= mtlGroup.checkbox("Normal mapping", mParams.useNormalMapping);
+        dirty |= mtlGroup.checkbox("Fixed tex coords", mParams.useFixedTexCoords);
+        dirty |= mtlGroup.var("Tex coords", mParams.texCoords, -std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), 0.01f);
     }
 
     if (auto bsdfGroup = widget.group("BSDF", true))
@@ -246,18 +320,45 @@ void BSDFViewer::renderUI(Gui::Widgets& widget)
         dirty |= bsdfGroup.checkbox("Use separable masking-shadowing", mParams.useSeparableMaskingShadowing);
         bsdfGroup.tooltip("Use the separable form of Smith's masking-shadowing function which is used by the original Disney BRDF, otherwise use Falcor's default (the correlated form).", true);
 
-        dirty |= bsdfGroup.checkbox("Use BRDF sampling", mParams.useBrdfSampling);
+        dirty |= bsdfGroup.checkbox("Use importance sampling", mParams.useImportanceSampling);
         bsdfGroup.tooltip("When enabled uses BSDF importance sampling, otherwise hemispherical cosine-weighted sampling for verification purposes.", true);
         dirty |= bsdfGroup.checkbox("Use pdf", mParams.usePdf);
         bsdfGroup.tooltip("When enabled evaluates BRDF * NdotL / pdf explicitly for verification purposes.\nOtherwise the weight computed by the importance sampling is used.", true);
 
-        if (mParams.sliceViewer)
+        bsdfGroup.dummy("#space1", float2(1, 8));
+
+        if (mParams.viewerMode == BSDFViewerMode::Material)
         {
-            bsdfGroup.dummy("#space1", float2(1, 8));
+            bsdfGroup.text("Material viewer settings:");
+
+            // Albedo selection.
+            bool showAlbedo = (mParams.outputAlbedo & (uint32_t)AlbedoSelection::ShowAlbedo) != 0;
+            bool diffuseReflection = (mParams.outputAlbedo & (uint32_t)AlbedoSelection::DiffuseReflection) != 0;
+            bool diffuseTransmission = (mParams.outputAlbedo & (uint32_t)AlbedoSelection::DiffuseTransmission) != 0;
+            bool specularReflection = (mParams.outputAlbedo & (uint32_t)AlbedoSelection::SpecularReflection) != 0;
+            bool specularTransmission = (mParams.outputAlbedo & (uint32_t)AlbedoSelection::SpecularTransmission) != 0;
+
+            dirty |= bsdfGroup.checkbox("Show albedo", showAlbedo);
+            bsdfGroup.tooltip("If enabled, the albedo is output instead of reflectance.\nThe checkboxes indicate which albedo components are included in the total.", true);
+            if (showAlbedo)
+            {
+                dirty |= bsdfGroup.checkbox("Diffuse reflection", diffuseReflection);
+                dirty |= bsdfGroup.checkbox("Diffuse transmission", diffuseTransmission);
+                dirty |= bsdfGroup.checkbox("Specular reflection", specularReflection);
+                dirty |= bsdfGroup.checkbox("Specular transmission", specularTransmission);
+            }
+            mParams.outputAlbedo = (showAlbedo ? (uint32_t)AlbedoSelection::ShowAlbedo : 0)
+                | (diffuseReflection ? (uint32_t)AlbedoSelection::DiffuseReflection : 0)
+                | (diffuseTransmission ? (uint32_t)AlbedoSelection::DiffuseTransmission : 0)
+                | (specularReflection ? (uint32_t)AlbedoSelection::SpecularReflection : 0)
+                | (specularTransmission ? (uint32_t)AlbedoSelection::SpecularTransmission : 0);
+        }
+        else if (mParams.viewerMode == BSDFViewerMode::Slice)
+        {
             bsdfGroup.text("Slice viewer settings:");
 
             dirty |= bsdfGroup.checkbox("Multiply BSDF slice by NdotL", mParams.applyNdotL);
-            bsdfGroup.tooltip("Note: This setting Only affects the BSDF slice viewer. NdotL is always enabled in lighting mode.", true);
+            bsdfGroup.tooltip("Note: This setting Only affects the BSDF slice viewer. NdotL is always enabled in other viewer modes.", true);
         }
     }
 
@@ -276,17 +377,17 @@ void BSDFViewer::renderUI(Gui::Widgets& widget)
 
         if (mParams.useDirectionalLight)
         {
-            mParams.useEnvMap = false;
+            mUseEnvMap = false;
             dirty |= lightGroup.var("Light direction", mParams.lightDir, -std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), 0.01f, false, "%.4f");
         }
 
         // Envmap lighting
         if (mpEnvMap)
         {
-            dirty |= lightGroup.checkbox(("Environment map: " + mpEnvMap->getFilename()).c_str(), mParams.useEnvMap);
+            dirty |= lightGroup.checkbox(("Environment map: " + mpEnvMap->getFilename()).c_str(), mUseEnvMap);
             lightGroup.tooltip("When enabled the specified environment map is used as light source. Enabling this option turns off directional lighting.", true);
 
-            if (mParams.useEnvMap)
+            if (mUseEnvMap)
             {
                 mParams.useDirectionalLight = false;
             }
@@ -301,12 +402,14 @@ void BSDFViewer::renderUI(Gui::Widgets& widget)
             std::string filename;
             if (openFileDialog(Bitmap::getFileDialogFilters(), filename))
             {
-                // TODO: RenderContext* should maybe be a parameter to renderUI()?
                 if (loadEnvMap(filename))
                 {
                     mParams.useDirectionalLight = false;
-                    mParams.useEnvMap = true;
                     dirty = true;
+                }
+                else
+                {
+                    msgBox(fmt::format("Failed to load environment map from '{}'.", filename), MsgBoxType::Ok, MsgBoxIcon::Warning);
                 }
             }
         }
@@ -326,29 +429,34 @@ void BSDFViewer::renderUI(Gui::Widgets& widget)
         }
     }
 
-    mParams.readback = false;
-
     if (auto pixelGroup = widget.group("Pixel data", true))
     {
-        mParams.readback = mParams.useSceneMaterial && !mParams.useFixedTexCoords; // Enable readback if necessary
+        // Read back data from the current frame when UI is shown.
+        readPixelData();
 
         pixelGroup.var("Pixel", mParams.selectedPixel);
 
         if (mPixelDataValid)
         {
             pixelGroup.var("texC", mPixelData.texC, -std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), 0.f, false, "%.4f");
-            pixelGroup.var("baseColor", mPixelData.baseColor, 0.f, 1.f, 0.f, false, "%.4f");
-            pixelGroup.var("diffuse", mPixelData.diffuse, 0.f, 1.f, 0.f, false, "%.4f");
-            pixelGroup.var("specular", mPixelData.specular, 0.f, 1.f, 0.f, false, "%.4f");
-            pixelGroup.var("roughness", mPixelData.linearRoughness, 0.f, 1.f, 0.f, false, "%.4f");
-            pixelGroup.tooltip("This is the unmapped roughness parameters as specified in the content creation tool.", true);
-            pixelGroup.var("metallic", mPixelData.metallic, 0.f, 1.f, 0.f, false, "%.4f");
             pixelGroup.var("T", mPixelData.T, -1.f, 1.f, 0.f, false, "%.4f");
             pixelGroup.var("B", mPixelData.B, -1.f, 1.f, 0.f, false, "%.4f");
             pixelGroup.var("N", mPixelData.N, -1.f, 1.f, 0.f, false, "%.4f");
-            pixelGroup.var("wo", mPixelData.wo, -1.f, 1.f, 0.f, false, "%.4f");
             pixelGroup.var("wi", mPixelData.wi, -1.f, 1.f, 0.f, false, "%.4f");
+            pixelGroup.tooltip("Incident direction (view dir)", true);
+            pixelGroup.var("wo", mPixelData.wo, -1.f, 1.f, 0.f, false, "%.4f");
+            pixelGroup.tooltip("Outgoing direction (light dir)", true);
             pixelGroup.var("output", mPixelData.output, 0.f, std::numeric_limits<float>::max(), 0.f, false, "%.4f");
+
+            pixelGroup.text("BSDF properties:");
+            pixelGroup.var("emission", mPixelData.emission, 0.f, 1.f, 0.f, false, "%.4f");
+            pixelGroup.var("roughness", mPixelData.roughness, 0.f, 1.f, 0.f, false, "%.4f");
+            pixelGroup.var("diffuseReflectionAlbedo", mPixelData.diffuseReflectionAlbedo, 0.f, std::numeric_limits<float>::max(), 0.f, false, "%.4f");
+            pixelGroup.var("diffuseTransmissionAlbedo", mPixelData.diffuseTransmissionAlbedo, 0.f, std::numeric_limits<float>::max(), 0.f, false, "%.4f");
+            pixelGroup.var("specularReflectionAlbedo", mPixelData.specularReflectionAlbedo, 0.f, std::numeric_limits<float>::max(), 0.f, false, "%.4f");
+            pixelGroup.var("specularTransmissionAlbedo", mPixelData.specularTransmissionAlbedo, 0.f, std::numeric_limits<float>::max(), 0.f, false, "%.4f");
+            pixelGroup.var("specularReflectance", mPixelData.specularReflectance, 0.f, std::numeric_limits<float>::max(), 0.f, false, "%.4f");
+            pixelGroup.checkbox("isTransmissive", mPixelData.isTransmissive);
         }
         else
         {
@@ -398,15 +506,12 @@ bool BSDFViewer::onKeyEvent(const KeyboardEvent& keyEvent)
 
 bool BSDFViewer::loadEnvMap(const std::string& filename)
 {
-    mpEnvMap = EnvMap::create(filename);
-    if (!mpEnvMap)
+    auto pEnvMap = EnvMap::createFromFile(filename);
+    if (!pEnvMap)
     {
-        logWarning("Failed to load environment map from " + filename);
+        logWarning("Failed to load environment map from '{}'.", filename);
         return false;
     }
-
-    auto pVars = mpViewerPass->getVars();
-    mpEnvMap->setShaderData(pVars["PerFrameCB"]["gEnvMap"]);
-
+    mpEnvMap = pEnvMap;
     return true;
 }

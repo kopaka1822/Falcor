@@ -49,7 +49,7 @@ namespace Falcor
 
         std::vector<uint4> computeMatchResult(const std::vector<uint32_t>& data, uint32_t laneCount)
         {
-            assert(laneCount >= 4 && laneCount <= 128);
+            FALCOR_ASSERT(laneCount >= 4 && laneCount <= 128);
             std::vector<uint4> masks(data.size(), uint4(0));
 
             for (size_t i = 0; i < data.size(); i++)
@@ -72,7 +72,7 @@ namespace Falcor
 
         std::vector<float> computeMinMaxResult(const std::vector<float>& data, uint32_t laneCount, bool conditional)
         {
-            assert(laneCount >= 4 && laneCount <= 128);
+            FALCOR_ASSERT(laneCount >= 4 && laneCount <= 128);
             std::vector<float> result(data.size() * 2);
 
             for (size_t i = 0; i < data.size(); i += laneCount)
@@ -132,11 +132,11 @@ namespace Falcor
             // Get the lane count. We abort the test if it is an unsupported count.
             const uint32_t laneCount = *(const uint32_t*)pLaneCount->map(Buffer::MapType::Read);
             pLaneCount->unmap();
-            if (laneCount < 4 || laneCount > 128) throw std::exception("Unsupported wave lane count");
+            if (laneCount < 4 || laneCount > 128) throw RuntimeError("Unsupported wave lane count");
 
             // Verify results of wave min/max.
             std::vector<float> expectedResult = computeMinMaxResult(testData, laneCount, conditional);
-            assert(expectedResult.size() == testData.size() * 2);
+            FALCOR_ASSERT(expectedResult.size() == testData.size() * 2);
 
             const float4* result = ctx.mapBuffer<const float4>("result");
             for (size_t i = 0; i < testData.size(); i++)
@@ -183,7 +183,7 @@ namespace Falcor
         var["laneCount"] = pLaneCount;
 
         std::vector<uint32_t> matchData = generateMatchData(kNumElems);
-        assert(matchData.size() == kNumElems);
+        FALCOR_ASSERT(matchData.size() == kNumElems);
         var["testData"] = Buffer::createTyped<uint32_t>(kNumElems, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, matchData.data());
 
         ctx.runProgram(kNumElems, 1, 1);
@@ -191,11 +191,11 @@ namespace Falcor
         // Get the lane count. We abort the test if it is an unsupported count.
         const uint32_t laneCount = *(const uint32_t*)pLaneCount->map(Buffer::MapType::Read);
         pLaneCount->unmap();
-        if (laneCount < 4 || laneCount > 128) throw std::exception("Unsupported wave lane count");
+        if (laneCount < 4 || laneCount > 128) throw RuntimeError("Unsupported wave lane count");
 
         // Verify results of wave match.
         std::vector<uint4> expectedResult = computeMatchResult(matchData, laneCount);
-        assert(expectedResult.size() == matchData.size());
+        FALCOR_ASSERT(expectedResult.size() == matchData.size());
 
         const uint4* result = ctx.mapBuffer<const uint4>("result");
         for (size_t i = 0; i < matchData.size(); i++)

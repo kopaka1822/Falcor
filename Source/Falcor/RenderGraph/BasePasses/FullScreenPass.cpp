@@ -41,23 +41,13 @@ namespace Falcor
 
         FullScreenPassData gFullScreenData;
 
-        bool checkForViewportArray2Support()
-        {
-#ifdef FALCOR_D3D12
-            return false;
-#elif defined FALCOR_VK
-            return false;
-#else
-#error Unknown API
-#endif
-        }
         struct Vertex
         {
             float2 screenPos;
             float2 texCoord;
         };
 
-#ifdef FALCOR_VK
+#ifdef FALCOR_FLIP_Y
 #define ADJUST_Y(a) (-(a))
 #else
 #define ADJUST_Y(a) a
@@ -77,7 +67,7 @@ namespace Falcor
             // First time we got here. create VB and VAO
             const uint32_t vbSize = (uint32_t)(sizeof(Vertex)*arraysize(kVertices));
             pVB = Buffer::create(vbSize, Buffer::BindFlags::Vertex, Buffer::CpuAccess::Write, (void*)kVertices);
-            assert(pVB);
+            FALCOR_ASSERT(pVB);
 
             // Create VAO
             VertexLayout::SharedPtr pLayout = VertexLayout::create();
@@ -88,7 +78,7 @@ namespace Falcor
 
             Vao::BufferVec buffers{ pVB };
             pVao = Vao::create(Vao::Topology::TriangleStrip, pLayout, buffers);
-            assert(pVao);
+            FALCOR_ASSERT(pVao);
         }
     }
 
@@ -98,7 +88,7 @@ namespace Falcor
         gFullScreenData.objectCount++;
 
         // Create depth stencil state
-        assert(mpState);
+        FALCOR_ASSERT(mpState);
         auto pDsState = DepthStencilState::create(DepthStencilState::Desc().setDepthEnabled(false));
         mpState->setDepthStencilState(pDsState);
 
@@ -106,13 +96,13 @@ namespace Falcor
         {
             initFullScreenData(gFullScreenData.pVertexBuffer, gFullScreenData.pVao);
         }
-        assert(gFullScreenData.pVao);
+        FALCOR_ASSERT(gFullScreenData.pVao);
         mpState->setVao(gFullScreenData.pVao);
     }
 
     FullScreenPass::~FullScreenPass()
     {
-        assert(gFullScreenData.objectCount > 0);
+        FALCOR_ASSERT(gFullScreenData.objectCount > 0);
 
         gFullScreenData.objectCount--;
         if (gFullScreenData.objectCount == 0)
@@ -131,15 +121,8 @@ namespace Falcor
         if (viewportMask)
         {
             defs.add("_VIEWPORT_MASK", std::to_string(viewportMask));
-            if (checkForViewportArray2Support())
-            {
-                defs.add("_USE_VP2_EXT");
-            }
-            else
-            {
-                defs.add("_OUTPUT_VERTEX_COUNT", std::to_string(3 * popcount(viewportMask)));
-                d.addShaderLibrary("RenderGraph/BasePasses/FullScreenPass.gs.slang").gsEntry("main");
-            }
+            defs.add("_OUTPUT_VERTEX_COUNT", std::to_string(3 * popcount(viewportMask)));
+            d.addShaderLibrary("RenderGraph/BasePasses/FullScreenPass.gs.slang").gsEntry("main");
         }
         if (!d.hasEntryPoint(ShaderType::Vertex)) d.addShaderLibrary("RenderGraph/BasePasses/FullScreenPass.vs.slang").vsEntry("main");
 
@@ -156,6 +139,6 @@ namespace Falcor
     void FullScreenPass::execute(RenderContext* pRenderContext, const Fbo::SharedPtr& pFbo, bool autoSetVpSc) const
     {
         mpState->setFbo(pFbo, autoSetVpSc);
-        pRenderContext->draw(mpState.get(), mpVars.get(), arraysize(kVertices), 0);
+        pRenderContext->draw(mpState.get(), mpVars.get(), (uint32_t)arraysize(kVertices), 0);
     }
 }

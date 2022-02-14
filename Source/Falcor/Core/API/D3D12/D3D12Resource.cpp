@@ -82,7 +82,7 @@ namespace Falcor
         {
             d3d |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
         }
-        
+
         return d3d;
     }
 
@@ -131,7 +131,7 @@ namespace Falcor
         case Resource::State::AccelerationStructure:
             return D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
             return D3D12_RESOURCE_STATE_GENERIC_READ;
         }
     }
@@ -158,7 +158,7 @@ namespace Falcor
             }
             else
             {
-                throw std::exception("Resource::getSharedApiHandle(): failed to create shared handle");
+                throw RuntimeError("Failed to create shared handle");
             }
         }
         return mSharedApiHandle;

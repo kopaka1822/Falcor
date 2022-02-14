@@ -28,6 +28,7 @@
 #include "stdafx.h"
 #include "Core/API/Texture.h"
 #include "Core/API/Device.h"
+#include "Core/API/Formats.h"
 #include "D3D12Resource.h"
 
 namespace Falcor
@@ -47,9 +48,24 @@ namespace Falcor
         case Texture::Type::Texture3D:
             return D3D12_RESOURCE_DIMENSION_TEXTURE3D;
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
             return D3D12_RESOURCE_DIMENSION_UNKNOWN;
         }
+    }
+
+    uint64_t Texture::getTextureSizeInBytes() const
+    {
+        ID3D12DevicePtr pDevicePtr = gpDevice->getApiHandle();
+        ID3D12ResourcePtr pTexResource = this->getApiHandle();
+
+        D3D12_RESOURCE_ALLOCATION_INFO d3d12ResourceAllocationInfo;
+        D3D12_RESOURCE_DESC desc = pTexResource->GetDesc();
+
+        FALCOR_ASSERT(desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D || desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D);
+
+        d3d12ResourceAllocationInfo = pDevicePtr->GetResourceAllocationInfo(0, 1, &desc);
+        FALCOR_ASSERT(d3d12ResourceAllocationInfo.SizeInBytes > 0);
+        return d3d12ResourceAllocationInfo.SizeInBytes;
     }
 
     void Texture::apiInit(const void* pData, bool autoGenMips)
@@ -79,8 +95,8 @@ namespace Falcor
         {
             desc.DepthOrArraySize = mArraySize;
         }
-        assert(desc.Width > 0 && desc.Height > 0);
-        assert(desc.MipLevels > 0 && desc.DepthOrArraySize > 0 && desc.SampleDesc.Count > 0);
+        FALCOR_ASSERT(desc.Width > 0 && desc.Height > 0);
+        FALCOR_ASSERT(desc.MipLevels > 0 && desc.DepthOrArraySize > 0 && desc.SampleDesc.Count > 0);
 
         D3D12_CLEAR_VALUE clearValue = {};
         D3D12_CLEAR_VALUE* pClearVal = nullptr;
@@ -102,8 +118,8 @@ namespace Falcor
         }
 
         D3D12_HEAP_FLAGS heapFlags = is_set(mBindFlags, ResourceBindFlags::Shared) ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE;
-        d3d_call(gpDevice->getApiHandle()->CreateCommittedResource(&kDefaultHeapProps, heapFlags, &desc, D3D12_RESOURCE_STATE_COMMON, pClearVal, IID_PPV_ARGS(&mApiHandle)));
-        assert(mApiHandle);
+        FALCOR_D3D_CALL(gpDevice->getApiHandle()->CreateCommittedResource(&kDefaultHeapProps, heapFlags, &desc, D3D12_RESOURCE_STATE_COMMON, pClearVal, IID_PPV_ARGS(&mApiHandle)));
+        FALCOR_ASSERT(mApiHandle);
 
         if (pData)
         {

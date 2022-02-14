@@ -46,7 +46,7 @@ namespace Falcor
             case GpuMemoryHeap::Type::Readback:
                 return kReadbackHeapProps;
             default:
-                should_not_get_here();
+                FALCOR_UNREACHABLE();
                 return D3D12_HEAP_PROPERTIES();
             }
         }
@@ -62,7 +62,7 @@ namespace Falcor
             case GpuMemoryHeap::Type::Readback:
                 return Buffer::State::CopyDest;
             default:
-                should_not_get_here();
+                FALCOR_UNREACHABLE();
                 return Buffer::State::Undefined;
             }
         }
@@ -73,6 +73,6 @@ namespace Falcor
         data.pResourceHandle = createBuffer(getInitState(mType), size, getHeapProps(mType), Buffer::BindFlags::None);
         data.offset = 0;
         D3D12_RANGE readRange = {};
-        d3d_call(data.pResourceHandle->Map(0, &readRange, (void**)&data.pData));
+        FALCOR_D3D_CALL(data.pResourceHandle->Map(0, &readRange, (void**)&data.pData));
     }
 }

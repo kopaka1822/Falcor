@@ -34,7 +34,7 @@ namespace Falcor
 {
     ID3D12ResourcePtr createBuffer(Buffer::State initState, size_t size, const D3D12_HEAP_PROPERTIES& heapProps, Buffer::BindFlags bindFlags)
     {
-        assert(gpDevice);
+        FALCOR_ASSERT(gpDevice);
         ID3D12Device* pDevice = gpDevice->getApiHandle();
 
         // Create the buffer
@@ -50,13 +50,13 @@ namespace Falcor
         bufDesc.SampleDesc.Count = 1;
         bufDesc.SampleDesc.Quality = 0;
         bufDesc.Width = size;
-        assert(bufDesc.Width > 0);
+        FALCOR_ASSERT(bufDesc.Width > 0);
 
         D3D12_RESOURCE_STATES d3dState = getD3D12ResourceState(initState);
         ID3D12ResourcePtr pApiHandle;
         D3D12_HEAP_FLAGS heapFlags = is_set(bindFlags, ResourceBindFlags::Shared) ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE;
-        d3d_call(pDevice->CreateCommittedResource(&heapProps, heapFlags, &bufDesc, d3dState, nullptr, IID_PPV_ARGS(&pApiHandle)));
-        assert(pApiHandle);
+        FALCOR_D3D_CALL(pDevice->CreateCommittedResource(&heapProps, heapFlags, &bufDesc, d3dState, nullptr, IID_PPV_ARGS(&pApiHandle)));
+        FALCOR_ASSERT(pApiHandle);
 
         return pApiHandle;
     }
@@ -75,7 +75,7 @@ namespace Falcor
     {
         D3D12_RANGE r{ 0, size };
         void* pData;
-        d3d_call(apiHandle->Map(0, &r, &pData));
+        FALCOR_D3D_CALL(apiHandle->Map(0, &r, &pData));
         return pData;
     }
 
@@ -83,12 +83,12 @@ namespace Falcor
     {
         if (mCpuAccess != CpuAccess::None && is_set(mBindFlags, BindFlags::Shared))
         {
-            throw std::exception("Can't create shared resource with CPU access other than 'None'.");
+            throw ArgumentError("Can't create shared resource with CPU access other than 'None'.");
         }
 
         if (mBindFlags == BindFlags::Constant)
         {
-            mSize = align_to(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, mSize);
+            mSize = align_to((size_t)D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, mSize);
         }
 
         if (mCpuAccess == CpuAccess::Write)
@@ -96,7 +96,7 @@ namespace Falcor
             mState.global = Resource::State::GenericRead;
             if(hasInitData == false) // Else the allocation will happen when updating the data
             {
-                assert(gpDevice);
+                FALCOR_ASSERT(gpDevice);
                 mDynamicData = gpDevice->getUploadHeap()->allocate(mSize, getBufferDataAlignment(this));
                 mApiHandle = mDynamicData.pResourceHandle;
                 mGpuVaOffset = mDynamicData.offset;

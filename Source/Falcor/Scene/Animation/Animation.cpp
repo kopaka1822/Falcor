@@ -94,7 +94,7 @@ namespace Falcor
 
         Animation::Keyframe interpolateHermite(const Animation::Keyframe& k0, const Animation::Keyframe& k1, const Animation::Keyframe& k2, const Animation::Keyframe& k3, float t)
         {
-            assert(t >= 0.f && t <= 1.f);
+            FALCOR_ASSERT(t >= 0.f && t <= 1.f);
             Animation::Keyframe result;
             result.translation = interpolateHermite(k0.translation, k1.translation, k2.translation, k3.translation, t);
             result.scaling = lerp(k1.scaling, k2.scaling, t);
@@ -161,7 +161,7 @@ namespace Falcor
 
     Animation::Keyframe Animation::interpolate(InterpolationMode mode, double time) const
     {
-        assert(!mKeyframes.empty());
+        FALCOR_ASSERT(!mKeyframes.empty());
 
         // Validate cached frame index.
         size_t frameIndex = clamp(mCachedFrameIndex, (size_t)0, mKeyframes.size() - 1);
@@ -218,7 +218,7 @@ namespace Falcor
         }
         else
         {
-            throw std::exception("Unknown interpolation mode");
+            throw ArgumentError("'mode' is unknown interpolation mode");
         }
     }
 
@@ -233,7 +233,7 @@ namespace Falcor
         double lastKeyframeTime = mKeyframes.back().time;
         double duration = lastKeyframeTime - firstKeyframeTime;
 
-        assert(currentTime < firstKeyframeTime || currentTime > lastKeyframeTime);
+        FALCOR_ASSERT(currentTime < firstKeyframeTime || currentTime > lastKeyframeTime);
 
         Behavior behavior = (currentTime < firstKeyframeTime) ? mPreInfinityBehavior : mPostInfinityBehavior;
         switch (behavior)
@@ -259,12 +259,15 @@ namespace Falcor
 
     void Animation::addKeyframe(const Keyframe& keyframe)
     {
-        assert(keyframe.time <= mDuration);
+        FALCOR_ASSERT(keyframe.time <= mDuration);
 
         if (mKeyframes.size() == 0 || mKeyframes[0].time > keyframe.time)
         {
             mKeyframes.insert(mKeyframes.begin(), keyframe);
-            return;
+        }
+        else if (mKeyframes.back().time < keyframe.time)
+        {
+            mKeyframes.push_back(keyframe);
         }
         else
         {
@@ -301,7 +304,7 @@ namespace Falcor
         {
             if (k.time == time) return k;
         }
-        throw std::runtime_error(("Animation::getKeyframe() - can't find a keyframe at time " + std::to_string(time)).c_str());
+        throw ArgumentError("'time' ({}) does not refer to an existing keyframe", time);
     }
 
     bool Animation::doesKeyframeExists(double time) const
@@ -319,9 +322,9 @@ namespace Falcor
         widget.dropdown("Post-Infinity Behavior", kChannelLoopModeDropdown, reinterpret_cast<uint32_t&>(mPostInfinityBehavior));
     }
 
-    SCRIPT_BINDING(Animation)
+    FALCOR_SCRIPT_BINDING(Animation)
     {
-        SCRIPT_BINDING_DEPENDENCY(Transform)
+        FALCOR_SCRIPT_BINDING_DEPENDENCY(Transform)
 
         pybind11::class_<Animation, Animation::SharedPtr> animation(m, "Animation");
         animation.def_property_readonly("name", &Animation::getName);

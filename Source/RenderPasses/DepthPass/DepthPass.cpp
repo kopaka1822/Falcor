@@ -27,18 +27,18 @@
  **************************************************************************/
 #include "DepthPass.h"
 
+const RenderPass::Info DepthPass::kInfo { "DepthPass", "Creates a depth-buffer using the scene's active camera." };
+
 // Don't remove this. it's required for hot-reload to function properly
-extern "C" __declspec(dllexport) const char* getProjDir()
+extern "C" FALCOR_API_EXPORT const char* getProjDir()
 {
     return PROJECT_DIR;
 }
 
-extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
+extern "C" FALCOR_API_EXPORT void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("DepthPass", "Creates a depth-buffer using the scene's active camera", DepthPass::create);
+    lib.registerPass(DepthPass::kInfo, DepthPass::create);
 }
-
-const char* DepthPass::kDesc = "Creates a depth-buffer using the scene's active camera";
 
 namespace
 {
@@ -46,6 +46,7 @@ namespace
 
     const std::string kDepth = "depth";
     const std::string kDepthFormat = "depthFormat";
+    const std::string kUseAlphaTest = "useAlphaTest";
 }
 
 void DepthPass::parseDictionary(const Dictionary& dict)
@@ -53,7 +54,8 @@ void DepthPass::parseDictionary(const Dictionary& dict)
     for (const auto& [key, value] : dict)
     {
         if (key == kDepthFormat) setDepthBufferFormat(value);
-        else logWarning("Unknown field '" + key + "' in a DepthPass dictionary");
+        else if (key == kUseAlphaTest) mUseAlphaTest = value;
+        else logWarning("Unknown field '{}' in a DepthPass dictionary.", key);
     }
 }
 
@@ -61,6 +63,7 @@ Dictionary DepthPass::getScriptingDictionary()
 {
     Dictionary d;
     d[kDepthFormat] = mDepthFormat;
+    d[kUseAlphaTest] = mUseAlphaTest;
     return d;
 }
 
@@ -70,6 +73,7 @@ DepthPass::SharedPtr DepthPass::create(RenderContext* pRenderContext, const Dict
 }
 
 DepthPass::DepthPass(const Dictionary& dict)
+    : RenderPass(kInfo)
 {
     Program::Desc desc;
     desc.addShaderLibrary(kProgramFile).psEntry("main");
@@ -84,26 +88,38 @@ DepthPass::DepthPass(const Dictionary& dict)
 RenderPassReflection DepthPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addOutput(kDepth, "Depth-buffer").bindFlags(Resource::BindFlags::DepthStencil).format(mDepthFormat).texture2D(0, 0, 0);
+    reflector.addOutput(kDepth, "Depth-buffer").bindFlags(Resource::BindFlags::DepthStencil).format(mDepthFormat).texture2D(mOutputSize.x, mOutputSize.y);
     return reflector;
 }
 
 void DepthPass::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
 {
     mpScene = pScene;
-    if (mpScene) mpState->getProgram()->addDefines(mpScene->getSceneDefines());
-    mpVars = GraphicsVars::create(mpState->getProgram()->getReflector());
+    mpVars = nullptr;
+
+    if (mpScene)
+    {
+        auto pProgram = mpState->getProgram();
+        pProgram->addDefines(mpScene->getSceneDefines());
+        pProgram->addDefine("USE_ALPHA_TEST", mUseAlphaTest ? "1" : "0");
+        pProgram->setTypeConformances(mpScene->getTypeConformances());
+        mpVars = GraphicsVars::create(pProgram->getReflector());
+    }
 }
 
-void DepthPass::execute(RenderContext* pContext, const RenderData& renderData)
+void DepthPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     const auto& pDepth = renderData[kDepth]->asTexture();
     mpFbo->attachDepthStencilTarget(pDepth);
 
     mpState->setFbo(mpFbo);
-    pContext->clearDsv(pDepth->getDSV().get(), 1, 0);
+    pRenderContext->clearDsv(pDepth->getDSV().get(), 1, 0);
 
-    if (mpScene) mpScene->rasterize(pContext, mpState.get(), mpVars.get(), mCullMode);
+    if (mpScene)
+    {
+        mpState->getProgram()->addDefine("USE_ALPHA_TEST", mUseAlphaTest ? "1" : "0");
+        mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mCullMode);
+    }
 }
 
 DepthPass& DepthPass::setDepthBufferFormat(ResourceFormat format)
@@ -115,7 +131,7 @@ DepthPass& DepthPass::setDepthBufferFormat(ResourceFormat format)
     else
     {
         mDepthFormat = format;
-        mPassChangedCB();
+        requestRecompile();
     }
     return *this;
 }
@@ -124,6 +140,20 @@ DepthPass& DepthPass::setDepthStencilState(const DepthStencilState::SharedPtr& p
 {
     mpState->setDepthStencilState(pDsState);
     return *this;
+}
+
+void DepthPass::setOutputSize(const uint2& outputSize)
+{
+    if (outputSize != mOutputSize)
+    {
+        mOutputSize = outputSize;
+        requestRecompile();
+    }
+}
+
+void DepthPass::setAlphaTest(bool useAlphaTest)
+{
+    mUseAlphaTest = useAlphaTest;
 }
 
 static const Gui::DropdownList kDepthFormats =

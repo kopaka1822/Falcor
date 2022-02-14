@@ -169,7 +169,7 @@ namespace Falcor
 
     int Console::inputTextCallback(ImGuiInputTextCallbackData* data)
     {
-        assert(data->UserData != nullptr);
+        FALCOR_ASSERT(data->UserData != nullptr);
         Console& console = *static_cast<Console*>(data->UserData);
 
         if (data->EventFlag == ImGuiInputTextFlags_CallbackCharFilter)
@@ -188,7 +188,7 @@ namespace Falcor
         return 0;
     }
 
-    SCRIPT_BINDING(Console)
+    FALCOR_SCRIPT_BINDING(Console)
     {
         auto cls = []() { Console::instance().clear(); };
         m.def("cls", cls);

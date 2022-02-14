@@ -36,7 +36,7 @@ namespace Falcor
     ParallelReduction::ParallelReduction(ParallelReduction::Type reductionType, uint32_t readbackLatency, uint32_t width, uint32_t height, uint32_t sampleCount)
         : mReductionType(reductionType)
     {
-        assert(width > 0 && height > 0 && sampleCount > 0);
+        FALCOR_ASSERT(width > 0 && height > 0 && sampleCount > 0);
         ResourceFormat texFormat;
         Program::DefineList defines;
         defines.add("_SAMPLE_COUNT", std::to_string(sampleCount));
@@ -48,7 +48,7 @@ namespace Falcor
            defines.add("_MIN_MAX_REDUCTION");
            break;
         default:
-            throw std::exception("Unknown parallel reduction operator");
+            throw ArgumentError("Unknown parallel reduction operator");
         }
 
         Sampler::Desc samplerDesc;
@@ -123,7 +123,7 @@ namespace Falcor
                 result = float4(*reinterpret_cast<float2*>(texData.data()), 0, 0);
                 break;
             default:
-                should_not_get_here();
+                FALCOR_UNREACHABLE();
             }
         }
         return result;
