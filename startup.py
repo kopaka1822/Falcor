@@ -159,7 +159,7 @@ def render_graph_VAONonInterleaved():
     g.addPass(VAONonInterleaved, 'VAONonInterleaved')
     DepthPass = createPass('DepthPass', {'depthFormat': ResourceFormat.D32FloatS8X24, 'cullMode': CullMode.CullBack})
     g.addPass(DepthPass, 'DepthPass')
-    StochasticDepthMap_ = createPass('StochasticDepthMap', {'SampleCount': 8, 'Alpha': 0.20000000298023224, 'CullMode': CullMode.CullBack, 'linearize': True, 'depthFormat': ResourceFormat.D32Float})
+    StochasticDepthMap_ = createPass('StochasticDepthMap', {'SampleCount': 8, 'Alpha': 0.20000000298023224, 'CullMode': CullMode.CullBack, 'linearize': True, 'depthFormat': ResourceFormat.D24UnormS8})
     g.addPass(StochasticDepthMap_, 'StochasticDepthMap_')
     g.addEdge('GBufferRaster.depth', 'DepthPeelPass.depth')
     g.addEdge('GBufferRaster.depth', 'LinearizeDepth.depth')

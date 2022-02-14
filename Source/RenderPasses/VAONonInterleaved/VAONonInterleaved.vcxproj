@@ -26,9 +26,11 @@
   </ImportGroup>
   <ItemGroup>
     <ClCompile Include="VAONonInterleaved.cpp" />
+    <ClCompile Include="VAONonInterleaved2.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="VAONonInterleaved.h" />
+    <ClInclude Include="VAONonInterleaved2.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Falcor\Falcor.vcxproj">

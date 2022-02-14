@@ -29,6 +29,8 @@
 
 #include <glm/gtc/random.hpp>
 
+#include "VAONonInterleaved2.h"
+
 
 namespace
 {
@@ -60,6 +62,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
     lib.registerClass("VAONonInterleaved", kDesc, VAONonInterleaved::create);
+    lib.registerClass("VAONonInterleaved2", kDesc, VAONonInterleaved2::create);
 }
 
 VAONonInterleaved::SharedPtr VAONonInterleaved::create(RenderContext* pRenderContext, const Dictionary& dict)

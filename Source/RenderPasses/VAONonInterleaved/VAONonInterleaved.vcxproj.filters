@@ -2,9 +2,11 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="VAONonInterleaved.cpp" />
+    <ClCompile Include="VAONonInterleaved2.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="VAONonInterleaved.h" />
+    <ClInclude Include="VAONonInterleaved2.h" />
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="VAOData.slang" />

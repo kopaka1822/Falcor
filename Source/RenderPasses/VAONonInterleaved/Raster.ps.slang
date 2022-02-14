@@ -419,6 +419,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
             output.stencil |= 1u << i;
             // remember that an access was requested
             gDepthAccess[uint2(rasterSamplePosUV * gData.resolution)] = 1u;
+            //gDepthAccess[uint2(rasterSamplePosUV * gData.resolution)] += 1u;
+            //InterlockedAdd(gDepthAccess[uint2(rasterSamplePosUV * gData.resolution)], 1u);
         }
         else
         {
