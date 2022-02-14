@@ -27,9 +27,10 @@
  **************************************************************************/
 #pragma once
 #include <execution>
-#pragma warning(disable:4244 4267)
+#pragma warning(push)
+#pragma warning(disable : 4244 4267)
 #include <nanovdb/NanoVDB.h>
-#pragma warning(default:4244 4267)
+#pragma warning(pop)
 #include "BC4Encode.h"
 #include "Utils/NumericRange.h"
 #include "BrickedGrid.h"
@@ -47,7 +48,7 @@ namespace Falcor
     public:
         NanoVDBToBricksConverter(const nanovdb::FloatGrid* grid);
         NanoVDBToBricksConverter(const NanoVDBToBricksConverter& rhs) = delete;
-        
+
         BrickedGrid convert();
 
     private:
@@ -66,7 +67,7 @@ namespace Falcor
             case 4: return ResourceFormat::BC4Unorm;
             case 8: return ResourceFormat::R8Unorm;
             case 16: return ResourceFormat::R16Unorm;
-            default: throw std::exception("unsupported bitdepth in NanoVDBToBricksConverter");
+            default: throw RuntimeError("Unsupported bitdepth in NanoVDBToBricksConverter");
             }
         }
 
@@ -275,7 +276,7 @@ namespace Falcor
         std::for_each(std::execution::par, range.begin(), range.end(), [&](int z) { convertSlice(z); });
         for (int mip = 1; mip < 4; ++mip) computeMip(mip);
         double dt = CpuTimer::calcDuration(t0, CpuTimer::getCurrentTimePoint());
-        logInfo("converted in " + std::to_string(dt) + "ms: mNonEmptyCount " + std::to_string(mNonEmptyCount) + " vs max " + std::to_string(getAtlasMaxBrick()) + "\n");
+        logInfo("converted in {}ms: mNonEmptyCount {} vs max {}", dt, mNonEmptyCount, getAtlasMaxBrick());
 
         BrickedGrid bricks;
         bricks.range = Texture::create3D(mLeafDim[0].x, mLeafDim[0].y, mLeafDim[0].z, ResourceFormat::RG16Float, 4, mRangeData.data(), ResourceBindFlags::ShaderResource, false);

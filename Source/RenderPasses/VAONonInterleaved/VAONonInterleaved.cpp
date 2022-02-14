@@ -53,6 +53,8 @@ namespace
     const std::string kRasterShader = "RenderPasses/VAONonInterleaved/Raster.ps.slang";
 }
 
+const RenderPass::Info VAONonInterleaved::kInfo = { "VAONonInterleaved", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -61,8 +63,8 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("VAONonInterleaved", kDesc, VAONonInterleaved::create);
-    lib.registerClass("VAONonInterleaved2", kDesc, VAONonInterleaved2::create);
+    lib.registerPass(VAONonInterleaved::kInfo, VAONonInterleaved::create);
+    lib.registerPass(VAONonInterleaved2::kInfo, VAONonInterleaved2::create);
 }
 
 VAONonInterleaved::SharedPtr VAONonInterleaved::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -71,9 +73,9 @@ VAONonInterleaved::SharedPtr VAONonInterleaved::create(RenderContext* pRenderCon
     return pPass;
 }
 
-std::string VAONonInterleaved::getDesc() { return kDesc; }
-
 VAONonInterleaved::VAONonInterleaved(const Dictionary& dict)
+    :
+    RenderPass(kInfo)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
@@ -157,6 +159,7 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
         defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
         defines.add(mpScene->getSceneDefines());
         mpRasterPass = FullScreenPass::create(kRasterShader, defines);
+        mpRasterPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
         mDirty = true;
     }
 

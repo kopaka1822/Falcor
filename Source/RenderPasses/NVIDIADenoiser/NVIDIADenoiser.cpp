@@ -40,6 +40,8 @@ namespace
     const std::string kNormalRoughness = "normalRoughness";
 }
 
+const RenderPass::Info NVIDIADenoiser::kInfo = { "NVIDIADenoiser", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -48,7 +50,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("NVIDIADenoiser", kDesc, NVIDIADenoiser::create);
+    lib.registerPass(NVIDIADenoiser::kInfo, NVIDIADenoiser::create);
 }
 
 NVIDIADenoiser::SharedPtr NVIDIADenoiser::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -57,14 +59,14 @@ NVIDIADenoiser::SharedPtr NVIDIADenoiser::create(RenderContext* pRenderContext, 
     return pPass;
 }
 
-std::string NVIDIADenoiser::getDesc() { return kDesc; }
-
 Dictionary NVIDIADenoiser::getScriptingDictionary()
 {
     return Dictionary();
 }
 
 NVIDIADenoiser::NVIDIADenoiser()
+    :
+    RenderPass(kInfo)
 {
     //====================================================================================================================
     // STEP 2 - WRAP NATIVE DEVICE

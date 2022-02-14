@@ -38,6 +38,8 @@ namespace
     const std::string kPingPong = "pingpong";
 }
 
+const RenderPass::Info CrossBilateralBlur::kInfo = { "CrossBilateralBlur", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -46,7 +48,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("CrossBilateralBlur", kDesc, CrossBilateralBlur::create);
+    lib.registerPass(CrossBilateralBlur::kInfo, CrossBilateralBlur::create);
 }
 
 CrossBilateralBlur::SharedPtr CrossBilateralBlur::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -54,8 +56,6 @@ CrossBilateralBlur::SharedPtr CrossBilateralBlur::create(RenderContext* pRenderC
     SharedPtr pPass = SharedPtr(new CrossBilateralBlur);
     return pPass;
 }
-
-std::string CrossBilateralBlur::getDesc() { return kDesc; }
 
 Dictionary CrossBilateralBlur::getScriptingDictionary()
 {
@@ -69,6 +69,8 @@ void CrossBilateralBlur::setKernelRadius(uint32_t radius)
 }
 
 CrossBilateralBlur::CrossBilateralBlur()
+    :
+    RenderPass(kInfo)
 {
     mpFbo = Fbo::create();
     mpFbo2 = Fbo::create();

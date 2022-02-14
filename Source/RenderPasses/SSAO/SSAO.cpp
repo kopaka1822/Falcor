@@ -59,11 +59,11 @@ static void regSSAO(pybind11::module& m)
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("SSAO", "Screen-space ambient occlusion", SSAO::create);
+    lib.registerPass(SSAO::kInfo, SSAO::create);
     ScriptBindings::registerBinding(regSSAO);
 }
 
-const char* SSAO::kDesc = "Screen-space ambient occlusion. Can be used with and without a normal-map";
+const RenderPass::Info SSAO::kInfo = { "SSAO", "Screen-space ambient occlusion. Can be used with and without a normal-map" };
 
 namespace
 {
@@ -108,6 +108,8 @@ namespace
 }
 
 SSAO::SSAO()
+    :
+    RenderPass(kInfo)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
@@ -204,6 +206,7 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             if (psDepth) defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
 
             mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
+            mpSSAOPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
 
             // bind static resources
             mData.noiseScale = float2(pDepth->getWidth(), pDepth->getHeight()) / float2(mNoiseSize.x, mNoiseSize.y);

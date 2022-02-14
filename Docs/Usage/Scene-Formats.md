@@ -4,7 +4,17 @@
 
 # Scene Formats
 
-Falcor uses [Assimp](https://github.com/assimp/assimp) as its core asset loader and can load all file formats Assimp supports by default.
+## USD Scene Files
+
+Starting with version 5.0 Falcor includes an experimental importer for Universal Scene Description (USD) files.
+
+The `UsdPreviewSurface` material model is partially supported by mapping to Falcor's `StandardMaterial` at load time.
+
+## FBX/GLTF Scene Files
+
+Falcor uses [Assimp](https://github.com/assimp/assimp) as its asset loader for FBX and GLTF scenes. It can load all other file formats Assimp supports by default, but support may be more limited.
+
+All loaded material data is mapped to Falcor's `StandardMaterial` at load time.
 
 From assets, Falcor will import:
 - Scene Graph
@@ -132,26 +142,27 @@ Each vertex has a _position_, _normal_ and _texCoord_ attribute. Triangles are d
 
 #### Create Materials
 
-Next we need to define at least one material to use for our meshes:
+Next we need to define at least one material to use for our meshes.
+For more examples, see [Materials](./Materials.md).
 
 ```python
 # Create materials
-red = Material('Red')
+red = StandardMaterial('Red')
 red.baseColor = float4(0.8, 0.1, 0.1, 1.0)
 red.roughness = 0.3
 
-green = Material('Green')
+green = StandardMaterial('Green')
 green.baseColor = float4(0.1, 0.8, 0.1, 1.0)
 green.roughness = 0.2
 green.emissiveColor = float3(1, 1, 1)
 green.emissiveFactor = 0.1
 
-blue = Material('Blue')
+blue = StandardMaterial('Blue')
 blue.baseColor = float4(0.1, 0.1, 0.8, 1.0)
 blue.roughness = 0.3
 blue.metallic = 1
 
-emissive = Material('Emissive')
+emissive = StandardMaterial('Emissive')
 emissive.baseColor = float4(1, 1, 1, 1)
 emissive.roughness = 0.2
 emissive.emissiveColor = float3(1, 1, 1)
@@ -162,7 +173,7 @@ We can also create materials using textures:
 
 ```python
 # Create material with textures
-floor = Material('Floor')
+floor = StandardMaterial('Floor')
 floor.loadTexture(MaterialTextureSlot.BaseColor, 'Arcade/Textures/CheckerTile_BaseColor.png')
 floor.loadTexture(MaterialTextureSlot.Specular, 'Arcade/Textures/CheckerTile_Specular.png')
 floor.loadTexture(MaterialTextureSlot.Normal, 'Arcade/Textures/CheckerTile_Normal.png')

@@ -41,10 +41,9 @@ enum class SceneDebuggerMode : uint32_t
     TexCoords,
     HitType,
     InstanceID,
-    MeshID,
     MaterialID,
+    GeometryID,
     BlasID,
-    CurveID,
     InstancedGeometry,
 };
 
@@ -61,7 +60,6 @@ struct SceneDebuggerParams
 
     int showVolumes = true;         ///< Show volumes.
     float densityScale = 1.f;       ///< Volume density scale factor.
-    uint2 _pad;
 };
 
 struct PixelData
@@ -71,9 +69,8 @@ struct PixelData
     uint hitType;
     uint instanceID;
     uint materialID;
-    uint meshID;
+    uint geometryID;
     uint blasID;
-    uint curveID;
 };
 
 enum class InstanceInfoFlags : uint32_t

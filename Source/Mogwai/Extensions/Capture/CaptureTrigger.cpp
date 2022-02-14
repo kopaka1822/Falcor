@@ -44,7 +44,7 @@ namespace Mogwai
             uint64_t yEnd = yStart + yCount - 1;
             if (xStart <= yEnd && yStart <= xEnd)
             {
-                throw std::exception("This range overlaps an existing range!");
+                throw ArgumentError("This range overlaps an existing range!");
             }
         }
 
@@ -100,7 +100,7 @@ namespace Mogwai
 
         if (mCurrent.pGraph)
         {
-            assert(pGraph == mCurrent.pGraph);
+            FALCOR_ASSERT(pGraph == mCurrent.pGraph);
             return;
         }
 

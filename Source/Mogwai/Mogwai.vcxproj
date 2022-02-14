@@ -70,6 +70,9 @@
     <ProjectReference Include="..\RenderPasses\DepthPeelPass\DepthPeelPass.vcxproj">
       <Project>{eb33a558-28bc-4229-9ddb-08dd2bb6cfeb}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\DLSSPass\DLSSPass.vcxproj">
+      <Project>{0b2f90ed-3524-4f92-8a0b-f542d90f3a32}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\DualDepthPass\DualDepthPass.vcxproj">
       <Project>{c13653e6-8e5b-4971-ae65-cde1c2f10f3e}</Project>
     </ProjectReference>
@@ -109,14 +112,26 @@
     <ProjectReference Include="..\RenderPasses\MinimalPathTracer\MinimalPathTracer.vcxproj">
       <Project>{ff7fe9b8-2ace-4044-869d-a5c4ef8042d3}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\ModulateIllumination\ModulateIllumination.vcxproj">
+      <Project>{4e192689-e377-4936-8a1b-94b08226fc83}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\NRDPass\NRDPass.vcxproj">
+      <Project>{25964c78-f3f0-4889-869f-adfdacef0482}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\NVIDIADenoiser\NVIDIADenoiser.vcxproj">
       <Project>{e4d49ab3-45ac-4407-8a1e-37415b8aaeca}</Project>
     </ProjectReference>
     <ProjectReference Include="..\RenderPasses\OptixDenoiser\OptixDenoiser.vcxproj">
       <Project>{05555565-706c-4633-bf8a-b99f96f2b301}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\PathTracer\PathTracer.vcxproj">
+      <Project>{99799ba5-6503-425c-bfcc-8b94e6a40d1d}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\PixelInspectorPass\PixelInspectorPass.vcxproj">
       <Project>{80ddde59-a412-4e64-880a-6b52697c967b}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\RTXDIPass\RTXDIPass.vcxproj">
+      <Project>{8f778354-93d9-4030-b55f-19137650780d}</Project>
     </ProjectReference>
     <ProjectReference Include="..\RenderPasses\SceneDebugger\SceneDebugger.vcxproj">
       <Project>{b1715f7a-6efd-4910-b271-7423ab6961cb}</Project>

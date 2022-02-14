@@ -38,6 +38,8 @@ namespace
     const std::string kProgram = "RenderPasses/InterleaveTexture/Interleave.slang";
 }
 
+const RenderPass::Info InterleaveTexture::kInfo = { "InterleaveTexture", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -46,7 +48,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("InterleaveTexture", kDesc, InterleaveTexture::create);
+    lib.registerPass(InterleaveTexture::kInfo, InterleaveTexture::create);
 }
 
 InterleaveTexture::SharedPtr InterleaveTexture::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -55,14 +57,14 @@ InterleaveTexture::SharedPtr InterleaveTexture::create(RenderContext* pRenderCon
     return pPass;
 }
 
-std::string InterleaveTexture::getDesc() { return kDesc; }
-
 Dictionary InterleaveTexture::getScriptingDictionary()
 {
     return Dictionary();
 }
 
 InterleaveTexture::InterleaveTexture()
+    :
+    RenderPass(kInfo)
 {
     mpFbo = Fbo::create();
     mpPass = FullScreenPass::create(kProgram);

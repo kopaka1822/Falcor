@@ -61,6 +61,8 @@ namespace
     };
 }
 
+const RenderPass::Info StochasticDepthMap::kInfo{ "StochasticDepthMap", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -69,7 +71,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("StochasticDepthMap", kDesc, StochasticDepthMap::create);
+    lib.registerPass(StochasticDepthMap::kInfo, StochasticDepthMap::create);
 }
 
 // code from stochastic-depth ambient occlusion:
@@ -130,6 +132,8 @@ StochasticDepthMap::SharedPtr StochasticDepthMap::create(RenderContext* pRenderC
 }
 
 StochasticDepthMap::StochasticDepthMap(const Dictionary& dict)
+    :
+    RenderPass(kInfo)
 {
     Program::DefineList defines;
     defines.add("NUM_SAMPLES", std::to_string(mSampleCount));
@@ -186,8 +190,6 @@ void StochasticDepthMap::parseDictionary(const Dictionary& dict)
     }
 }
 
-std::string StochasticDepthMap::getDesc() { return kDesc; }
-
 Dictionary StochasticDepthMap::getScriptingDictionary()
 {
     Dictionary d;
@@ -232,6 +234,8 @@ void StochasticDepthMap::compile(RenderContext* pContext, const CompileData& com
 
 void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    if (!mpScene) return;
+
     auto pDepthIn = renderData[kDepthIn]->asTexture();
     auto psDepths = renderData[ksDepth]->asTexture();
     Texture::SharedPtr pDebug;
@@ -255,7 +259,7 @@ void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData
 
     if(pStencilMask)
     {
-        PROFILE("Stencil Copy");
+        FALCOR_PROFILE("Stencil Copy");
         mpStencilPass["mask"] = pStencilMask;
         mpStencilPass->execute(pRenderContext, mpFbo);
 
@@ -264,7 +268,7 @@ void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData
     else mpState->setDepthStencilState(nullptr);
 
     {
-        PROFILE("Stochastic Depths");
+        FALCOR_PROFILE("Stochastic Depths");
         // rasterize non-linear depths
         mpState->setFbo(mpFbo);
         auto var = mpVars->getRootVar();
@@ -289,7 +293,7 @@ void StochasticDepthMap::execute(RenderContext* pRenderContext, const RenderData
     // if debug, resolve a single layer onto the debug texture
     if (pDebug)
     {
-        PROFILE("Debug");
+        FALCOR_PROFILE("Debug");
         mpDebugPass->addDefine("NUM_SAMPLES", std::to_string(psDepths->getSampleCount()));
         mpDebugPass->addDefine("SAMPLE_INDEX", std::to_string(mDebugLayer));
 
@@ -336,7 +340,10 @@ void StochasticDepthMap::renderUI(Gui::Widgets& widget)
 void StochasticDepthMap::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
 {
     mpScene = pScene;
-    if (mpScene) mpState->getProgram()->addDefines(mpScene->getSceneDefines());
+    if (mpScene) {
+        mpState->getProgram()->addDefines(mpScene->getSceneDefines());
+        mpState->getProgram()->setTypeConformances(mpScene->getTypeConformances());
+    };
     mpVars = GraphicsVars::create(mpState->getProgram()->getReflector());
     // force reload of camera cbuffer
     mLastZNear = 0.0f;

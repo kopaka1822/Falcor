@@ -35,7 +35,7 @@ namespace Falcor
 {
     class Gui;
 
-    class dlldecl Scripting
+    class FALCOR_API Scripting
     {
     public:
         static const FileDialogFilterVec kFileExtensionFilters;
@@ -106,9 +106,8 @@ namespace Falcor
 
         /** Starts the script engine.
             This will initialize the Python interpreter and setup the default context.
-            \return Returns true if successful.
         */
-        static bool start();
+        static void start();
 
         /** Shuts the script engine down.
         */

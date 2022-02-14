@@ -38,6 +38,8 @@ namespace
     const std::string kProgram = "RenderPasses/DeinterleaveTexture/Deinterleave.slang";
 }
 
+const RenderPass::Info DeinterleaveTexture::kInfo = { "DeinterleaveTexture", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -46,7 +48,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("DeinterleaveTexture", kDesc, DeinterleaveTexture::create);
+    lib.registerPass(DeinterleaveTexture::kInfo, DeinterleaveTexture::create);
 }
 
 DeinterleaveTexture::SharedPtr DeinterleaveTexture::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -55,8 +57,6 @@ DeinterleaveTexture::SharedPtr DeinterleaveTexture::create(RenderContext* pRende
     return pPass;
 }
 
-std::string DeinterleaveTexture::getDesc() { return kDesc; }
-
 Dictionary DeinterleaveTexture::getScriptingDictionary()
 {
     return Dictionary();
@@ -64,6 +64,7 @@ Dictionary DeinterleaveTexture::getScriptingDictionary()
 
 DeinterleaveTexture::DeinterleaveTexture()
     :
+RenderPass(kInfo),
 mMaxRenderTargetCount(Fbo::getMaxColorTargetCount())
 {
     if (mMaxRenderTargetCount < 8)

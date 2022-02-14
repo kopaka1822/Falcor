@@ -57,6 +57,8 @@ namespace
     };
 }
 
+const RenderPass::Info DualDepthPass::kInfo = { "DualDepthPass", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -65,7 +67,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("DualDepthPass", kDesc, DualDepthPass::create);
+    lib.registerPass(DualDepthPass::kInfo, DualDepthPass::create);
 }
 
 DualDepthPass::SharedPtr DualDepthPass::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -75,6 +77,8 @@ DualDepthPass::SharedPtr DualDepthPass::create(RenderContext* pRenderContext, co
 }
 
 DualDepthPass::DualDepthPass(const Dictionary& dict)
+    :
+    RenderPass(kInfo)
 {
     {
         Program::Desc desc;
@@ -110,8 +114,6 @@ DualDepthPass::DualDepthPass(const Dictionary& dict)
 
     parseDictionary(dict);
 }
-
-std::string DualDepthPass::getDesc() { return kDesc; }
 
 void DualDepthPass::parseDictionary(const Dictionary& dict)
 {
@@ -160,7 +162,7 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
     if (mVariant == Variant::DepthAndUav)
     {
         {
-            PROFILE("clear textures");
+            FALCOR_PROFILE("clear textures");
             pRenderContext->clearDsv(dsv2.get(), 1.0f, 0, true, false);
             pRenderContext->clearUAV(depthUav1.get(), float4(1.0f));
         }
@@ -177,20 +179,20 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
 
         // copy uav to dsv
         {
-            PROFILE("copy depth to dsv");
+            FALCOR_PROFILE("copy depth to dsv");
             pRenderContext->copySubresource(pDepth.get(), 0, pInternalDepth.get(), 0);
         }
     }
     else if (mVariant == Variant::DepthPeel)
     {
         {
-            PROFILE("clear textures");
+            FALCOR_PROFILE("clear textures");
             pRenderContext->clearDsv(dsv1.get(), 1.0f, 0, true, false);
             pRenderContext->clearDsv(dsv2.get(), 1.0f, 0, true, false);
         }
 
         {
-            PROFILE("first layer");
+            FALCOR_PROFILE("first layer");
             // render depth normally
             mpFbo->attachDepthStencilTarget(pDepth);
             mpDepthPeelState1->setFbo(mpFbo);
@@ -198,7 +200,7 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
         }
 
         {
-            PROFILE("second layer");
+            FALCOR_PROFILE("second layer");
             // render second layer with first layer as input
             auto var = mpDepthPeelVars2->getRootVar();
             var["prevDepth"] = pDepth;
@@ -210,7 +212,7 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
     else if(mVariant == Variant::UavOnly)
     {
         {
-            PROFILE("clear textures");
+            FALCOR_PROFILE("clear textures");
             pRenderContext->clearUAV(depthUav1.get(), float4(1.0f));
             pRenderContext->clearUAV(depthUav2.get(), float4(1.0f));
             pRenderContext->clearDsv(dsv2.get(), 1.0f, 0, true, false);
@@ -229,7 +231,7 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
 
         // copy uav to dsv
         {
-            PROFILE("copy depth to dsv");
+            FALCOR_PROFILE("copy depth to dsv");
             pRenderContext->copySubresource(pDepth.get(), 0, pInternalDepth.get(), 0);
             // depth 2 already contains the correct depth
             //pRenderContext->copySubresource(pDepth2.get(), 0, pInternalDepth2.get(), 0);
@@ -239,14 +241,14 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
     {
 
         {
-            PROFILE("clear textures");
+            FALCOR_PROFILE("clear textures");
             pRenderContext->clearDsv(dsv1.get(), 1.0f, 0, true, false);
             pRenderContext->clearUAV(depthUav2.get(), float4(1.0f));
         }
             
         // start with rendering primary depth
         {
-            PROFILE("first layer (raster)");
+            FALCOR_PROFILE("first layer (raster)");
             // render depth normally
             mpFbo->attachDepthStencilTarget(pDepth);
             mpDepthPeelState1->setFbo(mpFbo);
@@ -255,7 +257,7 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
 
         // capture second layer with ray tracing
         if(mpScene) {
-            PROFILE("second layer (ray)");
+            FALCOR_PROFILE("second layer (ray)");
             ShaderVar var = mpRayVars->getRootVar();
             var["primaryDepth"] = pDepth; // srv
             var["secondaryDepth"] = pInternalDepth2; // uav
@@ -264,7 +266,7 @@ void DualDepthPass::execute(RenderContext* pRenderContext, const RenderData& ren
 
         // copy uav to dsv/srv
         {
-            PROFILE("copy depth to dsv");
+            FALCOR_PROFILE("copy depth to dsv");
             pRenderContext->copySubresource(pDepth2.get(), 0, pInternalDepth2.get(), 0);
         }
     }
@@ -279,9 +281,13 @@ void DualDepthPass::setScene(RenderContext* pRenderContext, const Scene::SharedP
     if (mpScene)
     {
         mpDsvUavState->getProgram()->addDefines(mpScene->getSceneDefines());
+        mpDsvUavState->getProgram()->setTypeConformances(mpScene->getTypeConformances());
         mpDepthPeelState1->getProgram()->addDefines(mpScene->getSceneDefines());
+        mpDepthPeelState1->getProgram()->setTypeConformances(mpScene->getTypeConformances());
         mpDepthPeelState2->getProgram()->addDefines(mpScene->getSceneDefines());
+        mpDepthPeelState2->getProgram()->setTypeConformances(mpScene->getTypeConformances());
         mpUavState->getProgram()->addDefines(mpScene->getSceneDefines());
+        mpUavState->getProgram()->setTypeConformances(mpScene->getTypeConformances());
 
         // ray tracing program
         RtProgram::Desc desc;
@@ -289,17 +295,18 @@ void DualDepthPass::setScene(RenderContext* pRenderContext, const Scene::SharedP
         desc.setMaxPayloadSize(sizeof(float)); // secondary depth
         desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
         desc.setMaxTraceRecursionDepth(1);
-        desc.addDefines(mpScene->getSceneDefines());
+        Program::DefineList defines;
+        defines.add(mpScene->getSceneDefines());
 
         // TODO add procedural primitives (only triangles for now)
         RtBindingTable::SharedPtr sbt = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
         sbt->setRayGen(desc.addRayGen("rayGen"));
         sbt->setMiss(0, desc.addMiss("miss"));
-        sbt->setHitGroupByType(0, mpScene, Scene::GeometryType::TriangleMesh, desc.addHitGroup("closestHit", "anyHit"));
+        sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
 
         // TODO add other hit groups here
 
-        mpRayProgram = RtProgram::create(desc);
+        mpRayProgram = RtProgram::create(desc, defines);
         mpRayVars = RtProgramVars::create(mpRayProgram, sbt);
     }
 

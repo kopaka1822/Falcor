@@ -27,7 +27,6 @@
  **************************************************************************/
 #pragma once
 #include "Falcor.h"
-#include "FalcorExperimental.h"
 #include "SSAOData.slang"
 #include "../Utils/GaussianBlur/GaussianBlur.h"
 #include "DepthMode.h"
@@ -38,8 +37,6 @@ class SSAO : public RenderPass
 {
 public:
     using SharedPtr = std::shared_ptr<SSAO>;
-
-    static const char* kDesc;
 
     enum class SampleDistribution : uint32_t
     {
@@ -56,7 +53,7 @@ public:
 
     static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
 
-    std::string getDesc() override { return kDesc; }
+    static const Info kInfo;
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;

@@ -38,6 +38,8 @@ namespace
     const std::string kShaderFilename = "RenderPasses/ConvertFormat/convert.slang";
 }
 
+const RenderPass::Info ConvertFormat::kInfo{ "ConvertFormat", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -46,7 +48,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("ConvertFormat", kDesc, ConvertFormat::create);
+    lib.registerPass(ConvertFormat::kInfo, ConvertFormat::create);
 }
 
 ConvertFormat::SharedPtr ConvertFormat::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -54,8 +56,6 @@ ConvertFormat::SharedPtr ConvertFormat::create(RenderContext* pRenderContext, co
     SharedPtr pPass = SharedPtr(new ConvertFormat(dict));
     return pPass;
 }
-
-std::string ConvertFormat::getDesc() { return kDesc; }
 
 Dictionary ConvertFormat::getScriptingDictionary()
 {
@@ -77,6 +77,7 @@ void ConvertFormat::parseDictionary(const Dictionary& dict)
 
 ConvertFormat::ConvertFormat(const Dictionary& dict)
 :
+RenderPass(kInfo),
 mFormula("I0[xy]"), // "I0.Sample(s, uv)"
 mFormat(ResourceFormat::RGBA32Float)
 {
@@ -122,7 +123,7 @@ void ConvertFormat::execute(RenderContext* pRenderContext, const RenderData& ren
         }
         catch(const std::exception& e)
         {
-            Falcor::logError(e.what(), Falcor::Logger::MsgBox::ContinueAbort, false);
+            Falcor::logWarning(e.what());
         }
     }
 

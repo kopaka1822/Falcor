@@ -37,6 +37,8 @@ namespace
     const std::string kProgram = "RenderPasses/Texture2DArrayExtract/convert.slang";
 }
 
+const RenderPass::Info Texture2DArrayExtract::kInfo{ "Texture2DArrayExtract", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -45,7 +47,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("Texture2DArrayExtract", kDesc, Texture2DArrayExtract::create);
+    lib.registerPass(Texture2DArrayExtract::kInfo, Texture2DArrayExtract::create);
 }
 
 Texture2DArrayExtract::SharedPtr Texture2DArrayExtract::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -54,14 +56,14 @@ Texture2DArrayExtract::SharedPtr Texture2DArrayExtract::create(RenderContext* pR
     return pPass;
 }
 
-std::string Texture2DArrayExtract::getDesc() { return kDesc; }
-
 Dictionary Texture2DArrayExtract::getScriptingDictionary()
 {
     return Dictionary();
 }
 
 Texture2DArrayExtract::Texture2DArrayExtract()
+    :
+    RenderPass(kInfo)
 {
     mpPass = FullScreenPass::create(kProgram);
     // add point sampler

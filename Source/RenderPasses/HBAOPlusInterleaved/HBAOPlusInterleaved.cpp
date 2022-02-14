@@ -63,7 +63,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("HBAOPlusInterleaved", kDesc, HBAOPlusInterleaved::create);
+    lib.registerPass(HBAOPlusInterleaved::kInfo, HBAOPlusInterleaved::create);
 }
 
 HBAOPlusInterleaved::SharedPtr HBAOPlusInterleaved::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -72,7 +72,7 @@ HBAOPlusInterleaved::SharedPtr HBAOPlusInterleaved::create(RenderContext* pRende
     return pPass;
 }
 
-std::string HBAOPlusInterleaved::getDesc() { return kDesc; }
+const RenderPass::Info HBAOPlusInterleaved::kInfo{ "HBAOPlusInterleaved", kDesc};
 
 Dictionary HBAOPlusInterleaved::getScriptingDictionary()
 {
@@ -85,6 +85,7 @@ Dictionary HBAOPlusInterleaved::getScriptingDictionary()
 }
 
 HBAOPlusInterleaved::HBAOPlusInterleaved(const Dictionary& dict)
+    : RenderPass(kInfo)
 {
     mpFbo = Fbo::create();
     mpPass = FullScreenPass::create(kProgram);

@@ -55,6 +55,8 @@ namespace
     const std::string kExponent = "exponent";
 }
 
+const RenderPass::Info HBAOPlusNonInterleaved::kInfo{ "HBAOPlusNonInterleaved", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -63,7 +65,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("HBAOPlusNonInterleaved", kDesc, HBAOPlusNonInterleaved::create);
+    lib.registerPass(HBAOPlusNonInterleaved::kInfo, HBAOPlusNonInterleaved::create);
 }
 
 HBAOPlusNonInterleaved::SharedPtr HBAOPlusNonInterleaved::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -71,8 +73,6 @@ HBAOPlusNonInterleaved::SharedPtr HBAOPlusNonInterleaved::create(RenderContext* 
     SharedPtr pPass = SharedPtr(new HBAOPlusNonInterleaved(dict));
     return pPass;
 }
-
-std::string HBAOPlusNonInterleaved::getDesc() { return kDesc; }
 
 Dictionary HBAOPlusNonInterleaved::getScriptingDictionary()
 {
@@ -98,6 +98,8 @@ void HBAOPlusNonInterleaved::setDepthMode(DepthMode m)
 }
 
 HBAOPlusNonInterleaved::HBAOPlusNonInterleaved(const Dictionary& dict)
+    :
+    RenderPass(kInfo)
 {
     mpFbo = Fbo::create();
     mpPass = FullScreenPass::create(kProgram);

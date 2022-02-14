@@ -190,25 +190,6 @@ def render_graph_VAONonInterleaved():
     return g
 m.addGraph(render_graph_VAONonInterleaved())
 
-# Scene
-m.loadScene('D:/scenes/obj/sponza/sponza.pyscene')
-m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True, useVolumes=True)
-m.scene.camera.position = float3(-15.406478,5.665640,1.421597)
-m.scene.camera.target = float3(-15.976386,5.509163,2.228269)
-m.scene.camera.up = float3(0.000000,1.000000,0.000000)
-m.scene.cameraSpeed = 1.0
-
 # Window Configuration
 m.resizeSwapChain(1920, 1060)
 m.ui = True
-
-# Clock Settings
-m.clock.time = 0
-m.clock.framerate = 0
-# If framerate is not zero, you can use the frame property to set the start frame
-# m.clock.frame = 0
-
-# Frame Capture
-m.frameCapture.outputDir = '.'
-m.frameCapture.baseFilename = 'Mogwai'
-

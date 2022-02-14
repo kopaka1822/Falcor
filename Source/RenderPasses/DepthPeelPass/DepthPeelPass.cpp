@@ -48,6 +48,8 @@ namespace
     };
 }
 
+const RenderPass::Info DepthPeelPass::kInfo{ "DepthPeelPass", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -56,7 +58,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("DepthPeelPass", kDesc, DepthPeelPass::create);
+    lib.registerPass(DepthPeelPass::kInfo, DepthPeelPass::create);
 }
 
 DepthPeelPass::SharedPtr DepthPeelPass::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -64,8 +66,6 @@ DepthPeelPass::SharedPtr DepthPeelPass::create(RenderContext* pRenderContext, co
     SharedPtr pPass = SharedPtr(new DepthPeelPass(dict));
     return pPass;
 }
-
-std::string DepthPeelPass::getDesc() { return kDesc; }
 
 Dictionary DepthPeelPass::getScriptingDictionary()
 {
@@ -76,6 +76,8 @@ Dictionary DepthPeelPass::getScriptingDictionary()
 }
 
 DepthPeelPass::DepthPeelPass(const Dictionary& dict)
+    :
+    RenderPass(kInfo)
 {
     mpFbo = Fbo::create();
     Program::Desc desc;
@@ -139,6 +141,7 @@ void DepthPeelPass::setScene(RenderContext* pRenderContext, const Scene::SharedP
 
     // set scene defines and obtain vars
     mpDepthPeelState->getProgram()->addDefines(pScene->getSceneDefines());
+    mpDepthPeelState->getProgram()->setTypeConformances(pScene->getTypeConformances());
     mpDepthPeelVars = GraphicsVars::create(mpDepthPeelState->getProgram()->getReflector());
 }
 

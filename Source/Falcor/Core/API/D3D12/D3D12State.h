@@ -25,11 +25,11 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#pragma  once
-#include <vector>
-#include "Core/API/RootSignature.h"
+#pragma once
+#include "D3D12RootSignature.h"
 #include "Core/API/VAO.h"
 #include "Core/API/GraphicsStateObject.h"
+#include <vector>
 
 namespace Falcor
 {
@@ -43,7 +43,7 @@ namespace Falcor
     struct InputLayoutDesc
     {
         std::vector<D3D12_INPUT_ELEMENT_DESC> elements;
-        std::vector<std::unique_ptr<char[]>> names; // Can't use strings directly because the vector size is unknown and vector reallocations will change the addresses we used in INPUT_ELEMENT_DESC 
+        std::vector<std::unique_ptr<char[]>> names; // Can't use strings directly because the vector size is unknown and vector reallocations will change the addresses we used in INPUT_ELEMENT_DESC
     };
 
     void initD3D12BlendDesc(const BlendState* pFalcorDesc, D3D12_BLEND_DESC& d3dDesc);
@@ -62,7 +62,7 @@ namespace Falcor
         std::vector<uint32_t> elementByteOffset;
     };
 
-    void initD3D12RootParams(const RootSignature::Desc& desc, RootSignatureParams& params);
+    void initD3D12RootParams(const D3D12RootSignature::Desc& desc, RootSignatureParams& params);
 
     inline D3D_PRIMITIVE_TOPOLOGY getD3DPrimitiveTopology(Vao::Topology topology)
     {
@@ -79,7 +79,7 @@ namespace Falcor
         case Vao::Topology::TriangleStrip:
             return D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
             return D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
         }
     }
@@ -97,7 +97,7 @@ namespace Falcor
         case GraphicsStateObject::PrimitiveType::Patch:
             return D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
             return D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
         }
     }

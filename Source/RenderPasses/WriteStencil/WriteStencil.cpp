@@ -35,6 +35,8 @@ namespace
     const std::string kDepthStencil = "depthStencil";
 }
 
+const RenderPass::Info WriteStencil::kInfo{ "WriteStencil",  kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -43,16 +45,14 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("WriteStencil", kDesc, WriteStencil::create);
+    lib.registerPass(WriteStencil::kInfo, WriteStencil::create);
 }
 
 WriteStencil::SharedPtr WriteStencil::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new WriteStencil);
+    SharedPtr pPass = SharedPtr(new WriteStencil());
     return pPass;
 }
-
-std::string WriteStencil::getDesc() { return kDesc; }
 
 Dictionary WriteStencil::getScriptingDictionary()
 {
@@ -78,4 +78,11 @@ void WriteStencil::execute(RenderContext* pRenderContext, const RenderData& rend
 
 void WriteStencil::renderUI(Gui::Widgets& widget)
 {
+}
+
+WriteStencil::WriteStencil()
+    :
+    RenderPass(kInfo)
+{
+
 }

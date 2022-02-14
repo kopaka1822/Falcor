@@ -32,15 +32,7 @@
 
 namespace Falcor
 {
-    static bool checkOffset(const std::string& structName, UniformShaderVarOffset cbOffset, size_t cppOffset, const char* field)
-    {
-        if (cbOffset.getByteOffset() != cppOffset)
-        {
-            logError("Light::" + std::string(structName) + ":: " + std::string(field) + " CB offset mismatch. CB offset is " + std::to_string(cbOffset.getByteOffset()) + ", C++ data offset is " + std::to_string(cppOffset));
-            return false;
-        }
-        return true;
-    }
+    static_assert(sizeof(LightData) % 16 == 0, "LightData size should be a multiple of 16B");
 
     // Light
 
@@ -71,8 +63,8 @@ namespace Falcor
         if (mPrevData.surfaceArea != mData.surfaceArea) mChanges |= Changes::SurfaceArea;
         if (mPrevData.transMat != mData.transMat) mChanges |= (Changes::Position | Changes::Direction);
 
-        assert(mPrevData.tangent == mData.tangent);
-        assert(mPrevData.bitangent == mData.bitangent);
+        FALCOR_ASSERT(mPrevData.tangent == mData.tangent);
+        FALCOR_ASSERT(mPrevData.bitangent == mData.bitangent);
 
         mPrevData = mData;
         mActiveChanged = false;
@@ -82,13 +74,11 @@ namespace Falcor
 
     void Light::setShaderData(const ShaderVar& var)
     {
-#if _LOG_ENABLED
-#define check_offset(_a) {static bool b = true; if(b) {assert(checkOffset("LightData", var.getType()->getMemberOffset(#_a), offsetof(LightData, _a), #_a));} b = false;}
+#define check_offset(_a) FALCOR_ASSERT(var.getType()->getMemberOffset(#_a).getByteOffset() == offsetof(LightData, _a))
         check_offset(dirW);
         check_offset(intensity);
         check_offset(penumbraAngle);
 #undef check_offset
-#endif
 
         var.setBlob(mData);
     }
@@ -436,9 +426,9 @@ namespace Falcor
     }
 
 
-    SCRIPT_BINDING(Light)
+    FALCOR_SCRIPT_BINDING(Light)
     {
-        SCRIPT_BINDING_DEPENDENCY(Animatable)
+        FALCOR_SCRIPT_BINDING_DEPENDENCY(Animatable)
 
         pybind11::class_<Light, Animatable, Light::SharedPtr> light(m, "Light");
         light.def_property("name", &Light::getName, &Light::setName);

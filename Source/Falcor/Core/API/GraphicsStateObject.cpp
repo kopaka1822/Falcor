@@ -42,7 +42,6 @@ namespace Falcor
         b = b && (mFboDesc                  == other.mFboDesc);
         b = b && (mpProgram                 == other.mpProgram);
         b = b && (mSampleMask               == other.mSampleMask);
-        b = b && (mpRootSignature           == other.mpRootSignature);
         b = b && (mPrimType                 == other.mPrimType);
 
         if (mpRasterizerState)

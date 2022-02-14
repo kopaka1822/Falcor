@@ -30,16 +30,17 @@
 
 BEGIN_NAMESPACE_FALCOR
 
-enum HitType
-// TODO: Remove the ifdefs and the include when Slang supports enum type specifiers.
-#ifdef HOST_CODE
-    : uint32_t
-#endif
+enum class HitType : uint32_t
 {
     None                = 0,    ///< No hit.
     Triangle            = 1,    ///< Triangle hit.
-    DisplacedTriangle   = 2,    ///< Displaced triangle hit.
-    Curve               = 3,    ///< Curve hit.
+    Volume              = 2,    ///< Volume hit.
+
+    // The following hit types are only available if hit info compression is disabled.
+
+    DisplacedTriangle   = 3,    ///< Displaced triangle hit.
+    Curve               = 4,    ///< Curve hit.
+    SDFGrid             = 5,    ///< SDF grid hit.
 
     //
     // Add new hit types here

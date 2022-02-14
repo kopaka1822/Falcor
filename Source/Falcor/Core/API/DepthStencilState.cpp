@@ -80,11 +80,11 @@ namespace Falcor
 
     const DepthStencilState::StencilDesc& DepthStencilState::getStencilDesc(Face face) const
     {
-        assert(face != Face::FrontAndBack);
+        FALCOR_ASSERT(face != Face::FrontAndBack);
         return (face == Face::Front) ? mDesc.mStencilFront : mDesc.mStencilBack;
     }
 
-    SCRIPT_BINDING(DepthStencilState)
+    FALCOR_SCRIPT_BINDING(DepthStencilState)
     {
         pybind11::class_<DepthStencilState, DepthStencilState::SharedPtr>(m, "DepthStencilState");
     }

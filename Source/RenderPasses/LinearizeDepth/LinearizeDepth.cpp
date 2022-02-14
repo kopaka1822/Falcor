@@ -38,6 +38,8 @@ namespace
     const std::string kDepthFormat = "depthFormat";
 }
 
+const RenderPass::Info LinearizeDepth::kInfo{ "LinearizeDepth", kDesc };
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
 {
@@ -46,7 +48,7 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("LinearizeDepth", kDesc, LinearizeDepth::create);
+    lib.registerPass(LinearizeDepth::kInfo, LinearizeDepth::create);
 }
 
 LinearizeDepth::SharedPtr LinearizeDepth::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -54,8 +56,6 @@ LinearizeDepth::SharedPtr LinearizeDepth::create(RenderContext* pRenderContext, 
     SharedPtr pPass = SharedPtr(new LinearizeDepth(dict));
     return pPass;
 }
-
-std::string LinearizeDepth::getDesc() { return kDesc; }
 
 Dictionary LinearizeDepth::getScriptingDictionary()
 {
@@ -65,6 +65,8 @@ Dictionary LinearizeDepth::getScriptingDictionary()
 }
 
 LinearizeDepth::LinearizeDepth(const Dictionary& dict)
+    :
+    RenderPass(kInfo)
 {
     mpPass = FullScreenPass::create(kShaderFilename);
     Sampler::Desc samplerDesc;

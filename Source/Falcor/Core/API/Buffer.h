@@ -37,7 +37,7 @@ namespace Falcor
     /** Low-level buffer object
         This class abstracts the API's buffer creation and management
     */
-    class dlldecl Buffer : public Resource
+    class FALCOR_API Buffer : public Resource
     {
     public:
         using SharedPtr = std::shared_ptr<Buffer>;
@@ -192,7 +192,7 @@ namespace Falcor
         */
         virtual UnorderedAccessView::SharedPtr getUAV() override;
 
-#if _ENABLE_CUDA
+#if FALCOR_ENABLE_CUDA
         /** Get the CUDA device address for this resource.
             \return CUDA device address.
             Throws an exception if the buffer is not shared.
@@ -220,9 +220,9 @@ namespace Falcor
             \param[in] pData Pointer to the source data.
             \param[in] offset Byte offset into the destination buffer, indicating where to start copy into.
             \param[in] size Number of bytes to copy.
-            If offset and size will cause an out-of-bound access to the buffer, an error will be logged and the update will fail.
+            Throws an exception if data causes out-of-bound access to the buffer.
         */
-        virtual bool setBlob(const void* pData, size_t offset, size_t size);
+        virtual void setBlob(const void* pData, size_t offset, size_t size);
 
         /** Get the offset from the beginning of the GPU resource
         */
@@ -393,7 +393,7 @@ namespace Falcor
             a2s(Write);
             a2s(Read);
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
             return "";
         }
 #undef a2s
@@ -408,7 +408,7 @@ namespace Falcor
             t2s(Write);
             t2s(WriteDiscard);
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
             return "";
         }
 #undef t2s

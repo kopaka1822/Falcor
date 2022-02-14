@@ -55,7 +55,7 @@ namespace Falcor
         // call on beginning a new frame
         void setCurrentGui(Gui* pGui) { mpGui = pGui; }
 
-        Gui* getCurrentGui() const { assert(mpGui); return mpGui; }
+        Gui* getCurrentGui() const { FALCOR_ASSERT(mpGui); return mpGui; }
 
         void reset() { inited = false; }
 
@@ -166,7 +166,7 @@ namespace Falcor
 
         bool pinIsConnected(uint32_t id, bool isInput)
         {
-            assert(isInput ? id < IMGUINODE_MAX_INPUT_SLOTS : id < IMGUINODE_MAX_OUTPUT_SLOTS);
+            FALCOR_ASSERT(isInput ? id < IMGUINODE_MAX_INPUT_SLOTS : id < IMGUINODE_MAX_OUTPUT_SLOTS);
             return isInput ? mInputPinConnected[id] : mOutputPinConnected[id];
         }
 
@@ -318,7 +318,7 @@ namespace Falcor
             if (pRenderPass)
             {
                 mpRenderPass = pRenderPass;
-                const float4 nodeColor = Gui::pickUniqueColor(pRenderPass->getName());
+                const float4 nodeColor = Gui::pickUniqueColor(pRenderPass->getType());
                 overrideTitleBgColor = ImGui::GetColorU32({ nodeColor.x, nodeColor.y, nodeColor.z, nodeColor.w });
             }
 
@@ -503,12 +503,15 @@ namespace Falcor
 
             if (!(dstField[0] == '#'))
             {
-                RenderPassReflection srcReflection = mpRenderGraph->mNodeData[mpRenderGraph->getPassIndex(srcPass)].pPass->reflect({});
-                RenderPassReflection dstReflection = mpRenderGraph->mNodeData[mpRenderGraph->getPassIndex(dstPass)].pPass->reflect({});
+                color = kEdgesColor;
 
-                bool canAutoResolve = false;// mpRenderGraph->canAutoResolve(srcReflection.getField(srcField), dstReflection.getField(dstField));
-                if (canAutoResolve && mDisplayAutoResolvePopup) canCreateEdge = autoResolveWarning(srcString, dstString);
-                color = canAutoResolve ? kAutoResolveEdgesColor : kEdgesColor;
+                // TODO: Auto-resolve is not fully working and will be removed (see #1275).
+                //RenderPassReflection srcReflection = mpRenderGraph->mNodeData[mpRenderGraph->getPassIndex(srcPass)].pPass->reflect({});
+                //RenderPassReflection dstReflection = mpRenderGraph->mNodeData[mpRenderGraph->getPassIndex(dstPass)].pPass->reflect({});
+                //
+                //bool canAutoResolve = mpRenderGraph->canAutoResolve(srcReflection.getField(srcField), dstReflection.getField(dstField));
+                //if (canAutoResolve && mDisplayAutoResolvePopup) canCreateEdge = autoResolveWarning(srcString, dstString);
+                //color = canAutoResolve ? kAutoResolveEdgesColor : kEdgesColor;
             }
 
             if (canCreateEdge)
@@ -541,7 +544,7 @@ namespace Falcor
     {
         if (dstField[0] == '#')
         {
-            assert(srcField[0] == '#');
+            FALCOR_ASSERT(srcField[0] == '#');
             mpIr->removeEdge(srcPass, dstPass);
         }
         else
@@ -558,7 +561,7 @@ namespace Falcor
         mShouldUpdate = true;
     }
 
-    void RenderGraphUI::updateGraph(RenderContext* pContext)
+    void RenderGraphUI::updateGraph(RenderContext* pRenderContext)
     {
         if (!mShouldUpdate) return;
         std::string newCommands = mpIr->getIR();
@@ -575,19 +578,19 @@ namespace Falcor
         if(newCommands.size()) mLogString += newCommands;
 
         // only send updates that we know are valid.
-        if (mpRenderGraph->compile(pContext) == false) mLogString += "Graph is currently invalid\n";
+        if (mpRenderGraph->compile(pRenderContext) == false) mLogString += "Graph is currently invalid\n";
         mShouldUpdate = false;
         mRebuildDisplayData = true;
     }
 
-    void RenderGraphUI::writeUpdateScriptToFile(RenderContext* pContext, const std::string& filePath, float lastFrameTime)
+    void RenderGraphUI::writeUpdateScriptToFile(RenderContext* pRenderContext, const std::string& filePath, float lastFrameTime)
     {
         if ((mTimeSinceLastUpdate += lastFrameTime) < kUpdateTimeInterval) return;
         mTimeSinceLastUpdate = 0.0f;
         if (!mUpdateCommands.size()) return;
 
         // only send delta of updates once the graph is valid
-        if (mpRenderGraph->compile(pContext) == false) return;
+        if (mpRenderGraph->compile(pRenderContext) == false) return;
         std::ofstream outputFileStream(filePath, std::ios_base::out);
         outputFileStream << mUpdateCommands;
         mUpdateCommands.clear();
@@ -625,7 +628,7 @@ namespace Falcor
         }
         if (state == ImGui::NodeGraphEditor::NodeState::NS_ADDED)
         {
-            pGraphEditor->getRenderGraphUI()->addRenderPass(node->getName(), getClassTypeName(pRenderGraphNode->mpRenderPass));
+            pGraphEditor->getRenderGraphUI()->addRenderPass(node->getName(), pRenderGraphNode->mpRenderPass->getType());
         }
     }
 
@@ -754,7 +757,7 @@ namespace Falcor
             ImGui::TextUnformatted("Persistent");
             break;
         default:
-            should_not_get_here();
+            FALCOR_UNREACHABLE();
         }
     }
 
@@ -854,7 +857,7 @@ namespace Falcor
         ImGui::PopStyleVar();
     }
 
-    void RenderGraphUI::renderUI(RenderContext* pContext, Gui* pGui)
+    void RenderGraphUI::renderUI(RenderContext* pRenderContext, Gui* pGui)
     {
         static std::string dragAndDropText;
         ImGui::GetIO().FontAllowUserScaling = true; // FIXME
@@ -900,8 +903,7 @@ namespace Falcor
                 bool internalResources = false;
 
                 renderGroup.separator();
-                std::string wrappedText = std::string("Description:  ") + RenderPassLibrary::getClassDescription(getClassTypeName(pPass.get()));
-                ImGui::TextWrapped("%s", wrappedText.c_str());
+                ImGui::TextWrapped("Description: %s", pPass->getDesc().c_str());
                 renderGroup.separator();
 
                 pPass->renderUI(renderGroup);
@@ -996,9 +998,12 @@ namespace Falcor
 
             if (addPass)
             {
+                // Get unique name by adding incrementing number suffix if necessary.
+                const std::string passName = mNextPassName;
+                uint32_t passIndex = 0;
                 while (mpRenderGraph->doesPassExist(mNextPassName))
                 {
-                    mNextPassName.push_back('_');
+                    mNextPassName = passName + std::to_string(passIndex++);
                 }
 
                 mpIr->addPass(dragAndDropText, mNextPassName);
@@ -1014,7 +1019,7 @@ namespace Falcor
             return;
         }
 
-        updateDisplayData(pContext);
+        updateDisplayData(pRenderContext);
 
         mAllNodeTypes.clear();
 
@@ -1176,7 +1181,7 @@ namespace Falcor
                         mpNodeGraphEditor->getNodeFromID(inputIDs.second),inputIDs.first ))
                     {
                         auto edgeIt = mInputPinStringToLinkID.find(currentPass.first + "." + currentPinName);
-                        assert(edgeIt != mInputPinStringToLinkID.end());
+                        FALCOR_ASSERT(edgeIt != mInputPinStringToLinkID.end());
                         uint32_t edgeID = edgeIt->second;
 
                         removeEdge(mpNodeGraphEditor->getNodeFromID(connectedNodeUI.mGuiNodeID)->getName(),
@@ -1239,7 +1244,7 @@ namespace Falcor
         return newNodePosition;
     }
 
-    void RenderGraphUI::updateDisplayData(RenderContext* pContext)
+    void RenderGraphUI::updateDisplayData(RenderContext* pRenderContext)
     {
         uint32_t nodeIndex = 0;
 
@@ -1257,7 +1262,7 @@ namespace Falcor
             previousGuiNodeIDs.insert(std::make_pair(currentRenderPassUI.first, currentRenderPassUI.second.mGuiNodeID));
         }
 
-        mpRenderGraph->compile(pContext);
+        mpRenderGraph->compile(pRenderContext);
         mRenderPassUI.clear();
         mInputPinStringToLinkID.clear();
 
@@ -1289,6 +1294,7 @@ namespace Falcor
             }
 
             // clear and rebuild reflection for each pass.
+            // TODO: This is unsafe because render pass reflection may depend on the compile data, which isn't available here.
             renderPassUI.mReflection = mpRenderGraph->mNodeData[nameToIndex.second].pPass->reflect({});
 
             // test to see if we have hit a graph output
@@ -1325,7 +1331,7 @@ namespace Falcor
                 }
 
                 auto pSourceNode = mpRenderGraph->mNodeData.find( mpRenderGraph->mpGraph->getEdge(edgeID)->getSourceNode());
-                assert(pSourceNode != mpRenderGraph->mNodeData.end());
+                FALCOR_ASSERT(pSourceNode != mpRenderGraph->mNodeData.end());
                 addedExecutionInput = currentEdge.dstField.empty();
 
                 std::string dstFieldName = currentEdge.dstField.empty() ? kInPrefix + nameToIndex.first : currentEdge.dstField;
@@ -1370,7 +1376,7 @@ namespace Falcor
                 }
 
                 auto pDestNode = mpRenderGraph->mNodeData.find(mpRenderGraph->mpGraph->getEdge(edgeID)->getDestNode());
-                assert(pDestNode != mpRenderGraph->mNodeData.end());
+                FALCOR_ASSERT(pDestNode != mpRenderGraph->mNodeData.end());
                 addedExecutionOutput = currentEdge.dstField.empty();
 
                 std::string dstFieldName = currentEdge.dstField.empty() ? kInPrefix + pDestNode->second.name : currentEdge.dstField;

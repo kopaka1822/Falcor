@@ -40,7 +40,8 @@ struct PsOut
 
 PsOut main(VSOut vsOut, uint triangleIndex : SV_PrimitiveID)
 {
-    if (alphaTest(vsOut, triangleIndex)) discard;
+    if (alphaTest(vsOut, triangleIndex, ImplicitLodTextureSampler()))
+        discard;
     PsOut output;
 
     // assume that a depth-map of the first layer is available => discard fragments with the same depth

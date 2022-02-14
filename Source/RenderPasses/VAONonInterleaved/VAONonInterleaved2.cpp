@@ -51,15 +51,17 @@ namespace
     const std::string kRasterShader = "RenderPasses/VAONonInterleaved/Raster.ps.slang";
 }
 
+const RenderPass::Info VAONonInterleaved2::kInfo = { "VAONonInterleaved2", kDesc };
+
 VAONonInterleaved2::SharedPtr VAONonInterleaved2::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
     SharedPtr pPass = SharedPtr(new VAONonInterleaved2(dict));
     return pPass;
 }
 
-std::string VAONonInterleaved2::getDesc() { return kDesc; }
-
 VAONonInterleaved2::VAONonInterleaved2(const Dictionary& dict)
+    :
+    RenderPass(kInfo)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
@@ -141,6 +143,7 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
         defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
         defines.add(mpScene->getSceneDefines());
         mpRasterPass = FullScreenPass::create(kRasterShader, defines);
+        mpRasterPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
         mDirty = true;
     }
 

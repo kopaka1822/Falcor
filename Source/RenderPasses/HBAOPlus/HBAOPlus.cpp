@@ -42,6 +42,8 @@ namespace
     const std::string kBlur = "blur";
 }
 
+const RenderPass::Info HBAOPlus::kInfo = { "HBAOPlus", kDesc };
+
 // additional descriptors needed to pass in depth x2 and normals
 static const uint32_t kNumAppDescriptors = 3;
 
@@ -58,7 +60,7 @@ static void regHBAOPlus(pybind11::module& m)
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerClass("HBAOPlus", kDesc, HBAOPlus::create);
+    lib.registerPass(HBAOPlus::kInfo, HBAOPlus::create);
     ScriptBindings::registerBinding(regHBAOPlus);
 }
 
@@ -67,8 +69,6 @@ HBAOPlus::SharedPtr HBAOPlus::create(RenderContext* pRenderContext, const Dictio
     SharedPtr pPass = SharedPtr(new HBAOPlus(dict));
     return pPass;
 }
-
-std::string HBAOPlus::getDesc() { return kDesc; }
 
 Dictionary HBAOPlus::getScriptingDictionary()
 {
@@ -82,6 +82,8 @@ Dictionary HBAOPlus::getScriptingDictionary()
 }
 
 HBAOPlus::HBAOPlus(const Dictionary& dict)
+    :
+    RenderPass(kInfo)
 {
     auto pDevice = gpDevice->getApiHandle();
 

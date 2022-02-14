@@ -117,11 +117,8 @@ GraphicsVars::SharedPtr pProgramVars = GraphicsVars::create(pProgram->getReflect
 
 ### Rasterization
 
-The output of the default vertex shader includes two parameters: `meshInstanceID`, and `materialID` which can be used to look up data for the current mesh being rendered.
-```c++
-gScene.meshInstances[vertexOut.meshInstanceID];
-gScene.materials[vertexOut.materialID];
-```
+The output of the default vertex shader includes two parameters: `instanceID`, and `materialID` which can be used to look up data for the current mesh being rendered.
+See interfaces in `Scene/Scene.slang`.
 
 For basic usage, it is not necessary to perform the lookups yourself. A helper function defined in `Scene/Raster.slang` can load and prepare data for you.
 
@@ -131,14 +128,15 @@ import Scene.Raster;
 float4 main(VSOut vertexOut, float4 pixelCrd : SV_POSITION, uint triangleIndex : SV_PrimitiveID) : SV_TARGET
 {
     float3 viewDir = normalize(gScene.camera.getPosition() - vOut.posW);
-    ShadingData sd = prepareShadingData(vertexOut, triangleIndex, viewDir);
+    let lod = ImplicitLodTextureSampler();
+    ShadingData sd = prepareShadingData(vertexOut, triangleIndex, viewDir, lod);
     ...
 }
 ```
 
 ### Raytracing
 
-Use the helper function in `Scene/Raytracing.slang` called `getGlobalInstanceID()` to calculate the equivalent of what `meshInstanceID` would be in raster, which can be used in the same way to look up geometry and material data.
+Use the helper function in `Scene/Raytracing.slang` called `getGeometryInstanceID()` to calculate the equivalent of what `instanceID` would be in raster, which can be used in the same way to look up geometry and material data.
 
 ```c++
 import Scene.Raytracing;
@@ -146,10 +144,11 @@ import Scene.Raytracing;
 [shader("closesthit")]
 void primaryClosestHit(inout PrimaryRayData hitData, in BuiltInTriangleIntersectionAttributes attribs)
 {
-    const uint globalInstanceID = getGlobalInstanceID();
-    const VertexData v = getVertexData(globalInstanceID, PrimitiveIndex(), attribs);
-    const uint materialID = gScene.getMaterialID(globalInstanceID);
-    ShadingData sd = prepareShadingData(v, materialID, gScene.materials[materialID], gScene.materialResources[materialID], -WorldRayDirection(), 0);
+    GeometryInstanceID instanceID = getGeometryInstanceID();
+    VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
+    const uint materialID = gScene.getMaterialID(instanceID);
+    let lod = ExplicitLodTextureSampler(0.f);
+    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -WorldRayDirection(), lod);
     ...
 }
 ```

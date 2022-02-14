@@ -27,7 +27,7 @@
  **************************************************************************/
 #include "Testing/UnitTest.h"
 #include "Scene/Lights/EnvMap.h"
-#include "Experimental/Scene/Lights/EnvMapSampler.h"
+#include "Rendering/Lights/EnvMapSampler.h"
 
 namespace Falcor
 {
@@ -42,7 +42,7 @@ namespace Falcor
         // Test loading a light probe.
         // This call runs setup code on the GPU to precompute the importance map.
         // If it succeeds, we at least know the code compiles and run.
-        EnvMap::SharedPtr pEnvMap = EnvMap::create(kEnvMapFile);
+        EnvMap::SharedPtr pEnvMap = EnvMap::createFromFile(kEnvMapFile);
         EXPECT_NE(pEnvMap, nullptr);
         if (pEnvMap == nullptr) return;
 
