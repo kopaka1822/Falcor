@@ -3,10 +3,10 @@ from falcor import *
 
 def render_graph_VAODebug():
     g = RenderGraph('VAODebug')
+    loadRenderPassLibrary('CSM.dll')
+    loadRenderPassLibrary('BSDFViewer.dll')
     loadRenderPassLibrary('MinimalPathTracer.dll')
     loadRenderPassLibrary('AccumulatePass.dll')
-    loadRenderPassLibrary('BSDFViewer.dll')
-    loadRenderPassLibrary('CSM.dll')
     loadRenderPassLibrary('Antialiasing.dll')
     loadRenderPassLibrary('BlitPass.dll')
     loadRenderPassLibrary('VAONonInterleaved.dll')
@@ -14,19 +14,19 @@ def render_graph_VAODebug():
     loadRenderPassLibrary('CrossBilateralBlur.dll')
     loadRenderPassLibrary('DebugPasses.dll')
     loadRenderPassLibrary('DeinterleaveTexture.dll')
-    loadRenderPassLibrary('DepthPass.dll')
     loadRenderPassLibrary('ForwardLightingPass.dll')
+    loadRenderPassLibrary('DepthPass.dll')
     loadRenderPassLibrary('DepthPeelPass.dll')
     loadRenderPassLibrary('DualDepthPass.dll')
     loadRenderPassLibrary('ErrorMeasurePass.dll')
     loadRenderPassLibrary('FLIPPass.dll')
     loadRenderPassLibrary('GBuffer.dll')
-    loadRenderPassLibrary('HBAOPlus.dll')
-    loadRenderPassLibrary('SSAO.dll')
     loadRenderPassLibrary('TemporalDelayPass.dll')
+    loadRenderPassLibrary('SSAO.dll')
+    loadRenderPassLibrary('HBAOPlus.dll')
     loadRenderPassLibrary('HBAOPlusInterleaved.dll')
-    loadRenderPassLibrary('HBAOPlusNonInterleaved.dll')
     loadRenderPassLibrary('ImageLoader.dll')
+    loadRenderPassLibrary('HBAOPlusNonInterleaved.dll')
     loadRenderPassLibrary('InterleaveTexture.dll')
     loadRenderPassLibrary('LinearizeDepth.dll')
     loadRenderPassLibrary('MegakernelPathTracer.dll')
@@ -39,14 +39,14 @@ def render_graph_VAODebug():
     loadRenderPassLibrary('SkyBox.dll')
     loadRenderPassLibrary('StochasticDepthMap.dll')
     loadRenderPassLibrary('SVGFPass.dll')
-    loadRenderPassLibrary('TestPasses.dll')
     loadRenderPassLibrary('Texture2DArrayExtract.dll')
+    loadRenderPassLibrary('TestPasses.dll')
     loadRenderPassLibrary('ToneMapper.dll')
     loadRenderPassLibrary('Utils.dll')
     loadRenderPassLibrary('WhittedRayTracer.dll')
     DepthPeelPass = createPass('DepthPeelPass')
     g.addPass(DepthPeelPass, 'DepthPeelPass')
-    GBufferRaster = createPass('GBufferRaster', {'samplePattern': SamplePattern.Center, 'sampleCount': 16, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': CullMode.CullBack})
+    GBufferRaster = createPass('GBufferRaster', {'outputSize': IOSize.Default, 'samplePattern': SamplePattern.Center, 'sampleCount': 16, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': CullMode.CullBack})
     g.addPass(GBufferRaster, 'GBufferRaster')
     LinearizeDepth = createPass('LinearizeDepth', {'depthFormat': ResourceFormat.R32Float})
     g.addPass(LinearizeDepth, 'LinearizeDepth')
@@ -60,11 +60,11 @@ def render_graph_VAODebug():
     g.addPass(CrossBilateralBlur, 'CrossBilateralBlur')
     StochasticDepthMap = createPass('StochasticDepthMap', {'SampleCount': 8, 'Alpha': 0.20000000298023224, 'CullMode': CullMode.CullBack, 'linearize': True, 'depthFormat': ResourceFormat.D32Float})
     g.addPass(StochasticDepthMap, 'StochasticDepthMap')
-    SSAO = createPass('SSAO', {'enabled': True, 'kernelSize': 8, 'noiseSize': uint2(4,4), 'radius': 0.5, 'distribution': SampleDistribution.Hammersley, 'depthMode': DepthMode.DualDepth})
+    SSAO = createPass('SSAO', {'enabled': True, 'kernelSize': 8, 'noiseSize': uint2(4,4), 'radius': 0.5, 'distribution': SampleDistribution.Hammersley, 'depthMode': DepthMode.StochasticDepth})
     g.addPass(SSAO, 'SSAO')
     ConvertFormat__ = createPass('ConvertFormat', {'formula': 'float4(I0[xy].x + I0[xy].y + I0[xy].z,0,0,0)', 'format': ResourceFormat.R8Unorm})
     g.addPass(ConvertFormat__, 'ConvertFormat__')
-    DepthPass = createPass('DepthPass', {'depthFormat': ResourceFormat.D32Float, 'cullMode': CullMode.CullBack})
+    DepthPass = createPass('DepthPass', {'depthFormat': ResourceFormat.D32Float, 'useAlphaTest': True, 'cullMode': CullMode.CullBack})
     g.addPass(DepthPass, 'DepthPass')
     g.addEdge('GBufferRaster.depth', 'DepthPeelPass.depth')
     g.addEdge('GBufferRaster.depth', 'LinearizeDepth.depth')
@@ -96,10 +96,10 @@ from falcor import *
 
 def render_graph_VAONonInterleaved():
     g = RenderGraph('VAONonInterleaved')
+    loadRenderPassLibrary('CSM.dll')
+    loadRenderPassLibrary('BSDFViewer.dll')
     loadRenderPassLibrary('MinimalPathTracer.dll')
     loadRenderPassLibrary('AccumulatePass.dll')
-    loadRenderPassLibrary('BSDFViewer.dll')
-    loadRenderPassLibrary('CSM.dll')
     loadRenderPassLibrary('Antialiasing.dll')
     loadRenderPassLibrary('BlitPass.dll')
     loadRenderPassLibrary('VAONonInterleaved.dll')
@@ -107,19 +107,19 @@ def render_graph_VAONonInterleaved():
     loadRenderPassLibrary('CrossBilateralBlur.dll')
     loadRenderPassLibrary('DebugPasses.dll')
     loadRenderPassLibrary('DeinterleaveTexture.dll')
-    loadRenderPassLibrary('DepthPass.dll')
     loadRenderPassLibrary('ForwardLightingPass.dll')
+    loadRenderPassLibrary('DepthPass.dll')
     loadRenderPassLibrary('DepthPeelPass.dll')
     loadRenderPassLibrary('DualDepthPass.dll')
     loadRenderPassLibrary('ErrorMeasurePass.dll')
     loadRenderPassLibrary('FLIPPass.dll')
     loadRenderPassLibrary('GBuffer.dll')
-    loadRenderPassLibrary('HBAOPlus.dll')
-    loadRenderPassLibrary('SSAO.dll')
     loadRenderPassLibrary('TemporalDelayPass.dll')
+    loadRenderPassLibrary('SSAO.dll')
+    loadRenderPassLibrary('HBAOPlus.dll')
     loadRenderPassLibrary('HBAOPlusInterleaved.dll')
-    loadRenderPassLibrary('HBAOPlusNonInterleaved.dll')
     loadRenderPassLibrary('ImageLoader.dll')
+    loadRenderPassLibrary('HBAOPlusNonInterleaved.dll')
     loadRenderPassLibrary('InterleaveTexture.dll')
     loadRenderPassLibrary('LinearizeDepth.dll')
     loadRenderPassLibrary('MegakernelPathTracer.dll')
@@ -132,14 +132,14 @@ def render_graph_VAONonInterleaved():
     loadRenderPassLibrary('SkyBox.dll')
     loadRenderPassLibrary('StochasticDepthMap.dll')
     loadRenderPassLibrary('SVGFPass.dll')
-    loadRenderPassLibrary('TestPasses.dll')
     loadRenderPassLibrary('Texture2DArrayExtract.dll')
+    loadRenderPassLibrary('TestPasses.dll')
     loadRenderPassLibrary('ToneMapper.dll')
     loadRenderPassLibrary('Utils.dll')
     loadRenderPassLibrary('WhittedRayTracer.dll')
     DepthPeelPass = createPass('DepthPeelPass')
     g.addPass(DepthPeelPass, 'DepthPeelPass')
-    GBufferRaster = createPass('GBufferRaster', {'samplePattern': SamplePattern.Center, 'sampleCount': 16, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': CullMode.CullBack})
+    GBufferRaster = createPass('GBufferRaster', {'outputSize': IOSize.Default, 'samplePattern': SamplePattern.Center, 'sampleCount': 16, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': CullMode.CullBack})
     g.addPass(GBufferRaster, 'GBufferRaster')
     LinearizeDepth = createPass('LinearizeDepth', {'depthFormat': ResourceFormat.R32Float})
     g.addPass(LinearizeDepth, 'LinearizeDepth')
@@ -157,7 +157,7 @@ def render_graph_VAONonInterleaved():
     g.addPass(ConvertFormat__, 'ConvertFormat__')
     VAONonInterleaved = createPass('VAONonInterleaved', {'radius': 0.5, 'depthMode': DepthMode.DualDepth, 'useRays': False, 'exponent': 1.0})
     g.addPass(VAONonInterleaved, 'VAONonInterleaved')
-    DepthPass = createPass('DepthPass', {'depthFormat': ResourceFormat.D32FloatS8X24, 'cullMode': CullMode.CullBack})
+    DepthPass = createPass('DepthPass', {'depthFormat': ResourceFormat.D32Float, 'useAlphaTest': True, 'cullMode': CullMode.CullBack})
     g.addPass(DepthPass, 'DepthPass')
     StochasticDepthMap_ = createPass('StochasticDepthMap', {'SampleCount': 8, 'Alpha': 0.20000000298023224, 'CullMode': CullMode.CullBack, 'linearize': True, 'depthFormat': ResourceFormat.D24UnormS8})
     g.addPass(StochasticDepthMap_, 'StochasticDepthMap_')
@@ -190,6 +190,26 @@ def render_graph_VAONonInterleaved():
     return g
 m.addGraph(render_graph_VAONonInterleaved())
 
+# Scene
+m.loadScene('sponza.obj')
+m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True, useGridVolumes=True)
+m.scene.camera.position = float3(22.887949,4.794842,2.332704)
+m.scene.camera.target = float3(23.426029,4.833425,1.490694)
+m.scene.camera.up = float3(0.001016,0.999998,-0.001588)
+m.scene.cameraSpeed = 1.0
+
 # Window Configuration
 m.resizeSwapChain(1920, 1060)
 m.ui = True
+
+# Clock Settings
+m.clock.time = 0
+m.clock.framerate = 0
+# If framerate is not zero, you can use the frame property to set the start frame
+# m.clock.frame = 0
+m.clock.pause()
+
+# Frame Capture
+m.frameCapture.outputDir = '.'
+m.frameCapture.baseFilename = 'Mogwai'
+

@@ -58,10 +58,8 @@ RenderPassReflection GBufferRaster::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
     const uint2 sz = RenderPassHelpers::calculateIOSize(mOutputSizeSelection, mFixedOutputSize, compileData.defaultTexDims);
-    reflector.addInputOutput(kDepthName, "(non-linear) Depth buffer").bindFlags(Resource::BindFlags::DepthStencil);
-
-    // Add the required depth output. This always exists.
-    reflector.addOutput(kDepthName, "Depth buffer").format(ResourceFormat::D32Float).bindFlags(Resource::BindFlags::DepthStencil).texture2D(sz.x, sz.y);
+    // add depth buffer (input+output)
+    reflector.addInputOutput(kDepthName, "(non-linear) Depth buffer").bindFlags(Resource::BindFlags::DepthStencil).texture2D(sz.x, sz.y);
 
     // Add all the other outputs.
     // The default channels are written as render targets, the rest as UAVs as there is way to assign/pack render targets yet.
