@@ -30,6 +30,7 @@ import SSAOData;
 import Scene.RaytracingInline;
 import Scene.Intersection;
 import Scene.Shading;
+import Scene.Raster;
 
 #include "Scene/Material/MaterialDefines.slangh"
 
@@ -439,7 +440,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 #error RAY_MODE_SHORT_RAYS_REF needs to be adjusted for const radius
 #endif
                 // cast an initial ray to the start of the sampling range
-                RayDesc ray;
+                /*RayDesc ray;
                 float3 followUpRayDir = mul(sampleDirV, float3x3(invViewMat));
                 float followUpRayMin = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
 
@@ -458,7 +459,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 {
                     // this means we have an occluder
                     occluded = true;
-                }
+                }*/
             }
             if (!occluded && (RAY_MODE == RAY_MODE_LONG_RAYS_FIRST_HIT || RAY_MODE == RAY_MODE_SHORT_RAYS_APPROX || RAY_MODE == RAY_MODE_SHORT_RAYS_REF))
             {
@@ -466,7 +467,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 #error RAY_MODE_LONG_RAYS_FIRST_HIT and RAY_MODE_SHORT_RAYS_APPROX needs to be adjusted for const radius
 #endif
                 // shoot a ray through the sample position
-                RayDesc ray;
+                /*RayDesc ray;
                 ray.Origin = gCamera.data.posW; // offset a little bit in normal direction
                 ray.Direction = mul(sampleDirV, float3x3(invViewMat));
 
@@ -488,6 +489,7 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                     float objectSpaceZ = posVLength - projectedHitT;
                     curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
                 }
+                */
             }
             if (RAY_MODE == RAY_MODE_LONG_RAYS_REF)
             {
@@ -522,8 +524,11 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                         bool frontFace = rayQuery.CandidateTriangleFrontFace();
                         const TriangleHit hit = getCandidateTriangleHit(rayQuery);
                         const uint materialID = gScene.getMaterialID(hit.instanceID);
-                        const MaterialData md = gScene.materials[materialID];
-                        bool isAlphaTested = EXTRACT_ALPHA_MODE(md.flags) == AlphaModeMask;
+                        const MaterialHeader header = gScene.materials.materialData[materialID].header;
+                        //IMaterial material = gScene.materials.getMaterial(materialID);
+                        
+                        //const MaterialData md = gScene.materials[materialID];
+                        bool isAlphaTested = header.getAlphaMode() == AlphaMode::Mask;
 
                         // needs alpha testing?
                         if (isAlphaTested)
@@ -535,10 +540,10 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                             //    continue; 
 
                             const VertexData v = gScene.getVertexData(hit);
-                            if (alphaTest(v, md, gScene.materialResources[materialID], 0.f))    
+                            if (gScene.materials.alphaTest(v, materialID, 0.0))    
                                 continue; // alpha test failed => ignore this triangle
                         }
-                        bool isDoubleSided = EXTRACT_DOUBLE_SIDED(md.flags);
+                        bool isDoubleSided = header.isDoubleSided();
                         frontFace = frontFace || isAlphaTested || isDoubleSided;
 
                         if (t <= tSphereStart)
