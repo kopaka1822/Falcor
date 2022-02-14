@@ -3,10 +3,12 @@
   <ItemGroup>
     <ClCompile Include="VAONonInterleaved.cpp" />
     <ClCompile Include="VAONonInterleaved2.cpp" />
+    <ClCompile Include="VAOSettings.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="VAONonInterleaved.h" />
     <ClInclude Include="VAONonInterleaved2.h" />
+    <ClInclude Include="VAOSettings.h" />
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="VAOData.slang" />

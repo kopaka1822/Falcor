@@ -30,16 +30,12 @@
 #include <glm/gtc/random.hpp>
 
 #include "VAONonInterleaved2.h"
+#include "VAOSettings.h"
 
 
 namespace
 {
     const char kDesc[] = "Optimized Volumetric Ambient Occlusion (Non-Interleaved)";
-    
-    const std::string kRadius = "radius";
-    const std::string kDepthMode = "depthMode";
-    const std::string kUseRays = "useRays";
-    const std::string kExponent = "exponent";
 
     const std::string kAmbientMap = "ao";
     const std::string kAmbientMap2 = "ao2";
@@ -89,24 +85,12 @@ VAONonInterleaved::VAONonInterleaved(const Dictionary& dict)
 
     mpNoiseTexture = genNoiseTexture();
 
-    for (const auto& [key, value] : dict)
-    {
-        if (key == kRadius) mData.radius = value;
-        else if (key == kDepthMode) mDepthMode = value;
-        else if (key == kUseRays) mUseRays = value;
-        else if (key == kExponent) mData.exponent = value;
-        else logWarning("Unknown field '" + key + "' in a VAONonInterleaved dictionary");
-    }
+    VAOSettings::get().updateFromDict(dict);
 }
 
 Dictionary VAONonInterleaved::getScriptingDictionary()
 {
-    Dictionary d;
-    d[kRadius] = mData.radius;
-    d[kDepthMode] = mDepthMode;
-    d[kUseRays] = mUseRays;
-    d[kExponent] = mData.exponent;
-    return d;
+    return VAOSettings::get().getScriptingDictionary();
 }
 
 RenderPassReflection VAONonInterleaved::reflect(const CompileData& compileData)
@@ -127,7 +111,7 @@ RenderPassReflection VAONonInterleaved::reflect(const CompileData& compileData)
 
 void VAONonInterleaved::compile(RenderContext* pContext, const CompileData& compileData)
 {
-    mDirty = true; // resolution changed probably
+    VAOSettings::get().setResolution(compileData.defaultTexDims.x, compileData.defaultTexDims.y);
     mpRasterPass.reset(); // recompile raster pass
 }
 
@@ -145,7 +129,9 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     auto pStencil = renderData[kAoStencil]->asTexture();
     auto pAccessStencil = renderData[kAccessStencil]->asTexture();
 
-    if (!mEnabled)
+    const auto& s = VAOSettings::get();
+
+    if (!s.getEnabled())
     {
         pRenderContext->clearTexture(pAoDst.get(), float4(1.0f));
         return;
@@ -154,29 +140,22 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     if(!mpRasterPass) // this needs to be deferred because it needs the scene defines to compile
     {
         Program::DefineList defines;
-        defines.add("USE_RAYS", mUseRays ? "true" : "false");
-        defines.add("DEPTH_MODE", std::to_string(uint32_t(mDepthMode)));
+        defines.add("USE_RAYS", s.getUseRays() ? "true" : "false");
+        defines.add("DEPTH_MODE", std::to_string(uint32_t(s.getDepthMode())));
         defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
         defines.add(mpScene->getSceneDefines());
         mpRasterPass = FullScreenPass::create(kRasterShader, defines);
         mpRasterPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
-        mDirty = true;
     }
 
-    if(mDirty)
+    if(s.IsDirty() || s.IsReset())
     {
         // update data
-        float2 resolution = float2(renderData.getDefaultTextureDims().x, renderData.getDefaultTextureDims().y);
-        mData.resolution = resolution;
-        mData.invResolution = float2(1.0f) / resolution;
-        mData.noiseScale = resolution / 4.0f; // noise texture is 4x4 resolution
-        mpRasterPass["StaticCB"].setBlob(mData);
+        mpRasterPass["StaticCB"].setBlob(s.getData());
 
         mpRasterPass["gNoiseSampler"] = mpNoiseSampler;
         mpRasterPass["gTextureSampler"] = mpTextureSampler;
         mpRasterPass["gNoiseTex"] = mpNoiseTexture;
-
-        mDirty = false;
     }
 
     auto accessStencilUAV = pAccessStencil->getUAV(0);
@@ -199,29 +178,11 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     mpRasterPass->execute(pRenderContext, mpFbo);
 }
 
-const Gui::DropdownList kDepthModeDropdown =
-{
-    { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
-    { (uint32_t)DepthMode::DualDepth, "DualDepth" },
-    { (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
-};
-
 void VAONonInterleaved::renderUI(Gui::Widgets& widget)
 {
-    widget.checkbox("Enabled", mEnabled);
-    if (!mEnabled) return;
-
-    uint32_t depthMode = (uint32_t)mDepthMode;
-    if (widget.dropdown("Depth Mode", kDepthModeDropdown, depthMode)) {
-        mDepthMode = (DepthMode)depthMode;
-        mpRasterPass.reset(); // changed defines
-    }
-
-    if (widget.checkbox("Use Rays", mUseRays)) mpRasterPass.reset(); // changed defines
-
-    if (widget.var("Sample Radius", mData.radius, 0.01f, FLT_MAX, 0.01f)) mDirty = true;
-
-    if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
+    VAOSettings::get().renderUI(widget);
+    if (VAOSettings::get().IsReset())
+        mPassChangedCB();
 }
 
 void VAONonInterleaved::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
