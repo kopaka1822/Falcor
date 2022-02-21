@@ -8,6 +8,8 @@ Texture2DMS<float> gsDepthTex;
 Texture2D<uint> aoMask;
 Texture2D<float> ao2;
 
+//#define USE_OLD_DEPTH
+
 float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
 {
     // TODO actually this is not required and can be removed
@@ -19,6 +21,9 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
         return 0.0;
     // fetch linear depth a second time
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
+    float oldAo = ao2.SampleLevel(gTextureSampler, texC, 0);
+    // scale old ao with number of actual samples
+    oldAo *= float(NUM_DIRECTIONS) / float(countbits(mask));
 
     // this cannot happen (masked)
     /*if (linearDepth >= gCamera.data.farZ)
@@ -96,6 +101,9 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
         float2 samplePosUV = ViewSpaceToUV(posV + tangent * dir.x + bitangent * dir.y);
 
         float curVisibility = 0.0f;
+        // assume this for now
+        //curVisibility = 1.0;
+        curVisibility = oldAo;
         bool hybridRay = false;
 
         float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
@@ -113,10 +121,12 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
 
             if (DEPTH_MODE == DEPTH_MODE_DUAL)
             {
+                #ifdef USE_OLD_DEPTH
                 float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
                 float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
                 float objectSpaceZ = dot(samplePosV - posV, normal);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                #endif
                 // look at second sample in this case
                 //if (objectSpaceZ > sphereStart + CONST_RADIUS)
                 {
@@ -130,10 +140,12 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
             }
             else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC) 
             {
+                #ifdef USE_OLD_DEPTH
                 float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
                 float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
                 float objectSpaceZ = dot(samplePosV - posV, normal);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                #endif
                 // look at stochastic samples int this case
                 //if (objectSpaceZ > sphereStart + CONST_RADIUS)
                 {
@@ -248,5 +260,5 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
     }
 
     visibility *= 2.0 / float(NUM_DIRECTIONS);
-    return visibility;
+    return min(visibility, oldAo);
 }
