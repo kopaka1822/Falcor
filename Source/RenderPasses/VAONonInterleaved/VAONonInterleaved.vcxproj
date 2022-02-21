@@ -40,7 +40,9 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ShaderSource Include="Common.slang" />
     <ShaderSource Include="Raster.ps.slang" />
+    <ShaderSource Include="Raster2.ps.slang" />
     <ShaderSource Include="VAOData.slang" />
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">

@@ -56,7 +56,6 @@ public:
 
 private:
     VAONonInterleaved(const Dictionary& dict);
-    Texture::SharedPtr genNoiseTexture();
 
     Fbo::SharedPtr mpFbo;
 

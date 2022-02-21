@@ -13,5 +13,7 @@
   <ItemGroup>
     <ShaderSource Include="VAOData.slang" />
     <ShaderSource Include="Raster.ps.slang" />
+    <ShaderSource Include="Common.slang" />
+    <ShaderSource Include="Raster2.ps.slang" />
   </ItemGroup>
 </Project>

@@ -26,29 +26,31 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "VAONonInterleaved2.h"
-
+#include "VAOSettings.h"
 #include <glm/gtc/random.hpp>
+
+#include "Core/API/BlendState.h"
+#include "Core/API/BlendState.h"
+#include "Core/API/BlendState.h"
+#include "Core/API/BlendState.h"
+#include "Core/API/BlendState.h"
+#include "Core/API/DepthStencilState.h"
 
 
 namespace
 {
     const char kDesc[] = "Optimized Volumetric Ambient Occlusion (Non-Interleaved) 2nd pass";
-    
-    const std::string kRadius = "radius";
-    const std::string kDepthMode = "depthMode";
-    const std::string kUseRays = "useRays";
-    const std::string kExponent = "exponent";
 
     const std::string kAmbientMap = "ao";
     const std::string kAmbientMap2 = "ao2";
-    const std::string kAoStencil = "stencil";
-    const std::string kAccessStencil = "accessStencil";
+    const std::string kAOMask = "aoStencil";
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
     const std::string ksDepth = "stochasticDepth";
     const std::string kNormals = "normals";
+    const std::string kInternalStencil = "internalStencil";
 
-    const std::string kRasterShader = "RenderPasses/VAONonInterleaved/Raster.ps.slang";
+    const std::string kRasterShader = "RenderPasses/VAONonInterleaved/Raster2.ps.slang";
 }
 
 const RenderPass::Info VAONonInterleaved2::kInfo = { "VAONonInterleaved2", kDesc };
@@ -73,25 +75,30 @@ VAONonInterleaved2::VAONonInterleaved2(const Dictionary& dict)
 
     mpFbo = Fbo::create();
 
-    mpNoiseTexture = genNoiseTexture();
+    mpNoiseTexture = VAOSettings::genNoiseTexture();
 
-    for (const auto& [key, value] : dict)
-    {
-        if (key == kRadius) mData.radius = value;
-        else if (key == kDepthMode) mDepthMode = value;
-        else if (key == kUseRays) mUseRays = value;
-        else if (key == kExponent) mData.exponent = value;
-        else logWarning("Unknown field '" + key + "' in a VAONonInterleaved dictionary");
-    }
+    BlendState::Desc blend;
+    blend.setRtBlend(0, true);
+    // simple additive blending (1*src + 1*dst)
+    blend.setRtParams(0, BlendState::BlendOp::Add, BlendState::BlendOp::Add, BlendState::BlendFunc::One, BlendState::BlendFunc::One, BlendState::BlendFunc::One, BlendState::BlendFunc::One);
+    mpBlendState = BlendState::create(blend);
+
+    // set stencil to succeed if not equal to zero
+    DepthStencilState::Desc stencil;
+    stencil.setDepthEnabled(false);
+    stencil.setDepthWriteMask(false);
+    stencil.setStencilEnabled(true);
+    stencil.setStencilOp(DepthStencilState::Face::FrontAndBack, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep);
+    stencil.setStencilFunc(DepthStencilState::Face::FrontAndBack, DepthStencilState::Func::NotEqual);
+    stencil.setStencilRef(0);
+    mpDepthStencilState = DepthStencilState::create(stencil);
+
+    // VAO settings will be loaded by first pass
 }
 
 Dictionary VAONonInterleaved2::getScriptingDictionary()
 {
-    Dictionary d;
-    d[kRadius] = mData.radius;
-    d[kDepthMode] = mDepthMode;
-    d[kUseRays] = mUseRays;
-    d[kExponent] = mData.exponent;
+    Dictionary d; // will be set by first pass
     return d;
 }
 
@@ -100,18 +107,20 @@ RenderPassReflection VAONonInterleaved2::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     //reflector.addInput(kAoStencil, "(Depth-) Stencil Buffer for the ao mask").format(ResourceFormat::D32FloatS8X24);
+    reflector.addInput(kAmbientMap2, "Ambient map with missing secondary information").bindFlags(ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Unorm);
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
-
+    reflector.addInput(kAOMask, "Mask where to recalculate ao with secondary information").format(ResourceFormat::R8Uint).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInputOutput(kAmbientMap, "Ambient Occlusion (primary)").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
+    // internal stencil mask
+    reflector.addInternal(kInternalStencil, "internal stencil mask").format(ResourceFormat::D32FloatS8X24); // TODO check fastest format
     return reflector;
 }
 
 void VAONonInterleaved2::compile(RenderContext* pContext, const CompileData& compileData)
 {
-    mDirty = true; // resolution changed probably
     mpRasterPass.reset(); // recompile raster pass
 }
 
@@ -122,14 +131,17 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
     auto pDepth = renderData[kDepth]->asTexture();
     auto pNormal = renderData[kNormals]->asTexture();
     auto pAoDst = renderData[kAmbientMap]->asTexture();
+    auto pAo2 = renderData[kAmbientMap2]->asTexture();
     auto pDepth2 = renderData[kDepth2]->asTexture();
     auto psDepth = renderData[ksDepth]->asTexture();
 
-    auto pAoDst2 = renderData[kAmbientMap2]->asTexture();
-    auto pStencil = renderData[kAoStencil]->asTexture();
-    auto pAccessStencil = renderData[kAccessStencil]->asTexture();
+    auto pAoMask = renderData[kAOMask]->asTexture();
 
-    if (!mEnabled)
+    auto pInternalStencil = renderData[kInternalStencil]->asTexture();
+
+    const auto& s = VAOSettings::get();
+
+    if (!s.getEnabled())
     {
         pRenderContext->clearTexture(pAoDst.get(), float4(1.0f));
         return;
@@ -138,37 +150,34 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
     if(!mpRasterPass) // this needs to be deferred because it needs the scene defines to compile
     {
         Program::DefineList defines;
-        defines.add("USE_RAYS", mUseRays ? "true" : "false");
-        defines.add("DEPTH_MODE", std::to_string(uint32_t(mDepthMode)));
+        defines.add("USE_RAYS", s.getUseRays() ? "true" : "false");
+        defines.add("DEPTH_MODE", std::to_string(uint32_t(s.getDepthMode())));
         defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
         defines.add(mpScene->getSceneDefines());
         mpRasterPass = FullScreenPass::create(kRasterShader, defines);
         mpRasterPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
-        mDirty = true;
+        mpRasterPass->getState()->setBlendState(mpBlendState);
+        mpRasterPass->getState()->setDepthStencilState(mpDepthStencilState);
     }
 
-    if(mDirty)
+    if(s.IsDirty() || s.IsReset())
     {
         // update data
-        float2 resolution = float2(renderData.getDefaultTextureDims().x, renderData.getDefaultTextureDims().y);
-        mData.resolution = resolution;
-        mData.invResolution = float2(1.0f) / resolution;
-        mData.noiseScale = resolution / 4.0f; // noise texture is 4x4 resolution
-        mpRasterPass["StaticCB"].setBlob(mData);
+        mpRasterPass["StaticCB"].setBlob(s.getData());
 
         mpRasterPass["gNoiseSampler"] = mpNoiseSampler;
         mpRasterPass["gTextureSampler"] = mpTextureSampler;
         mpRasterPass["gNoiseTex"] = mpNoiseTexture;
-
-        mDirty = false;
     }
 
-    auto accessStencilUAV = pAccessStencil->getUAV(0);
-    pRenderContext->clearUAV(accessStencilUAV.get(), uint4(0u));
+    // copy stencil
+    {
+        FALCOR_PROFILE("copy stencil");
+        pRenderContext->copySubresource(pInternalStencil.get(), 1, pAoMask.get(), 0);
+    }
 
+    mpFbo->attachDepthStencilTarget(pInternalStencil);
     mpFbo->attachColorTarget(pAoDst, 0);
-    mpFbo->attachColorTarget(pAoDst2, 1);
-    mpFbo->attachColorTarget(pStencil, 2);
 
     auto pCamera = mpScene->getCamera().get();
     pCamera->setShaderData(mpRasterPass["PerFrameCB"]["gCamera"]);
@@ -177,10 +186,13 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
     mpRasterPass["gDepthTex2"] = pDepth2;
     mpRasterPass["gNormalTex"] = pNormal;
     mpRasterPass["gsDepthTex"] = psDepth;
-    //mpRasterPass["gDepthAccess"] = pAccessStencil;
-    mpRasterPass["gDepthAccess"].setUav(accessStencilUAV);
+    mpRasterPass["ao2"] = pAo2;
+    mpRasterPass["aoMask"] = pAoMask;
 
-    mpRasterPass->execute(pRenderContext, mpFbo);
+    {
+        FALCOR_PROFILE("rasterize");
+        mpRasterPass->execute(pRenderContext, mpFbo);
+    }
 }
 
 const Gui::DropdownList kDepthModeDropdown =
@@ -192,40 +204,13 @@ const Gui::DropdownList kDepthModeDropdown =
 
 void VAONonInterleaved2::renderUI(Gui::Widgets& widget)
 {
-    widget.checkbox("Enabled", mEnabled);
-    if (!mEnabled) return;
-
-    uint32_t depthMode = (uint32_t)mDepthMode;
-    if (widget.dropdown("Depth Mode", kDepthModeDropdown, depthMode)) {
-        mDepthMode = (DepthMode)depthMode;
-        mpRasterPass.reset(); // changed defines
-    }
-
-    if (widget.checkbox("Use Rays", mUseRays)) mpRasterPass.reset(); // changed defines
-
-    if (widget.var("Sample Radius", mData.radius, 0.01f, FLT_MAX, 0.01f)) mDirty = true;
-
-    if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
+    // will be rendered by first pass
+    if (VAOSettings::get().IsReset())
+        mPassChangedCB();
 }
 
 void VAONonInterleaved2::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
 {
     mpScene = pScene;
     mpRasterPass.reset(); // new scene defines => recompile
-}
-
-Texture::SharedPtr VAONonInterleaved2::genNoiseTexture()
-{
-    std::vector<uint16_t> data;
-    data.resize(16u);
-    
-    std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
-    for (uint32_t i = 0; i < 16u; i++)
-    {
-        // Random directions on the XY plane
-        auto theta = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
-        data[i] = uint16_t(glm::packSnorm4x8(float4(sin(theta), cos(theta), 0.0f, 0.0f)));
-    }
-
-    return Texture::create2D(4u, 4u, ResourceFormat::RG8Snorm, 1, 1, data.data());
 }

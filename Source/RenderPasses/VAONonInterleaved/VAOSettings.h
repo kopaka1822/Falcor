@@ -31,6 +31,8 @@ public:
     VAOData getData() const { return mData; }
     bool getUseRays() const { return mUseRays; }
     DepthMode getDepthMode() const { return mDepthMode; }
+
+    static Texture::SharedPtr genNoiseTexture();
 private: 
     VAOSettings() = default;
 

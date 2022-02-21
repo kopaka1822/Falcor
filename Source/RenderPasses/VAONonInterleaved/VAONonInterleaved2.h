@@ -56,14 +56,7 @@ public:
 
 private:
     VAONonInterleaved2(const Dictionary& dict);
-    Texture::SharedPtr genNoiseTexture();
 
-    VAOData mData;
-    bool mDirty = true;
-
-    bool mEnabled = true;
-    DepthMode mDepthMode = DepthMode::DualDepth;
-    bool mUseRays = false;
     Fbo::SharedPtr mpFbo;
 
     Sampler::SharedPtr mpNoiseSampler;
@@ -71,6 +64,8 @@ private:
 
     Sampler::SharedPtr mpTextureSampler;
     FullScreenPass::SharedPtr mpRasterPass;
+    BlendState::SharedPtr mpBlendState;
+    DepthStencilState::SharedPtr mpDepthStencilState;
 
     Scene::SharedPtr mpScene;
 };
