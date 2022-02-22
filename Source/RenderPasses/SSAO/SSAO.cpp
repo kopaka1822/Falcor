@@ -95,6 +95,7 @@ namespace
     const std::string kRadius = "radius";
     const std::string kShaderVariant = "shaderVariant";
     const std::string kDepthMode = "depthMode";
+    const std::string kColorMap = "colorMap";
 
     const std::string kAmbientMap = "ambientMap";
     const std::string kDepth = "depth";
@@ -103,9 +104,6 @@ namespace
     const std::string kNormals = "normals";
 
     const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
-
-    //const auto AMBIENT_MAP_FORMAT = ResourceFormat::RGBA8Unorm;
-    const auto AMBIENT_MAP_FORMAT = ResourceFormat::RGBA32Float; // debugging
 }
 
 SSAO::SSAO()
@@ -122,6 +120,12 @@ SSAO::SSAO()
     setSampleRadius(mData.radius);
 
     mpAOFbo = Fbo::create();
+}
+
+ResourceFormat SSAO::getAmbientMapFormat() const
+{
+    if (mColorMap) return ResourceFormat::RGBA8Unorm;
+    return ResourceFormat::R8Unorm;
 }
 
 SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -160,7 +164,7 @@ RenderPassReflection SSAO::reflect(const CompileData& compileData)
     reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(AMBIENT_MAP_FORMAT);
+    reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(getAmbientMapFormat());
     
     return reflector;
 }
@@ -204,6 +208,7 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             defines.add(mpScene->getSceneDefines());
             defines.add("SHADER_VARIANT", std::to_string(uint32_t(mShaderVariant)));
             defines.add("DEPTH_MODE", std::to_string(uint32_t(mDepthMode)));
+            if(mColorMap) defines.add("COLOR_MAP", "true");
             if (psDepth) defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
 
             mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
@@ -253,6 +258,8 @@ void SSAO::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
 
+    if (widget.checkbox("Color Map", mColorMap)) mPassChangedCB();
+
     uint32_t depthMode = (uint32_t)mDepthMode;
     if (widget.dropdown("Depth Mode", kDepthModeDropdown, depthMode)) {
         mDepthMode = (DepthMode)depthMode;
@@ -273,7 +280,7 @@ void SSAO::renderUI(Gui::Widgets& widget)
 
     if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
 
-    widget.text("noise size"); widget.text(std::to_string(mNoiseSize.x), true);
+    
 }
 
 void SSAO::setSampleRadius(float radius)

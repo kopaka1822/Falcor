@@ -271,7 +271,12 @@ float calcVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
          + calcHaloVisibility(objectSpaceZ, sphereStart, sphereEnd);
 }
 
-float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+#ifdef COLOR_MAP
+float4
+#else
+float
+#endif
+main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
     if (linearDepth >= gCamera.data.farZ)
@@ -606,6 +611,10 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     // do artistic modifications
     AO = pow(AO, gData.exponent);
 
+    #ifndef COLOR_MAP
+    return AO;
+    #else
+
     float4 res = AO;
     float red = gRaysTraced / float(gData.kernelSize);
     float blue = gInvalid / float(gData.kernelSize);
@@ -617,4 +626,5 @@ float4 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     res.g *= green;
     res.b *= blue;
     return res;
+    #endif
 }

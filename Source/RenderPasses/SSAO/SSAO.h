@@ -74,6 +74,7 @@ public:
 
 private:
     SSAO();
+    ResourceFormat getAmbientMapFormat() const;
     void setNoiseTexture();
     void setKernel();
 
@@ -84,6 +85,7 @@ private:
     DepthMode mDepthMode = DepthMode::DualDepth;
     Fbo::SharedPtr mpAOFbo;
     uint mFrameIndex = 0;
+    bool mColorMap = false;
 
     Sampler::SharedPtr mpNoiseSampler;
     Texture::SharedPtr mpNoiseTexture;
