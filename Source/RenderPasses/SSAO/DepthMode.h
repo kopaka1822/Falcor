@@ -6,6 +6,7 @@ namespace Falcor
     {
         SingleDepth,
         DualDepth,
-        StochasticDepth
+        StochasticDepth,
+        Raytraced
     };
 }

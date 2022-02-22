@@ -77,12 +77,6 @@ VAONonInterleaved2::VAONonInterleaved2(const Dictionary& dict)
 
     mpNoiseTexture = VAOSettings::genNoiseTexture();
 
-    BlendState::Desc blend;
-    blend.setRtBlend(0, true);
-    // simple additive blending (1*src + 1*dst)
-    blend.setRtParams(0, BlendState::BlendOp::Add, BlendState::BlendOp::Add, BlendState::BlendFunc::One, BlendState::BlendFunc::One, BlendState::BlendFunc::One, BlendState::BlendFunc::One);
-    mpBlendState = BlendState::create(blend);
-
     // set stencil to succeed if not equal to zero
     DepthStencilState::Desc stencil;
     stencil.setDepthEnabled(false);
@@ -150,14 +144,12 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
     if(!mpRasterPass) // this needs to be deferred because it needs the scene defines to compile
     {
         Program::DefineList defines;
-        defines.add("USE_RAYS", s.getUseRays() ? "true" : "false");
-        defines.add("DEPTH_MODE", std::to_string(uint32_t(s.getDepthMode())));
+        defines.add("DEPTH_MODE", std::to_string(uint32_t(s.getSecondaryDepthMode())));
         defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
         defines.add(mpScene->getSceneDefines());
         mpRasterPass = FullScreenPass::create(kRasterShader, defines);
         mpRasterPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
-        mpRasterPass->getState()->setBlendState(mpBlendState);
-        mpRasterPass->getState()->setDepthStencilState(mpDepthStencilState);
+        //mpRasterPass->getState()->setDepthStencilState(mpDepthStencilState);
     }
 
     if(s.IsDirty() || s.IsReset())
@@ -172,11 +164,11 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
 
     // copy stencil
     {
-        FALCOR_PROFILE("copy stencil");
-        pRenderContext->copySubresource(pInternalStencil.get(), 1, pAoMask.get(), 0);
+        //FALCOR_PROFILE("copy stencil");
+        //pRenderContext->copySubresource(pInternalStencil.get(), 1, pAoMask.get(), 0);
     }
 
-    mpFbo->attachDepthStencilTarget(pInternalStencil);
+    //mpFbo->attachDepthStencilTarget(pInternalStencil);
     mpFbo->attachColorTarget(pAoDst, 0);
 
     auto pCamera = mpScene->getCamera().get();
@@ -188,6 +180,7 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
     mpRasterPass["gsDepthTex"] = psDepth;
     mpRasterPass["ao2"] = pAo2;
     mpRasterPass["aoMask"] = pAoMask;
+    mpRasterPass["aoPrev"] = pAoDst;
 
     {
         FALCOR_PROFILE("rasterize");

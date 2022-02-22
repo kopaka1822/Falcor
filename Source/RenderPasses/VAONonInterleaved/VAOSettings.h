@@ -29,8 +29,8 @@ public:
 
     bool getEnabled() const { return mEnabled; }
     VAOData getData() const { return mData; }
-    bool getUseRays() const { return mUseRays; }
-    DepthMode getDepthMode() const { return mDepthMode; }
+    DepthMode getPrimaryDepthMode() const { return mPrimaryDepthMode; }
+    DepthMode getSecondaryDepthMode() const { return mSecondaryDepthMode; }
 
     static Texture::SharedPtr genNoiseTexture();
 private: 
@@ -41,6 +41,6 @@ private:
     VAOData mData;
     bool mDirty = true;
     bool mReset = false;
-    DepthMode mDepthMode = DepthMode::DualDepth;
-    bool mUseRays = false;
+    DepthMode mPrimaryDepthMode = DepthMode::DualDepth;
+    DepthMode mSecondaryDepthMode = DepthMode::StochasticDepth;
 };

@@ -43,7 +43,6 @@ namespace
     const std::string kAccessStencil = "accessStencil";
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
-    const std::string ksDepth = "stochasticDepth";
     const std::string kNormals = "normals";
 
     const std::string kRasterShader = "RenderPasses/VAONonInterleaved/Raster.ps.slang";
@@ -101,7 +100,6 @@ RenderPassReflection VAONonInterleaved::reflect(const CompileData& compileData)
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion (primary)").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
     reflector.addOutput(kAmbientMap2, "Ambient Occlusion (secondary)").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
     reflector.addOutput(kAoStencil, "Stencil Bitmask for primary / secondary ao").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Uint);
@@ -123,7 +121,6 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     auto pNormal = renderData[kNormals]->asTexture();
     auto pAoDst = renderData[kAmbientMap]->asTexture();
     auto pDepth2 = renderData[kDepth2]->asTexture();
-    auto psDepth = renderData[ksDepth]->asTexture();
 
     auto pAoDst2 = renderData[kAmbientMap2]->asTexture();
     auto pStencil = renderData[kAoStencil]->asTexture();
@@ -140,9 +137,7 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     if(!mpRasterPass) // this needs to be deferred because it needs the scene defines to compile
     {
         Program::DefineList defines;
-        defines.add("USE_RAYS", s.getUseRays() ? "true" : "false");
-        defines.add("DEPTH_MODE", std::to_string(uint32_t(s.getDepthMode())));
-        defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
+        defines.add("DEPTH_MODE", std::to_string(uint32_t(s.getPrimaryDepthMode())));
         defines.add(mpScene->getSceneDefines());
         mpRasterPass = FullScreenPass::create(kRasterShader, defines);
         mpRasterPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
@@ -171,7 +166,6 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     mpRasterPass["gDepthTex"] = pDepth;
     mpRasterPass["gDepthTex2"] = pDepth2;
     mpRasterPass["gNormalTex"] = pNormal;
-    mpRasterPass["gsDepthTex"] = psDepth;
     //mpRasterPass["gDepthAccess"] = pAccessStencil;
     mpRasterPass["gDepthAccess"].setUav(accessStencilUAV);
 

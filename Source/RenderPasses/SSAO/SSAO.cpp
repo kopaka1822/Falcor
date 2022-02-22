@@ -55,6 +55,7 @@ static void regSSAO(pybind11::module& m)
     depthMode.value("SingleDepth", Falcor::DepthMode::SingleDepth);
     depthMode.value("DualDepth", Falcor::DepthMode::DualDepth);
     depthMode.value("StochasticDepth", Falcor::DepthMode::StochasticDepth);
+    depthMode.value("Raytraced", Falcor::DepthMode::Raytraced);
 }
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)

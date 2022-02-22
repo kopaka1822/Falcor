@@ -64,7 +64,6 @@ private:
 
     Sampler::SharedPtr mpTextureSampler;
     FullScreenPass::SharedPtr mpRasterPass;
-    BlendState::SharedPtr mpBlendState;
     DepthStencilState::SharedPtr mpDepthStencilState;
 
     Scene::SharedPtr mpScene;

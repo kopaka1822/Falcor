@@ -11,7 +11,6 @@ RWTexture2D<uint> gDepthAccess; // indicates depth accesses for the secondary pa
 
 // additional depth textures (TODO remove?)
 Texture2D gDepthTex2;
-Texture2DMS<float> gsDepthTex;
 
 PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 {
@@ -102,14 +101,24 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
             //if (isSamePixel(samplePosUV, texC))
                 //objectSpaceZ = 0.0;            
 
-                float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
+            float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
+            float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
+            // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+            float objectSpaceZ = dot(samplePosV - posV, normal);
+            curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+            // require hybrid ray if intersection is outside of sphere radius
+            if (DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
+                hybridRay = true;
+
+            if (DEPTH_MODE == DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
+            {
+                float linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
                 float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-                // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
                 float objectSpaceZ = dot(samplePosV - posV, normal);
-                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
-                // require hybrid ray if intersection is outside of sphere radius
-                if (objectSpaceZ > sphereStart + CONST_RADIUS)
+                curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
+                if (objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
                     hybridRay = true;
+            }
         }
 
 
@@ -121,25 +130,12 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
             output.stencil |= 1u << i;
             // remember that an access was requested
             gDepthAccess[uint2(rasterSamplePosUV * gData.resolution)] = 1u;
-            //gDepthAccess[uint2(rasterSamplePosUV * gData.resolution)] += 1u;
-            //InterlockedAdd(gDepthAccess[uint2(rasterSamplePosUV * gData.resolution)], 1u);
         }
         else
         {
             output.ao1 += curVisibility / pdf;
         }
-        //visibility += curVisibility / pdf;
     }
-
-
-
-    //float AO = visibility / float(NUM_DIRECTIONS);
-    // since fully visibile are all values in [0.5, 1.0], scale accordingly
-    //AO = saturate(AO * 2.0);
-    // do artistic modifications
-    //AO = pow(AO, gData.exponent);
-
-    //return AO;
 
     output.ao1 *= 2.0 / float(NUM_DIRECTIONS);
     output.ao2 *= 2.0 / float(NUM_DIRECTIONS);

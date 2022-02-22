@@ -5,8 +5,8 @@
 namespace
 {
     const std::string kRadius = "radius";
-    const std::string kDepthMode = "depthMode";
-    const std::string kUseRays = "useRays";
+    const std::string kPrimaryDepthMode = "primaryDepthMode";
+    const std::string kSecondaryDepthMode = "secondaryDepthMode";
     const std::string kExponent = "exponent";
 }
 
@@ -21,8 +21,8 @@ void VAOSettings::updateFromDict(const Dictionary& dict)
     for (const auto& [key, value] : dict)
     {
         if (key == kRadius) mData.radius = value;
-        else if (key == kDepthMode) mDepthMode = value;
-        else if (key == kUseRays) mUseRays = value;
+        else if (key == kPrimaryDepthMode) mPrimaryDepthMode = value;
+        else if (key == kSecondaryDepthMode) mSecondaryDepthMode = value;
         else if (key == kExponent) mData.exponent = value;
         else logWarning("Unknown field '" + key + "' in a VAONonInterleaved dictionary");
     }
@@ -32,17 +32,22 @@ Dictionary VAOSettings::getScriptingDictionary()
 {
     Dictionary d;
     d[kRadius] = mData.radius;
-    d[kDepthMode] = mDepthMode;
-    d[kUseRays] = mUseRays;
+    d[kPrimaryDepthMode] = mPrimaryDepthMode;
+    d[kSecondaryDepthMode] = mSecondaryDepthMode;
     d[kExponent] = mData.exponent;
     return d;
 }
 
-const Gui::DropdownList kDepthModeDropdown =
+const Gui::DropdownList kPrimaryDepthModeDropdown =
 {
     { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
     { (uint32_t)DepthMode::DualDepth, "DualDepth" },
+};
+
+const Gui::DropdownList kSecondaryDepthModeDropdown =
+{
     { (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
+    { (uint32_t)DepthMode::Raytraced, "Raytraced" },
 };
 
 void VAOSettings::renderUI(Gui::Widgets& widget)
@@ -54,13 +59,17 @@ void VAOSettings::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
 
-    uint32_t depthMode = (uint32_t)mDepthMode;
-    if (widget.dropdown("Depth Mode", kDepthModeDropdown, depthMode)) {
-        mDepthMode = (DepthMode)depthMode;
+    uint32_t primaryDepthMode = (uint32_t)mPrimaryDepthMode;
+    if (widget.dropdown("Primary Depth Mode", kPrimaryDepthModeDropdown, primaryDepthMode)) {
+        mPrimaryDepthMode = (DepthMode)primaryDepthMode;
         mReset = true;
     }
 
-    if (widget.checkbox("Use Rays", mUseRays)) mReset = true; // changed defines
+    uint32_t secondaryDepthMode = (uint32_t)mSecondaryDepthMode;
+    if (widget.dropdown("Secondary Depth Mode", kSecondaryDepthModeDropdown, secondaryDepthMode)) {
+        mSecondaryDepthMode = (DepthMode)secondaryDepthMode;
+        mReset = true;
+    }
 
     if (widget.var("Sample Radius", mData.radius, 0.01f, FLT_MAX, 0.01f)) mDirty = true;
 

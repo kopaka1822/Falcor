@@ -10,8 +10,10 @@ import Scene.Shading;
 #define DEPTH_MODE_SINGLE 0
 // two depth textures
 #define DEPTH_MODE_DUAL 1
-// single depth texture + stochastic depth texture
+// single or dual depth texture + stochastic depth texture
 #define DEPTH_MODE_STOCHASTIC 2
+// raytraced
+#define DEPTH_MODE_RAYTRACING 3
 
 #ifndef DEPTH_MODE
 #define DEPTH_MODE 1
