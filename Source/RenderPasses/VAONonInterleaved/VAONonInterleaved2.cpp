@@ -200,7 +200,7 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
     mpRasterPass["gDepthTex2"] = pDepth2;
     mpRasterPass["gNormalTex"] = pNormal;
     mpRasterPass["gsDepthTex"] = psDepth;
-    mpRasterPass["ao2"] = pAo2;
+    mpRasterPass["ao2"] = pAo2; // TODO this can be removed i think?
     mpRasterPass["aoMask"] = pAoMask;
     mpRasterPass["aoPrev"] = pAoDst;
 

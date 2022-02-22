@@ -55,17 +55,20 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
     float visibility = 0.0f;
 
     uint i = 0;
+    //[loop] while(mask != 0u)
     [unroll] for (uint j = 0; j < NUM_DIRECTIONS; j++)
     {
+        if (mask == 0u) break; // no bits set anymore
+
         // modify loop to only go through the set bits in mask
-        [unroll]
-        for (uint k = 0; k < NUM_DIRECTIONS && (mask & 1u) == 0u; k++)
+        //[loop] while ((mask & 1u) == 0u)
+        //for (uint k = 0; k < (NUM_DIRECTIONS - j) && (mask & 1u) == 0u; k++) // this is too complicated for current compiler..  
+        [unroll] for (uint k = 0; k < NUM_DIRECTIONS && k < NUM_DIRECTIONS - j && (mask & 1u) == 0u; k++) // first condition is for unrolling, second is for better unrolling
         {
             // shift mask an increase i
             mask = mask >> 1;
             ++i;
         }
-        if (mask == 0) break; // no bits set anymore
 
 
         // random angle on view space disc
