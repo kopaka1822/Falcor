@@ -6,7 +6,6 @@ Texture2DMS<float> gsDepthTex;
 
 // inputs from previous stage
 Texture2D<uint> aoMask;
-Texture2D<float> ao2;
 Texture2D<float> aoPrev;
 
 #define USE_OLD_DEPTH
@@ -18,16 +17,6 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
 
     // fetch linear depth a second time
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
-    
-    float oldAo = ao2.SampleLevel(gTextureSampler, texC, 0);
-    // scale old ao with number of actual samples
-    oldAo *= float(NUM_DIRECTIONS) / float(countbits(mask));
-
-    // this cannot happen (masked)
-    /*if (linearDepth >= gCamera.data.farZ)
-    {
-        return 1.0;
-    }*/
 
     // view space position of current pixel
     const float3 posV = UVToViewSpace(texC, linearDepth);
@@ -103,8 +92,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
 
         float curVisibility = 0.0f;
         // assume this for now
-        //curVisibility = 1.0;
-        curVisibility = oldAo;
+        curVisibility = 1.0;
+        //curVisibility = oldAo;
         bool hybridRay = false;
 
         float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
@@ -116,12 +105,11 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
 
         if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC) 
         {
-            #ifdef USE_OLD_DEPTH
+            // reuse old depth (this does not really cost much)
             float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
             float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
             float objectSpaceZ = dot(samplePosV - posV, normal);
             curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
-            #endif
 
             float width, height;
             gDepthTex.GetDimensions(width, height);
@@ -232,5 +220,5 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
 
     visibility *= 2.0 / float(NUM_DIRECTIONS);
     float prevAo = aoPrev.SampleLevel(gTextureSampler, texC, 0);
-    return prevAo + min(visibility, oldAo);
+    return prevAo + visibility;
 }

@@ -58,18 +58,15 @@ float2 getScreenClampedUV(float2 uvstart, float2 uvend)
 
 float2 getSnappedUV(float2 uv)
 {
-    float width, height;
-    gDepthTex.GetDimensions(width, height);
-    float2 pixelCoord = floor(uv * float2(width, height));
-    return float2((pixelCoord.x + 0.5f) / width, (pixelCoord.y + 0.5f) / height);
+    float2 pixelCoord = floor(uv * gData.resolution);
+    return float2((pixelCoord.x + 0.5f) / gData.resolution.x, (pixelCoord.y + 0.5f) / gData.resolution.y);
 }
 
 bool isSamePixel(float2 uv1, float2 uv2)
 {
-    float width, height;
-    gDepthTex.GetDimensions(width, height);
-    float2 pixelSize = float2(rcp(width), rcp(height));
-    return all(abs(uv1 - uv2) < pixelSize);
+    //return false;
+    return all(abs(uv1 - uv2) < gData.invResolution * 0.9);
+    //return all(abs(uv1 - uv2) < gData.invResolution * 1.1); // this also ignores 1-pixel differences
 }
 
 float2 Rotate2D(float2 vec, float theta)

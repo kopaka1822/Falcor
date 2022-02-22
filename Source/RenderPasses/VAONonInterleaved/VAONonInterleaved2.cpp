@@ -47,7 +47,6 @@ namespace
     const char kDesc[] = "Optimized Volumetric Ambient Occlusion (Non-Interleaved) 2nd pass";
 
     const std::string kAmbientMap = "ao";
-    const std::string kAmbientMap2 = "ao2";
     const std::string kAOMask = "aoStencil";
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
@@ -117,7 +116,6 @@ RenderPassReflection VAONonInterleaved2::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     //reflector.addInput(kAoStencil, "(Depth-) Stencil Buffer for the ao mask").format(ResourceFormat::D32FloatS8X24);
-    reflector.addInput(kAmbientMap2, "Ambient map with missing secondary information").bindFlags(ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Unorm);
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
@@ -141,7 +139,6 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
     auto pDepth = renderData[kDepth]->asTexture();
     auto pNormal = renderData[kNormals]->asTexture();
     auto pAoDst = renderData[kAmbientMap]->asTexture();
-    auto pAo2 = renderData[kAmbientMap2]->asTexture();
     auto pDepth2 = renderData[kDepth2]->asTexture();
     auto psDepth = renderData[ksDepth]->asTexture();
 
@@ -200,7 +197,6 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
     mpRasterPass["gDepthTex2"] = pDepth2;
     mpRasterPass["gNormalTex"] = pNormal;
     mpRasterPass["gsDepthTex"] = psDepth;
-    mpRasterPass["ao2"] = pAo2; // TODO this can be removed i think?
     mpRasterPass["aoMask"] = pAoMask;
     mpRasterPass["aoPrev"] = pAoDst;
 

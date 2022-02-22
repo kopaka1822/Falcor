@@ -3,13 +3,12 @@
 struct PSOut
 {
     float ao1 : SV_TARGET0;
-    float ao2 : SV_TARGET1;
-    uint stencil : SV_TARGET2;
+    uint stencil : SV_TARGET1;
 };
 
 RWTexture2D<uint> gDepthAccess; // indicates depth accesses for the secondary pass
 
-// additional depth textures (TODO remove?)
+// additional depth texture
 Texture2D gDepthTex2;
 
 PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
@@ -19,7 +18,6 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     {
         PSOut output;
         output.ao1 = 1.0;
-        output.ao2 = 0.0;
         output.stencil = 0;
         return output;
     }
@@ -50,7 +48,6 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     float visibility = 0.0f;
     PSOut output;
     output.ao1 = 0.0;
-    output.ao2 = 0.0;
     output.stencil = 0;
 
     [unroll] for (uint i = 0; i < NUM_DIRECTIONS; i++)
@@ -95,12 +92,13 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         float2 rasterSamplePosUV = screenUv;
         rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
 
-        { // RASTER PART
-            // clip sample position uv and snap to pixel center
-            
-            //if (isSamePixel(samplePosUV, texC))
-                //objectSpaceZ = 0.0;            
-
+      
+        if (isSamePixel(rasterSamplePosUV, texC))
+        {
+            curVisibility = calcSphereVisibility(0.0, sphereStart, sphereEnd); // saves a texture fetch (but does not make a measuarbale diff on my device)
+        }
+        else
+        {
             float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
             float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
             // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
@@ -125,7 +123,6 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         const float pdf = 2.0 * sphereHeight;
         if(hybridRay)
         {
-            output.ao2 += curVisibility / pdf;
             // remember that this was a hybrid ray
             output.stencil |= 1u << i;
             // remember that an access was requested
@@ -138,8 +135,6 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     }
 
     output.ao1 *= 2.0 / float(NUM_DIRECTIONS);
-    output.ao2 *= 2.0 / float(NUM_DIRECTIONS);
 
-    //output.ao1 += output.ao2;
     return output;
 }

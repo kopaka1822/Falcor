@@ -38,7 +38,6 @@ namespace
     const char kDesc[] = "Optimized Volumetric Ambient Occlusion (Non-Interleaved)";
 
     const std::string kAmbientMap = "ao";
-    const std::string kAmbientMap2 = "ao2";
     const std::string kAoStencil = "stencil";
     const std::string kAccessStencil = "accessStencil";
     const std::string kDepth = "depth";
@@ -101,7 +100,6 @@ RenderPassReflection VAONonInterleaved::reflect(const CompileData& compileData)
     reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion (primary)").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
-    reflector.addOutput(kAmbientMap2, "Ambient Occlusion (secondary)").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
     reflector.addOutput(kAoStencil, "Stencil Bitmask for primary / secondary ao").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Uint);
     reflector.addOutput(kAccessStencil, "Stencil Bitmask for secondary depth map accesses").bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Uint);
     return reflector;
@@ -122,7 +120,6 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     auto pAoDst = renderData[kAmbientMap]->asTexture();
     auto pDepth2 = renderData[kDepth2]->asTexture();
 
-    auto pAoDst2 = renderData[kAmbientMap2]->asTexture();
     auto pStencil = renderData[kAoStencil]->asTexture();
     auto pAccessStencil = renderData[kAccessStencil]->asTexture();
 
@@ -157,8 +154,7 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     pRenderContext->clearUAV(accessStencilUAV.get(), uint4(0u));
 
     mpFbo->attachColorTarget(pAoDst, 0);
-    mpFbo->attachColorTarget(pAoDst2, 1);
-    mpFbo->attachColorTarget(pStencil, 2);
+    mpFbo->attachColorTarget(pStencil, 1);
 
     auto pCamera = mpScene->getCamera().get();
     pCamera->setShaderData(mpRasterPass["PerFrameCB"]["gCamera"]);

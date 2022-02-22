@@ -182,7 +182,6 @@ def render_graph_VAONonInterleaved():
     g.addEdge('VAONonInterleaved.accessStencil', 'StochasticDepthMap_.stencilMask')
     g.addEdge('StochasticDepthMap_.stochasticDepth', 'VAONonInterleaved2.stochasticDepth')
     g.addEdge('VAONonInterleaved.ao', 'VAONonInterleaved2.ao')
-    g.addEdge('VAONonInterleaved.ao2', 'VAONonInterleaved2.ao2')
     g.addEdge('LinearizeDepth_.linearDepth', 'VAONonInterleaved2.depth2')
     g.addEdge('LinearizeDepth.linearDepth', 'VAONonInterleaved2.depth')
     g.addEdge('GBufferRaster.faceNormalW', 'VAONonInterleaved2.normals')
