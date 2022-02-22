@@ -88,17 +88,11 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
         }
 
         // sample position calculate uv position of sample
-        float2 samplePosUV = ViewSpaceToUV(posV + tangent * dir.x + bitangent * dir.y);
-
+        float3 initialSamplePosV = posV + tangent * dir.x + bitangent * dir.y;
+        float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
         float curVisibility = 0.0f;
-        // assume this for now
-        curVisibility = 1.0;
-        //curVisibility = oldAo;
-        bool hybridRay = false;
 
         float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
-        //if (any(samplePosUV != screenUv))
-        //    hybridRay = true; // always shoot rays for screen border
             
         float2 rasterSamplePosUV = screenUv;
         rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
@@ -113,7 +107,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
 
             float width, height;
             gDepthTex.GetDimensions(width, height);
-            // TODO try to use sampler
+            
             int2 pixelCoord = int2(floor(rasterSamplePosUV * float2(width, height)));
 
             const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
@@ -130,11 +124,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                 curVisibility = min(curVisibility, newVisibility);
             }       
         }
-
-        /*if (USE_RAYS && hybridRay)
+        else if (DEPTH_MODE == DEPTH_MODE_RAYTRACING)
         {
-            gRaysTraced += 1;
-            
             // to be consistent with the rasterizer, we snap the uv coordinate as well to the pixel center,
             // but we do not clip it since we can shoot outside of the screen space
             //samplePosUV = getScreenClampedUV(texC, samplePosUV);
@@ -147,68 +138,69 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
             ray.Origin = gCamera.data.posW; // offset a little bit in normal direction
             ray.Direction = mul(sampleDirV, float3x3(invViewMat));
 
-            ray.TMin = 0.0; // TODO set to depth buffer value
             float tSphereStart = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
             float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
-            float tHaloStart = (posVLength - sphereHeight - HALO_RADIUS) * initialSamplePosLength / posVLength;
-            ray.TMin = max(tHaloStart, 0.0);
+            float tHaloStart = (posVLength - sphereHeight - CONST_RADIUS - HALO_RADIUS) * initialSamplePosLength / posVLength;
+            float tConstRadiusStart = (posVLength - sphereHeight - CONST_RADIUS) * initialSamplePosLength / posVLength;
+            ray.TMin = max(tHaloStart, 0.0); // TODO include buffer value?
             ray.TMax = tSphereEnd;
 
-            // skip procedural and force all triangle to be handled by any-hit traversal
-            RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_NON_OPAQUE> rayQuery;
+                // skip procedural and force all triangle to be handled by any-hit traversal
+            RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_NON_OPAQUE > rayQuery;
             rayQuery.TraceRayInline(gScene.rtAccel, RAY_FLAG_NONE, 0xff, ray);
 
-            // stack that gets increased for front faces, and decreased for back faces => 0 = unoccluded, > 0 = occluded
             float tFirstFrontFaceInside = tSphereEnd;
             float tLastFrontFaceHalo = tHaloStart;
 
-            while(rayQuery.Proceed())
+            while (rayQuery.Proceed())
             {
                 if (rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
                 {
                     // extract hit properties
                     float t = rayQuery.CandidateTriangleRayT();
+                    if (t < tLastFrontFaceHalo)
+                        continue; // we can skip this since it would not contribute anyways (unfortunately there is no option to set the ray.min afterwards)
+
                     bool frontFace = rayQuery.CandidateTriangleFrontFace();
                     const TriangleHit hit = getCandidateTriangleHit(rayQuery);
                     const uint materialID = gScene.getMaterialID(hit.instanceID);
-                    const MaterialData md = gScene.materials[materialID];
-                    bool isAlphaTested = EXTRACT_ALPHA_MODE(md.flags) == AlphaModeMask;
+                    const MaterialHeader header = gScene.materials.materialData[materialID].header;
+
+                    bool isAlphaTested = header.getAlphaMode() == AlphaMode::Mask;
 
                     // needs alpha testing?
                     if (isAlphaTested)
                     {
                         const VertexData v = gScene.getVertexData(hit);
-                        if (alphaTest(v, md, gScene.materialResources[materialID], 0.f))    
+                        if (gScene.materials.alphaTest(v, materialID, 0.0))    
                             continue; // alpha test failed => ignore this triangle
                     }
-                    bool isDoubleSided = EXTRACT_DOUBLE_SIDED(md.flags);
-                    frontFace = frontFace || isAlphaTested || isDoubleSided;
 
-                    if (frontFace)
+                    frontFace = frontFace || isAlphaTested || header.isDoubleSided();
+                    if (!frontFace)
+                        continue; // this is just for rasterizer compability
+
+                    if (t <= tSphereStart)
                     {
-                        if (t <= tSphereStart)
-                            tLastFrontFaceHalo = max(tLastFrontFaceHalo, t);
-                        else
-                        {
-                            tFirstFrontFaceInside = min(tFirstFrontFaceInside, t);
-                            rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
-                        }
-                    }   
+                        tLastFrontFaceHalo = max(tLastFrontFaceHalo, t);
+                        if (t >= tConstRadiusStart)
+                            break; // we can stop the query, because this will set the visibility to zero
+                    }
+                    else // inside sphere
+                    {
+                        tFirstFrontFaceInside = min(tFirstFrontFaceInside, t);
+                        rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
+                    }
+                        
                 }
             }
-            
-            // calculate object z fron first front face hit
-            float projectedHitT = tFirstFrontFaceInside * posVLength / initialSamplePosLength;
-            float sphereZ = posVLength - projectedHitT;
-            //projectedHitT = max(tLastFrontFaceHalo, tLastBackFaceHalo) * posVLength / initialSamplePosLength;
-            projectedHitT = tLastFrontFaceHalo * posVLength / initialSamplePosLength;
-            float haloZ = posVLength - projectedHitT;
 
-            float sphereVisibility = calcSphereVisibility(sphereZ, sphereStart, sphereEnd);
-            float haloVisibility = calcHaloVisibility(haloZ, sphereStart, sphereEnd);
+            // calculate visibility inside and outside of sphere
+            float sphereVisibility = calcSphereVisibility(posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
+            float haloVisibility = calcHaloVisibility(posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
 
-            curVisibility =  min(sphereVisibility, haloVisibility); // divide sampled range by pdf (monte carlo)
-        }*/
+            curVisibility = min(sphereVisibility, haloVisibility); // divide sampled range by pdf (monte carlo)
+        }
 
         const float pdf = 2.0 * sphereHeight;
         visibility += curVisibility / pdf;

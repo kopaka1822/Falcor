@@ -86,8 +86,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         bool hybridRay = false;
 
         float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
-        //if (any(samplePosUV != screenUv))
-        //    hybridRay = true; // always shoot rays for screen border
+        if (any(samplePosUV != screenUv))
+            hybridRay = true; // always shoot rays for screen border
             
         float2 rasterSamplePosUV = screenUv;
         rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center

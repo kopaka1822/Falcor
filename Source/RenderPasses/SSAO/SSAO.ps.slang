@@ -591,14 +591,6 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                     if (occluded) sphereVisibility = 0.0;
                     curVisibility = sphereVisibility;
                 }
-                //visibility += haloVisibility;
-                //visibility += sphereVisibility;
-                //if (haloVisibility > 0.01)  visibility += haloVisibility;
-                //else visibility += sphereVisibility;
-
-                // safety measure:
-                //occluded = occluded || tFirstBackFaceInside < tFirstFrontFaceInside;
-                //if (tFirstBackFaceInside < tFirstFrontFaceInside) occluded = false;
             }
         }
 

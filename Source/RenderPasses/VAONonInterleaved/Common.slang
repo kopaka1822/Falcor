@@ -112,7 +112,8 @@ float makeNonZero(float value, float epsilon)
 
 // get rid of shadowing around edges
 // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
-// and falls of to 1.0 when it gets further away from the sphere but closer to the camera
+// and falls of to 1.0 when it gets further away from the sphere but closer to the camera.
+// this also includes the constant radius, where visibility remains 0
 float calcHaloVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
 {
     return saturate((objectSpaceZ - sphereStart - CONST_RADIUS) / HALO_RADIUS)

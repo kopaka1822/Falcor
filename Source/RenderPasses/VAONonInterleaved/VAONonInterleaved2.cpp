@@ -190,9 +190,16 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
     mpFbo->attachDepthStencilTarget(pInternalStencil);
     mpFbo->attachColorTarget(pAoDst, 0);
 
+    // set raytracing data
+    auto var = mpRasterPass->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var);
+
+    // set camera data
     auto pCamera = mpScene->getCamera().get();
     pCamera->setShaderData(mpRasterPass["PerFrameCB"]["gCamera"]);
     mpRasterPass["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
+
+    // set textures
     mpRasterPass["gDepthTex"] = pDepth;
     mpRasterPass["gDepthTex2"] = pDepth2;
     mpRasterPass["gNormalTex"] = pNormal;
