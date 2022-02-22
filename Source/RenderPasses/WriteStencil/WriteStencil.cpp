@@ -74,6 +74,7 @@ void WriteStencil::execute(RenderContext* pRenderContext, const RenderData& rend
     auto pDepthStencil = renderData[kDepthStencil]->asTexture();
 
     pRenderContext->copySubresource(pDepthStencil.get(), 1, pInput.get(), 0);
+    logError("WriteStencil needs to be rewritten for better performance => clear stencil and copy mask");
 }
 
 void WriteStencil::renderUI(Gui::Widgets& widget)

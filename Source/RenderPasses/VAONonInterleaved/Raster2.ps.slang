@@ -16,9 +16,6 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
 {
     uint mask = aoMask[uint2(svPos.xy)];
 
-    if (mask == 0u)
-        discard;
-        //return prevAo;
     // fetch linear depth a second time
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
     

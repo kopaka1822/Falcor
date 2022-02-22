@@ -15,5 +15,6 @@
     <ShaderSource Include="Raster.ps.slang" />
     <ShaderSource Include="Common.slang" />
     <ShaderSource Include="Raster2.ps.slang" />
+    <ShaderSource Include="CopyStencil.ps.slang" />
   </ItemGroup>
 </Project>

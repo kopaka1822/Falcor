@@ -35,6 +35,11 @@
 #include "Core/API/BlendState.h"
 #include "Core/API/BlendState.h"
 #include "Core/API/DepthStencilState.h"
+#include "Core/API/DepthStencilState.h"
+#include "Core/API/DepthStencilState.h"
+#include "Core/API/DepthStencilState.h"
+#include "Core/API/DepthStencilState.h"
+#include "Core/API/DepthStencilState.h"
 
 
 namespace
@@ -51,6 +56,7 @@ namespace
     const std::string kInternalStencil = "internalStencil";
 
     const std::string kRasterShader = "RenderPasses/VAONonInterleaved/Raster2.ps.slang";
+    const std::string kStencilShader = "RenderPasses/VAONonInterleaved/CopyStencil.ps.slang";
 }
 
 const RenderPass::Info VAONonInterleaved2::kInfo = { "VAONonInterleaved2", kDesc };
@@ -85,9 +91,19 @@ VAONonInterleaved2::VAONonInterleaved2(const Dictionary& dict)
     stencil.setStencilOp(DepthStencilState::Face::FrontAndBack, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep);
     stencil.setStencilFunc(DepthStencilState::Face::FrontAndBack, DepthStencilState::Func::NotEqual);
     stencil.setStencilRef(0);
+    stencil.setStencilReadMask(1);
+    stencil.setStencilWriteMask(0);
     mpDepthStencilState = DepthStencilState::create(stencil);
 
     // VAO settings will be loaded by first pass
+    mpStencilPass = FullScreenPass::create(kStencilShader);
+    stencil.setStencilOp(DepthStencilState::Face::FrontAndBack, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Replace);
+    stencil.setStencilFunc(DepthStencilState::Face::FrontAndBack, DepthStencilState::Func::Always);
+    stencil.setStencilRef(1);
+    stencil.setStencilReadMask(0);
+    stencil.setStencilWriteMask(1);
+    mpStencilPass->getState()->setDepthStencilState(DepthStencilState::create(stencil));
+    mpStencilFbo = Fbo::create();
 }
 
 Dictionary VAONonInterleaved2::getScriptingDictionary()
@@ -109,7 +125,7 @@ RenderPassReflection VAONonInterleaved2::reflect(const CompileData& compileData)
     reflector.addInput(kAOMask, "Mask where to recalculate ao with secondary information").format(ResourceFormat::R8Uint).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInputOutput(kAmbientMap, "Ambient Occlusion (primary)").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
     // internal stencil mask
-    reflector.addInternal(kInternalStencil, "internal stencil mask").format(ResourceFormat::D32FloatS8X24); // TODO check fastest format
+    reflector.addInternal(kInternalStencil, "internal stencil mask").format(ResourceFormat::D24UnormS8); 
     return reflector;
 }
 
@@ -149,7 +165,7 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
         defines.add(mpScene->getSceneDefines());
         mpRasterPass = FullScreenPass::create(kRasterShader, defines);
         mpRasterPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
-        //mpRasterPass->getState()->setDepthStencilState(mpDepthStencilState);
+        mpRasterPass->getState()->setDepthStencilState(mpDepthStencilState);
     }
 
     if(s.IsDirty() || s.IsReset())
@@ -164,11 +180,17 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
 
     // copy stencil
     {
-        //FALCOR_PROFILE("copy stencil");
-        //pRenderContext->copySubresource(pInternalStencil.get(), 1, pAoMask.get(), 0);
+        FALCOR_PROFILE("copy stencil");
+        auto dsv = pInternalStencil->getDSV();
+        // clear stencil
+        pRenderContext->clearDsv(dsv.get(), 0.0f, 0, false, true);
+        mpStencilFbo->attachDepthStencilTarget(pInternalStencil);
+        mpStencilPass["aoMask"] = pAoMask;
+        mpStencilPass->execute(pRenderContext, mpStencilFbo);
+        //pRenderContext->copySubresource(pInternalStencil.get(), 1, pAoMask.get(), 0); // <= don't do this, this results in a slow stencil
     }
 
-    //mpFbo->attachDepthStencilTarget(pInternalStencil);
+    mpFbo->attachDepthStencilTarget(pInternalStencil);
     mpFbo->attachColorTarget(pAoDst, 0);
 
     auto pCamera = mpScene->getCamera().get();

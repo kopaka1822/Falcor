@@ -66,5 +66,8 @@ private:
     FullScreenPass::SharedPtr mpRasterPass;
     DepthStencilState::SharedPtr mpDepthStencilState;
 
+    FullScreenPass::SharedPtr mpStencilPass;
+    Fbo::SharedPtr mpStencilFbo;
+
     Scene::SharedPtr mpScene;
 };
