@@ -55,7 +55,10 @@ namespace
     const std::string kInternalStencil = "internalStencil";
 
     const std::string kRasterShader = "RenderPasses/VAONonInterleaved/Raster2.ps.slang";
+    const std::string kRayShader = "RenderPasses/VAONonInterleaved/Ray.rt.slang";
     const std::string kStencilShader = "RenderPasses/VAONonInterleaved/CopyStencil.ps.slang";
+
+    const uint32_t kMaxPayloadSize = 4 * 4;
 }
 
 const RenderPass::Info VAONonInterleaved2::kInfo = { "VAONonInterleaved2", kDesc };
@@ -121,7 +124,7 @@ RenderPassReflection VAONonInterleaved2::reflect(const CompileData& compileData)
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kAOMask, "Mask where to recalculate ao with secondary information").format(ResourceFormat::R8Uint).bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInputOutput(kAmbientMap, "Ambient Occlusion (primary)").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
+    reflector.addInputOutput(kAmbientMap, "Ambient Occlusion (primary)").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Unorm);
     // internal stencil mask
     reflector.addInternal(kInternalStencil, "internal stencil mask").format(ResourceFormat::D24UnormS8); 
     return reflector;
@@ -129,7 +132,8 @@ RenderPassReflection VAONonInterleaved2::reflect(const CompileData& compileData)
 
 void VAONonInterleaved2::compile(RenderContext* pContext, const CompileData& compileData)
 {
-    mpRasterPass.reset(); // recompile raster pass
+    mpRasterPass.reset(); // recompile passes
+    mpRayProgram.reset();
 }
 
 void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -154,63 +158,109 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
         return;
     }
 
-    if(!mpRasterPass) // this needs to be deferred because it needs the scene defines to compile
+    if(!mpRasterPass || !mpRayProgram) // this needs to be deferred because it needs the scene defines to compile
     {
         Program::DefineList defines;
         defines.add("PRIMARY_DEPTH_MODE", std::to_string(uint32_t(s.getPrimaryDepthMode())));
         defines.add("SECONDARY_DEPTH_MODE", std::to_string(uint32_t(s.getSecondaryDepthMode())));
         defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
         defines.add(mpScene->getSceneDefines());
+
+        // raster pass
         mpRasterPass = FullScreenPass::create(kRasterShader, defines);
         mpRasterPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
         mpRasterPass->getState()->setDepthStencilState(mpDepthStencilState);
+
+        // ray pass
+        RtProgram::Desc desc;
+        desc.addShaderLibrary(kRayShader);
+        desc.setMaxPayloadSize(kMaxPayloadSize);
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1);
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        RtBindingTable::SharedPtr sbt = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setMiss(0, desc.addMiss("miss"));
+        sbt->setHitGroup(0, mpScene->getGeometryIDs(GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+        // TODO add remaining primitives
+        mpRayProgram = RtProgram::create(desc, defines);
+        mRayVars = RtProgramVars::create(mpRayProgram, sbt);
     }
 
     if(s.IsDirty() || s.IsReset())
     {
         // update data
         mpRasterPass["StaticCB"].setBlob(s.getData());
-
         mpRasterPass["gNoiseSampler"] = mpNoiseSampler;
         mpRasterPass["gTextureSampler"] = mpTextureSampler;
         mpRasterPass["gNoiseTex"] = mpNoiseTexture;
+
+        mRayVars["StaticCB"].setBlob(s.getData());
+        mRayVars["gNoiseSampler"] = mpNoiseSampler;
+        mRayVars["gTextureSampler"] = mpTextureSampler;
+        mRayVars["gNoiseTex"] = mpNoiseTexture;
     }
 
-    // copy stencil
+    if(VAOSettings::get().getRayPipeline()) // RAY PIPELINE
     {
-        FALCOR_PROFILE("copy stencil");
-        auto dsv = pInternalStencil->getDSV();
-        // clear stencil
-        pRenderContext->clearDsv(dsv.get(), 0.0f, 0, false, true);
-        mpStencilFbo->attachDepthStencilTarget(pInternalStencil);
-        mpStencilPass["aoMask"] = pAoMask;
-        mpStencilPass->execute(pRenderContext, mpStencilFbo);
-        //pRenderContext->copySubresource(pInternalStencil.get(), 1, pAoMask.get(), 0); // <= don't do this, this results in a slow stencil
+        // set raytracing data
+        //mpScene->setRaytracingShaderData(pRenderContext, mRayVars);
+        
+        // set camera data
+        auto pCamera = mpScene->getCamera().get();
+        pCamera->setShaderData(mRayVars["PerFrameCB"]["gCamera"]);
+        mRayVars["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
+
+        // set textures
+        mRayVars["gDepthTex"] = pDepth;
+        mRayVars["gDepthTex2"] = pDepth2;
+        mRayVars["gNormalTex"] = pNormal;
+        mRayVars["gsDepthTex"] = psDepth;
+        mRayVars["aoMask"] = pAoMask;
+        //mRayVars["aoPrev"] = pAoDst; // src view
+        mRayVars["output"] = pAoDst; // uav view
+
+        mpScene->raytrace(pRenderContext, mpRayProgram.get(), mRayVars, uint3{ pAoDst->getWidth(), pAoDst->getHeight(), 1 });
     }
-
-    mpFbo->attachDepthStencilTarget(pInternalStencil);
-    mpFbo->attachColorTarget(pAoDst, 0);
-
-    // set raytracing data
-    auto var = mpRasterPass->getRootVar();
-    mpScene->setRaytracingShaderData(pRenderContext, var);
-
-    // set camera data
-    auto pCamera = mpScene->getCamera().get();
-    pCamera->setShaderData(mpRasterPass["PerFrameCB"]["gCamera"]);
-    mpRasterPass["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
-
-    // set textures
-    mpRasterPass["gDepthTex"] = pDepth;
-    mpRasterPass["gDepthTex2"] = pDepth2;
-    mpRasterPass["gNormalTex"] = pNormal;
-    mpRasterPass["gsDepthTex"] = psDepth;
-    mpRasterPass["aoMask"] = pAoMask;
-    mpRasterPass["aoPrev"] = pAoDst;
-
+    else // RASTER PIPELINE
     {
-        FALCOR_PROFILE("rasterize");
-        mpRasterPass->execute(pRenderContext, mpFbo);
+        // copy stencil
+        {
+            FALCOR_PROFILE("copy stencil");
+            auto dsv = pInternalStencil->getDSV();
+            // clear stencil
+            pRenderContext->clearDsv(dsv.get(), 0.0f, 0, false, true);
+            mpStencilFbo->attachDepthStencilTarget(pInternalStencil);
+            mpStencilPass["aoMask"] = pAoMask;
+            mpStencilPass->execute(pRenderContext, mpStencilFbo);
+            //pRenderContext->copySubresource(pInternalStencil.get(), 1, pAoMask.get(), 0); // <= don't do this, this results in a slow stencil
+        }
+
+        mpFbo->attachDepthStencilTarget(pInternalStencil);
+        mpFbo->attachColorTarget(pAoDst, 0);
+
+        // set raytracing data
+        auto var = mpRasterPass->getRootVar();
+        mpScene->setRaytracingShaderData(pRenderContext, var);
+
+        // set camera data
+        auto pCamera = mpScene->getCamera().get();
+        pCamera->setShaderData(mpRasterPass["PerFrameCB"]["gCamera"]);
+        mpRasterPass["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
+
+        // set textures
+        mpRasterPass["gDepthTex"] = pDepth;
+        mpRasterPass["gDepthTex2"] = pDepth2;
+        mpRasterPass["gNormalTex"] = pNormal;
+        mpRasterPass["gsDepthTex"] = psDepth;
+        mpRasterPass["aoMask"] = pAoMask;
+        mpRasterPass["aoPrev"] = pAoDst;
+
+        {
+            FALCOR_PROFILE("rasterize");
+            mpRasterPass->execute(pRenderContext, mpFbo);
+        }
     }
 }
 

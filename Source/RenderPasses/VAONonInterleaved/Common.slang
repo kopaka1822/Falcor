@@ -1,6 +1,5 @@
 import Scene.Camera.Camera;
 import VAOData;
-import Scene.RaytracingInline;
 import Scene.Intersection;
 import Scene.Shading;
 
@@ -38,8 +37,8 @@ cbuffer PerFrameCB
 SamplerState gNoiseSampler;
 SamplerState gTextureSampler;
 
-// TODO change type to float
-Texture2D gDepthTex;
+Texture2D<float> gDepthTex;
+Texture2D<float> gDepthTex2;
 
 Texture2D gNormalTex;
 Texture2D gNoiseTex;
@@ -131,9 +130,9 @@ float getAORadiusInPixels(float viewZ)
     return uvRadius * gData.resolution.x;
 }
 
-float calcObjectSpaceZ(float3 posV, float3 normal, float2 uv, Texture2D depthTex)
+float calcObjectSpaceZ(float3 posV, float3 normal, float2 uv, Texture2D<float> depthTex)
 {
-    float linearSampleDepth = depthTex.SampleLevel(gTextureSampler, uv, 0).r;
+    float linearSampleDepth = depthTex.SampleLevel(gTextureSampler, uv, 0);
     float3 samplePosV = UVToViewSpace(uv, linearSampleDepth);
             // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
     float objectSpaceZ = dot(samplePosV - posV, normal);

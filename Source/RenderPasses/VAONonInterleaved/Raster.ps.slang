@@ -8,12 +8,9 @@ struct PSOut
 
 RWTexture2D<uint> gDepthAccess; // indicates depth accesses for the secondary pass
 
-// additional depth texture
-Texture2D gDepthTex2;
-
 PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 {
-    float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
+    float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0);
     if (linearDepth >= gCamera.data.farZ)
     {
         PSOut output;
@@ -27,13 +24,13 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     const float posVLength = length(posV);
 
     // view space normal of current pixel
-    float3 normalW = gNormalTex.Sample(gTextureSampler, texC).xyz;
+    float3 normalW = gNormalTex.SampleLevel(gTextureSampler, texC, 0).xyz;
     float3 normalV = mul(normalW, float3x3(gCamera.data.viewMat));
     if (dot(posV, normalV) > 0.0)
         normalV = -normalV;
 
     // Calculate tangent space (use random direction for tangent orientation)
-    float2 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xy;
+    float2 randDir = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0).xy;
     randDir = normalize(randDir); // should be normalized by default, but precision is lost in texture format
     //randDir = float2(1.0f, 0.0f);
     

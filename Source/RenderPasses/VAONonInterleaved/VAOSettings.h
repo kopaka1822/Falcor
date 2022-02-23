@@ -31,6 +31,7 @@ public:
     VAOData getData() const { return mData; }
     DepthMode getPrimaryDepthMode() const { return mPrimaryDepthMode; }
     DepthMode getSecondaryDepthMode() const { return mSecondaryDepthMode; }
+    bool getRayPipeline() const { return mUseRayPipeline; }
 
     static Texture::SharedPtr genNoiseTexture();
 private: 
@@ -43,4 +44,5 @@ private:
     bool mReset = false;
     DepthMode mPrimaryDepthMode = DepthMode::DualDepth;
     DepthMode mSecondaryDepthMode = DepthMode::StochasticDepth;
+    bool mUseRayPipeline = false;
 };

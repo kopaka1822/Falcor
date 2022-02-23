@@ -101,9 +101,8 @@ cbuffer PerFrameCB
 SamplerState gNoiseSampler;
 SamplerState gTextureSampler;
 
-// TODO change type to float
-Texture2D gDepthTex;
-Texture2D gDepthTex2;
+Texture2D<float> gDepthTex;
+Texture2D<float> gDepthTex2;
 Texture2DMS<float> gsDepthTex;
 
 Texture2D gNormalTex;
@@ -271,9 +270,9 @@ float calcVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
          + calcHaloVisibility(objectSpaceZ, sphereStart, sphereEnd);
 }
 
-float calcObjectSpaceZ(float3 posV, float3 normal, float2 uv, Texture2D depthTex)
+float calcObjectSpaceZ(float3 posV, float3 normal, float2 uv, Texture2D<float> depthTex)
 {
-    float linearSampleDepth = depthTex.SampleLevel(gTextureSampler, uv, 0).r;
+    float linearSampleDepth = depthTex.SampleLevel(gTextureSampler, uv, 0);
     float3 samplePosV = UVToViewSpace(uv, linearSampleDepth);
             // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
     float objectSpaceZ = dot(samplePosV - posV, normal);
@@ -288,7 +287,7 @@ float
 #endif
 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
-    float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0).r;
+    float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0);
     if (linearDepth >= gCamera.data.farZ)
         return 1.0f;
 
@@ -297,13 +296,13 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     const float posVLength = length(posV);
 
     // view space normal of current pixel
-    float3 normalW = gNormalTex.Sample(gTextureSampler, texC).xyz;
+    float3 normalW = gNormalTex.SampleLevel(gTextureSampler, texC, 0).xyz;
     float3 normalV = mul(normalW, float3x3(gCamera.data.viewMat));
     if (FRONT_FACE_NORMALS && dot(posV, normalV) > 0.0)
         normalV = -normalV;
 
     // Calculate tangent space (use random direction for tangent orientation)
-    float2 randDir = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale).xy;
+    float2 randDir = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0).xy;
     randDir = normalize(randDir); // should be normalized by default, but precision is lost in texture format
     //randDir = float2(1.0f, 0.0f);
     

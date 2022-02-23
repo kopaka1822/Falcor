@@ -8,6 +8,7 @@ namespace
     const std::string kPrimaryDepthMode = "primaryDepthMode";
     const std::string kSecondaryDepthMode = "secondaryDepthMode";
     const std::string kExponent = "exponent";
+    const std::string kUseRayPipeline = "rayPipeline";
 }
 
 VAOSettings& VAOSettings::get()
@@ -24,6 +25,7 @@ void VAOSettings::updateFromDict(const Dictionary& dict)
         else if (key == kPrimaryDepthMode) mPrimaryDepthMode = value;
         else if (key == kSecondaryDepthMode) mSecondaryDepthMode = value;
         else if (key == kExponent) mData.exponent = value;
+        else if (key == kUseRayPipeline) mUseRayPipeline = value;
         else logWarning("Unknown field '" + key + "' in a VAONonInterleaved dictionary");
     }
 }
@@ -35,6 +37,7 @@ Dictionary VAOSettings::getScriptingDictionary()
     d[kPrimaryDepthMode] = mPrimaryDepthMode;
     d[kSecondaryDepthMode] = mSecondaryDepthMode;
     d[kExponent] = mData.exponent;
+    d[kUseRayPipeline] = mUseRayPipeline;
     return d;
 }
 
@@ -70,6 +73,8 @@ void VAOSettings::renderUI(Gui::Widgets& widget)
         mSecondaryDepthMode = (DepthMode)secondaryDepthMode;
         mReset = true;
     }
+
+    if (widget.checkbox("Ray Pipeline", mUseRayPipeline)) mReset = true;
 
     if (widget.var("Sample Radius", mData.radius, 0.01f, FLT_MAX, 0.01f)) mDirty = true;
 

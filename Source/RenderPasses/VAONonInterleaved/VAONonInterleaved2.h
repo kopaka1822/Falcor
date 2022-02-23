@@ -69,5 +69,8 @@ private:
     FullScreenPass::SharedPtr mpStencilPass;
     Fbo::SharedPtr mpStencilFbo;
 
+    RtProgram::SharedPtr mpRayProgram;
+    RtProgramVars::SharedPtr mRayVars;
+
     Scene::SharedPtr mpScene;
 };

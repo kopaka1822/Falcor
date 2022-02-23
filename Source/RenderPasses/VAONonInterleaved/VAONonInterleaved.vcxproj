@@ -44,6 +44,7 @@
     <ShaderSource Include="CopyStencil.ps.slang" />
     <ShaderSource Include="Raster.ps.slang" />
     <ShaderSource Include="Raster2.ps.slang" />
+    <ShaderSource Include="Ray.rt.slang" />
     <ShaderSource Include="VAOData.slang" />
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
