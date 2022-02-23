@@ -507,8 +507,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 ray.TMax = tSphereEnd;
 
                 // include the value of the depth buffer when choosing TMin to save some traversal time
-                bool includeDepthBuffer = true;
-                if (includeDepthBuffer && isInScreen)
+                if (isInScreen)
                 {
                     const float epsilon = gData.radius * 0.01;
                     // objectSpaceZ already contains the depth buffer or secondary depth buffer value (fetched in the raster part)

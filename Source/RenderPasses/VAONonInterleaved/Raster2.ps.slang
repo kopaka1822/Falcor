@@ -109,7 +109,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
             else if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
             {
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
-                curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
             }
 
             float width, height;
@@ -153,23 +153,17 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
             ray.TMax = tSphereEnd;
 
             // include the value of the depth buffer when choosing TMin to save some traversal time
-            bool includeDepthBuffer = true;
-            if (includeDepthBuffer && isInScreen)
+            if (isInScreen)
             {
                 const float epsilon = gData.radius * 0.01;
                 //const float epsilon = 0.0;
+                float objectSpaceZ;
                 if(PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
-                {
-                    float objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
-                    curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
-                    ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
-                }
-                else if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
-                {
-                    float objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);
-                    curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
-                    ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
-                }
+                    objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
+                else// if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
+                    objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
             }
 
                 // skip procedural and force all triangle to be handled by any-hit traversal
