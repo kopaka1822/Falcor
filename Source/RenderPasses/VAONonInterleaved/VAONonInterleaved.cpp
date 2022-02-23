@@ -134,7 +134,8 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     if(!mpRasterPass) // this needs to be deferred because it needs the scene defines to compile
     {
         Program::DefineList defines;
-        defines.add("DEPTH_MODE", std::to_string(uint32_t(s.getPrimaryDepthMode())));
+        defines.add("PRIMARY_DEPTH_MODE", std::to_string(uint32_t(s.getPrimaryDepthMode())));
+        defines.add("SECONDARY_DEPTH_MODE", std::to_string(uint32_t(s.getSecondaryDepthMode())));
         defines.add(mpScene->getSceneDefines());
         mpRasterPass = FullScreenPass::create(kRasterShader, defines);
         mpRasterPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());

@@ -15,13 +15,6 @@ import Scene.Shading;
 // raytraced
 #define DEPTH_MODE_RAYTRACING 3
 
-#ifndef DEPTH_MODE
-#define DEPTH_MODE 1
-#endif
-#ifndef USE_RAYS
-#define USE_RAYS true
-#endif
-
 #define HALO_RADIUS (gData.radius * 3.0)
 #define CONST_RADIUS (gData.radius * 1.0)
 
@@ -136,4 +129,13 @@ float getAORadiusInPixels(float viewZ)
 {
     float uvRadius = (gData.radius * gCamera.data.focalLength) / (viewZ * gCamera.data.frameWidth);
     return uvRadius * gData.resolution.x;
+}
+
+float calcObjectSpaceZ(float3 posV, float3 normal, float2 uv, Texture2D depthTex)
+{
+    float linearSampleDepth = depthTex.SampleLevel(gTextureSampler, uv, 0).r;
+    float3 samplePosV = UVToViewSpace(uv, linearSampleDepth);
+            // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+    float objectSpaceZ = dot(samplePosV - posV, normal);
+    return objectSpaceZ;
 }

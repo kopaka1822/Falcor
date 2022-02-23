@@ -90,20 +90,27 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
         // sample position calculate uv position of sample
         float3 initialSamplePosV = posV + tangent * dir.x + bitangent * dir.y;
         float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
-        float curVisibility = 0.0f;
+        float curVisibility = 1.0f;
 
         float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
-            
+        const bool isInScreen = all(samplePosUV == screenUv);
+
         float2 rasterSamplePosUV = screenUv;
         rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
 
-        if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC) 
+        if (SECONDARY_DEPTH_MODE == DEPTH_MODE_STOCHASTIC) 
         {
             // reuse old depth (this does not really cost much)
-            float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
-            float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-            float objectSpaceZ = dot(samplePosV - posV, normal);
-            curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+            if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
+            {
+                float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+            }
+            else if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
+            {
+                float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
+                curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
+            }
 
             float width, height;
             gDepthTex.GetDimensions(width, height);
@@ -124,7 +131,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                 curVisibility = min(curVisibility, newVisibility);
             }       
         }
-        else if (DEPTH_MODE == DEPTH_MODE_RAYTRACING)
+        else if (SECONDARY_DEPTH_MODE == DEPTH_MODE_RAYTRACING)
         {
             // to be consistent with the rasterizer, we snap the uv coordinate as well to the pixel center,
             // but we do not clip it since we can shoot outside of the screen space
@@ -144,6 +151,26 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
             float tConstRadiusStart = (posVLength - sphereHeight - CONST_RADIUS) * initialSamplePosLength / posVLength;
             ray.TMin = max(tHaloStart, 0.0); // TODO include buffer value?
             ray.TMax = tSphereEnd;
+
+            // include the value of the depth buffer when choosing TMin to save some traversal time
+            bool includeDepthBuffer = true;
+            if (includeDepthBuffer && isInScreen)
+            {
+                const float epsilon = gData.radius * 0.01;
+                //const float epsilon = 0.0;
+                if(PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
+                {
+                    float objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
+                    curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                    ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
+                }
+                else if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
+                {
+                    float objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);
+                    curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                    ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
+                }
+            }
 
                 // skip procedural and force all triangle to be handled by any-hit traversal
             RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_NON_OPAQUE > rayQuery;
@@ -172,7 +199,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                     if (isAlphaTested)
                     {
                         const VertexData v = gScene.getVertexData(hit);
-                        if (gScene.materials.alphaTest(v, materialID, 0.0))    
+                        if (gScene.materials.alphaTest(v, materialID, 0.0)) // TODO correct lod?   
                             continue; // alpha test failed => ignore this triangle
                     }
 
@@ -199,7 +226,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
             float sphereVisibility = calcSphereVisibility(posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
             float haloVisibility = calcHaloVisibility(posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
 
-            curVisibility = min(sphereVisibility, haloVisibility); // divide sampled range by pdf (monte carlo)
+            curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
         }
 
         const float pdf = 2.0 * sphereHeight;

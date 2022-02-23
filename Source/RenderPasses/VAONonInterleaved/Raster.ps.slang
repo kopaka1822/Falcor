@@ -86,7 +86,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         bool hybridRay = false;
 
         float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
-        if (any(samplePosUV != screenUv))
+        if (any(samplePosUV != screenUv) && SECONDARY_DEPTH_MODE == DEPTH_MODE_RAYTRACING)
             hybridRay = true; // always shoot rays for screen border
             
         float2 rasterSamplePosUV = screenUv;
@@ -99,20 +99,15 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         }
         else
         {
-            float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
-            float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-            // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
-            float objectSpaceZ = dot(samplePosV - posV, normal);
+            float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
             curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
             // require hybrid ray if intersection is outside of sphere radius
-            if (DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
+            if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
                 hybridRay = true;
 
-            if (DEPTH_MODE == DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
+            if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
             {
-                float linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, rasterSamplePosUV, 0).r;
-                float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-                float objectSpaceZ = dot(samplePosV - posV, normal);
+                float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
                 curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
                 if (objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
                     hybridRay = true;
