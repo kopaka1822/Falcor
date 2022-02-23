@@ -65,4 +65,5 @@ private:
 
     Fbo::SharedPtr mpFbo;
     FullScreenPass::SharedPtr mpPass;
+    FullScreenPass::SharedPtr mpPassMS; // multisampling
 };

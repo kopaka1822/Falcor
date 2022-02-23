@@ -36,6 +36,7 @@ namespace
     const std::string kTexOut = "texOut";
 
     const std::string kProgram = "RenderPasses/DeinterleaveTexture/Deinterleave.slang";
+    const std::string kProgramMS = "RenderPasses/DeinterleaveTexture/DeinterleaveMS.slang";
 }
 
 const RenderPass::Info DeinterleaveTexture::kInfo = { "DeinterleaveTexture", kDesc };
@@ -72,31 +73,40 @@ mMaxRenderTargetCount(Fbo::getMaxColorTargetCount())
 
     mpFbo = Fbo::create();
     mpPass = FullScreenPass::create(kProgram);
+    mpPassMS = FullScreenPass::create(kProgramMS);
 }
 
 RenderPassReflection DeinterleaveTexture::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
-    reflector.addInput(kTexIn, "texture 2D").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 1, 1, 1);
-    auto& outField = reflector.addOutput(kTexOut, "texture 2D array").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource).texture2D(0, 0, 1, 1, mSize).format(mLastFormat);
+    reflector.addInput(kTexIn, "texture 2D").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 0, 1, 1);
+    auto& outField = reflector.addOutput(kTexOut, "texture 2D array").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource).texture2D(0, 0, 0, 1, mSize).format(mLastFormat);
     mReady = false;
 
     auto edge = compileData.connectedResources.getField(kTexIn);
     if(edge)
     {
-        const auto inputFormat = edge->getFormat();
+        auto inputFormat = edge->getFormat();
         auto srcWidth = edge->getWidth();
         if (srcWidth == 0) srcWidth = compileData.defaultTexDims.x;
         auto srcHeight = edge->getHeight();
         if (srcHeight == 0) srcHeight = compileData.defaultTexDims.y;
+        auto sampleCount = edge->getSampleCount();
+
+        // in case the input format is a depth format => convert to render target format
+        if(isDepthFormat(inputFormat))
+        {
+            inputFormat = depthToRendertargetFormat(inputFormat);
+        }
+
         mLastFormat = inputFormat;
 
         // reduce the size of the target texture
         auto dstWidth = (srcWidth + mWidth - 1) / mWidth;
         auto dstHeight = (srcHeight + mHeight - 1) / mHeight;
 
-        outField.format(inputFormat).texture2D(dstWidth, dstHeight, 1, 1, mSize);
+        outField.format(inputFormat).texture2D(dstWidth, dstHeight, sampleCount, 1, mSize);
         mReady = true;
     }
 
@@ -113,15 +123,17 @@ void DeinterleaveTexture::compile(RenderContext* pContext, const CompileData& co
     auto inFormat = edge->getFormat();
     auto formatDesc = kFormatDesc[(uint32_t)inFormat];
 
+    std::string type;
     // set correct format type
     switch(formatDesc.channelCount)
     {
-    case 1: mpPass->getProgram()->addDefine("type", "float"); break;
-    case 2: mpPass->getProgram()->addDefine("type", "float2"); break;
-    case 3: mpPass->getProgram()->addDefine("type", "float3"); break;
-    case 4: mpPass->getProgram()->addDefine("type", "float4"); break;
+    case 1: type = "float"; break;
+    case 2: type = "float2"; break;
+    case 3: type = "float3"; break;
+    case 4: type = "float4"; break;
     }
-
+    mpPass->addDefine("type", type);
+    mpPassMS->addDefine("type", type);
 }
 
 void DeinterleaveTexture::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -129,7 +141,10 @@ void DeinterleaveTexture::execute(RenderContext* pRenderContext, const RenderDat
     auto pTexIn = renderData[kTexIn]->asTexture();
     auto pTexOut = renderData[kTexOut]->asTexture();
 
-    mpPass["src"] = pTexIn;
+    auto pass = mpPass;
+    if (pTexIn->getSampleCount() > 1) pass = mpPassMS;
+
+    pass["src"] = pTexIn;
     for(uint32_t slice = 0; slice < mSize; slice += 8)
     {
         for(uint slot = 0; slot < 8; ++slot)
@@ -138,8 +153,8 @@ void DeinterleaveTexture::execute(RenderContext* pRenderContext, const RenderDat
             mpFbo->attachColorTarget(pTexOut, slot, 0, slice + slot, 1);
         }
 
-        mpPass["PassData"]["offset"] = slice;
-        mpPass->execute(pRenderContext, mpFbo);
+        pass["PassData"]["offset"] = slice;
+        pass->execute(pRenderContext, mpFbo);
     }
 }
 

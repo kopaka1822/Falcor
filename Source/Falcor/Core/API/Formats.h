@@ -404,6 +404,24 @@ namespace Falcor
         }
     }
 
+    inline ResourceFormat depthToRendertargetFormat(ResourceFormat format)
+    {
+        switch (format)
+        {
+        case ResourceFormat::D16Unorm:
+            return ResourceFormat::R16Unorm;
+        case ResourceFormat::D24UnormS8:
+            return ResourceFormat::D16Unorm; // this should be ok 
+        case ResourceFormat::D32Float:
+            return ResourceFormat::R32Float;
+        case ResourceFormat::D32FloatS8X24:
+            return ResourceFormat::R32Float;
+        default:
+            FALCOR_ASSERT(isDepthFormat(format) == false);
+            return format;
+        }
+    }
+
     inline bool doesFormatHaveAlpha(ResourceFormat format)
     {
         if (getFormatChannelCount(format) == 4)

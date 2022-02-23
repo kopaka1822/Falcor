@@ -8,5 +8,6 @@
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="Deinterleave.slang" />
+    <ShaderSource Include="DeinterleaveMS.slang" />
   </ItemGroup>
 </Project>
