@@ -117,7 +117,7 @@ RenderPassReflection HBAOPlusInterleaved::reflect(const CompileData& compileData
     reflector.addInput(kDepth, "linear-depth").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 1, 1, 16);
     reflector.addInput(kDepth2, "linear-depth2").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 1, 1, 16);
     reflector.addInput(kNormal, "normals").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(ksDepth, "linearized stochastic depths").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 0);
+    reflector.addInput(ksDepth, "linearized stochastic depths").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 0, 1, 0);
     auto& out = reflector.addOutput(kAmbientMap, "ambient occlusion").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Unorm).texture2D(0, 0, 1, 1, 16);
     mReady = false;
 
@@ -143,9 +143,11 @@ void HBAOPlusInterleaved::compile(RenderContext* pContext, const CompileData& co
 
     // static defines
     auto sdepths = compileData.connectedResources.getField(ksDepth);
-    if (!sdepths) return;
+    if (!sdepths) throw std::runtime_error("HBAOPlusInterleaved::compile - missing incoming reflection information");
 
     mpPass->getProgram()->addDefine("MSAA_SAMPLES", std::to_string(sdepths->getSampleCount()));
+    if (sdepths->getArraySize() == 1) mpPass->getProgram()->removeDefine("STOCHASTIC_ARRAY");
+    else mpPass->getProgram()->addDefine("STOCHASTIC_ARRAY");
 }
 
 void HBAOPlusInterleaved::execute(RenderContext* pRenderContext, const RenderData& renderData)

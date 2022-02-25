@@ -39,7 +39,7 @@ SamplerState gTextureSampler;
 Texture2D<float> gDepthTexQuarter;
 Texture2D<float> gDepthTex2Quarter;
 
-Texture2DMS<float> gsDepthTex;
+Texture2DMSArray<float> gsDepthTex;
 
 Texture2D gNormalTex;
 Texture2D gNoiseTex; // xy = random normalized direciton, zw = normalized random number => SNORM texture format
@@ -177,14 +177,12 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             if (DEPTH_MODE == DEPTH_MODE_SINGLE)
             {
                 float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
-                // TODO? could check for depth == farZ
                 float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
                 AO += ComputeAO(ViewPosition, ViewNormal, S);
             }
             else if (DEPTH_MODE == DEPTH_MODE_DUAL)
             {
                 float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
-                // TODO? could check for depth == farZ
                 float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
                 float ao = 0.0;
                 [branch] if (RecomputeAO(ViewPosition, ViewNormal, S, ao))
@@ -198,18 +196,25 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
             {
                 float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
-                // TODO? could check for depth == farZ
+                
                 float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
                 float ao = 0.0;
                 [branch] if (RecomputeAO(ViewPosition, ViewNormal, S, ao))
                 {
-                    // TODO try to use sampler
+                    #ifdef STOCHASTIC_ARRAY
+                    int2 pixelCoord = int2(floor(snappedSampleUV * gData.resolution * 0.25));
+                    #else
                     int2 pixelCoord = int2(floor(snappedSampleUV * gData.resolution));
+                    #endif
                     const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
                     const float depthOffset = gCamera.data.nearZ;
                     [unroll] for (uint i = 0; i < MSAA_SAMPLES; ++i)
                     {
-                        float linearSampleDepth = gsDepthTex.Load(pixelCoord, i);
+                        #ifdef STOCHASTIC_ARRAY
+                        float linearSampleDepth = gsDepthTex.Load(int3(pixelCoord, sliceIndex), i);
+                        #else
+                        float linearSampleDepth = gsDepthTex.Load(int3(pixelCoord, 0), i);
+                        #endif
                         // linearSampleDepth is in [0, 1] => scale accordingly
                         linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
                         float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
