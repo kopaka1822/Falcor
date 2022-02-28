@@ -96,3 +96,18 @@ Texture::SharedPtr VAOSettings::genNoiseTexture()
 
     return Texture::create2D(4u, 4u, ResourceFormat::RG8Snorm, 1, 1, data.data());
 }
+
+std::vector<float2> VAOSettings::genNoiseTextureCPU()
+{
+    std::vector<float2> data;
+    data.resize(16u);
+
+    std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
+    for (uint32_t i = 0; i < 16u; i++)
+    {
+        // Random directions on the XY plane
+        auto theta = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
+        data[i] = float2(sin(theta), cos(theta));
+    }
+    return data;
+}

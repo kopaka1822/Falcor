@@ -20,10 +20,11 @@ public:
 
     void setResolution(uint x, uint y)
     {
-        float2 resolution = float2(x, y);
-        mData.resolution = resolution;
-        mData.invResolution = float2(1.0f) / resolution;
-        mData.noiseScale = resolution / 4.0f; // noise texture is 4x4 resolution
+        mData.resolution = float2(x, y);
+        mData.invResolution = float2(1.0f) / mData.resolution;
+        mData.quarterResolution = float2((x + 3u) / 4u, (y + 3u) / 4u);
+        mData.invQuarterResolution = float2(1.0f) / mData.quarterResolution;
+;       mData.noiseScale = mData.resolution / 4.0f; // noise texture is 4x4 resolution
         mDirty = true;
     }
 
@@ -34,6 +35,7 @@ public:
     bool getRayPipeline() const { return mUseRayPipeline; }
 
     static Texture::SharedPtr genNoiseTexture();
+    static std::vector<float2> genNoiseTextureCPU();
 private: 
     VAOSettings() = default;
 

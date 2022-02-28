@@ -26,22 +26,43 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #pragma once
-#include "Utils/HostDeviceShared.slangh"
+#include "Falcor.h"
+#include "../SSAO/DepthMode.h"
 
-#define NUM_DIRECTIONS 8
+using namespace Falcor;
 
-BEGIN_NAMESPACE_FALCOR
-
-struct VAOData
+class VAOInterleaved : public RenderPass
 {
-    float2 noiseScale = float2(1, 1);
-    float2 resolution;
-    float2 invResolution;
-    float radius = 0.5f;
-    float exponent = 1.0f;
-    // for interleaved
-    float2 quarterResolution;
-    float2 invQuarterResolution;
-};
+public:
+    using SharedPtr = std::shared_ptr<VAOInterleaved>;
 
-END_NAMESPACE_FALCOR
+    static const Info kInfo;
+
+    /** Create a new render pass object.
+        \param[in] pRenderContext The render context.
+        \param[in] dict Dictionary of serialized parameters.
+        \return A new object, or an exception is thrown if creation failed.
+    */
+    static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
+
+    virtual Dictionary getScriptingDictionary() override;
+    virtual RenderPassReflection reflect(const CompileData& compileData) override;
+    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
+    virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
+    virtual void renderUI(Gui::Widgets& widget) override;
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
+    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
+    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
+
+private:
+    VAOInterleaved(const Dictionary& dict);
+
+    Fbo::SharedPtr mpFbo;
+
+    Sampler::SharedPtr mpTextureSampler;
+    FullScreenPass::SharedPtr mpRasterPass;
+
+    Scene::SharedPtr mpScene;
+    std::vector<float2> mNoiseTexture;
+    bool mReady = false;
+};
