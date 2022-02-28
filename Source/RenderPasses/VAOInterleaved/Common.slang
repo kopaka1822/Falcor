@@ -3,7 +3,7 @@ import Scene.Intersection;
 import Scene.Shading;
 
 #include "../VAONonInterleaved/VAOData.slang"
-#include "Scene/Material/MaterialDefines.slangh"
+//#include "Scene/Material/MaterialDefines.slangh"
 
 // single depth texture
 #define DEPTH_MODE_SINGLE 0
@@ -43,6 +43,7 @@ SamplerState gTextureSampler;
 //Texture2D<float> gDepthTex2;
 Texture2D<float> gDepthTexQuarter;
 Texture2D<float> gDepthTex2Quarter;
+Texture2DMS<float> gsDepthTex;
 
 Texture2D gNormalTex;
 
@@ -51,10 +52,22 @@ float2 getScreenClampedUV(float2 uvstart, float2 uvend)
     return saturate(uvend); // this actually does not make much of a difference but costs a little bit more...
 }
 
+float2 getScreenClampedUVQuarterRes(float2 uvstart, float2 uvend)
+{
+    return saturate(uvend); // this actually does not make much of a difference but costs a little bit more...
+}
+
 float2 getSnappedUV(float2 uv)
 {
     float2 pixelCoord = floor(uv * gData.resolution);
     return float2((pixelCoord.x + 0.5f) / gData.resolution.x, (pixelCoord.y + 0.5f) / gData.resolution.y);
+}
+
+float2 getSnappedUVQuarterRes(float2 uv)
+{
+    // use pixel coordinate in the quarter resolution texture and calculate the full screen pixel coordinate
+    float2 pixelCoordFullRes = floor(uv * gData.quarterResolution) * 4.0 + quarterOffset + 0.5;
+    return pixelCoordFullRes * gData.invResolution;
 }
 
 bool isSamePixel(float2 uv1, float2 uv2)
@@ -137,7 +150,7 @@ float calcObjectSpaceZ(float3 posV, float3 normal, float2 uv, Texture2D<float> d
 {
     float linearSampleDepth = depthTex.SampleLevel(gTextureSampler, uv, 0);
     float3 samplePosV = UVToViewSpace(uv, linearSampleDepth);
-            // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+    // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
     float objectSpaceZ = dot(samplePosV - posV, normal);
     return objectSpaceZ;
 }

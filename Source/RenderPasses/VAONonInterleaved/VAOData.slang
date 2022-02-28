@@ -28,8 +28,6 @@
 #pragma once
 #include "Utils/HostDeviceShared.slangh"
 
-#define NUM_DIRECTIONS 8
-
 BEGIN_NAMESPACE_FALCOR
 
 struct VAOData
