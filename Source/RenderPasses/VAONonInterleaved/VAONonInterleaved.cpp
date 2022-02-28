@@ -152,7 +152,8 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     }
 
     auto accessStencilUAV = pAccessStencil->getUAV(0);
-    pRenderContext->clearUAV(accessStencilUAV.get(), uint4(0u));
+    if(s.getSecondaryDepthMode() == DepthMode::StochasticDepth)
+        pRenderContext->clearUAV(accessStencilUAV.get(), uint4(0u));
 
     mpFbo->attachColorTarget(pAoDst, 0);
     mpFbo->attachColorTarget(pStencil, 1);
