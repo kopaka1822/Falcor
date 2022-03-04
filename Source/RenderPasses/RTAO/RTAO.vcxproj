@@ -11,11 +11,11 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{99799BA5-6503-425C-BFCC-8B94E6A40D1D}</ProjectGuid>
+    <ProjectGuid>{02D131D6-B7EF-4D96-847C-6BA69A500266}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>PathTracer</RootNamespace>
+    <RootNamespace>RTAO</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ProjectName>PathTracer</ProjectName>
+    <ProjectName>RTAO</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -25,29 +25,15 @@
     <Import Project="..\..\Falcor\Falcor.props" />
   </ImportGroup>
   <ItemGroup>
-    <ClCompile Include="PathTracer.cpp" />
+    <ClCompile Include="RTAO.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="PathTracer.h" />
+    <ClInclude Include="RTAO.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Falcor\Falcor.vcxproj">
       <Project>{2c535635-e4c5-4098-a928-574f0e7cd5f9}</Project>
     </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <ShaderSource Include="GeneratePaths.cs.slang" />
-    <ShaderSource Include="GuideData.slang" />
-    <ShaderSource Include="LoadShadingData.slang" />
-    <ShaderSource Include="NRDHelpers.slang" />
-    <ShaderSource Include="Params.slang" />
-    <ShaderSource Include="PathState.slang" />
-    <ShaderSource Include="PathTracer.slang" />
-    <ShaderSource Include="ReflectTypes.cs.slang" />
-    <ShaderSource Include="ResolvePass.cs.slang" />
-    <ShaderSource Include="ColorType.slang" />
-    <ShaderSource Include="StaticParams.slang" />
-    <ShaderSource Include="TracePass.rt.slang" />
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>

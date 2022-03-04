@@ -712,10 +712,7 @@ namespace Falcor
         {
             return addScalarVarHelper(label, var, ImGuiDataType_Double, minVal, maxVal, step, sameLine, displayFormat);
         }
-        else
-        {
-            static_assert(false, "Unsupported data type");
-        }
+        else throw RuntimeError("GuiImpl::addScalarVar Unsupported data type");
     }
 
     template<typename T>
@@ -755,10 +752,7 @@ namespace Falcor
         {
             return addScalarSliderHelper(label, var, ImGuiDataType_Double, minVal, maxVal, sameLine, displayFormat);
         }
-        else
-        {
-            static_assert(false, "Unsupported data type");
-        }
+        else throw RuntimeError("GuiImpl::addScalarSlider Unsupported data type");
     }
 
     template<typename T>
@@ -799,10 +793,7 @@ namespace Falcor
         {
             return addVecVarHelper(label, var, ImGuiDataType_U64, minVal, maxVal, step, sameLine, displayFormat);
         }
-        else
-        {
-            static_assert(false, "Unsupported data type");
-        }
+        else throw RuntimeError("GuiImpl::addVecVar Unsupported data type");
     }
 
     template<typename T>
@@ -838,10 +829,7 @@ namespace Falcor
         {
             return addVecSliderHelper(label, var, ImGuiDataType_Float, minVal, maxVal, sameLine, displayFormat);
         }
-        else
-        {
-            static_assert(false, "Unsupported data type");
-        }
+        else throw RuntimeError("GuiImpl::addVecSlider Unsupported data type");
     }
 
     template<typename MatrixType>

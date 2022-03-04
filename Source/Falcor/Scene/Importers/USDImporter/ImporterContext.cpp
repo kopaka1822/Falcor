@@ -669,10 +669,7 @@ namespace Falcor
                     logWarning("Curve '{}' has no texture coordinates.", curveName);
                 }
             }
-            else
-            {
-                static_assert(false, "Unsupported geometry output type in convertCurveGeomData");
-            }
+            else throw RuntimeError("convertCurveGeomData Unsupported data type");
 
             return true;
         }
