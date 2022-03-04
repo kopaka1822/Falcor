@@ -130,6 +130,9 @@
     <ProjectReference Include="..\RenderPasses\PixelInspectorPass\PixelInspectorPass.vcxproj">
       <Project>{80ddde59-a412-4e64-880a-6b52697c967b}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\RTAO\RTAO.vcxproj">
+      <Project>{02d131d6-b7ef-4d96-847c-6ba69a500266}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\RTXDIPass\RTXDIPass.vcxproj">
       <Project>{8f778354-93d9-4030-b55f-19137650780d}</Project>
     </ProjectReference>

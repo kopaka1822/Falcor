@@ -27,6 +27,7 @@
  **************************************************************************/
 #pragma once
 #include "Falcor.h"
+#include "RTAOData.slang"
 
 using namespace Falcor;
 
@@ -46,13 +47,27 @@ public:
 
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
+    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    RTAO() : RenderPass(kInfo) {}
+    RTAO();
+    static Texture::SharedPtr genSamplesTexture(uint size);
+
+    RtProgram::SharedPtr mRayProgram;
+    RtProgramVars::SharedPtr mRayVars;
+
+    Scene::SharedPtr mpScene;
+
+    bool mEnabled = true;
+
+    Texture::SharedPtr mpSamplesTex;
+    uint frameIndex = 0;
+
+    RTAOData mData;
+    bool mDirty = true;
 };

@@ -282,4 +282,5 @@ void VAONonInterleaved2::setScene(RenderContext* pRenderContext, const Scene::Sh
 {
     mpScene = pScene;
     mpRasterPass.reset(); // new scene defines => recompile
+    mpRayProgram.reset();
 }

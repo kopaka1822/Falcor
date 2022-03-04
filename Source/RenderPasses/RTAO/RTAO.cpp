@@ -27,10 +27,19 @@
  **************************************************************************/
 #include "RTAO.h"
 
+#include <glm/gtc/random.hpp>
+
 namespace
 {
     const char kDesc[] = "Ray Traced (noisy) AO";
 
+    const std::string kDepth = "depth";
+    const std::string kNormal = "normals";
+    const std::string kMotionVec = "mvec";
+    const std::string kAmbient = "ambient";
+
+    const std::string kRayShader = "RenderPasses/RTAO/Ray.rt.slang";
+    const uint32_t kMaxPayloadSize = 4;
 }
 
 const RenderPass::Info RTAO::kInfo { "RTAO", kDesc };
@@ -57,21 +66,124 @@ Dictionary RTAO::getScriptingDictionary()
     return Dictionary();
 }
 
+RTAO::RTAO() : RenderPass(kInfo)
+{
+    mpSamplesTex = genSamplesTexture(5312);
+}
+
 RenderPassReflection RTAO::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
-    //reflector.addOutput("dst");
-    //reflector.addInput("src");
+    reflector.addInput(kDepth, "non-linear depth");
+    reflector.addInput(kNormal, "world space normals");
+    //reflector.addInput(kMotionVec, "motion vectors");
+    reflector.addOutput(kAmbient, "ambient map").format(ResourceFormat::R8Unorm);
     return reflector;
+}
+
+void RTAO::compile(RenderContext* pRenderContext, const CompileData& compileData)
+{
+    mRayProgram.reset();
+    mDirty = true;
+    mData.resolution = float2(compileData.defaultTexDims);
 }
 
 void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // renderData holds the requested resources
-    // auto& pTexture = renderData["src"]->asTexture();
+    if (!mpScene) return;
+
+    auto pDepth = renderData[kDepth]->asTexture();
+    auto pNormal = renderData[kNormal]->asTexture();
+    //auto pMotionVec = renderData[kMotionVec]->asTexture();
+    auto pAmbient = renderData[kAmbient]->asTexture();
+
+    if(!mEnabled)
+    {
+        pRenderContext->clearTexture(pAmbient.get(), float4(1.0f));
+        return;
+    }
+
+    if(!mRayProgram)
+    {
+        Program::DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+
+        RtProgram::Desc desc;
+        desc.addShaderLibrary(kRayShader);
+        desc.setMaxPayloadSize(kMaxPayloadSize);
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1);
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        RtBindingTable::SharedPtr sbt = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setMiss(0, desc.addMiss("miss"));
+        sbt->setHitGroup(0, mpScene->getGeometryIDs(GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+        // TODO add remaining primitives
+        mRayProgram = RtProgram::create(desc, defines);
+        mRayVars = RtProgramVars::create(mRayProgram, sbt);
+        mDirty = true;
+
+        // set constants
+        mRayVars["gSamples"] = mpSamplesTex;
+    }
+
+    if(mDirty)
+    {
+        // adjust resolution
+        mData.resolution = float2(renderData.getDefaultTextureDims());
+        mData.invResolution = float2(1.0f) / mData.resolution;
+        mRayVars["StaticCB"].setBlob(mData);
+        mDirty = false;
+    }
+
+    // per frame data
+    auto pCamera = mpScene->getCamera().get();
+    pCamera->setShaderData(mRayVars["PerFrameCB"]["gCamera"]);
+    mRayVars["PerFrameCB"]["frameIndex"] = frameIndex++;
+
+    // resources
+    mRayVars["gDepthTex"] = pDepth;
+    mRayVars["gNormalTex"] = pNormal;
+    mRayVars["ambientOut"] = pAmbient;
+
+    mpScene->raytrace(pRenderContext, mRayProgram.get(), mRayVars, uint3(pAmbient->getWidth(), pAmbient->getHeight(), 1));
 }
 
 void RTAO::renderUI(Gui::Widgets& widget)
 {
+    widget.checkbox("Enabled", mEnabled);
+    if (!mEnabled) return;
+
+    if (widget.var("Sample Radius", mData.radius, 0.01f, FLT_MAX, 0.01f)) mDirty = true;
+
+    if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
+}
+
+void RTAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
+{
+    mpScene = pScene;
+    mRayProgram.reset();
+}
+
+Texture::SharedPtr RTAO::genSamplesTexture(uint size)
+{
+    std::vector<uint32_t> data;
+    data.resize(size);
+
+    std::srand(89); // always use the same seed for the noise texture (linear rand uses std rand)
+    for (auto& dat : data)
+    {
+        float2 uv = glm::linearRand(float2(0.0f), float2(1.0f));
+        // Map to radius 1 hemisphere TODO verify
+        float phi = uv.y * 2.0f * (float)M_PI;
+        float t = std::sqrt(1.0f - uv.x);
+        float s = std::sqrt(1.0f - t * t);
+        float4 dir = float4(s * std::cos(phi), s * std::sin(phi), t, 0.0f);
+
+        dat = glm::packSnorm4x8(dir);
+    }
+
+    return Texture::create1D(size, ResourceFormat::RGBA8Snorm, 1, 1, data.data());
 }

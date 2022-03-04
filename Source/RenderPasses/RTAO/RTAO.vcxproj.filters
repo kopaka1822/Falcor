@@ -6,4 +6,8 @@
   <ItemGroup>
     <ClInclude Include="RTAO.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="RTAOData.slang" />
+    <ShaderSource Include="Ray.rt.slang" />
+  </ItemGroup>
 </Project>
