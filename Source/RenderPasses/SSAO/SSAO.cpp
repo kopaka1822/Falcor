@@ -175,6 +175,7 @@ void SSAO::compile(RenderContext* pRenderContext, const CompileData& compileData
     setNoiseTexture();
 
     mDirty = true; // texture size may have changed => reupload data
+    mpSSAOPass.reset();
 }
 
 void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -201,7 +202,7 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     if(mEnabled)
     {
-        if (mDirty || !mpSSAOPass)
+        if (!mpSSAOPass)
         {
             // program defines
             Program::DefineList defines;
@@ -213,7 +214,11 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
             mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
             mpSSAOPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
+            mDirty = true;
+        }
 
+        if (mDirty)
+        {
             // bind static resources
             mData.noiseScale = float2(pDepth->getWidth(), pDepth->getHeight()) / float2(mNoiseSize.x, mNoiseSize.y);
             mpSSAOPass["StaticCB"].setBlob(mData);
@@ -263,7 +268,7 @@ void SSAO::renderUI(Gui::Widgets& widget)
     uint32_t depthMode = (uint32_t)mDepthMode;
     if (widget.dropdown("Depth Mode", kDepthModeDropdown, depthMode)) {
         mDepthMode = (DepthMode)depthMode;
-        mDirty = true;
+        mpSSAOPass.reset();
     }
 
     uint32_t shaderVariant = (uint32_t)mShaderVariant;
@@ -305,7 +310,7 @@ void SSAO::setDistribution(uint32_t distribution)
 void SSAO::setShaderVariant(uint32_t variant)
 {
     mShaderVariant = (ShaderVariant)variant;
-    mDirty = true;
+    mpSSAOPass.reset();
 }
 
 void SSAO::setKernel()

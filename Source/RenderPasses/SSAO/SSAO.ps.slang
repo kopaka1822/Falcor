@@ -70,8 +70,12 @@ import Scene.Raster;
 #define RAY_MODE_LONG_RAYS_FIRST_HIT 3
 
 // removed and defaulted to tangent space
-//#define TANGENT_SPACE TANGENT_SPACE_CAMERA_ORIENTED
-#define HEMISPHERE_SAMPLING true
+// this samples the hemisphere with the sphere center at the sampling position
+#define SAMPLE_MODE_HEMISPHERE 0
+// this samples a complete sphere, where the center is offsettet by normal*radius (VAO++)
+#define SAMPLE_MODE_SPHERE 1
+#define SAMPLE_MODE SAMPLE_MODE_HEMISPHERE
+
 #define PREVENT_DARK_HALOS 1
 #define FRONT_FACE_NORMALS true
 // full radius of the halo
@@ -288,18 +292,24 @@ float
 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0);
-    if (linearDepth >= gCamera.data.farZ)
+    if (linearDepth >= gCamera.data.farZ * 0.99)
         return 1.0f;
 
     // view space position of current pixel
-    const float3 posV = UVToViewSpace(texC, linearDepth);
-    const float posVLength = length(posV);
+    float3 posV = UVToViewSpace(texC, linearDepth);
 
     // view space normal of current pixel
     float3 normalW = gNormalTex.SampleLevel(gTextureSampler, texC, 0).xyz;
     float3 normalV = mul(normalW, float3x3(gCamera.data.viewMat));
     if (FRONT_FACE_NORMALS && dot(posV, normalV) > 0.0)
         normalV = -normalV;
+
+    // move sampling sphere
+    if (SAMPLE_MODE == SAMPLE_MODE_SPHERE)
+    {
+        posV += normalize(normalV) * gData.radius;
+    }
+    const float posVLength = length(posV);
 
     // Calculate tangent space (use random direction for tangent orientation)
     float2 randDir = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0).xy;
@@ -337,7 +347,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         //if (PREVENT_DARK_HALOS)
         //    haloStart = sphereStart + HALO_RADIUS;
 
-        if (HEMISPHERE_SAMPLING) // determine correct sphereStart and sphereEnd for hemisphere
+        if (SAMPLE_MODE == SAMPLE_MODE_HEMISPHERE) // determine correct sphereStart and sphereEnd for hemisphere
         {
             //float zIntersect = -dot(rand.xy, normalO.xy) / normalO.z;
             float zIntersect = -dot(rand.xy, normalO.xy) / makeNonZero(normalO.z, 0.0001);
@@ -575,11 +585,18 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     }
 
     float AO = visibility / float(gData.kernelSize);
+
+    // values should range from 0 for occluded, to 1 for visible
+    if (SAMPLE_MODE == SAMPLE_MODE_SPHERE) 
+        AO = saturate(AO);
+
     // since fully visibile are all values in [0.5, 1.0], scale accordingly
-    AO = saturate(AO * 2.0);
+    if (SAMPLE_MODE == SAMPLE_MODE_HEMISPHERE)
+        AO = saturate(AO * 2.0);
+
     // do artistic modifications
     AO = pow(AO, gData.exponent);
-
+    //AO = 1.0;
     #ifndef COLOR_MAP
     return AO;
     #else
