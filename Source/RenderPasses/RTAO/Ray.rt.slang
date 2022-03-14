@@ -2,9 +2,11 @@ import Scene.Camera.Camera;
 import RTAOData;
 import Scene.Intersection;
 import Scene.Raytracing;
+import Utils.Geometry.GeometryHelpers;
 
 Texture2D<float> gDepthTex;
 Texture2D<float3> gNormalTex;
+Texture2D<float3> gFaceNormalTex;
 RWTexture2D<float> ambientOut;
 
 Texture1D<float4> gSamples;
@@ -121,7 +123,7 @@ void rayGen()
     RayDesc ray;
     ray.Origin = getWorldPosition(svPos, depth);
     ray.Direction = normalize(tangent * randDir.x + bitangent * randDir.y + normal * randDir.z);
-    ray.Origin += normal * 0.05; // push origin in the direction of the face normal to avoid self intersection
+    ray.Origin += gFaceNormalTex[svPos] * gData.rayNormalOffset; // push origin in the direction of the face normal to avoid self intersection
     ray.TMin = 0.0;
     ray.TMax = gData.radius;
 

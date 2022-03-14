@@ -69,5 +69,6 @@ private:
     uint frameIndex = 0;
 
     RTAOData mData;
+    float mRayNormalOffset = 0.05f;
     bool mDirty = true;
 };

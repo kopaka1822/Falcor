@@ -35,6 +35,7 @@ namespace
 
     const std::string kDepth = "depth";
     const std::string kNormal = "normals";
+    const std::string kFaceNormal = "faceNormal";
     const std::string kMotionVec = "mvec";
     const std::string kAmbient = "ambient";
 
@@ -77,6 +78,7 @@ RenderPassReflection RTAO::reflect(const CompileData& compileData)
     RenderPassReflection reflector;
     reflector.addInput(kDepth, "non-linear depth");
     reflector.addInput(kNormal, "world space normals");
+    reflector.addInput(kFaceNormal, "world space face normals");
     //reflector.addInput(kMotionVec, "motion vectors");
     reflector.addOutput(kAmbient, "ambient map").format(ResourceFormat::R8Unorm);
     return reflector;
@@ -95,6 +97,7 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     auto pDepth = renderData[kDepth]->asTexture();
     auto pNormal = renderData[kNormal]->asTexture();
+    auto pFaceNormal = renderData[kFaceNormal]->asTexture();
     //auto pMotionVec = renderData[kMotionVec]->asTexture();
     auto pAmbient = renderData[kAmbient]->asTexture();
 
@@ -146,6 +149,7 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     // resources
     mRayVars["gDepthTex"] = pDepth;
     mRayVars["gNormalTex"] = pNormal;
+    mRayVars["gFaceNormalTex"] = pFaceNormal;
     mRayVars["ambientOut"] = pAmbient;
 
     mpScene->raytrace(pRenderContext, mRayProgram.get(), mRayVars, uint3(pAmbient->getWidth(), pAmbient->getHeight(), 1));
@@ -159,6 +163,9 @@ void RTAO::renderUI(Gui::Widgets& widget)
     if (widget.var("Sample Radius", mData.radius, 0.01f, FLT_MAX, 0.01f)) mDirty = true;
 
     if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
+
+    if (widget.var("Ray Normal Offset", mData.rayNormalOffset, 0.0f, FLT_MAX, 0.05f)) mDirty = true;
+    widget.tooltip("Offset factor for Ray starting point to avoid self intersection");
 }
 
 void RTAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)

@@ -10,6 +10,7 @@ struct RTAOData
     float2 invResolution;
     float radius = 0.5f;
     float exponent = 1.0f;
+    float rayNormalOffset = 0.05f;
 };
 
 END_NAMESPACE_FALCOR
