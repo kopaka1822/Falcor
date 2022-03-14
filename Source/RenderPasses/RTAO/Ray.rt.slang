@@ -104,8 +104,15 @@ void rayGen()
 
     // view space normal of current pixel
     float3 normal = normalize(gNormalTex[svPos]);
+    float3 faceNormal = normalize(gFaceNormalTex[svPos]);
 
-    // TODO flip normal if backfacing
+    //flip normal if backfacing
+    float3 camDir = normalize(gScene.camera.computeNonNormalizedRayDirPinhole(svPos, DispatchRaysDimensions().xy));
+    if (dot(camDir, faceNormal) > 0)
+    {
+        normal = -normal;
+        faceNormal = -faceNormal;
+    }
    
     // determine tangent space
     float3 bitangent = getTangentVector(normal);
@@ -123,7 +130,7 @@ void rayGen()
     RayDesc ray;
     ray.Origin = getWorldPosition(svPos, depth);
     ray.Direction = normalize(tangent * randDir.x + bitangent * randDir.y + normal * randDir.z);
-    ray.Origin += gFaceNormalTex[svPos] * gData.rayNormalOffset; // push origin in the direction of the face normal to avoid self intersection
+    ray.Origin += faceNormal * gData.rayNormalOffset; // push origin in the direction of the face normal to avoid self intersection
     ray.TMin = 0.0;
     ray.TMax = gData.radius;
 
