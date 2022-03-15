@@ -6,4 +6,8 @@
   <ItemGroup>
     <ClInclude Include="RTAODenoiser.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="TSSReverseReproject.cs.slang" />
+    <ShaderSource Include="RTAODenoiserData.slang" />
+  </ItemGroup>
 </Project>

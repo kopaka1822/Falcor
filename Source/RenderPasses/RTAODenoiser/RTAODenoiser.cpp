@@ -26,8 +26,27 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "RTAODenoiser.h"
+#include <RenderGraph/RenderPassHelpers.h>
 
-const RenderPass::Info RTAODenoiser::kInfo { "RTAODenoiser", "Insert pass description here." };
+const RenderPass::Info RTAODenoiser::kInfo { "RTAODenoiser", "Denoiser for noisy Ray Traced Ambient Occlusion." };
+
+namespace {
+    //Shader
+    const std::string kTSSReverseReprojectShader = "RenderPasses/RTAODenoiser/TSSReverseReproject.cs.slang";
+
+    //Inputs
+    const std::string kAOInputName = "aoImage";
+    const std::string kNormalInputName = "normal";
+    const std::string kDepthInputName = "depth";
+    const std::string kLinearDepthInputName = "linearDepth";
+    const std::string kMotionVecInputName = "mVec";
+
+    //Outputs
+    const std::string kDenoisedOutputName = "denoisedOut";
+
+    //Const
+    static const float kInvalidAPCoefficientValue = -1;
+}
 
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" FALCOR_API_EXPORT const char* getProjDir()
@@ -55,17 +74,148 @@ RenderPassReflection RTAODenoiser::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
-    //reflector.addOutput("dst");
-    //reflector.addInput("src");
+    reflector.addInput(kAOInputName, "Noisy Ambient Occlusion Image");
+    reflector.addInput(kNormalInputName, "World Space Normal");
+    reflector.addInput(kDepthInputName, "Camera Depth");
+    reflector.addInput(kLinearDepthInputName, "Linear Depth Derivatives");
+    reflector.addInput(kMotionVecInputName, "Motion Vector");
+
+    reflector.addOutput(kDenoisedOutputName, "Denoised output image");
+
     return reflector;
 }
 
 void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // renderData holds the requested resources
-    // auto& pTexture = renderData["src"]->asTexture();
+    
+    if (!mpScene) {
+        //empty output
+        pRenderContext->clearTexture(renderData[kDenoisedOutputName]->asTexture().get(), float4(1.0f));
+        return;
+    }
+
+    if (!mEnabled) {
+        //Copy the input AO Image to the output
+        //Input and output are on the 0 index for both channels lists
+        auto inputTex = renderData[kAOInputName]->asTexture();
+        auto outputTex = renderData[kDenoisedOutputName]->asTexture();
+        pRenderContext->copyResource(inputTex.get(), outputTex.get());
+        return;
+    }
+
+    if (mOptionsChange) {
+        // adjust resolution
+        mTSSRRData.resolution = float2(renderData.getDefaultTextureDims());
+        mTSSRRData.invResolution = float2(1.0f) / mTSSRRData.resolution;
+
+        mOptionsChange = false;
+    }
+
+    //TODO: Add toggle option for TSS
+    TemporalSupersamplingReverseReproject(pRenderContext, renderData);
+
 }
 
 void RTAODenoiser::renderUI(Gui::Widgets& widget)
 {
+    bool dirty = false;
+    dirty |= widget.checkbox("Enable", mEnabled);
+    widget.tooltip("If deactivated the input AO image will only be copied to the output");
+    //Only show rest if enabled
+    if (mEnabled) {
+        //Rest of the options
+    }
+    mOptionsChange = dirty;
+}
+
+void RTAODenoiser::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
+{
+    mpScene = pScene;
+    reset();
+}
+
+void RTAODenoiser::reset()
+{
+    //reset all passes
+    mCurrentFrame = 0;
+    mpTSSReverseReprojectPass.reset();
+    mTSSRRInternalTexReady = false;
+    mOptionsChange = true;
+}
+
+void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    //get render pass input tex
+    auto aoInputTex = renderData[kAOInputName]->asTexture();
+    auto normalTex = renderData[kNormalInputName]->asTexture();
+    auto depthTex = renderData[kDepthInputName]->asTexture();
+    auto linearDepthTex = renderData[kLinearDepthInputName]->asTexture();
+    auto motionVectorTex = renderData[kMotionVecInputName]->asTexture();
+
+    uint2 frameDim = uint2(aoInputTex->getWidth(), aoInputTex->getHeight());
+
+    //Create compute program if not set
+    if (!mpTSSReverseReprojectPass) {
+        Program::Desc desc;
+        desc.addShaderLibrary(kTSSReverseReprojectShader).csEntry("main").setShaderModel("6_5");
+        //desc.addTypeConformances(mpScene->getTypeConformances());
+
+        Program::DefineList defines;
+        defines.add("INVALID_AO_COEFFICIENT_VALUE", std::to_string(kInvalidAPCoefficientValue));
+        //defines.add(mpScene->getSceneDefines());
+
+        mpTSSReverseReprojectPass = ComputePass::create(desc, defines, true);
+    }
+
+    //create internal textures if not done before
+    if(!mTSSRRInternalTexReady) {
+        mPrevFrameNormalDepth = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RGBA32Float);
+        for (uint i = 0; i < 2; i++) {
+            mCachedTemporalTextures[i].tspp = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Uint);
+            mCachedTemporalTextures[i].value = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float);
+            mCachedTemporalTextures[i].valueSqMean = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float);
+            mCachedTemporalTextures[i].rayHitDepth = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float);
+        }
+
+        //Fill value with invalid value
+        for (uint i = 0; i < 2; i++) {
+            pRenderContext->clearTexture(mCachedTemporalTextures[i].value.get(), float4(kInvalidAPCoefficientValue, 0, 0, 0));
+        }
+
+        mCachedTsppValueSquaredValueRayHitDistance = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RGBA16Uint);
+        //Sampler
+        Sampler::Desc desc;
+        desc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
+        desc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
+        mClampSampler = Sampler::create(desc);
+
+        //TODO:: Assert all:
+        FALCOR_ASSERT(mClampSampler);
+        mTSSRRInternalTexReady = true;
+    }
+
+    // bind all input and output channels
+    ShaderVar var = mpTSSReverseReprojectPass->getRootVar();
+    var["StaticCB"].setBlob(mTSSRRData);    //TODO:: Set once and not every frame
+    //render pass inputs
+    var["gAOTex"] = aoInputTex;
+    var["gNormalTex"] = normalTex;
+    var["gDepthTex"] = depthTex;
+    var["gLinearDepthTex"] = linearDepthTex;
+    var["gMVecTex"] = motionVectorTex;
+    //bind internal textures (ping pong for some cached ones)
+    uint currentCachedIndex = (mCurrentFrame + 1) % 2;
+    uint prevCachedIndex = mCurrentFrame % 2;
+    var["gInCachedTspp"] = mCachedTemporalTextures[prevCachedIndex].tspp;
+    var["gInCachedValue"] = mCachedTemporalTextures[prevCachedIndex].value;
+    var["gInCachedValueSquaredMean"] = mCachedTemporalTextures[prevCachedIndex].valueSqMean;
+    var["gInCachedRayHitDepth"] = mCachedTemporalTextures[prevCachedIndex].rayHitDepth;
+    var["gOutCachedTspp"] = mCachedTemporalTextures[currentCachedIndex].tspp;
+
+    var["gInOutCachedNormalDepth"] = mPrevFrameNormalDepth;
+    var["gOutReprojectedCachedValues"] = mCachedTsppValueSquaredValueRayHitDistance;
+    //bind sampler
+    var["gSampler"] = mClampSampler;
+    
+    mpTSSReverseReprojectPass->execute(pRenderContext, uint3(frameDim, 1));
 }
