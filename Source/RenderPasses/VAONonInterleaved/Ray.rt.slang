@@ -227,7 +227,7 @@ void rayGen()
             float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
             float tHaloStart = (posVLength - sphereHeight - CONST_RADIUS - HALO_RADIUS) * initialSamplePosLength / posVLength;
             float tConstRadiusStart = (posVLength - sphereHeight - CONST_RADIUS) * initialSamplePosLength / posVLength;
-            ray.TMin = max(tHaloStart, 0.0); // TODO include buffer value?
+            ray.TMin = max(tHaloStart, 0.0);
             ray.TMax = tSphereEnd;
 
             // include the value of the depth buffer when choosing TMin to save some traversal time
