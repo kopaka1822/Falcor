@@ -16,6 +16,11 @@ cbuffer ScissorCB
     float2 uvMax;
 }
 
+cbuffer Direction
+{
+    float2 dir;
+}
+
 // static constants
 static float2 gUV; // uv of current sample
 static float2 gDUV; // current delta uv
@@ -60,7 +65,7 @@ float4 main(BlurPSIn pIn) : SV_TARGET
 
     gSrcTex.GetDimensions(gDUV.x, gDUV.y);
     //duv = rcp(duv) * float2(DIR);
-    gDUV = float2(1.0 / gDUV.x, 1.0 / gDUV.y) * float2(DIR);
+    gDUV = float2(1.0 / gDUV.x, 1.0 / gDUV.y) * dir;
     
     // initial weight (of center sample)
     float AO = gSrcTex.Sample(gSampler, gUV).x;

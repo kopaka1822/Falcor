@@ -73,7 +73,6 @@ CrossBilateralBlur::CrossBilateralBlur()
     RenderPass(kInfo)
 {
     mpFbo = Fbo::create();
-    mpFbo2 = Fbo::create();
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpSampler = Sampler::create(samplerDesc);
@@ -115,17 +114,9 @@ void CrossBilateralBlur::compile(RenderContext* pContext, const CompileData& com
     Program::DefineList defines;
     defines.add("KERNEL_RADIUS", std::to_string(mKernelRadius));
 
-    defines.add("DIR", "int2(1, 0)");
-    mpBlurX = FullScreenPass::create(kShaderPath, defines);
+    mpBlur = FullScreenPass::create(kShaderPath, defines);
 
-    defines.add("DIR", "int2(0, 1)");
-    mpBlurY = FullScreenPass::create(kShaderPath, defines);
-
-    // share program vars
-    //mpBlurY->setVars(mpBlurX->getVars());
-
-    mpBlurX["gSampler"] = mpSampler;
-    mpBlurY["gSampler"] = mpSampler;
+    mpBlur["gSampler"] = mpSampler;
 
     if ((compileData.defaultTexDims.x % 4 != 0) || (compileData.defaultTexDims.y % 4 != 0))
         logWarning("CrossBilateralBlur textures pixels are not a mutliple of size 4, this might results in artifacts!");
@@ -144,43 +135,33 @@ void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData
     assert(pColor->getFormat() == pPingPong->getFormat());
 
     // set resources if they changed
-    if(mpBlurX["gDepthTex"].getTexture() != pDepth)
+    if(mpBlur["gDepthTex"].getTexture() != pDepth)
     {
-        mpBlurX["gDepthTex"] = pDepth;
-        mpBlurY["gDepthTex"] = pDepth;
-    }
-    
-    if(mpBlurX["gSrcTex"].getTexture() != pColor)
-    {
-        mpBlurX["gSrcTex"] = pColor;
-        mpFbo2->attachColorTarget(pColor, 0);
-    }
-    
-    if(mpBlurY["gSrcTex"].getTexture() != pPingPong)
-    {
-        mpBlurY["gSrcTex"] = pPingPong;
-        mpFbo->attachColorTarget(pPingPong, 0);
+        mpBlur["gDepthTex"] = pDepth;
     }
 
-    setGuardBandScissors(*mpBlurX->getState(), renderData.getDefaultTextureDims(), mGuardBand);
-    setGuardBandScissors(*mpBlurY->getState(), renderData.getDefaultTextureDims(), mGuardBand);
+    setGuardBandScissors(*mpBlur->getState(), renderData.getDefaultTextureDims(), mGuardBand);
     if(mSetScissorBuffer)
     {
         // set scissor cb (is shared between both shaders)
-        mpBlurX["ScissorCB"]["uvMin"] = float2(float(mGuardBand) + 0.5f) / float2(renderData.getDefaultTextureDims());
-        mpBlurY["ScissorCB"]["uvMin"] = float2(float(mGuardBand) + 0.5f) / float2(renderData.getDefaultTextureDims());
-        mpBlurX["ScissorCB"]["uvMax"] = (float2(renderData.getDefaultTextureDims()) - float2(float(mGuardBand) + 0.5f)) / float2(renderData.getDefaultTextureDims());
-        mpBlurY["ScissorCB"]["uvMax"] = (float2(renderData.getDefaultTextureDims()) - float2(float(mGuardBand) + 0.5f)) / float2(renderData.getDefaultTextureDims());
+        mpBlur["ScissorCB"]["uvMin"] = float2(float(mGuardBand) + 0.5f) / float2(renderData.getDefaultTextureDims());
+        mpBlur["ScissorCB"]["uvMax"] = (float2(renderData.getDefaultTextureDims()) - float2(float(mGuardBand) + 0.5f)) / float2(renderData.getDefaultTextureDims());
         mSetScissorBuffer = false;
     }
 
     for(uint32_t i = 0; i < mRepetitions; ++i)
     {
         // blur in x
-        mpBlurX->execute(pRenderContext, mpFbo, false);
+        mpBlur["gSrcTex"] = pColor;
+        mpFbo->attachColorTarget(pPingPong, 0);
+        mpBlur["Direction"]["dir"] = float2(1.0f, 0.0f);
+        mpBlur->execute(pRenderContext, mpFbo, false);
 
         // blur in y
-        mpBlurY->execute(pRenderContext, mpFbo2, false);
+        mpBlur["gSrcTex"] = pPingPong;
+        mpFbo->attachColorTarget(pColor, 0);
+        mpBlur["Direction"]["dir"] = float2(0.0f, 1.0f);
+        mpBlur->execute(pRenderContext, mpFbo, false);
     }
 }
 

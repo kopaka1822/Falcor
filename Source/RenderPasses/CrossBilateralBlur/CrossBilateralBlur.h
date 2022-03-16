@@ -58,15 +58,13 @@ private:
     CrossBilateralBlur();
 
     Fbo::SharedPtr mpFbo;
-    Fbo::SharedPtr mpFbo2;
     Sampler::SharedPtr mpSampler;
     bool mEnabled = true;
     uint32_t mKernelRadius = 4;
     uint32_t mRepetitions = 1;
     bool mReady = false;
 
-    FullScreenPass::SharedPtr mpBlurX;
-    FullScreenPass::SharedPtr mpBlurY;
+    FullScreenPass::SharedPtr mpBlur;
     ResourceFormat mLastFormat = ResourceFormat::RGBA32Float;
 
     int mGuardBand = 20;
