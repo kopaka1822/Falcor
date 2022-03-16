@@ -76,6 +76,6 @@ private:
     HBAOData mData;
     bool mDirty = true;
 
-    int mGuardBand = 20;
+    int mGuardBand = 0;
     bool mClearTexture = true;
 };

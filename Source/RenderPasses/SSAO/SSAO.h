@@ -98,6 +98,6 @@ private:
     FullScreenPass::SharedPtr mpSSAOPass;
 
     Scene::SharedPtr mpScene;
-    int mGuardBand = 20;
+    int mGuardBand = 0;
     bool mClearTexture = true;
 };

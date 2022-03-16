@@ -9,9 +9,8 @@ Texture2D<uint> aoMask;
 
 RWTexture2D<float> output;
 
-struct RayData
+struct RayData // cannot be compressed to half floats => no diff in rendering time + insufficient visual quality
 {
-    // TODO compress to half
     float tLastFrontFaceHalo; // ray min
     float tFirstFrontFaceInside; // ray max
     float tConstRadiusStart;

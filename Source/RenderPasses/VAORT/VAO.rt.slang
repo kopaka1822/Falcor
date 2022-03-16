@@ -36,6 +36,9 @@ import Scene.Raytracing;
 #endif
 #define RAY_MODE RAY_MODE_LONG_RAYS_REF
 
+// indicates if the depth buffer should be used
+#define USE_DEPTH_BUFFER
+
 //#define ENABLED(value) (value != 0)
 
 cbuffer StaticCB
@@ -48,6 +51,7 @@ cbuffer PerFrameCB
     float4x4 invViewMat;
     Camera gCamera;
     uint frameIndex;
+    uint guardBand;
 }
 
 SamplerState gNoiseSampler;
@@ -231,9 +235,8 @@ float calcObjectSpaceZ(float3 posV, float3 normal, float2 uv, Texture2D<float> d
 
 ///////// start ray shaders /////////////
 
-struct RayData
+struct RayData // cannot be compressed to half floats => no diff in rendering time + insufficient visual quality
 {
-    // TODO compress to half
     float tLastFrontFaceHalo; // ray min
     float tFirstFrontFaceInside; // ray max
     float tConstRadiusStart;
@@ -304,7 +307,7 @@ void rayGen()
     gDepthTex.GetDimensions(resolution.x, resolution.y);
     float2 invResolution = float2(1.0) / resolution;
 
-    uint2 svPos = DispatchRaysIndex().xy;
+    uint2 svPos = DispatchRaysIndex().xy + uint2(guardBand);
     float2 texC = (float2(svPos) + 0.5) * invResolution;
 
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0);
@@ -390,6 +393,7 @@ void rayGen()
         float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
         float curVisibility = 1.0f;
 
+        #ifdef USE_DEPTH_BUFFER
         // clip sample position uv and snap to pixel center
         bool hybridRay = false;
         float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
@@ -414,6 +418,12 @@ void rayGen()
                 hybridRay = true;
             
         }
+        #else
+        bool hybridRay = true;
+        const bool isInScreen = false;
+        float objectSpaceZ = 0.0;
+        #endif
+
         if (hybridRay)
         {
             gRaysTraced += 1;

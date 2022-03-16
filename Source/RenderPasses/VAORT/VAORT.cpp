@@ -38,8 +38,9 @@ namespace
     const std::string kNormals = "normals";
 
     const std::string kRadius = "radius";
+    const std::string kGuardBand = "guardBand";
     const std::string kShader = "RenderPasses/VAORT/VAO.rt.slang";
-    const uint32_t kMaxPayloadSize = 16;
+    const uint32_t kMaxPayloadSize = 4 * 4;
 }
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -55,13 +56,34 @@ extern "C" FALCOR_API_EXPORT void getPasses(Falcor::RenderPassLibrary& lib)
 
 VAORT::SharedPtr VAORT::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new VAORT());
+    SharedPtr pPass = SharedPtr(new VAORT(dict));
     return pPass;
+}
+
+VAORT::VAORT(const Dictionary& dict) : RenderPass(kInfo)
+{
+    Sampler::Desc samplerDesc;
+    samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
+    mpNoiseSampler = Sampler::create(samplerDesc);
+
+    //samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
+    samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
+    mpTextureSampler = Sampler::create(samplerDesc);
+
+    for (const auto& [key, value] : dict)
+    {
+        if (key == kRadius) mData.radius = value;
+        else if (key == kGuardBand) mGuardBand = value;
+        else logWarning("Unknown field '" + key + "' in a SSAO dictionary");
+    }
 }
 
 Dictionary VAORT::getScriptingDictionary()
 {
-    return Dictionary();
+    Dictionary dict;
+    dict[kRadius] = mData.radius;
+    dict[kGuardBand] = mGuardBand;
+    return dict;
 }
 
 RenderPassReflection VAORT::reflect(const CompileData& compileData)
@@ -132,11 +154,14 @@ void VAORT::execute(RenderContext* pRenderContext, const RenderData& renderData)
             // bind static resources
             mData.noiseScale = float2(pDepth->getWidth(), pDepth->getHeight()) / float2(mNoiseSize.x, mNoiseSize.y);
             mRayVars["StaticCB"].setBlob(mData);
+
+            pRenderContext->clearTexture(pAoDst.get(), float4(0.0f));
             mDirty = false;
         }
 
         pCamera->setShaderData(mRayVars["PerFrameCB"]["gCamera"]);
         mRayVars["PerFrameCB"]["frameIndex"] = mFrameIndex++;
+        mRayVars["PerFrameCB"]["guardBand"] = mGuardBand;
         mRayVars["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
 
         // Update state/vars
@@ -147,7 +172,8 @@ void VAORT::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mRayVars["gNormalTex"] = pNormals;
 
         mRayVars["gOutput"] = pAoDst;
-        mpScene->raytrace(pRenderContext, mpRayProgram.get(), mRayVars, uint3(pAoDst->getWidth(), pAoDst->getHeight(), 1));
+        uint3 dims = uint3(pAoDst->getWidth() - 2 * mGuardBand, pAoDst->getHeight() - 2 * mGuardBand, 1);
+        mpScene->raytrace(pRenderContext, mpRayProgram.get(), mRayVars, dims);
     }
     else // ! enabled
     {
@@ -160,6 +186,7 @@ void VAORT::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
 
+    if (widget.var("Guard Band", mGuardBand, 0, 256)) mDirty = true;
     //uint32_t size = mData.kernelSize;
     //if (widget.var("Kernel Size", size, 1u, SSAOData::kMaxSamples)) setKernelSize(size);
 
@@ -173,17 +200,6 @@ void VAORT::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pSce
     mpScene = pScene;
     mDirty = true;
     mpRayProgram.reset();
-}
-
-VAORT::VAORT(): RenderPass(kInfo)
-{
-    Sampler::Desc samplerDesc;
-    samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
-    mpNoiseSampler = Sampler::create(samplerDesc);
-
-    //samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
-    samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
-    mpTextureSampler = Sampler::create(samplerDesc);
 }
 
 void VAORT::setNoiseTexture()

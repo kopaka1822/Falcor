@@ -76,6 +76,6 @@ private:
     bool mReady = false;
     std::vector<float4> mNoiseTexture;
 
-    int mGuardBand = 20;
+    int mGuardBand = 0;
     bool mClearTexture = true;
 };

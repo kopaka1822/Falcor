@@ -55,13 +55,14 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    VAORT();
+    VAORT(const Dictionary& dict);
     void setNoiseTexture();
     void setKernel();
 
     VAOData mData;
     bool mDirty = true;
     int mFrameIndex = 0;
+    int mGuardBand = 0;
 
     bool mEnabled = true;
 
