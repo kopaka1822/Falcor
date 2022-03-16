@@ -10,5 +10,8 @@
     <ShaderSource Include="TSSReverseReproject.cs.slang" />
     <ShaderSource Include="RTAODenoiserData.slang" />
     <ShaderSource Include="CrossBilateralWeights.slang" />
+    <ShaderSource Include="TSSCacheBlend.cs.slang" />
+    <ShaderSource Include="CalculateMeanVariance.cs.slang" />
+    <ShaderSource Include="RTAODenoiserHelper.slang" />
   </ItemGroup>
 </Project>

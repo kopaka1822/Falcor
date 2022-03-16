@@ -33,6 +33,8 @@ const RenderPass::Info RTAODenoiser::kInfo { "RTAODenoiser", "Denoiser for noisy
 namespace {
     //Shader
     const std::string kTSSReverseReprojectShader = "RenderPasses/RTAODenoiser/TSSReverseReproject.cs.slang";
+    const std::string kMeanVarianceShader = "RenderPasses/RTAODenoiser/CalculateMeanVariance.cs.slang";
+    const std::string kTSSCacheBlendShader = "RenderPasses/RTAODenoiser/TSSCacheBlend.cs.slang";
 
     //Inputs
     const std::string kAOInputName = "aoImage";
@@ -114,6 +116,17 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
     //TODO: Add toggle option for TSS
     TemporalSupersamplingReverseReproject(pRenderContext, renderData);
 
+    CalculateMeanVariance(pRenderContext, renderData);
+
+    //TemporalCacheBlendWithCurrentFrame(pRenderContext, renderData);
+
+    //SmoothVariance(pRenderContext, renderData);
+
+    //ApplyAtrousWaveletTransformFilter(pRenderContext, renderData);
+
+    //BlurDisocclusions(pRenderContext, renderData);
+
+    mCurrentFrame++;
 }
 
 void RTAODenoiser::renderUI(Gui::Widgets& widget)
@@ -220,4 +233,97 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
     var["gSampler"] = mClampSampler;
     
     mpTSSReverseReprojectPass->execute(pRenderContext, uint3(frameDim, 1));
+}
+
+//TODO: Add checkerboard sampling part. Must also be supported/ used by the RTAO
+void RTAODenoiser::CalculateMeanVariance(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    //get render pass input tex
+    auto aoInputTex = renderData[kAOInputName]->asTexture();
+    auto normalTex = renderData[kNormalInputName]->asTexture();
+    auto depthTex = renderData[kDepthInputName]->asTexture();
+    auto linearDepthTex = renderData[kLinearDepthInputName]->asTexture();
+    auto motionVectorTex = renderData[kMotionVecInputName]->asTexture();
+
+    uint2 frameDim = uint2(aoInputTex->getWidth(), aoInputTex->getHeight());
+
+    //create compute pass if invalid
+    if (!mpMeanVariancePass) {
+        Program::Desc desc;
+        desc.addShaderLibrary(kMeanVarianceShader).csEntry("main").setShaderModel("6_5");
+        //desc.addTypeConformances(mpScene->getTypeConformances());
+
+        Program::DefineList defines;
+        defines.add("INVALID_AO_COEFFICIENT_VALUE", std::to_string(kInvalidAPCoefficientValue));
+        //defines.add(mpScene->getSceneDefines());
+
+        mpMeanVariancePass = ComputePass::create(desc, defines, true);
+    }
+
+    //Create the local mean variance texture
+    if (!mLocalMeanVariance) {
+        mLocalMeanVariance = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RG16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+    }
+
+    // bind all input and output channels
+    ShaderVar var = mpMeanVariancePass->getRootVar();
+
+    //update cb (TODO: set only once and if action changed)
+    {
+        mMeanVarianceData.textureDim = frameDim;
+        mMeanVarianceData.kernelWidth = mBilateralFilterKernelWidth;
+        mMeanVarianceData.kernelRadius = mMeanVarianceData.kernelWidth >> 1;
+    }
+
+    var["CB"].setBlob(mMeanVarianceData);
+    var["gInAOTex"] = aoInputTex;
+    var["gMeanVar"] = mLocalMeanVariance;
+
+    mpMeanVariancePass->execute(pRenderContext, uint3(frameDim, 1));
+}
+
+void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    //get render pass input tex
+    auto aoInputTex = renderData[kAOInputName]->asTexture();
+    auto normalTex = renderData[kNormalInputName]->asTexture();
+    auto depthTex = renderData[kDepthInputName]->asTexture();
+    auto linearDepthTex = renderData[kLinearDepthInputName]->asTexture();
+    auto motionVectorTex = renderData[kMotionVecInputName]->asTexture();
+
+    uint2 frameDim = uint2(aoInputTex->getWidth(), aoInputTex->getHeight());
+
+    //create compute pass if invalid
+    if (!mpTCacheBlendPass) {
+        Program::Desc desc;
+        desc.addShaderLibrary(kTSSCacheBlendShader).csEntry("main").setShaderModel("6_5");
+        //desc.addTypeConformances(mpScene->getTypeConformances());
+
+        Program::DefineList defines;
+        defines.add("INVALID_AO_COEFFICIENT_VALUE", std::to_string(kInvalidAPCoefficientValue));
+        //defines.add(mpScene->getSceneDefines());
+
+        mpTCacheBlendPass = ComputePass::create(desc, defines, true);
+    }
+
+
+    uint currentCachedIndex = (mCurrentFrame + 1) % 2;
+    uint prevCachedIndex = mCurrentFrame % 2;
+
+
+}
+
+void RTAODenoiser::SmoothVariance(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    //TODO
+}
+
+void RTAODenoiser::ApplyAtrousWaveletTransformFilter(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    //TODO
+}
+
+void RTAODenoiser::BlurDisocclusions(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    //TODO
 }

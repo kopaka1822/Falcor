@@ -59,20 +59,35 @@ private:
 
     void TemporalSupersamplingReverseReproject(RenderContext* pRenderContext, const RenderData& renderData);
 
+    void CalculateMeanVariance(RenderContext* pRenderContext, const RenderData& renderData);
+
+    void TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderContext, const RenderData& renderData);
+
+    void SmoothVariance(RenderContext* pRenderContext, const RenderData& renderData);
+
+    void ApplyAtrousWaveletTransformFilter(RenderContext* pRenderContext, const RenderData& renderData);
+
+    void BlurDisocclusions(RenderContext* pRenderContext, const RenderData& renderData);
+
     void reset();
 
     // Configuration
     bool mEnabled = true;
     bool mTSSRRInternalTexReady = false;
+    uint mBilateralFilterKernelWidth = 9;   //Possible 3, 5, 7, 9   //TODO add to ui
 
     //Runtime Vars
     bool mOptionsChange = true;
     uint mCurrentFrame = 0;
 
     TSSRRData mTSSRRData;
+    MeanVarianceCB mMeanVarianceData;
     Scene::SharedPtr mpScene;
     ComputePass::SharedPtr mpTSSReverseReprojectPass;
+    ComputePass::SharedPtr mpMeanVariancePass;
+    ComputePass::SharedPtr mpTCacheBlendPass;
 
+    //TSS
     Sampler::SharedPtr mClampSampler;
     Texture::SharedPtr mPrevFrameNormalDepth;
     Texture::SharedPtr mCachedTsppValueSquaredValueRayHitDistance;
@@ -85,5 +100,8 @@ private:
     };
 
     CachedTemporalTextures mCachedTemporalTextures[2];
+
+    //Mean Variance
+    Texture::SharedPtr mLocalMeanVariance;
 
 };

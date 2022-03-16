@@ -31,6 +31,7 @@
 
 import RTAODenoiserData;
 import CrossBilateralWeights;
+import RTAODenoiserHelper;
 
 cbuffer StaticCB
 {
@@ -59,14 +60,6 @@ RWTexture2D<uint4> gOutReprojectedCachedValues;
 SamplerState gSampler;
 
 static const float kInvalidAOCoefficientValue = INVALID_AO_COEFFICIENT_VALUE;
-
-//TODO: Put in helper interface
-
-bool IsWithinBounds(in int2 index, in int2 dimensions)
-{
-    return index.x >= 0 && index.y >= 0 && index.x < dimensions.x && index.y < dimensions.y;
-}
-
 
 float4 BilateralResampleWeights(in float TargetDepth, in float3 TargetNormal, in float4 SampleDepths, in float3 SampleNormals[4], in float2 TargetOffset, in uint2 TargetIndex, in int2 sampleIndices[4], in float2 Ddxy)
 {

@@ -11,4 +11,10 @@ struct TSSRRData
     uint numMantissaBits = 10;
 };
 
+struct MeanVarianceCB
+{
+    uint2 textureDim;
+    uint kernelWidth;
+    uint kernelRadius;
+};
 END_NAMESPACE_FALCOR
