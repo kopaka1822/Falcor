@@ -22,6 +22,10 @@ import Scene.Shading;
 static const float sampleRadius[NUM_DIRECTIONS] = { 0.608308673, 0.776627183, 0.417753726, 0.866025388, 0.518647850, 0.692805171, 0.291845083, 0.917883337 };
 // same as above, but distributed uniformly (0.5/8, 1.5/8, 2.5/8, ... 7.5/8) => shuffled afterwards because the rotation follows an increasing angle
 //static const float sampleRadius[NUM_DIRECTIONS] = { 0.917883, 0.470149, 0.205215, 0.650919, 0.734504, 0.359545, 0.564429, 0.820004 };
+// same as above, but folliwing permutation in sorting: 0 5 2 7 4 1 6 3
+//static const float sampleRadius[NUM_DIRECTIONS] = { 0.205215, 0.734504, 0.470149, 0.917883, 0.650919, 0.359545, 0.820004, 0.564429 };
+// sorted
+//static const float sampleRadius[NUM_DIRECTIONS] = { 0.205215, 0.359545, 0.470149, 0.564429, 0.650919, 0.734504, 0.820004, 0.917883 };
 
 cbuffer StaticCB
 {

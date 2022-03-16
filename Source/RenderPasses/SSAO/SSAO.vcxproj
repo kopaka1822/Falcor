@@ -29,6 +29,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DepthMode.h" />
+    <ClInclude Include="scissors.h" />
     <ClInclude Include="SSAO.h" />
   </ItemGroup>
   <ItemGroup>

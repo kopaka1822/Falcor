@@ -26,6 +26,8 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "SSAO.h"
+
+#include "scissors.h"
 #include "glm/gtc/random.hpp"
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -202,6 +204,12 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     if(mEnabled)
     {
+        if(mClearTexture)
+        {
+            pRenderContext->clearTexture(pAoDst.get(), float4(0.0f));
+            mClearTexture = false;
+        }
+
         if (!mpSSAOPass)
         {
             // program defines
@@ -241,10 +249,11 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpSSAOPass["gsDepthTex"] = psDepth;
         mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
         mpSSAOPass["gNormalTex"] = pNormals;
-
+        
         // Generate AO
         mpAOFbo->attachColorTarget(pAoDst, 0);
-        mpSSAOPass->execute(pRenderContext, mpAOFbo);
+        setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims(), mGuardBand);
+        mpSSAOPass->execute(pRenderContext, mpAOFbo, false);
     }
     else // ! enabled
     {
@@ -262,6 +271,8 @@ void SSAO::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
+
+    if (widget.var("Guard Band", mGuardBand, 0, 256)) mClearTexture = true;
 
     if (widget.checkbox("Color Map", mColorMap)) mPassChangedCB();
 
