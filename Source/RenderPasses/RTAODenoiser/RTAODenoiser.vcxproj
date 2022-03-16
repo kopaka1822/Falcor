@@ -36,6 +36,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ShaderSource Include="CrossBilateralWeights.slang" />
     <ShaderSource Include="RTAODenoiserData.slang" />
     <ShaderSource Include="TSSReverseReproject.cs.slang" />
   </ItemGroup>

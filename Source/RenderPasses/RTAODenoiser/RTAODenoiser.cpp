@@ -169,12 +169,14 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
 
     //create internal textures if not done before
     if(!mTSSRRInternalTexReady) {
-        mPrevFrameNormalDepth = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RGBA32Float);
+        mPrevFrameNormalDepth = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RGBA32Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        FALCOR_ASSERT(mPrevFrameNormalDepth);
+
         for (uint i = 0; i < 2; i++) {
-            mCachedTemporalTextures[i].tspp = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Uint);
-            mCachedTemporalTextures[i].value = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float);
-            mCachedTemporalTextures[i].valueSqMean = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float);
-            mCachedTemporalTextures[i].rayHitDepth = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float);
+            mCachedTemporalTextures[i].tspp = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Uint,1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mCachedTemporalTextures[i].value = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float,1U,1U,nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mCachedTemporalTextures[i].valueSqMean = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mCachedTemporalTextures[i].rayHitDepth = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         }
 
         //Fill value with invalid value
@@ -182,15 +184,15 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
             pRenderContext->clearTexture(mCachedTemporalTextures[i].value.get(), float4(kInvalidAPCoefficientValue, 0, 0, 0));
         }
 
-        mCachedTsppValueSquaredValueRayHitDistance = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RGBA16Uint);
+        mCachedTsppValueSquaredValueRayHitDistance = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RGBA16Uint, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        FALCOR_ASSERT(mCachedTsppValueSquaredValueRayHitDistance);
         //Sampler
         Sampler::Desc desc;
         desc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
         desc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
         mClampSampler = Sampler::create(desc);
-
-        //TODO:: Assert all:
         FALCOR_ASSERT(mClampSampler);
+
         mTSSRRInternalTexReady = true;
     }
 

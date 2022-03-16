@@ -30,6 +30,7 @@
 //and adjusted for this falcor renderpass
 
 import RTAODenoiserData;
+import CrossBilateralWeights;
 
 cbuffer StaticCB
 {
@@ -59,16 +60,35 @@ SamplerState gSampler;
 
 static const float kInvalidAOCoefficientValue = INVALID_AO_COEFFICIENT_VALUE;
 
+//TODO: Put in helper interface
+
+bool IsWithinBounds(in int2 index, in int2 dimensions)
+{
+    return index.x >= 0 && index.y >= 0 && index.x < dimensions.x && index.y < dimensions.y;
+}
+
+
 float4 BilateralResampleWeights(in float TargetDepth, in float3 TargetNormal, in float4 SampleDepths, in float3 SampleNormals[4], in float2 TargetOffset, in uint2 TargetIndex, in int2 sampleIndices[4], in float2 Ddxy)
 {
-    //TODO: Add
-    return float4(1.0);
+    bool4 withinBounds = bool4(
+        IsWithinBounds(sampleIndices[0], gData.resolution),
+        IsWithinBounds(sampleIndices[1], gData.resolution),
+        IsWithinBounds(sampleIndices[2], gData.resolution),
+        IsWithinBounds(sampleIndices[3], gData.resolution));
+
+    float4 weight;
+    weight = getBilinearWeight(TargetOffset);
+    weight *= getNormalWeight(TargetNormal, SampleNormals, 1.1, 32);
+    weight *= getDepthWeight(TargetDepth, Ddxy, SampleDepths, gData.depthSigma, 0.5, gData.numMantissaBits);
+    
+    return weight;
 }
 
 
 [numthreads(16, 16, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
+    
     uint2 dTid = dispatchThreadId.xy;
     float3 normal = gNormalTex[dTid].xyz;
     float depth = gDepthTex[dTid].x;
@@ -91,6 +111,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float2 cachePixelOffset = cacheFrameTexturePos * gData.resolution - 0.5 - topLeftCacheFrameIndex;
 
     const int2 srcIndexOffsets[4] = { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } };
+    
+    
 
     int2 cacheIndices[4] =
     {
@@ -112,10 +134,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 
     float2 ddxy = gLinearDepthTex[dTid];
-
+    
     float4 weights;
     weights = BilateralResampleWeights(depth, normal, vCacheDepths, cacheNormals, cachePixelOffset, dTid, cacheIndices, ddxy);
-
+    
     float4 vCachedValues = gInCachedValue.GatherRed(gSampler, adjustedCacheFrameTexturePos).wzxy;
     weights = vCachedValues != kInvalidAOCoefficientValue ? weights : 0;
     float weightSum = dot(1, weights);
@@ -126,7 +148,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     uint tspp;
     bool areCacheValuesValid = weightSum > 1e-3f;
-
+    
+    
     if (areCacheValuesValid)
     {
         uint4 vCachedTspp = gInCachedTspp.GatherRed(gSampler, adjustedCacheFrameTexturePos).wzxy;

@@ -7,8 +7,8 @@ struct TSSRRData
 {
     float2 resolution;
     float2 invResolution;
-    float sigma;
-    uint numMantissaBits;
+    float depthSigma = 1.0f;
+    uint numMantissaBits = 10;
 };
 
 END_NAMESPACE_FALCOR
