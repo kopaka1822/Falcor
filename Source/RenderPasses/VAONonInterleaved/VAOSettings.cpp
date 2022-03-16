@@ -62,6 +62,9 @@ void VAOSettings::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
 
+    if (widget.var("Guard Band", mGuardBand, 0, 256))
+        mDirty = true;
+
     uint32_t primaryDepthMode = (uint32_t)mPrimaryDepthMode;
     if (widget.dropdown("Primary Depth Mode", kPrimaryDepthModeDropdown, primaryDepthMode)) {
         mPrimaryDepthMode = (DepthMode)primaryDepthMode;

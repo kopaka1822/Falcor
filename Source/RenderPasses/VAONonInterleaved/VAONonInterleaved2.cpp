@@ -26,19 +26,10 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "VAONonInterleaved2.h"
+#include "../SSAO/scissors.h"
 #include "VAOSettings.h"
 #include <glm/gtc/random.hpp>
 
-#include "Core/API/BlendState.h"
-#include "Core/API/BlendState.h"
-#include "Core/API/BlendState.h"
-#include "Core/API/BlendState.h"
-#include "Core/API/BlendState.h"
-#include "Core/API/DepthStencilState.h"
-#include "Core/API/DepthStencilState.h"
-#include "Core/API/DepthStencilState.h"
-#include "Core/API/DepthStencilState.h"
-#include "Core/API/DepthStencilState.h"
 #include "Core/API/DepthStencilState.h"
 
 
@@ -221,6 +212,10 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
         //mRayVars["aoPrev"] = pAoDst; // src view
         mRayVars["output"] = pAoDst; // uav view
 
+        // TODO add guard band
+        if(VAOSettings::get().getGuardBand() != 0)
+            Logger::log(Logger::Level::Warning, "guard band was not implemented for raytracing pipeline");
+
         mpScene->raytrace(pRenderContext, mpRayProgram.get(), mRayVars, uint3{ pAoDst->getWidth(), pAoDst->getHeight(), 1 });
     }
     else // RASTER PIPELINE
@@ -257,9 +252,11 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
         mpRasterPass["aoMask"] = pAoMask;
         mpRasterPass["aoPrev"] = pAoDst;
 
+        setGuardBandScissors(*mpRasterPass->getState(), renderData.getDefaultTextureDims(), VAOSettings::get().getGuardBand());
+
         {
             FALCOR_PROFILE("rasterize");
-            mpRasterPass->execute(pRenderContext, mpFbo);
+            mpRasterPass->execute(pRenderContext, mpFbo, false);
         }
     }
 }

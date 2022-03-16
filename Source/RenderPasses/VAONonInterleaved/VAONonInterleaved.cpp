@@ -30,6 +30,7 @@
 #include <glm/gtc/random.hpp>
 
 #include "VAONonInterleaved2.h"
+#include "../SSAO/scissors.h"
 #include "VAOSettings.h"
 
 
@@ -149,6 +150,9 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
         mpRasterPass["gNoiseSampler"] = mpNoiseSampler;
         mpRasterPass["gTextureSampler"] = mpTextureSampler;
         mpRasterPass["gNoiseTex"] = mpNoiseTexture;
+
+        // also clear ao texture if guard band changed
+        pRenderContext->clearTexture(pAoDst.get(), float4(0.0f));
     }
 
     auto accessStencilUAV = pAccessStencil->getUAV(0);
@@ -167,7 +171,8 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     //mpRasterPass["gDepthAccess"] = pAccessStencil;
     mpRasterPass["gDepthAccess"].setUav(accessStencilUAV);
 
-    mpRasterPass->execute(pRenderContext, mpFbo);
+    setGuardBandScissors(*mpRasterPass->getState(), renderData.getDefaultTextureDims(), VAOSettings::get().getGuardBand());
+    mpRasterPass->execute(pRenderContext, mpFbo, false);
 }
 
 void VAONonInterleaved::renderUI(Gui::Widgets& widget)
