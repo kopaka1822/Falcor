@@ -68,4 +68,7 @@ private:
     FullScreenPass::SharedPtr mpBlurX;
     FullScreenPass::SharedPtr mpBlurY;
     ResourceFormat mLastFormat = ResourceFormat::RGBA32Float;
+
+    int mGuardBand = 20;
+    bool mSetScissorBuffer = true;
 };

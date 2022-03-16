@@ -26,7 +26,7 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "CrossBilateralBlur.h"
-
+#include "../SSAO/scissors.h"
 
 namespace
 {
@@ -129,6 +129,8 @@ void CrossBilateralBlur::compile(RenderContext* pContext, const CompileData& com
 
     if ((compileData.defaultTexDims.x % 4 != 0) || (compileData.defaultTexDims.y % 4 != 0))
         logWarning("CrossBilateralBlur textures pixels are not a mutliple of size 4, this might results in artifacts!");
+
+    mSetScissorBuffer = true;
 }
 
 void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -160,13 +162,25 @@ void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData
         mpFbo->attachColorTarget(pPingPong, 0);
     }
 
+    setGuardBandScissors(*mpBlurX->getState(), renderData.getDefaultTextureDims(), mGuardBand);
+    setGuardBandScissors(*mpBlurY->getState(), renderData.getDefaultTextureDims(), mGuardBand);
+    if(mSetScissorBuffer)
+    {
+        // set scissor cb (is shared between both shaders)
+        mpBlurX["ScissorCB"]["uvMin"] = float2(float(mGuardBand) + 0.5f) / float2(renderData.getDefaultTextureDims());
+        mpBlurY["ScissorCB"]["uvMin"] = float2(float(mGuardBand) + 0.5f) / float2(renderData.getDefaultTextureDims());
+        mpBlurX["ScissorCB"]["uvMax"] = (float2(renderData.getDefaultTextureDims()) - float2(float(mGuardBand) + 0.5f)) / float2(renderData.getDefaultTextureDims());
+        mpBlurY["ScissorCB"]["uvMax"] = (float2(renderData.getDefaultTextureDims()) - float2(float(mGuardBand) + 0.5f)) / float2(renderData.getDefaultTextureDims());
+        mSetScissorBuffer = false;
+    }
+
     for(uint32_t i = 0; i < mRepetitions; ++i)
     {
         // blur in x
-        mpBlurX->execute(pRenderContext, mpFbo);
+        mpBlurX->execute(pRenderContext, mpFbo, false);
 
         // blur in y
-        mpBlurY->execute(pRenderContext, mpFbo2);
+        mpBlurY->execute(pRenderContext, mpFbo2, false);
     }
 }
 
@@ -174,6 +188,9 @@ void CrossBilateralBlur::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
+
+    if (widget.var("Guard  Band", mGuardBand, 0, 256))
+        mSetScissorBuffer = true;
 
     if (widget.var("Kernel Radius", mKernelRadius, uint32_t(1), uint32_t(20))) setKernelRadius(mKernelRadius);
     widget.var("Blur Repetitions", mRepetitions, uint32_t(1), uint32_t(20));

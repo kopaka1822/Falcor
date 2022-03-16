@@ -9,6 +9,13 @@ struct BlurPSIn
     float4 pos : SV_POSITION;
 };
 
+// scissor rectangle
+cbuffer ScissorCB
+{
+    float2 uvMin;
+    float2 uvMax;
+}
+
 // static constants
 static float2 gUV; // uv of current sample
 static float2 gDUV; // current delta uv
@@ -37,7 +44,7 @@ void BlurDirection(inout float AO, inout float weightSum)
     [unroll]
     for(uint d = 1; d <= KERNEL_RADIUS; d++)
     {
-        float2 sampleUv = gUV + d * gDUV;
+        float2 sampleUv = clamp(gUV + d * gDUV, uvMin, uvMax); // manually clamp to guard band
         float sampleAO = gSrcTex.Sample(gSampler, sampleUv).x;
         float sampleDepth = gDepthTex.Sample(gSampler, sampleUv).x;
         // set depth slope after obtaining the first depth sample
