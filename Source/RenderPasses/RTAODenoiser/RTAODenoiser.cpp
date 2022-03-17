@@ -38,7 +38,7 @@ namespace {
 
     //Inputs
     const std::string kAOInputName = "aoImage";
-    const std::string kRayDepthName = "rayDepth";
+    const std::string kRayDistanceName = "rayDistance";
     const std::string kNormalInputName = "normal";
     const std::string kDepthInputName = "depth";
     const std::string kLinearDepthInputName = "linearDepth";
@@ -78,7 +78,7 @@ RenderPassReflection RTAODenoiser::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addInput(kAOInputName, "Noisy Ambient Occlusion Image");
-    reflector.addInput(kRayDepthName, "Ray depth of the ambient occlusion ray");
+    reflector.addInput(kRayDistanceName, "Ray distance of the ambient occlusion ray");
     reflector.addInput(kNormalInputName, "World Space Normal");
     reflector.addInput(kDepthInputName, "Camera Depth");
     reflector.addInput(kLinearDepthInputName, "Linear Depth Derivatives");
@@ -263,6 +263,7 @@ void RTAODenoiser::CalculateMeanVariance(RenderContext* pRenderContext, const Re
     //Create the local mean variance texture
     if (!mLocalMeanVariance) {
         mLocalMeanVariance = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RG16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        FALCOR_ASSERT(mLocalMeanVariance);
     }
 
     // bind all input and output channels
@@ -284,13 +285,15 @@ void RTAODenoiser::CalculateMeanVariance(RenderContext* pRenderContext, const Re
 
 void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    //Barrier for the Tspp,Value,Squared Value, Ray Hit Distance buffer from TSSResampling pass
+    //Barrier for resources from the last two passes.
     pRenderContext->uavBarrier(mCachedTsppValueSquaredValueRayHitDistance.get());
+    pRenderContext->uavBarrier(mLocalMeanVariance.get());
 
     FALCOR_PROFILE("TSSBlend");
     //get render pass input tex
     auto aoInputTex = renderData[kAOInputName]->asTexture();
-    auto rayDepthTex = renderData[kRayDepthName]->asTexture();
+    auto rayDistanceTex = renderData[kRayDistanceName]->asTexture();
+    auto varianceOutTex = renderData[kDenoisedOutputName]->asTexture();
 
     uint2 frameDim = uint2(aoInputTex->getWidth(), aoInputTex->getHeight());
 
@@ -307,10 +310,31 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
         mpTCacheBlendPass = ComputePass::create(desc, defines, true);
     }
 
+    //Create texture if not set before
+    if (!mDisocclusionBlurStrength) {
+        mDisocclusionBlurStrength = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        FALCOR_ASSERT(mDisocclusionBlurStrength);
+    }
+
 
     uint currentCachedIndex = (mCurrentFrame + 1) % 2;
     uint prevCachedIndex = mCurrentFrame % 2;
 
+    // bind all input and output channels
+    ShaderVar var = mpTCacheBlendPass->getRootVar();
+
+    var["gInVariance"] = aoInputTex;
+    var["gLocalMeanVariance"] = mLocalMeanVariance;
+    var["gInRayDistance"] = rayDistanceTex;
+    var["gInReprojected_Tspp_Value_SquaredMeanValue_RayHitDistance"] = mCachedTsppValueSquaredValueRayHitDistance;
+
+    var["gInOutTspp"] = mCachedTemporalTextures[currentCachedIndex].tspp;
+    var["gInOutValue"] = mCachedTemporalTextures[currentCachedIndex].value;
+    var["gInOutSquaredMeanValue"] = mCachedTemporalTextures[currentCachedIndex].valueSqMean;
+    var["gInOutRayHitDistance"] = mCachedTemporalTextures[currentCachedIndex].rayHitDepth;
+
+    var["gOutVariance"] = varianceOutTex;
+    var["gOutBlurStrength"] = mDisocclusionBlurStrength;
 
 }
 

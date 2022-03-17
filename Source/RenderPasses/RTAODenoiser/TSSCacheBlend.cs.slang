@@ -26,6 +26,19 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 
+//Inputs
+Texture2D<float> gInVariance;
+Texture2D<float2> gLocalMeanVariance;
+Texture2D<float> gInRayDistance;
+Texture2D<uint4> gInReprojected_Tspp_Value_SquaredMeanValue_RayHitDistance;
+
+//Outputs
+RWTexture2D<uint> gInOutTspp;
+RWTexture2D<float> gInOutValue;
+RWTexture2D<float> gInOutSquaredMeanValue;
+RWTexture2D<float> gInOutRayHitDistance;
+RWTexture2D<float> gOutVariance;
+RWTexture2D<float> gOutBlurStrength;
 
 [numthreads(16, 16, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)

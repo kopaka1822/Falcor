@@ -104,4 +104,7 @@ private:
     //Mean Variance
     Texture::SharedPtr mLocalMeanVariance;
 
+    //TSS Blend
+    Texture::SharedPtr mDisocclusionBlurStrength;
+
 };
