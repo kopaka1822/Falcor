@@ -146,5 +146,5 @@ void rayGen()
 
     rayDistanceOut[svPos] = rayData.t;
     visibility = saturate(rayData.t / gData.radius);
-    ambientOut[svPos] = visibility;
+    ambientOut[svPos] = 1-visibility;
 }
