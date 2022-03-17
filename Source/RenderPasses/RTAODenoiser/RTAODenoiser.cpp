@@ -120,7 +120,7 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
 
     CalculateMeanVariance(pRenderContext, renderData);
 
-    //TemporalCacheBlendWithCurrentFrame(pRenderContext, renderData);
+    TemporalCacheBlendWithCurrentFrame(pRenderContext, renderData);
 
     //SmoothVariance(pRenderContext, renderData);
 
@@ -186,13 +186,18 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
     //create internal textures if not done before
     if(!mTSSRRInternalTexReady) {
         mPrevFrameNormalDepth = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RGBA32Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mPrevFrameNormalDepth->setName("RTAODenoiser::CachedNormalDepth");
         FALCOR_ASSERT(mPrevFrameNormalDepth);
 
         for (uint i = 0; i < 2; i++) {
             mCachedTemporalTextures[i].tspp = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Uint,1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mCachedTemporalTextures[i].tspp->setName("RTAODenoiser::Tspp" + std::to_string(i));
             mCachedTemporalTextures[i].value = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float,1U,1U,nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mCachedTemporalTextures[i].value->setName("RTAODenoiser::value" + std::to_string(i));
             mCachedTemporalTextures[i].valueSqMean = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mCachedTemporalTextures[i].valueSqMean->setName("RTAODenoiser::valueSqMean" + std::to_string(i));
             mCachedTemporalTextures[i].rayHitDepth = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mCachedTemporalTextures[i].rayHitDepth->setName("RTAODenoiser::rayHitDepth" + std::to_string(i));
         }
 
         //Fill value with invalid value
@@ -201,6 +206,7 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
         }
 
         mCachedTsppValueSquaredValueRayHitDistance = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RGBA16Uint, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mCachedTsppValueSquaredValueRayHitDistance->setName("RTAODenoiser::CachedTsppValueSquaredValueRayDistance");
         FALCOR_ASSERT(mCachedTsppValueSquaredValueRayHitDistance);
         //Sampler
         Sampler::Desc desc;
@@ -263,6 +269,7 @@ void RTAODenoiser::CalculateMeanVariance(RenderContext* pRenderContext, const Re
     //Create the local mean variance texture
     if (!mLocalMeanVariance) {
         mLocalMeanVariance = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RG16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mLocalMeanVariance->setName("RTAODenoiser::LocalMeanVariance");
         FALCOR_ASSERT(mLocalMeanVariance);
     }
 
@@ -313,6 +320,7 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
     //Create texture if not set before
     if (!mDisocclusionBlurStrength) {
         mDisocclusionBlurStrength = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mDisocclusionBlurStrength->setName("RTAODenoiser::DisocclusionBlurStrength");
         FALCOR_ASSERT(mDisocclusionBlurStrength);
     }
 
@@ -322,6 +330,11 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
 
     // bind all input and output channels
     ShaderVar var = mpTCacheBlendPass->getRootVar();
+
+    //set minSmoothingfactor here with  mTSS_MaxTspp
+
+    //TODO set only if necessary
+    var["CB"].setBlob(mTSSBlurData);
 
     var["gInVariance"] = aoInputTex;
     var["gLocalMeanVariance"] = mLocalMeanVariance;
@@ -336,6 +349,7 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
     var["gOutVariance"] = varianceOutTex;
     var["gOutBlurStrength"] = mDisocclusionBlurStrength;
 
+    mpTCacheBlendPass->execute(pRenderContext, uint3(frameDim, 1));
 }
 
 void RTAODenoiser::SmoothVariance(RenderContext* pRenderContext, const RenderData& renderData)

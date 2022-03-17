@@ -71,10 +71,12 @@ private:
 
     void reset();
 
-    // Configuration
+    // Configuration TODO add these to the Ui
     bool mEnabled = true;
     bool mTSSRRInternalTexReady = false;
     uint mBilateralFilterKernelWidth = 9;   //Possible 3, 5, 7, 9   //TODO add to ui
+    uint mTSS_MaxTspp = 33;             // 1- 100
+
 
     //Runtime Vars
     bool mOptionsChange = true;
@@ -82,6 +84,7 @@ private:
 
     TSSRRData mTSSRRData;
     MeanVarianceCB mMeanVarianceData;
+    TSSBlurData mTSSBlurData;
     Scene::SharedPtr mpScene;
     ComputePass::SharedPtr mpTSSReverseReprojectPass;
     ComputePass::SharedPtr mpMeanVariancePass;
