@@ -71,15 +71,15 @@ private:
 
     void reset();
 
-    // Configuration TODO add these to the Ui
+    // Configuration
     bool mEnabled = true;
-    bool mTSSRRInternalTexReady = false;
-    uint mBilateralFilterKernelWidth = 9;   //Possible 3, 5, 7, 9   //TODO add to ui
-    uint mTSS_MaxTspp = 33;             // 1- 100
+    uint mBilateralFilterKernelWidth = 9;   //Possible 3, 5, 7, 9 
+    uint mTSS_MaxTspp = 33;             
 
 
     //Runtime Vars
     bool mOptionsChange = true;
+    bool mTSSRRInternalTexReady = false;
     uint mCurrentFrame = 0;
 
     TSSRRData mTSSRRData;

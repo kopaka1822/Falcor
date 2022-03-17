@@ -20,18 +20,18 @@ struct MeanVarianceCB
 
 struct TSSBlurData
 {
-    float stdDevGamma = 0.6f;           //0.1 - 10.f
+    float stdDevGamma = 0.6f;          
     bool clampCachedValues = true;
-    float clamping_minStdDevTolerance = 0.05f;  //0.f - 1.f
+    float clamping_minStdDevTolerance = 0.05f;  
     float padding;
 
-    float clampDifferenceToTsppScale = 4.f; //0.f - 10.f
+    float clampDifferenceToTsppScale = 4.f;
     bool forceUseMinSmoothingFactor = false;
     float minSmoothingFactor = 0.03f;
-    uint minTsppToUseTemporalVariance = 4; //1 - 40
+    uint minTsppToUseTemporalVariance = 4;
 
-    uint blurStrength_MaxTspp = 12;     // 0 - 100
-    float blurDecayStrength = 1.0f;     //0.1 - 32
+    uint blurStrength_MaxTspp = 12;
+    float blurDecayStrength = 1.0f;
     float2 padding2;
 };
 END_NAMESPACE_FALCOR

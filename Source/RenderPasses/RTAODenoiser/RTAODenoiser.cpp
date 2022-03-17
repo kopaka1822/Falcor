@@ -138,7 +138,37 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
     widget.tooltip("If deactivated the input AO image will only be copied to the output");
     //Only show rest if enabled
     if (mEnabled) {
-        //Rest of the options
+
+        if (auto group = widget.group("TSS Reverse Reprojection")) {
+            dirty |= widget.slider("DepthSigma", mTSSRRData.depthSigma, 0.0f, 10.f);
+            widget.tooltip("Sigma used for depth weight");
+            dirty |= widget.slider("Num Mantissa Bits Depth", mTSSRRData.numMantissaBits, 1U, 32U);     //Todo set that automaticly
+            widget.tooltip("Number of Mantissa the input depth uses");
+        }
+
+        dirty |= widget.var("Mean Variance Kernel width", mBilateralFilterKernelWidth, 3U, 9U, 2U);
+        widget.tooltip("Kernel width for the mean variance step");
+        if (mBilateralFilterKernelWidth % 2 != 1) mBilateralFilterKernelWidth++;    //Make sure it is no invalid filter width
+
+        if (auto group = widget.group("TSS Blur")) {
+            dirty |= widget.slider("Max Tspp", mTSS_MaxTspp, 1u, 100u);
+            widget.tooltip("Upper Limit for Tspp");
+            dirty |= widget.slider("std Dev Gamma", mTSSBlurData.stdDevGamma, 0.1f, 10.f);
+            widget.tooltip("Std dev gamma - scales std dev on clamping. Larger values give more clamp tolerance, lower values give less tolerance (i.e. clamp quicker, better for motion).");
+            dirty |= widget.checkbox("Clamp Cached Values", mTSSBlurData.clampCachedValues);
+            widget.tooltip("Enables or disables clamping for cached values");
+            dirty |= widget.slider("min std dev tolerance", mTSSBlurData.clamping_minStdDevTolerance, 0.f, 1.f);
+            widget.tooltip("Minimum std.dev used in clamping. Higher values helps prevent clamping, especially on checkerboard 1spp sampling values of ~0.1 prevent random clamping. higher values limit clamping due to true change and increase ghosting.");
+            dirty |= widget.slider("Clamp Difference to Tspp Scale", mTSSBlurData.clampDifferenceToTsppScale, 0.f, 10.f);
+            widget.tooltip("Higher values helps prevent clamping, especially on checkerboard 1spp sampling values of ~0.1 prevent random clamping. higher values limit clamping due to true change and increase ghosting.");
+            dirty |= widget.slider("minTspp", mTSSBlurData.minTsppToUseTemporalVariance, 1u, 40u);
+            widget.tooltip("Min tspp necessary for temporal variance to be used");
+
+            dirty |= widget.slider("Blur Max Tspp", mTSSBlurData.blurStrength_MaxTspp, 1u, 100u);
+            widget.tooltip("Max Tspp for the blur");
+            dirty |= widget.slider("Blur decay strength", mTSSBlurData.blurDecayStrength, 0.1f, 32.f);
+            widget.tooltip("Stength of the blur decay");
+        }
     }
     mOptionsChange = dirty;
 }
@@ -332,6 +362,7 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
     ShaderVar var = mpTCacheBlendPass->getRootVar();
 
     //set minSmoothingfactor here with  mTSS_MaxTspp
+    mTSSBlurData.minSmoothingFactor = 1.f / mTSS_MaxTspp;
 
     //TODO set only if necessary
     var["CB"].setBlob(mTSSBlurData);
