@@ -63,7 +63,6 @@ def render_graph_RTAO():
     RTAODenoiser = createPass('RTAODenoiser')
     g.addPass(RTAODenoiser, 'RTAODenoiser')
     g.addEdge('DepthPass.depth', 'GBufferRaster.depth')
-    g.addEdge('GBufferRaster.depth', 'RTAO.depth')
     g.addEdge('GBufferRaster.normW', 'RTAO.normals')
     g.addEdge('GBufferRaster.faceNormalW', 'RTAO.faceNormal')
     g.addEdge('RTAO.ambient', 'RTAODenoiser.aoImage')
@@ -74,6 +73,7 @@ def render_graph_RTAO():
     g.addEdge('RTAO.rayDistance', 'RTAODenoiser.rayDistance')
     g.addEdge('RTAODenoiser.denoisedOut', 'Diffuse.I0')
     g.addEdge('RTAO.ambient', 'Ambient.I0')
+    g.addEdge('GBufferRaster.posW', 'RTAO.wPos')
     g.markOutput('Ambient.out')
     g.markOutput('Diffuse.out')
     return g

@@ -33,7 +33,7 @@ namespace
 {
     const char kDesc[] = "Ray Traced (noisy) AO";
 
-    const std::string kDepth = "depth";
+    const std::string kWPos = "wPos";
     const std::string kNormal = "normals";
     const std::string kFaceNormal = "faceNormal";
     const std::string kMotionVec = "mvec";
@@ -77,7 +77,7 @@ RenderPassReflection RTAO::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
-    reflector.addInput(kDepth, "non-linear depth");
+    reflector.addInput(kWPos, "world position");
     reflector.addInput(kNormal, "world space normals");
     reflector.addInput(kFaceNormal, "world space face normals");
     //reflector.addInput(kMotionVec, "motion vectors");
@@ -97,7 +97,7 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
-    auto pDepth = renderData[kDepth]->asTexture();
+    auto pWPos = renderData[kWPos]->asTexture();
     auto pNormal = renderData[kNormal]->asTexture();
     auto pFaceNormal = renderData[kFaceNormal]->asTexture();
     //auto pMotionVec = renderData[kMotionVec]->asTexture();
@@ -150,7 +150,7 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     mRayVars["PerFrameCB"]["frameIndex"] = frameIndex++;
 
     // resources
-    mRayVars["gDepthTex"] = pDepth;
+    mRayVars["gWPosTex"] = pWPos;
     mRayVars["gNormalTex"] = pNormal;
     mRayVars["gFaceNormalTex"] = pFaceNormal;
     mRayVars["ambientOut"] = pAmbient;

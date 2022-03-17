@@ -586,7 +586,7 @@ def render_graph_RTAO():
     Diffuse = createPass('ConvertFormat', {'formula': 'I0[xy].xxxx * I1[xy]', 'format': ResourceFormat.RGBA8UnormSrgb})
     g.addPass(Diffuse, 'Diffuse')
     g.addEdge('DepthPass.depth', 'GBufferRaster.depth')
-    g.addEdge('GBufferRaster.depth', 'RTAO.depth')
+    g.addEdge('GBufferRaster.posW', 'RTAO.wPos')
     g.addEdge('GBufferRaster.normW', 'RTAO.normals')
     g.addEdge('GBufferRaster.faceNormalW', 'RTAO.faceNormal')
     g.addEdge('RTAO.ambient', 'Ambient.I0')

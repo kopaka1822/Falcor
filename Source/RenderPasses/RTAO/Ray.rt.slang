@@ -4,7 +4,7 @@ import Scene.Intersection;
 import Scene.Raytracing;
 import Utils.Geometry.GeometryHelpers;
 
-Texture2D<float> gDepthTex;
+Texture2D<float4> gWPosTex;
 Texture2D<float3> gNormalTex;
 Texture2D<float3> gFaceNormalTex;
 RWTexture2D<float> ambientOut;
@@ -96,10 +96,10 @@ void rayGen()
     uint2 svPos = DispatchRaysIndex().xy;
     
     // non-linear depth
-    float depth = gDepthTex[svPos];
-    if (depth >= 1.0) // max depth value => background hit
+    float4 wPos = gWPosTex[svPos];
+    if (wPos.w == 0.0) //0 in w is miss
     {
-        ambientOut[svPos] = 1.0;
+        ambientOut[svPos] = 0;
         return;
     }
 
@@ -126,10 +126,10 @@ void rayGen()
     gSamples.GetDimensions(numSamples);
     float3 randDir = gSamples[hash(uint3(svPos, frameIndex)) % numSamples].xyz;
 
-    visibility = randDir.z;
+    visibility = 0.f;
 
     RayDesc ray;
-    ray.Origin = getWorldPosition(svPos, depth);
+    ray.Origin = wPos.xyz;
     ray.Direction = normalize(tangent * randDir.x + bitangent * randDir.y + normal * randDir.z);
     ray.Origin += faceNormal * gData.rayNormalOffset; // push origin in the direction of the face normal to avoid self intersection
     ray.TMin = 0.0;
