@@ -38,6 +38,7 @@ namespace
     const std::string kFaceNormal = "faceNormal";
     const std::string kMotionVec = "mvec";
     const std::string kAmbient = "ambient";
+    const std::string kRayDepth = "rayDepth";
 
     const std::string kRayShader = "RenderPasses/RTAO/Ray.rt.slang";
     const uint32_t kMaxPayloadSize = 4;
@@ -81,6 +82,7 @@ RenderPassReflection RTAO::reflect(const CompileData& compileData)
     reflector.addInput(kFaceNormal, "world space face normals");
     //reflector.addInput(kMotionVec, "motion vectors");
     reflector.addOutput(kAmbient, "ambient map").format(ResourceFormat::R8Unorm);
+    reflector.addOutput(kRayDepth, "depth of the ambient ray").format(ResourceFormat::R16Float);
     return reflector;
 }
 
@@ -100,6 +102,7 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pFaceNormal = renderData[kFaceNormal]->asTexture();
     //auto pMotionVec = renderData[kMotionVec]->asTexture();
     auto pAmbient = renderData[kAmbient]->asTexture();
+    auto pRayDepth = renderData[kRayDepth]->asTexture();
 
     if(!mEnabled)
     {
@@ -151,6 +154,7 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     mRayVars["gNormalTex"] = pNormal;
     mRayVars["gFaceNormalTex"] = pFaceNormal;
     mRayVars["ambientOut"] = pAmbient;
+    mRayVars["rayDepthOut"] = pRayDepth;
 
     mpScene->raytrace(pRenderContext, mRayProgram.get(), mRayVars, uint3(pAmbient->getWidth(), pAmbient->getHeight(), 1));
 }

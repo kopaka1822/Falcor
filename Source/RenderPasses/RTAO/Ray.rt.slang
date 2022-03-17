@@ -8,6 +8,7 @@ Texture2D<float> gDepthTex;
 Texture2D<float3> gNormalTex;
 Texture2D<float3> gFaceNormalTex;
 RWTexture2D<float> ambientOut;
+RWTexture2D<float> rayDepthOut;
 
 Texture1D<float4> gSamples;
 
@@ -142,7 +143,8 @@ void rayGen()
         0xff /* instanceInclusionMask */, 0 /* hitIdx */, 1 /*ray type count*/, 0 /* missIdx */,
         ray, rayData
     );
-    
+
+    rayDepthOut[svPos] = rayData.t;
     visibility = saturate(rayData.t / gData.radius);
     ambientOut[svPos] = visibility;
 }

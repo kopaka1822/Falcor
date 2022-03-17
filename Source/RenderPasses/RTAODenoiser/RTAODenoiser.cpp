@@ -38,6 +38,7 @@ namespace {
 
     //Inputs
     const std::string kAOInputName = "aoImage";
+    const std::string kRayDepthName = "rayDepth";
     const std::string kNormalInputName = "normal";
     const std::string kDepthInputName = "depth";
     const std::string kLinearDepthInputName = "linearDepth";
@@ -77,12 +78,13 @@ RenderPassReflection RTAODenoiser::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addInput(kAOInputName, "Noisy Ambient Occlusion Image");
+    reflector.addInput(kRayDepthName, "Ray depth of the ambient occlusion ray");
     reflector.addInput(kNormalInputName, "World Space Normal");
     reflector.addInput(kDepthInputName, "Camera Depth");
     reflector.addInput(kLinearDepthInputName, "Linear Depth Derivatives");
     reflector.addInput(kMotionVecInputName, "Motion Vector");
 
-    reflector.addOutput(kDenoisedOutputName, "Denoised output image");
+    reflector.addOutput(kDenoisedOutputName, "Denoised output image").format(ResourceFormat::R8Unorm);
 
     return reflector;
 }
@@ -158,6 +160,7 @@ void RTAODenoiser::reset()
 
 void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    FALCOR_PROFILE("TSSReverseReproject");
     //get render pass input tex
     auto aoInputTex = renderData[kAOInputName]->asTexture();
     auto normalTex = renderData[kNormalInputName]->asTexture();
@@ -238,12 +241,9 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
 //TODO: Add checkerboard sampling part. Must also be supported/ used by the RTAO
 void RTAODenoiser::CalculateMeanVariance(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    FALCOR_PROFILE("MeanVariance");
     //get render pass input tex
     auto aoInputTex = renderData[kAOInputName]->asTexture();
-    auto normalTex = renderData[kNormalInputName]->asTexture();
-    auto depthTex = renderData[kDepthInputName]->asTexture();
-    auto linearDepthTex = renderData[kLinearDepthInputName]->asTexture();
-    auto motionVectorTex = renderData[kMotionVecInputName]->asTexture();
 
     uint2 frameDim = uint2(aoInputTex->getWidth(), aoInputTex->getHeight());
 
@@ -284,12 +284,13 @@ void RTAODenoiser::CalculateMeanVariance(RenderContext* pRenderContext, const Re
 
 void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    //Barrier for the Tspp,Value,Squared Value, Ray Hit Distance buffer from TSSResampling pass
+    pRenderContext->uavBarrier(mCachedTsppValueSquaredValueRayHitDistance.get());
+
+    FALCOR_PROFILE("TSSBlend");
     //get render pass input tex
     auto aoInputTex = renderData[kAOInputName]->asTexture();
-    auto normalTex = renderData[kNormalInputName]->asTexture();
-    auto depthTex = renderData[kDepthInputName]->asTexture();
-    auto linearDepthTex = renderData[kLinearDepthInputName]->asTexture();
-    auto motionVectorTex = renderData[kMotionVecInputName]->asTexture();
+    auto rayDepthTex = renderData[kRayDepthName]->asTexture();
 
     uint2 frameDim = uint2(aoInputTex->getWidth(), aoInputTex->getHeight());
 
