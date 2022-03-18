@@ -26,9 +26,6 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 
-//Code taken from https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/Samples/Desktop/D3D12Raytracing/src/D3D12RaytracingRealTimeDenoisedAmbientOcclusion
-//and adjusted for this falcor renderpass
-
 import RTAODenoiserData;
 import CrossBilateralWeights;
 import RTAODenoiserHelper;
