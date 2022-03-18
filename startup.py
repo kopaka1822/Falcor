@@ -598,8 +598,8 @@ def render_graph_RTAO():
 m.addGraph(render_graph_RTAO())
 
 # Scene
-#m.loadScene('E:/VSProjects/Models/Sponza/sponzaOrig.obj')
-m.loadScene('E:/VSProjects/Models/CornellBoxRing/CornellBoxGlass.pyscene')
+m.loadScene('E:/VSProjects/Models/Sponza/sponza.obj')
+#m.loadScene('E:/VSProjects/Models/CornellBoxRing/CornellBoxGlass.pyscene')
 m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True, useGridVolumes=True)
 m.scene.camera.position = float3(22.887949,4.794842,2.332704)
 m.scene.camera.target = float3(22.068319,4.813749,1.760123)

@@ -104,7 +104,7 @@ void rayGen()
     }
 
     // view space normal of current pixel
-    float3 normal = normalize(gNormalTex[svPos]);
+    float3 normal = normalize(gFaceNormalTex[svPos]);
     float3 faceNormal = normalize(gFaceNormalTex[svPos]);
 
     //flip normal if backfacing

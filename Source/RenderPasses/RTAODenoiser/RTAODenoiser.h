@@ -76,6 +76,7 @@ private:
     uint mBilateralFilterKernelWidth = 9;   //Possible 3, 5, 7, 9 
     uint mTSS_MaxTspp = 33;
     bool mUseSmoothedVariance = false;
+    uint mNumBlurPasses = 3; //0-6
 
     //TODO: set in UI
     bool mRotateKernelEnable = true;
@@ -83,6 +84,8 @@ private:
     float mRayHitDistanceScaleFactor = 0.02f; //0.001 - 0.1f
     float mRayHitDistanceScaleExponent = 2.0f; //1.f - 5.f
     float mFilterMaxKernelWidthPercentage = 1.5f; //0 - 100.f
+
+    bool mEnableDisocclusionBlur = true;
 
     //Shader Structs (party used for config as well)
     TSSRRData mTSSRRData;
@@ -106,6 +109,7 @@ private:
     ComputePass::SharedPtr mpTCacheBlendPass;
     ComputePass::SharedPtr mpGaussianSmoothPass;
     ComputePass::SharedPtr mpAtrousWaveletTransformFilterPass;
+    ComputePass::SharedPtr mpBlurDisocclusionsPass;
 
     //TSS
     Sampler::SharedPtr mClampSampler;

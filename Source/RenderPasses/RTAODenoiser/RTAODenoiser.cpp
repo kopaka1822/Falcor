@@ -36,7 +36,7 @@ namespace {
     const std::string kMeanVarianceShader = "RenderPasses/RTAODenoiser/CalculateMeanVariance.cs.slang";
     const std::string kTSSCacheBlendShader = "RenderPasses/RTAODenoiser/TSSCacheBlend.cs.slang";
     const std::string kAtrousWaveletTransformShader = "RenderPasses/RTAODenoiser/AtrousWaveletTransformFilter.cs.slang";
-
+    const std::string kBlurOcclusionShader = "RenderPasses/RTAODenoiser/BlurOcclusion.cs.slang";
     //Inputs
     const std::string kAOInputName = "aoImage";
     const std::string kRayDistanceName = "rayDistance";
@@ -134,7 +134,8 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
 
     ApplyAtrousWaveletTransformFilter(pRenderContext, renderData);
 
-    //BlurDisocclusions(pRenderContext, renderData);
+    if(mEnableDisocclusionBlur)
+        BlurDisocclusions(pRenderContext, renderData);
 
     mCurrentFrame++;
 }
@@ -465,5 +466,43 @@ void RTAODenoiser::ApplyAtrousWaveletTransformFilter(RenderContext* pRenderConte
 
 void RTAODenoiser::BlurDisocclusions(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    //TODO
+    FALCOR_PROFILE("BlurDisocclusion");
+    //Render Pass In/Out Tex
+    auto depthTex = renderData[kDepthInputName]->asTexture();
+    auto denoisedOutTex = renderData[kDenoisedOutputName]->asTexture();
+
+    //create compute pass if invalid
+    if (!mpBlurDisocclusionsPass) {
+        Program::Desc desc;
+        desc.addShaderLibrary(kBlurOcclusionShader).csEntry("main").setShaderModel("6_5");
+        //desc.addTypeConformances(mpScene->getTypeConformances());
+
+        Program::DefineList defines;
+        defines.add("INVALID_AO_COEFFICIENT_VALUE", std::to_string(kInvalidAPCoefficientValue));
+        //defines.add(mpScene->getSceneDefines());
+
+        mpBlurDisocclusionsPass = ComputePass::create(desc, defines, true);
+    }
+
+    // bind all input and output channels
+    ShaderVar var = mpBlurDisocclusionsPass->getRootVar();
+    var["CB"]["gTextureDims"] = mFrameDim;
+
+    var["gInDepth"] = depthTex;
+    var["gInBlurStrength"] = mDisocclusionBlurStrength;
+    var["gInOutValue"] = denoisedOutTex;
+ 
+    uint filterStep = 1;
+    uint numPasses = mNumBlurPasses;
+    for (uint i = 0; i < numPasses; i++)
+    {
+        //Barriers for output as it is written every pass
+        pRenderContext->uavBarrier(denoisedOutTex.get());
+        var["CB"]["gFilterStep"] = filterStep;
+
+        mpBlurDisocclusionsPass->execute(pRenderContext, uint3(mFrameDim, 1));
+
+        filterStep *= 2;
+    }
+
 }

@@ -31,6 +31,16 @@ bool IsWithinBounds(in int2 index, in int2 dimensions)
     return index.x >= 0 && index.y >= 0 && index.x < dimensions.x && index.y < dimensions.y;
 }
 
+bool IsInRange(in uint val, in uint min, in float max)
+{
+    return (val >= min && val <= max);
+}
+
+bool IsInRange(in float val, in float min, in float max)
+{
+    return (val >= min && val <= max);
+}
+
 uint Float2ToHalf(in float2 val)
 {
     uint result = 0;

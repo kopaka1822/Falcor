@@ -15,5 +15,6 @@
     <ShaderSource Include="RTAODenoiserHelper.slang" />
     <ShaderSource Include="AtrousWaveletTransformFilter.cs.slang" />
     <ShaderSource Include="GaussianKernel3x3.slang" />
+    <ShaderSource Include="BlurOcclusion.cs.slang" />
   </ItemGroup>
 </Project>

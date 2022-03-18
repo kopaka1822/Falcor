@@ -37,6 +37,7 @@
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="AtrousWaveletTransformFilter.cs.slang" />
+    <ShaderSource Include="BlurOcclusion.cs.slang" />
     <ShaderSource Include="CalculateMeanVariance.cs.slang" />
     <ShaderSource Include="CrossBilateralWeights.slang" />
     <ShaderSource Include="GaussianKernel3x3.slang" />
