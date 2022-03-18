@@ -115,7 +115,12 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
         mOptionsChange = false;
     }
 
-    //TODO: Add toggle option for TSS
+    //Set indices for cached resources
+    mCurrentCachedIndex = (mCurrentFrame + 1) % 2;
+    mPrevCachedIndex = mCurrentFrame% 2;
+
+    //TODO::Create all needed resources here instead
+
     TemporalSupersamplingReverseReproject(pRenderContext, renderData);
 
     CalculateMeanVariance(pRenderContext, renderData);
@@ -125,7 +130,7 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
     if(mUseSmoothedVariance)
         SmoothVariance(pRenderContext, renderData);
 
-    //ApplyAtrousWaveletTransformFilter(pRenderContext, renderData);
+    ApplyAtrousWaveletTransformFilter(pRenderContext, renderData);
 
     //BlurDisocclusions(pRenderContext, renderData);
 
@@ -261,14 +266,12 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
     var["gDepthTex"] = depthTex;
     var["gLinearDepthTex"] = linearDepthTex;
     var["gMVecTex"] = motionVectorTex;
-    //bind internal textures (ping pong for some cached ones)
-    uint currentCachedIndex = (mCurrentFrame + 1) % 2;
-    uint prevCachedIndex = mCurrentFrame % 2;
-    var["gInCachedTspp"] = mCachedTemporalTextures[prevCachedIndex].tspp;
-    var["gInCachedValue"] = mCachedTemporalTextures[prevCachedIndex].value;
-    var["gInCachedValueSquaredMean"] = mCachedTemporalTextures[prevCachedIndex].valueSqMean;
-    var["gInCachedRayHitDepth"] = mCachedTemporalTextures[prevCachedIndex].rayHitDepth;
-    var["gOutCachedTspp"] = mCachedTemporalTextures[currentCachedIndex].tspp;
+
+    var["gInCachedTspp"] = mCachedTemporalTextures[mPrevCachedIndex].tspp;
+    var["gInCachedValue"] = mCachedTemporalTextures[mPrevCachedIndex].value;
+    var["gInCachedValueSquaredMean"] = mCachedTemporalTextures[mPrevCachedIndex].valueSqMean;
+    var["gInCachedRayHitDepth"] = mCachedTemporalTextures[mPrevCachedIndex].rayHitDepth;
+    var["gOutCachedTspp"] = mCachedTemporalTextures[mCurrentCachedIndex].tspp;
 
     var["gInOutCachedNormalDepth"] = mPrevFrameNormalDepth;
     var["gOutReprojectedCachedValues"] = mCachedTsppValueSquaredValueRayHitDistance;
@@ -361,10 +364,6 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
         mVarianceRawTex->setName("RTAODenoiser::VarianceRaw");
     }
 
-
-    uint currentCachedIndex = (mCurrentFrame + 1) % 2;
-    uint prevCachedIndex = mCurrentFrame % 2;
-
     // bind all input and output channels
     ShaderVar var = mpTCacheBlendPass->getRootVar();
 
@@ -379,10 +378,10 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
     var["gInRayDistance"] = rayDistanceTex;
     var["gInReprojected_Tspp_Value_SquaredMeanValue_RayHitDistance"] = mCachedTsppValueSquaredValueRayHitDistance;
 
-    var["gInOutTspp"] = mCachedTemporalTextures[currentCachedIndex].tspp;
-    var["gInOutValue"] = mCachedTemporalTextures[currentCachedIndex].value;
-    var["gInOutSquaredMeanValue"] = mCachedTemporalTextures[currentCachedIndex].valueSqMean;
-    var["gInOutRayHitDistance"] = mCachedTemporalTextures[currentCachedIndex].rayHitDepth;
+    var["gInOutTspp"] = mCachedTemporalTextures[mCurrentCachedIndex].tspp;
+    var["gInOutValue"] = mCachedTemporalTextures[mCurrentCachedIndex].value;
+    var["gInOutSquaredMeanValue"] = mCachedTemporalTextures[mCurrentCachedIndex].valueSqMean;
+    var["gInOutRayHitDistance"] = mCachedTemporalTextures[mCurrentCachedIndex].rayHitDepth;
 
     var["gOutVariance"] = mVarianceRawTex;
     var["gOutBlurStrength"] = mDisocclusionBlurStrength;

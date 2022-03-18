@@ -77,6 +77,7 @@ private:
     uint mTSS_MaxTspp = 33;
     bool mUseSmoothedVariance = false;
 
+
     //Shader Structs (party used for config as well)
     TSSRRData mTSSRRData;
     MeanVarianceCB mMeanVarianceData;
@@ -87,6 +88,8 @@ private:
     bool mOptionsChange = true;
     bool mTSSRRInternalTexReady = false;
     uint mCurrentFrame = 0;
+    uint mCurrentCachedIndex = 1;
+    uint mPrevCachedIndex = 0;
 
    
     Scene::SharedPtr mpScene;
@@ -94,6 +97,7 @@ private:
     ComputePass::SharedPtr mpMeanVariancePass;
     ComputePass::SharedPtr mpTCacheBlendPass;
     ComputePass::SharedPtr mpGaussianSmoothPass;
+    ComputePass::SharedPtr mpAtrousWaveletTransformFilterPass;
 
     //TSS
     Sampler::SharedPtr mClampSampler;
