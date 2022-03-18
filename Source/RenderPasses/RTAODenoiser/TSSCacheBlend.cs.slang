@@ -47,6 +47,8 @@ RWTexture2D<float> gInOutRayHitDistance;
 RWTexture2D<float> gOutVariance;
 RWTexture2D<float> gOutBlurStrength;
 
+RWTexture2D<float> gDebugOut;
+
 static const float kInvalidAOCoefficientValue = INVALID_AO_COEFFICIENT_VALUE;
 
 [numthreads(8, 8, 1)]
@@ -130,4 +132,6 @@ void main(uint2 DTid : SV_DispatchThreadID)
     gInOutRayHitDistance[DTid] = rayHitDistance;
     gOutVariance[DTid] = variance;
     gOutBlurStrength[DTid] = blurStrength;
+
+    gDebugOut[DTid] = value;
 }

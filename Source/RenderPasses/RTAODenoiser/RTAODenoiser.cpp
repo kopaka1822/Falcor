@@ -122,7 +122,8 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
 
     TemporalCacheBlendWithCurrentFrame(pRenderContext, renderData);
 
-    //SmoothVariance(pRenderContext, renderData);
+    if(mUseSmoothedVariance)
+        SmoothVariance(pRenderContext, renderData);
 
     //ApplyAtrousWaveletTransformFilter(pRenderContext, renderData);
 
@@ -169,6 +170,9 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
             dirty |= widget.slider("Blur decay strength", mTSSBlurData.blurDecayStrength, 0.1f, 32.f);
             widget.tooltip("Stength of the blur decay");
         }
+
+        dirty |= widget.checkbox("Smooth Variance", mUseSmoothedVariance);
+        widget.tooltip("Smoothes variance after TSS pass");
     }
     mOptionsChange = dirty;
 }
@@ -330,7 +334,8 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
     //get render pass input tex
     auto aoInputTex = renderData[kAOInputName]->asTexture();
     auto rayDistanceTex = renderData[kRayDistanceName]->asTexture();
-    auto varianceOutTex = renderData[kDenoisedOutputName]->asTexture();
+
+    auto debugOutScreenVal = renderData[kDenoisedOutputName]->asTexture();
 
     uint2 frameDim = uint2(aoInputTex->getWidth(), aoInputTex->getHeight());
 
@@ -352,6 +357,8 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
         mDisocclusionBlurStrength = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mDisocclusionBlurStrength->setName("RTAODenoiser::DisocclusionBlurStrength");
         FALCOR_ASSERT(mDisocclusionBlurStrength);
+        mVarianceRawTex = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mVarianceRawTex->setName("RTAODenoiser::VarianceRaw");
     }
 
 
@@ -377,8 +384,10 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
     var["gInOutSquaredMeanValue"] = mCachedTemporalTextures[currentCachedIndex].valueSqMean;
     var["gInOutRayHitDistance"] = mCachedTemporalTextures[currentCachedIndex].rayHitDepth;
 
-    var["gOutVariance"] = varianceOutTex;
+    var["gOutVariance"] = mVarianceRawTex;
     var["gOutBlurStrength"] = mDisocclusionBlurStrength;
+
+    var["gDebugOut"] = debugOutScreenVal;
 
     mpTCacheBlendPass->execute(pRenderContext, uint3(frameDim, 1));
 }

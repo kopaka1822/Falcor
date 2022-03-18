@@ -74,7 +74,13 @@ private:
     // Configuration
     bool mEnabled = true;
     uint mBilateralFilterKernelWidth = 9;   //Possible 3, 5, 7, 9 
-    uint mTSS_MaxTspp = 33;             
+    uint mTSS_MaxTspp = 33;
+    bool mUseSmoothedVariance = false;
+
+    //Shader Structs (party used for config as well)
+    TSSRRData mTSSRRData;
+    MeanVarianceCB mMeanVarianceData;
+    TSSBlurData mTSSBlurData;
 
 
     //Runtime Vars
@@ -82,18 +88,18 @@ private:
     bool mTSSRRInternalTexReady = false;
     uint mCurrentFrame = 0;
 
-    TSSRRData mTSSRRData;
-    MeanVarianceCB mMeanVarianceData;
-    TSSBlurData mTSSBlurData;
+   
     Scene::SharedPtr mpScene;
     ComputePass::SharedPtr mpTSSReverseReprojectPass;
     ComputePass::SharedPtr mpMeanVariancePass;
     ComputePass::SharedPtr mpTCacheBlendPass;
+    ComputePass::SharedPtr mpGaussianSmoothPass;
 
     //TSS
     Sampler::SharedPtr mClampSampler;
     Texture::SharedPtr mPrevFrameNormalDepth;
     Texture::SharedPtr mCachedTsppValueSquaredValueRayHitDistance;
+    Texture::SharedPtr mVarianceRawTex;
 
     struct CachedTemporalTextures {
         Texture::SharedPtr tspp;
