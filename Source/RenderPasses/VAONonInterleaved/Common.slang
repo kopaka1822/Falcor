@@ -14,8 +14,9 @@ import Scene.Shading;
 // raytraced
 #define DEPTH_MODE_RAYTRACING 3
 
-#define HALO_RADIUS (gData.radius * 3.0)
-#define CONST_RADIUS (gData.radius * 1.0)
+//#define HALO_RADIUS (gData.radius * 3.0)
+#define HALO_RADIUS (sphereStart - sphereEnd)
+#define CONST_RADIUS (gData.radius * 0.4)
 
 #define NUM_DIRECTIONS 8
 // normalized radius for each of the NUM_DIRECTION samples (distributed with radical inverse => see SSAO::setKernel() radius)
