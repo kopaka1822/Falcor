@@ -56,6 +56,13 @@ import Scene.Raster;
 #error please define DEPTH_MODE
 #endif
 
+#define VAO_MODE_HALO 0
+#define VAO_MODE_OBSCURED 1
+
+#ifndef VAO_MODE
+#error define VAO_MODE!
+#endif
+
 //#define TANGENT_SPACE_VIEW_SPACE 0
 //#define TANGENT_SPACE_CAMERA_ORIENTED 1
 
@@ -76,16 +83,28 @@ import Scene.Raster;
 #define SAMPLE_MODE_SPHERE 1
 #define SAMPLE_MODE SAMPLE_MODE_HEMISPHERE
 
-#define PREVENT_DARK_HALOS 1
 #define FRONT_FACE_NORMALS true
 // full radius of the halo
-#define HALO_RADIUS (gData.radius * 3.0)
+//#if VAO_MODE == VAO_MODE_HALO
+
+#define PREVENT_DARK_HALOS 1
+//#define HALO_RADIUS (gData.radius * 3.0)
+#define HALO_RADIUS ((sphereStart - sphereEnd) * 1.0)
 // area where the halo effect remains constant at 0.0
 #if PREVENT_DARK_HALOS
-#define CONST_RADIUS gData.radius
+#define CONST_RADIUS (gData.radius * 0.0)
 #else
 #define CONST_RADIUS 0.0
 #endif
+
+//#else // VAO_MODE = VAO_MODE_OBSCURED
+//#define PREVENT_DARK_HALOS 0
+//#define HALO_RADIUS 0.0
+//#define CONST_RADIUS 0.0
+//#endif
+
+
+
 #define RAY_MODE RAY_MODE_LONG_RAYS_REF
 
 //#define ENABLED(value) (value != 0)
@@ -262,15 +281,23 @@ float calcHaloVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
         * (sphereStart - sphereEnd); // this adjust the visibility to the sampling (hemi-)sphere
 }
 
-float calcSphereVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
+float calcSphereVisibility(float objectSpaceZ, float sphereStart, float sphereEnd, float r)
 {
-    float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
-    return sampleRange;
+    if(VAO_MODE == VAO_MODE_HALO)
+    {
+        float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
+        return sampleRange;
+    }
+    else // VAO_MODE == VAO_MODE_OBSCURED
+    {
+        float h = clamp(objectSpaceZ / gData.radius, -1.0, 1.0); // relative height
+        return 2.0 / 3.0 * pow(max(1.0 - r * r, 0.0), 3.0 / 2.0) + h * h * h / 3.0 + h * r * r - h;
+    }
 }
 
-float calcVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
+float calcVisibility(float objectSpaceZ, float sphereStart, float sphereEnd, float r)
 {
-    return calcSphereVisibility(objectSpaceZ, sphereStart, sphereEnd)
+    return calcSphereVisibility(objectSpaceZ, sphereStart, sphereEnd, r)
          + calcHaloVisibility(objectSpaceZ, sphereStart, sphereEnd);
 }
 
@@ -332,12 +359,16 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     {
         // obtain sample position on disc around view space position
         float4 rand = gData.sampleKernel[i]; // xy = random location on unit disc, zw = uniform in 0,1
+        float r = length(rand.xy);
         rand.xy *= gData.radius; // multiply 2D position with sample radius
         
         // height of the sphere at the requested sample position (not at the actual sampling position)
         const float sphereHeight = sqrt(gData.radius * gData.radius - dot(rand.xy, rand.xy));
         // probability for choosing this sample
-        const float pdf = 2.0 * sphereHeight;
+        
+        float pdf = 2.0 * sphereHeight;
+        if (VAO_MODE == VAO_MODE_OBSCURED)
+            pdf = 4.0 / 3.0 * pow(max(1.0 - r * r, 0.0), 3.0 / 2.0);
         //float adaptiveHaloHeight = sqrt((gData.radius + HALO_RADIUS) * (gData.radius + HALO_RADIUS) - dot(rand.xy, rand.xy));
 
         // determine distance within [-sphereHeight, +sphereHeight]
@@ -385,7 +416,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         if (SHADER_VARIANT == SHADER_VARIANT_RASTER || SHADER_VARIANT == SHADER_VARIANT_HYBRID)
         {      
             objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
-            curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+            curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, r);
 
             if (DEPTH_MODE == DEPTH_MODE_SINGLE)
             {
@@ -398,7 +429,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 if (objectSpaceZ > sphereStart + CONST_RADIUS)
                 {
                     objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
-                    curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
+                    curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd, r));
                     if(objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
                         hybridRay = true;
                 }
@@ -422,7 +453,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                         linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
                         float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
                         float objectSpaceZ = dot(samplePosV - posV, normal);
-                        float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                        float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, r);
                         curVisibility = min(curVisibility, newVisibility);
                     }
                     // TODO when to trace hybrid rays?
@@ -574,7 +605,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 }
 
                 // calculate visibility inside and outside of sphere
-                float sphereVisibility = calcSphereVisibility(posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
+                float sphereVisibility = calcSphereVisibility(posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd, r);
                 float haloVisibility = calcHaloVisibility(posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
 
                 curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));

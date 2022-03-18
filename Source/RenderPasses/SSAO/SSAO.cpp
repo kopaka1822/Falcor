@@ -90,6 +90,12 @@ namespace
         { (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
     };
 
+    const Gui::DropdownList kVaoModeDropdown =
+    {
+        {(uint32_t)SSAO::VaoMode::Halo, "Halo"},
+        {(uint32_t)SSAO::VaoMode::Obscured, "Obscured"},
+    };
+
     const std::string kEnabled = "enabled";
     const std::string kKernelSize = "kernelSize";
     const std::string kNoiseSize = "noiseSize";
@@ -217,6 +223,7 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             defines.add(mpScene->getSceneDefines());
             defines.add("SHADER_VARIANT", std::to_string(uint32_t(mShaderVariant)));
             defines.add("DEPTH_MODE", std::to_string(uint32_t(mDepthMode)));
+            defines.add("VAO_MODE", std::to_string(uint32_t(mVaoMode)));
             if(mColorMap) defines.add("COLOR_MAP", "true");
             if (psDepth) defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
 
@@ -282,6 +289,13 @@ void SSAO::renderUI(Gui::Widgets& widget)
         mpSSAOPass.reset();
     }
 
+    uint32_t vaoMode = (uint32_t)mVaoMode;
+    if(widget.dropdown("Vao Mode", kVaoModeDropdown, vaoMode)) {
+        mVaoMode = (VaoMode)vaoMode;
+        setKernel();
+        mpSSAOPass.reset();
+    }
+
     uint32_t shaderVariant = (uint32_t)mShaderVariant;
     if(widget.dropdown("Variant", kShaderVariantDropdown, shaderVariant)) setShaderVariant(shaderVariant);
 
@@ -296,7 +310,6 @@ void SSAO::renderUI(Gui::Widgets& widget)
 
     if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
 
-    
 }
 
 void SSAO::setSampleRadius(float radius)
@@ -347,7 +360,13 @@ void SSAO::setKernel()
         }
 
         float theta = rand.x * 2.0f * glm::pi<float>();
-        float r = glm::sqrt(1.0f - glm::pow(rand.y, 2.0f / 3.0f));
+        float r = 0.0f;
+        if(mVaoMode == VaoMode::Halo)
+            r = glm::sqrt(1.0f - glm::pow(rand.y, 2.0f / 3.0f));
+        else if(mVaoMode == VaoMode::Obscured)
+            r = glm::sqrt(1.0f - glm::pow(rand.y, 2.0f / 5.0f));
+        else assert(false);
+
         s.x = r * sin(theta);
         s.y = r * cos(theta);
         s.z = glm::linearRand(0.0f, 1.0f);

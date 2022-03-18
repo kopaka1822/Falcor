@@ -51,6 +51,12 @@ public:
         Hybrid = 2
     };
 
+    enum class VaoMode : uint32_t
+    {
+        Halo = 0,
+        Obscured = 1
+    };
+
     static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
 
     static const Info kInfo;
@@ -83,6 +89,7 @@ private:
 
     bool mEnabled = true;
     DepthMode mDepthMode = DepthMode::DualDepth;
+    VaoMode mVaoMode = VaoMode::Obscured;
     Fbo::SharedPtr mpAOFbo;
     uint mFrameIndex = 0;
     bool mColorMap = false;
