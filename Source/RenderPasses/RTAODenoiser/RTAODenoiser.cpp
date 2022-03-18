@@ -35,6 +35,7 @@ namespace {
     const std::string kTSSReverseReprojectShader = "RenderPasses/RTAODenoiser/TSSReverseReproject.cs.slang";
     const std::string kMeanVarianceShader = "RenderPasses/RTAODenoiser/CalculateMeanVariance.cs.slang";
     const std::string kTSSCacheBlendShader = "RenderPasses/RTAODenoiser/TSSCacheBlend.cs.slang";
+    const std::string kAtrousWaveletTransformShader = "RenderPasses/RTAODenoiser/AtrousWaveletTransformFilter.cs.slang";
 
     //Inputs
     const std::string kAOInputName = "aoImage";
@@ -118,6 +119,7 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
     //Set indices for cached resources
     mCurrentCachedIndex = (mCurrentFrame + 1) % 2;
     mPrevCachedIndex = mCurrentFrame% 2;
+    mFrameDim = renderData.getDefaultTextureDims();
 
     //TODO::Create all needed resources here instead
 
@@ -207,8 +209,6 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
     auto linearDepthTex = renderData[kLinearDepthInputName]->asTexture();
     auto motionVectorTex = renderData[kMotionVecInputName]->asTexture();
 
-    uint2 frameDim = uint2(aoInputTex->getWidth(), aoInputTex->getHeight());
-
     //Create compute program if not set
     if (!mpTSSReverseReprojectPass) {
         Program::Desc desc;
@@ -224,18 +224,18 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
 
     //create internal textures if not done before
     if(!mTSSRRInternalTexReady) {
-        mPrevFrameNormalDepth = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RGBA32Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mPrevFrameNormalDepth = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::RGBA32Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mPrevFrameNormalDepth->setName("RTAODenoiser::CachedNormalDepth");
         FALCOR_ASSERT(mPrevFrameNormalDepth);
 
         for (uint i = 0; i < 2; i++) {
-            mCachedTemporalTextures[i].tspp = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Uint,1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mCachedTemporalTextures[i].tspp = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::R16Uint,1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
             mCachedTemporalTextures[i].tspp->setName("RTAODenoiser::Tspp" + std::to_string(i));
-            mCachedTemporalTextures[i].value = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float,1U,1U,nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mCachedTemporalTextures[i].value = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::R16Float,1U,1U,nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
             mCachedTemporalTextures[i].value->setName("RTAODenoiser::value" + std::to_string(i));
-            mCachedTemporalTextures[i].valueSqMean = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mCachedTemporalTextures[i].valueSqMean = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
             mCachedTemporalTextures[i].valueSqMean->setName("RTAODenoiser::valueSqMean" + std::to_string(i));
-            mCachedTemporalTextures[i].rayHitDepth = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mCachedTemporalTextures[i].rayHitDepth = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
             mCachedTemporalTextures[i].rayHitDepth->setName("RTAODenoiser::rayHitDepth" + std::to_string(i));
         }
 
@@ -244,7 +244,7 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
             pRenderContext->clearTexture(mCachedTemporalTextures[i].value.get(), float4(kInvalidAPCoefficientValue, 0, 0, 0));
         }
 
-        mCachedTsppValueSquaredValueRayHitDistance = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RGBA16Uint, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mCachedTsppValueSquaredValueRayHitDistance = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::RGBA16Uint, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mCachedTsppValueSquaredValueRayHitDistance->setName("RTAODenoiser::CachedTsppValueSquaredValueRayDistance");
         FALCOR_ASSERT(mCachedTsppValueSquaredValueRayHitDistance);
         //Sampler
@@ -278,7 +278,7 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
     //bind sampler
     var["gSampler"] = mClampSampler;
     
-    mpTSSReverseReprojectPass->execute(pRenderContext, uint3(frameDim, 1));
+    mpTSSReverseReprojectPass->execute(pRenderContext, uint3(mFrameDim, 1));
 }
 
 //TODO: Add checkerboard sampling part. Must also be supported/ used by the RTAO
@@ -287,8 +287,6 @@ void RTAODenoiser::CalculateMeanVariance(RenderContext* pRenderContext, const Re
     FALCOR_PROFILE("MeanVariance");
     //get render pass input tex
     auto aoInputTex = renderData[kAOInputName]->asTexture();
-
-    uint2 frameDim = uint2(aoInputTex->getWidth(), aoInputTex->getHeight());
 
     //create compute pass if invalid
     if (!mpMeanVariancePass) {
@@ -305,7 +303,7 @@ void RTAODenoiser::CalculateMeanVariance(RenderContext* pRenderContext, const Re
 
     //Create the local mean variance texture
     if (!mLocalMeanVariance) {
-        mLocalMeanVariance = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::RG16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mLocalMeanVariance = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::RG16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mLocalMeanVariance->setName("RTAODenoiser::LocalMeanVariance");
         FALCOR_ASSERT(mLocalMeanVariance);
     }
@@ -315,7 +313,7 @@ void RTAODenoiser::CalculateMeanVariance(RenderContext* pRenderContext, const Re
 
     //update cb (TODO: set only once and if action changed)
     {
-        mMeanVarianceData.textureDim = frameDim;
+        mMeanVarianceData.textureDim = mFrameDim;
         mMeanVarianceData.kernelWidth = mBilateralFilterKernelWidth;
         mMeanVarianceData.kernelRadius = mMeanVarianceData.kernelWidth >> 1;
     }
@@ -324,7 +322,7 @@ void RTAODenoiser::CalculateMeanVariance(RenderContext* pRenderContext, const Re
     var["gInAOTex"] = aoInputTex;
     var["gMeanVar"] = mLocalMeanVariance;
 
-    mpMeanVariancePass->execute(pRenderContext, uint3(frameDim, 1));
+    mpMeanVariancePass->execute(pRenderContext, uint3(mFrameDim, 1));
 }
 
 void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderContext, const RenderData& renderData)
@@ -339,8 +337,6 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
     auto rayDistanceTex = renderData[kRayDistanceName]->asTexture();
 
     auto debugOutScreenVal = renderData[kDenoisedOutputName]->asTexture();
-
-    uint2 frameDim = uint2(aoInputTex->getWidth(), aoInputTex->getHeight());
 
     //create compute pass if invalid
     if (!mpTCacheBlendPass) {
@@ -357,10 +353,10 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
 
     //Create texture if not set before
     if (!mDisocclusionBlurStrength) {
-        mDisocclusionBlurStrength = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mDisocclusionBlurStrength = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mDisocclusionBlurStrength->setName("RTAODenoiser::DisocclusionBlurStrength");
         FALCOR_ASSERT(mDisocclusionBlurStrength);
-        mVarianceRawTex = Texture::create2D(frameDim.x, frameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mVarianceRawTex = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mVarianceRawTex->setName("RTAODenoiser::VarianceRaw");
     }
 
@@ -388,7 +384,9 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
 
     var["gDebugOut"] = debugOutScreenVal;
 
-    mpTCacheBlendPass->execute(pRenderContext, uint3(frameDim, 1));
+    mpTCacheBlendPass->execute(pRenderContext, uint3(mFrameDim, 1));
+
+    pRenderContext->uavBarrier(mVarianceRawTex.get());  //Is needed in the next render pass (the optional and mandatary one)
 }
 
 void RTAODenoiser::SmoothVariance(RenderContext* pRenderContext, const RenderData& renderData)
@@ -398,7 +396,71 @@ void RTAODenoiser::SmoothVariance(RenderContext* pRenderContext, const RenderDat
 
 void RTAODenoiser::ApplyAtrousWaveletTransformFilter(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    //TODO
+    FALCOR_PROFILE("AtrousWaveletTransform");
+    //Barriers
+    pRenderContext->uavBarrier(mCachedTemporalTextures[mCurrentCachedIndex].rayHitDepth.get());
+    pRenderContext->uavBarrier(mCachedTemporalTextures[mCurrentCachedIndex].value.get());
+    pRenderContext->uavBarrier(mCachedTemporalTextures[mCurrentCachedIndex].tspp.get());
+
+    //Render Pass In/Out Tex
+    auto normalTex = renderData[kNormalInputName]->asTexture();
+    auto depthTex = renderData[kDepthInputName]->asTexture();
+    auto linearDepthTex = renderData[kLinearDepthInputName]->asTexture();
+    auto denoisedOutTex = renderData[kDenoisedOutputName]->asTexture();
+
+    //create compute pass if invalid
+    if (!mpAtrousWaveletTransformFilterPass) {
+        Program::Desc desc;
+        desc.addShaderLibrary(kAtrousWaveletTransformShader).csEntry("main").setShaderModel("6_5");
+        //desc.addTypeConformances(mpScene->getTypeConformances());
+
+        Program::DefineList defines;
+        defines.add("INVALID_AO_COEFFICIENT_VALUE", std::to_string(kInvalidAPCoefficientValue));
+        //defines.add(mpScene->getSceneDefines());
+
+        mpAtrousWaveletTransformFilterPass = ComputePass::create(desc, defines, true);
+    }
+    
+    //Calc buffers vars
+    float kernelRadiusLerCoef = 0;
+    if (mRotateKernelEnable) {
+        uint i = mCurrentFrame % mRotateKernelNumCycles;
+        kernelRadiusLerCoef = i / static_cast<float>(mRotateKernelNumCycles);
+    }
+    const float maxRayHitTime = 0.1f; //Normally used for ray sorting. we dont use that here 
+    float rayHitDistanceScaleFactor = 22 / maxRayHitTime * mRayHitDistanceScaleFactor;
+    auto lerp = [](float a, float b, float t) {return a + t * (b - a); };
+    auto relativeCoef = [](float a, float _min, float _max) {
+        float _a = std::max(_min, std::min(_max, a));
+        return (_a - _min) / (_max - _min);
+    };
+    float rayHitDistanceScaleExponent = lerp(1, mRayHitDistanceScaleExponent, relativeCoef(maxRayHitTime, 4, 22));
+
+    //Set uniform data
+    {
+        mAtrousWavletData.textureDim = mFrameDim;
+        mAtrousWavletData.kernelRadiusLerfCoef = kernelRadiusLerCoef;
+        mAtrousWavletData.maxKernelWidth = static_cast<uint>((mFilterMaxKernelWidthPercentage/100) * mFrameDim.x);
+        mAtrousWavletData.rayHitDistanceToKernelWidthScale = rayHitDistanceScaleFactor;
+        mAtrousWavletData.rayHitDistanceToKernelSizeScaleExponent = rayHitDistanceScaleExponent;
+    }
+    
+    // bind all input and output channels
+    ShaderVar var = mpAtrousWaveletTransformFilterPass->getRootVar();
+
+    var["CB"].setBlob(mAtrousWavletData);
+    var["gInValue"] = mCachedTemporalTextures[mCurrentCachedIndex].value;
+    var["gInNormal"] = normalTex;
+    var["gInDepth"] = depthTex;
+    var["gInVariance"] = mVarianceRawTex;   //TODO:: Use Smooth variance tex if enabled
+    var["gInRayHitDistance"] = mCachedTemporalTextures[mCurrentCachedIndex].rayHitDepth;
+    var["gInLinearZ"] = linearDepthTex;
+    var["gInTspp"] = mCachedTemporalTextures[mCurrentCachedIndex].tspp;
+
+    var["gOutValue"] = denoisedOutTex;
+
+    mpAtrousWaveletTransformFilterPass->execute(pRenderContext, uint3(mFrameDim, 1));
+    
 }
 
 void RTAODenoiser::BlurDisocclusions(RenderContext* pRenderContext, const RenderData& renderData)

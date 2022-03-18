@@ -13,5 +13,7 @@
     <ShaderSource Include="TSSCacheBlend.cs.slang" />
     <ShaderSource Include="CalculateMeanVariance.cs.slang" />
     <ShaderSource Include="RTAODenoiserHelper.slang" />
+    <ShaderSource Include="AtrousWaveletTransformFilter.cs.slang" />
+    <ShaderSource Include="GaussianKernel3x3.slang" />
   </ItemGroup>
 </Project>

@@ -77,11 +77,18 @@ private:
     uint mTSS_MaxTspp = 33;
     bool mUseSmoothedVariance = false;
 
+    //TODO: set in UI
+    bool mRotateKernelEnable = true;
+    uint mRotateKernelNumCycles = 3;     //3-10
+    float mRayHitDistanceScaleFactor = 0.02f; //0.001 - 0.1f
+    float mRayHitDistanceScaleExponent = 2.0f; //1.f - 5.f
+    float mFilterMaxKernelWidthPercentage = 1.5f; //0 - 100.f
 
     //Shader Structs (party used for config as well)
     TSSRRData mTSSRRData;
     MeanVarianceCB mMeanVarianceData;
     TSSBlurData mTSSBlurData;
+    AtrousWaveletTransformFilterData mAtrousWavletData;
 
 
     //Runtime Vars
@@ -90,6 +97,7 @@ private:
     uint mCurrentFrame = 0;
     uint mCurrentCachedIndex = 1;
     uint mPrevCachedIndex = 0;
+    uint2 mFrameDim = uint2(0, 0);
 
    
     Scene::SharedPtr mpScene;

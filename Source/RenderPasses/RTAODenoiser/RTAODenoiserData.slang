@@ -34,4 +34,28 @@ struct TSSBlurData
     float blurDecayStrength = 1.0f;
     float2 padding2;
 };
+
+//TODO: Add to UI
+struct AtrousWaveletTransformFilterData
+{
+    uint2 textureDim;
+    float depthWeightCutoff = 0.2f; //0.0 - 2.0f
+    bool usingBilateralDownsampledBuffers = false;  //Only true when using quarter res in AO
+
+    bool useAdaptiveKernelSize = true;
+    float kernelRadiusLerfCoef;
+    uint minKernelWidth = 3; //3-101
+    uint maxKernelWidth;
+
+    float rayHitDistanceToKernelWidthScale;
+    float rayHitDistanceToKernelSizeScaleExponent;
+    bool perspectiveCorrectDepthInterpolation = true;
+    float minVarianceToDenoise = 0.0f;  //0-1.f
+
+    float valueSigma = 1.0f;    //0 - 30f
+    float depthSigma = 1.0f;    //0 - 10f;
+    float normalSigma = 64.0f; // 0 - 256; 4 Stepsize ; UI value is int in original
+    uint DepthNumMantissaBits = 10; //Same as TSSRData
+};
+
 END_NAMESPACE_FALCOR

@@ -26,47 +26,12 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 
-import RTAODenoiserHelper;
-
-float4 getBilinearWeight(in float2 TargetOffset)
+static const uint FilterKernelRadius = 1;
+static const uint FilterKernelWidth = 1 + 2 * FilterKernelRadius;
+static const float FilterKernel1D[FilterKernelWidth] = { 0.27901, 0.44198, 0.27901 };
+static const float FilterKernel[FilterKernelWidth][FilterKernelWidth] =
 {
-    float4 bilinearWeights =
-                float4(
-                    (1 - TargetOffset.x) * (1 - TargetOffset.y),
-                    TargetOffset.x * (1 - TargetOffset.y),
-                    (1 - TargetOffset.x) * TargetOffset.y,
-                    TargetOffset.x * TargetOffset.y);
-
-    return bilinearWeights;
-}
-
-float4 getNormalWeight(in float3 TargetNormal, in float3 SampleNormals[4], float sigma, float sigmaExponent)
-{
-    float4 NdotSampleN = float4(
-                dot(TargetNormal, SampleNormals[0]),
-                dot(TargetNormal, SampleNormals[1]),
-                dot(TargetNormal, SampleNormals[2]),
-                dot(TargetNormal, SampleNormals[3]));
-
-            // Apply adjustment scale to the dot product. 
-            // Values greater than 1 increase tolerance scale 
-            // for unwanted inflated normal differences,
-            // such as due to low-precision normal quantization.
-    NdotSampleN *= sigma;
-
-    float4 normalWeights = pow(saturate(NdotSampleN), sigmaExponent);
-
-    return normalWeights;
-}
-
-float4 getDepthWeight(in float TargetDepth,in float2 Ddxy,in float4 SampleDepths, float sigma, float weightCutoff, uint numMantissaBits)
-{
-    float depthThreshold = dot(1, abs(Ddxy));
-    float depthFloatPrecision = FloatPrecision(TargetDepth, numMantissaBits);
-
-    float depthTolerance = sigma * depthThreshold + depthFloatPrecision;
-    float4 depthWeights = min(depthTolerance / (abs(SampleDepths - TargetDepth) + depthFloatPrecision), 1);
-    depthWeights *= depthWeights >= weightCutoff;
-
-    return depthWeights;
-}
+    { FilterKernel1D[0] * FilterKernel1D[0], FilterKernel1D[0] * FilterKernel1D[1], FilterKernel1D[0] * FilterKernel1D[2] },
+    { FilterKernel1D[1] * FilterKernel1D[0], FilterKernel1D[1] * FilterKernel1D[1], FilterKernel1D[1] * FilterKernel1D[2] },
+    { FilterKernel1D[2] * FilterKernel1D[0], FilterKernel1D[2] * FilterKernel1D[1], FilterKernel1D[2] * FilterKernel1D[2] },
+};
