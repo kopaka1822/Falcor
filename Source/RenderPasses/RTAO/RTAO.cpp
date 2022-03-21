@@ -33,10 +33,11 @@ namespace
 {
     const char kDesc[] = "Ray Traced (noisy) AO";
 
+    //In
     const std::string kWPos = "wPos";
-    const std::string kNormal = "normals";
     const std::string kFaceNormal = "faceNormal";
-    const std::string kMotionVec = "mvec";
+    
+    //Out
     const std::string kAmbient = "ambient";
     const std::string kRayDistance = "rayDistance";
 
@@ -78,9 +79,7 @@ RenderPassReflection RTAO::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addInput(kWPos, "world position");
-    reflector.addInput(kNormal, "world space normals");
     reflector.addInput(kFaceNormal, "world space face normals");
-    //reflector.addInput(kMotionVec, "motion vectors");
     reflector.addOutput(kAmbient, "ambient map").format(ResourceFormat::R8Unorm);
     reflector.addOutput(kRayDistance, "distance of the ambient ray").format(ResourceFormat::R16Float);
     return reflector;
@@ -98,7 +97,6 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     if (!mpScene) return;
 
     auto pWPos = renderData[kWPos]->asTexture();
-    auto pNormal = renderData[kNormal]->asTexture();
     auto pFaceNormal = renderData[kFaceNormal]->asTexture();
     //auto pMotionVec = renderData[kMotionVec]->asTexture();
     auto pAmbient = renderData[kAmbient]->asTexture();
@@ -151,7 +149,6 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     // resources
     mRayVars["gWPosTex"] = pWPos;
-    mRayVars["gNormalTex"] = pNormal;
     mRayVars["gFaceNormalTex"] = pFaceNormal;
     mRayVars["ambientOut"] = pAmbient;
     mRayVars["rayDistanceOut"] = pRayDistance;

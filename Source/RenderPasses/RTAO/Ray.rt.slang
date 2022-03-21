@@ -5,7 +5,6 @@ import Scene.Raytracing;
 import Utils.Geometry.GeometryHelpers;
 
 Texture2D<float4> gWPosTex;
-Texture2D<float3> gNormalTex;
 Texture2D<float3> gFaceNormalTex;
 RWTexture2D<float> ambientOut;
 RWTexture2D<float> rayDistanceOut;
@@ -104,20 +103,18 @@ void rayGen()
     }
 
     // view space normal of current pixel
-    float3 normal = normalize(gFaceNormalTex[svPos]);
     float3 faceNormal = normalize(gFaceNormalTex[svPos]);
 
     //flip normal if backfacing
     float3 camDir = normalize(gScene.camera.computeNonNormalizedRayDirPinhole(svPos, DispatchRaysDimensions().xy));
     if (dot(camDir, faceNormal) > 0)
     {
-        normal = -normal;
         faceNormal = -faceNormal;
     }
    
     // determine tangent space
-    float3 bitangent = getTangentVector(normal);
-    float3 tangent = cross(bitangent, normal);
+    float3 bitangent = getTangentVector(faceNormal);
+    float3 tangent = cross(bitangent, faceNormal);
     
     float visibility = 1.0f;
 
@@ -130,7 +127,7 @@ void rayGen()
 
     RayDesc ray;
     ray.Origin = wPos.xyz;
-    ray.Direction = normalize(tangent * randDir.x + bitangent * randDir.y + normal * randDir.z);
+    ray.Direction = normalize(tangent * randDir.x + bitangent * randDir.y + faceNormal * randDir.z);
     ray.Origin += faceNormal * gData.rayNormalOffset; // push origin in the direction of the face normal to avoid self intersection
     ray.TMin = 0.0;
     ray.TMax = gData.radius;
@@ -146,5 +143,5 @@ void rayGen()
 
     rayDistanceOut[svPos] = rayData.t;
     visibility = saturate(rayData.t / gData.radius);
-    ambientOut[svPos] = 1-visibility;
+    ambientOut[svPos] = visibility;
 }

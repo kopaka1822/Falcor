@@ -587,7 +587,6 @@ def render_graph_RTAO():
     g.addPass(Diffuse, 'Diffuse')
     g.addEdge('DepthPass.depth', 'GBufferRaster.depth')
     g.addEdge('GBufferRaster.posW', 'RTAO.wPos')
-    g.addEdge('GBufferRaster.normW', 'RTAO.normals')
     g.addEdge('GBufferRaster.faceNormalW', 'RTAO.faceNormal')
     g.addEdge('RTAO.ambient', 'Ambient.I0')
     g.addEdge('RTAO.ambient', 'Diffuse.I0')
