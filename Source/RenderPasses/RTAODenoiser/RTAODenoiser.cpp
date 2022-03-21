@@ -105,25 +105,60 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
         //Input and output are on the 0 index for both channels lists
         auto inputTex = renderData[kAOInputName]->asTexture();
         auto outputTex = renderData[kDenoisedOutputName]->asTexture();
-        pRenderContext->copyResource(inputTex.get(), outputTex.get());
+        pRenderContext->copyResource(outputTex.get(), inputTex.get());
         return;
     }
 
+    //check if resolution has changed
+    {
+        uint2 currTexDim = renderData.getDefaultTextureDims();
+        if (mFrameDim.x != currTexDim.x || mFrameDim.y != currTexDim.y) {
+            mFrameDim = currTexDim;
+            resetTextures();
+        }
+    }
+
+    /// Update refresh flag if options that affect the output have changed.
+    auto& dict = renderData.getDictionary();
     if (mOptionsChange) {
+        //Set out refresh flags as formats could have changed
+        auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
+        dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
+
         // adjust resolution
-        mTSSRRData.resolution = float2(renderData.getDefaultTextureDims());
+        mFrameDim = renderData.getDefaultTextureDims();
+
+        mTSSRRData.resolution = float2(mFrameDim);
         mTSSRRData.invResolution = float2(1.0f) / mTSSRRData.resolution;
+
+        //get depth format mantissa bits
+        auto depthTex = renderData[kDepthInputName]->asTexture();
+        auto dFormat = depthTex->getFormat();
+        switch (dFormat) {
+            case ResourceFormat::D32Float:
+            case ResourceFormat::D32FloatS8X24:
+                mMantissaBits = 23;
+                break;
+            case ResourceFormat::D16Unorm:
+                mMantissaBits = 10;
+                break;
+            case ResourceFormat::D24UnormS8:
+                mMantissaBits = 16;
+                break;
+            default:
+                mMantissaBits = 10;
+        }
 
         mOptionsChange = false;
     }
 
+    
+
     //Set indices for cached resources
     mCurrentCachedIndex = (mCurrentFrame + 1) % 2;
     mPrevCachedIndex = mCurrentFrame% 2;
-    mFrameDim = renderData.getDefaultTextureDims();
-
-    //TODO::Create all needed resources here instead
-
+    
+    //All render passes
     TemporalSupersamplingReverseReproject(pRenderContext, renderData);
 
     CalculateMeanVariance(pRenderContext, renderData);
@@ -152,8 +187,6 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
         if (auto group = widget.group("TSS Reverse Reprojection")) {
             dirty |= widget.slider("DepthSigma", mTSSRRData.depthSigma, 0.0f, 10.f);
             widget.tooltip("Sigma used for depth weight");
-            dirty |= widget.slider("Num Mantissa Bits Depth", mTSSRRData.numMantissaBits, 1U, 32U);     //Todo set that automaticly
-            widget.tooltip("Number of Mantissa the input depth uses");
         }
 
         if (auto group = widget.group("Mean Variance")) {
@@ -234,12 +267,34 @@ void RTAODenoiser::setScene(RenderContext* pRenderContext, const Scene::SharedPt
     reset();
 }
 
+void RTAODenoiser::resetTextures()
+{
+    mPrevFrameNormalDepth.reset();
+    mCachedTsppValueSquaredValueRayHitDistance.reset();
+    mVarianceRawTex.reset();
+    mVarianceSmoothTex.reset();
+    mLocalMeanVariance.reset();
+    mDisocclusionBlurStrength.reset();
+    for (uint i = 0; i < 2; i++) {
+        mCachedTemporalTextures[i].tspp.reset();
+        mCachedTemporalTextures[i].rayHitDepth.reset();
+        mCachedTemporalTextures[i].value.reset();
+        mCachedTemporalTextures[i].valueSqMean.reset();
+    }
+    mTSSRRInternalTexReady = false;
+}
+
 void RTAODenoiser::reset()
 {
     //reset all passes
     mCurrentFrame = 0;
     mpTSSReverseReprojectPass.reset();
-    mTSSRRInternalTexReady = false;
+    mpMeanVariancePass.reset();
+    mpTCacheBlendPass.reset();
+    mpGaussianSmoothPass.reset();
+    mpAtrousWaveletTransformFilterPass.reset();
+    mpBlurDisocclusionsPass.reset();
+    resetTextures();
     mOptionsChange = true;
 }
 
@@ -303,6 +358,7 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
 
     // bind all input and output channels
     ShaderVar var = mpTSSReverseReprojectPass->getRootVar();
+    mTSSRRData.numMantissaBits = mMantissaBits;
     var["StaticCB"].setBlob(mTSSRRData);    //TODO:: Set once and not every frame
     //render pass inputs
     var["gAOTex"] = aoInputTex;
@@ -525,6 +581,7 @@ void RTAODenoiser::ApplyAtrousWaveletTransformFilter(RenderContext* pRenderConte
         mAtrousWavletData.maxKernelWidth = static_cast<uint>((mFilterMaxKernelWidthPercentage/100) * mFrameDim.x);
         mAtrousWavletData.rayHitDistanceToKernelWidthScale = rayHitDistanceScaleFactor;
         mAtrousWavletData.rayHitDistanceToKernelSizeScaleExponent = rayHitDistanceScaleExponent;
+        mAtrousWavletData.DepthNumMantissaBits = mMantissaBits;
     }
     
     // bind all input and output channels

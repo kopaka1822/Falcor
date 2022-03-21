@@ -69,7 +69,11 @@ private:
 
     void BlurDisocclusions(RenderContext* pRenderContext, const RenderData& renderData);
 
+    //resets the programs
     void reset();
+
+    //Resets all texures
+    void resetTextures();
 
     // Configuration
     bool mEnabled = true;
@@ -85,6 +89,7 @@ private:
 
     bool mEnableDisocclusionBlur = true;
 
+    uint mMantissaBits;
     //Shader Structs (party used for config as well)
     TSSRRData mTSSRRData;
     MeanVarianceCB mMeanVarianceData;
