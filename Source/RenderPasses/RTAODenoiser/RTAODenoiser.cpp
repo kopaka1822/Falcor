@@ -52,6 +52,11 @@ namespace {
 
     //Const
     static const float kInvalidAPCoefficientValue = -1;
+
+    static const Gui::DropdownList kFilterDropdownList{
+        {0 , "Gaussian 3x3"},
+        {1 , "Gaussian 5x5"},
+    };
 }
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -223,6 +228,12 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
         widget.tooltip("Smoothes variance after TSS Blur pass with a 3x3 Gaussian Filter using Bilinear Filtering");
 
         if (auto group = widget.group("AtrousWavleTransformFilter")) {
+            bool changeFilter = widget.dropdown("Filter", kFilterDropdownList, mCurrentAtrousWaveletFilter);
+            widget.tooltip("Changing filter leads to recompilation of the shader");
+            if (changeFilter)
+                mpAtrousWaveletTransformFilterPass.reset();
+            dirty |= changeFilter;
+
             dirty |= widget.var("Depth weight cutoff", mAtrousWavletData.depthWeightCutoff, 0.0f, 2.0f, 0.1f);
             widget.tooltip("Cutoff for the depth weigths");
             dirty |= widget.checkbox("Adaptive Kernel Size", mAtrousWavletData.useAdaptiveKernelSize);
@@ -258,6 +269,12 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
             dirty |= widget.checkbox("Enable", mEnableDisocclusionBlur);
             widget.tooltip("Enables the Disocclusion Blur pass");
             if (mEnableDisocclusionBlur) {
+                bool changeFilter = widget.dropdown("Filter", kFilterDropdownList, mCurrentDisocclusionFilter);
+                widget.tooltip("Changing filter leads to recompilation of the shader");
+                if (changeFilter)
+                    mpBlurDisocclusionsPass.reset();
+                dirty |= changeFilter;
+
                 dirty |= widget.var("Blur Passes", mNumBlurPasses, 0u,6u,1u);
                 widget.tooltip("Number of blur passes. Each pass is a compute dispatch");
             }
@@ -566,6 +583,11 @@ void RTAODenoiser::ApplyAtrousWaveletTransformFilter(RenderContext* pRenderConte
 
         Program::DefineList defines;
         defines.add("INVALID_AO_COEFFICIENT_VALUE", std::to_string(kInvalidAPCoefficientValue));
+        if(mCurrentAtrousWaveletFilter == static_cast<uint>(Filter::Gauss3x3))
+            defines.add("USE_GAUSSIAN_3X3");
+        else {
+            defines.add("USE_GAUSSIAN_5X5");
+        }
         //defines.add(mpScene->getSceneDefines());
 
         mpAtrousWaveletTransformFilterPass = ComputePass::create(desc, defines, true);
@@ -632,7 +654,11 @@ void RTAODenoiser::BlurDisocclusions(RenderContext* pRenderContext, const Render
 
         Program::DefineList defines;
         defines.add("INVALID_AO_COEFFICIENT_VALUE", std::to_string(kInvalidAPCoefficientValue));
-        //defines.add(mpScene->getSceneDefines());
+        if (mCurrentDisocclusionFilter == static_cast<uint>(Filter::Gauss3x3))
+            defines.add("USE_GAUSSIAN_3X3");
+        else {
+            defines.add("USE_GAUSSIAN_5X5");
+        }
 
         mpBlurDisocclusionsPass = ComputePass::create(desc, defines, true);
     }

@@ -28,7 +28,11 @@
 
 import RTAODenoiserData;
 import RTAODenoiserHelper;
+#if defined(USE_GAUSSIAN_3X3)
 import GaussianKernel3x3;
+#elif defined(USE_GAUSSIAN_5X5)
+import GaussianKernel5x5;
+#endif //USE_GAUSSIAN
 
 #define PI              3.1415926535897f
 

@@ -26,8 +26,8 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 
-static const unsigned int FilterKernelRadius = 2;
-static const unsigned int FilterKernelWidth = 1 + 2 * FilterKernelRadius;
+static const uint FilterKernelRadius = 2;
+static const uint FilterKernelWidth = 1 + 2 * FilterKernelRadius;
 static const float FilterKernel1D[FilterKernelWidth] = { 1. / 16, 1. / 4, 3. / 8, 1. / 4, 1. / 16 };
 static const float FilterKernel[FilterKernelWidth][FilterKernelWidth] =
 {

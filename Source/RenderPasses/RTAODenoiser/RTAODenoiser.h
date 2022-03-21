@@ -34,6 +34,11 @@ using namespace Falcor;
 class RTAODenoiser : public RenderPass
 {
 public:
+    enum class Filter {
+        Gauss3x3 = 0u,
+        Gauss5x5 = 1u
+    };
+
     using SharedPtr = std::shared_ptr<RTAODenoiser>;
 
     static const Info kInfo;
@@ -88,6 +93,8 @@ private:
     float mFilterMaxKernelWidthPercentage = 1.5f; //0 - 100.f
 
     bool mEnableDisocclusionBlur = true;
+    uint mCurrentAtrousWaveletFilter = 0;    //3x3 Gaussian
+    uint mCurrentDisocclusionFilter = 0;    //3x3 Gaussian
 
     uint mMantissaBits;
     //Shader Structs (party used for config as well)
