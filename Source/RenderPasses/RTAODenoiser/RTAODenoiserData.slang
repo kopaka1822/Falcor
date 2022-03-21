@@ -40,7 +40,7 @@ struct AtrousWaveletTransformFilterData
 {
     uint2 textureDim;
     float depthWeightCutoff = 0.2f; //0.0 - 2.0f
-    bool usingBilateralDownsampledBuffers = false;  //Only true when using quarter res in AO
+    float fovy = 45.0f;  
 
     bool useAdaptiveKernelSize = true;
     float kernelRadiusLerfCoef;

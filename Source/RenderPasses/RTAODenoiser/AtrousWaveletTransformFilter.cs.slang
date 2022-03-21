@@ -49,7 +49,7 @@ RWTexture2D<float> gOutValue;
 
 static const float kInvalidAOCoefficientValue = INVALID_AO_COEFFICIENT_VALUE;
 static const float kHitDistanceOnMiss = 0;
-static const float kFovy = 45.0; //TODO set as uniform
+static const bool kUsingBilateralDownsampledBuffers = false;    //An option taken out of constant buffer as it is only used if quater res AO image was used as imput (not supported here)
 
 float DepthThreshold(float depth, float2 ddxy, float2 pixelOffset)
 {
@@ -125,7 +125,7 @@ void AddFilterContribution(
                 float2 pixelOffsetForDepth = pixelOffset;
 
                 // Account for sample offset in bilateral downsampled partial depth derivative buffer.
-                if (cb.usingBilateralDownsampledBuffers)
+                if (kUsingBilateralDownsampledBuffers)
                 {
                     float2 offsetSign = sign(pixelOffset);
                     pixelOffsetForDepth = pixelOffset + offsetSign * float2(0.5, 0.5);
@@ -195,7 +195,7 @@ void main(uint2 DTid : SV_DispatchThreadID, uint2 Gid : SV_GroupID)
         {
             float avgRayHitDistance = gInRayHitDistance[DTid];
 
-            float perPixelViewAngle = (kFovy / cb.textureDim.y) * PI / 180.0;
+            float perPixelViewAngle = (cb.fovy / cb.textureDim.y) * PI / 180.0;
             float tan_a = tan(perPixelViewAngle);
             float2 projectedSurfaceDim = ApproximateProjectedSurfaceDimensionsPerPixel(depth, ddxy, tan_a);
 

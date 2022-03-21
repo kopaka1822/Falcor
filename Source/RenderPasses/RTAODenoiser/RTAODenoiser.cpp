@@ -27,6 +27,7 @@
  **************************************************************************/
 #include "RTAODenoiser.h"
 #include <RenderGraph/RenderPassHelpers.h>
+#include "Utils/Math/FalcorMath.h"
 
 const RenderPass::Info RTAODenoiser::kInfo { "RTAODenoiser", "Denoiser for noisy Ray Traced Ambient Occlusion." };
 
@@ -120,9 +121,11 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
 
     /// Update refresh flag if options that affect the output have changed.
     auto& dict = renderData.getDictionary();
+    auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
+    
+    mOptionsChange |= static_cast<uint>(flags & RenderPassRefreshFlags::RenderOptionsChanged) != 0;
     if (mOptionsChange) {
         //Set out refresh flags as formats could have changed
-        auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
         dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
 
         // adjust resolution
@@ -240,6 +243,8 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
             dirty |= widget.var("Max Kernel Width %", mFilterMaxKernelWidthPercentage, 0.f, 100.f, 0.1f);
             widget.tooltip("Percentage how wide a kernel can get depending on the screen width.");
 
+            dirty |= widget.var("Min Variance to denoise", mAtrousWavletData.minVarianceToDenoise, 0.0f, 1.0f, 0.01f);
+            widget.tooltip("Minimum Variance needed to denoise for a pixel.");
             dirty |= widget.var("Value sigma", mAtrousWavletData.valueSigma, 0.0f, 30.0f, 0.1f);
             widget.tooltip("Sigma for the AO value weight");
             dirty |= widget.var("Depth sigma", mAtrousWavletData.depthSigma, 0.0f, 10.f, 0.1f);
@@ -574,9 +579,12 @@ void RTAODenoiser::ApplyAtrousWaveletTransformFilter(RenderContext* pRenderConte
     };
     float rayHitDistanceScaleExponent = lerp(1, mRayHitDistanceScaleExponent, relativeCoef(maxRayHitTime, 4, 22));
 
+    float fovY = focalLengthToFovY(mpScene->getCamera()->getFocalLength(), Camera::kDefaultFrameHeight);
+
     //Set uniform data
     {
         mAtrousWavletData.textureDim = mFrameDim;
+        mAtrousWavletData.fovy = fovY;
         mAtrousWavletData.kernelRadiusLerfCoef = kernelRadiusLerCoef;
         mAtrousWavletData.maxKernelWidth = static_cast<uint>((mFilterMaxKernelWidthPercentage/100) * mFrameDim.x);
         mAtrousWavletData.rayHitDistanceToKernelWidthScale = rayHitDistanceScaleFactor;
