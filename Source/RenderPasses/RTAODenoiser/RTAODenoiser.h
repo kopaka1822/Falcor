@@ -75,10 +75,8 @@ private:
     bool mEnabled = true;
     uint mBilateralFilterKernelWidth = 9;   //Possible 3, 5, 7, 9 
     uint mTSS_MaxTspp = 33;
-    bool mUseSmoothedVariance = true;
+    bool mUseSmoothedVariance = false;
     uint mNumBlurPasses = 3; //0-6
-
-    //TODO: set in UI
     bool mRotateKernelEnable = true;
     uint mRotateKernelNumCycles = 3;     //3-10
     float mRayHitDistanceScaleFactor = 0.02f; //0.001 - 0.1f

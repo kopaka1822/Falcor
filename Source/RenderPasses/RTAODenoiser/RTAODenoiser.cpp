@@ -156,9 +156,11 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
             widget.tooltip("Number of Mantissa the input depth uses");
         }
 
-        dirty |= widget.var("Mean Variance Kernel width", mBilateralFilterKernelWidth, 3U, 9U, 2U);
-        widget.tooltip("Kernel width for the mean variance step");
-        if (mBilateralFilterKernelWidth % 2 != 1) mBilateralFilterKernelWidth++;    //Make sure it is no invalid filter width
+        if (auto group = widget.group("Mean Variance")) {
+            dirty |= widget.var("Mean Variance Kernel width", mBilateralFilterKernelWidth, 3U, 9U, 2U);
+            widget.tooltip("Kernel width for the mean variance step");
+            if (mBilateralFilterKernelWidth % 2 != 1) mBilateralFilterKernelWidth++;    //Make sure it is no invalid filter width
+        }
 
         if (auto group = widget.group("TSS Blur")) {
             dirty |= widget.slider("Max Tspp", mTSS_MaxTspp, 1u, 100u);
@@ -181,8 +183,48 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
         }
 
         dirty |= widget.checkbox("Smooth Variance", mUseSmoothedVariance);
-        widget.tooltip("Smoothes variance after TSS pass");
+        widget.tooltip("Smoothes variance after TSS Blur pass with a 3x3 Gaussian Filter using Bilinear Filtering");
+
+        if (auto group = widget.group("AtrousWavleTransformFilter")) {
+            dirty |= widget.var("Depth weight cutoff", mAtrousWavletData.depthWeightCutoff, 0.0f, 2.0f, 0.1f);
+            widget.tooltip("Cutoff for the depth weigths");
+            dirty |= widget.checkbox("Adaptive Kernel Size", mAtrousWavletData.useAdaptiveKernelSize);
+            widget.tooltip("Enables adaptive filter Kernel sizes");
+
+            dirty |= widget.checkbox("Enable Rotating Kernel", mRotateKernelEnable);
+            widget.tooltip("Enables a rotating kernel");
+            if (mRotateKernelEnable) {
+                dirty |= widget.var("Rotate Kernel Cycles", mRotateKernelNumCycles, 3u, 10u, 1u);
+                widget.tooltip("Set the numbers the kernel needs for a full rotation");
+            }
+
+            dirty |= widget.var("Ray Hit Distance Scale Factor", mRayHitDistanceScaleFactor, 0.001f, 0.1f, 0.001f);
+            widget.tooltip("");
+            dirty |= widget.var("Ray Hit Distance Scale Exponent", mRayHitDistanceScaleExponent, 1.f, 5.f, 0.1f);
+            widget.tooltip("");
+            dirty |= widget.var("Minimum Kernel Width", mAtrousWavletData.minKernelWidth, 3u, 100u, 1u);
+            widget.tooltip("Minimum Kernel width in pixel");
+            dirty |= widget.var("Max Kernel Width %", mFilterMaxKernelWidthPercentage, 0.f, 100.f, 0.1f);
+            widget.tooltip("Percentage how wide a kernel can get depending on the screen width.");
+
+            dirty |= widget.var("Value sigma", mAtrousWavletData.valueSigma, 0.0f, 30.0f, 0.1f);
+            widget.tooltip("Sigma for the AO value weight");
+            dirty |= widget.var("Depth sigma", mAtrousWavletData.depthSigma, 0.0f, 10.f, 0.1f);
+            widget.tooltip("Sigma for the depth weight");
+            dirty |= widget.var("Normal Sigma", mAtrousWavletData.normalSigma, 0.0f, 256.f, 4.f);
+            widget.tooltip("Sigma for the normal weight");
+        }
+
+        if (auto group = widget.group("Blur Occlusion")) {
+            dirty |= widget.checkbox("Enable", mEnableDisocclusionBlur);
+            widget.tooltip("Enables the Disocclusion Blur pass");
+            if (mEnableDisocclusionBlur) {
+                dirty |= widget.var("Blur Passes", mNumBlurPasses, 0u,6u,1u);
+                widget.tooltip("Number of blur passes. Each pass is a compute dispatch");
+            }
+        }
     }
+
     mOptionsChange = dirty;
 }
 
@@ -338,8 +380,6 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
     auto aoInputTex = renderData[kAOInputName]->asTexture();
     auto rayDistanceTex = renderData[kRayDistanceName]->asTexture();
 
-    auto debugOutScreenVal = renderData[kDenoisedOutputName]->asTexture();
-
     //create compute pass if invalid
     if (!mpTCacheBlendPass) {
         Program::Desc desc;
@@ -383,8 +423,6 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
 
     var["gOutVariance"] = mVarianceRawTex;
     var["gOutBlurStrength"] = mDisocclusionBlurStrength;
-
-    var["gDebugOut"] = debugOutScreenVal;
 
     mpTCacheBlendPass->execute(pRenderContext, uint3(mFrameDim, 1));
 
@@ -496,7 +534,7 @@ void RTAODenoiser::ApplyAtrousWaveletTransformFilter(RenderContext* pRenderConte
     var["gInValue"] = mCachedTemporalTextures[mCurrentCachedIndex].value;
     var["gInNormal"] = normalTex;
     var["gInDepth"] = depthTex;
-    var["gInVariance"] = mVarianceRawTex;   //TODO:: Use Smooth variance tex if enabled
+    var["gInVariance"] = mUseSmoothedVariance ? mVarianceSmoothTex : mVarianceRawTex;
     var["gInRayHitDistance"] = mCachedTemporalTextures[mCurrentCachedIndex].rayHitDepth;
     var["gInLinearZ"] = linearDepthTex;
     var["gInTspp"] = mCachedTemporalTextures[mCurrentCachedIndex].tspp;
