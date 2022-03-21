@@ -99,6 +99,7 @@ private:
 
     //Runtime Vars
     bool mOptionsChange = true;
+    bool mSetConstantBuffers = true;
     bool mTSSRRInternalTexReady = false;
     uint mCurrentFrame = 0;
     uint mCurrentCachedIndex = 1;

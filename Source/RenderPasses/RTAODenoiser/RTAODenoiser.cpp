@@ -116,6 +116,7 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
         if (mFrameDim.x != currTexDim.x || mFrameDim.y != currTexDim.y) {
             mFrameDim = currTexDim;
             resetTextures();
+            mOptionsChange = true;
         }
     }
 
@@ -153,9 +154,8 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
         }
 
         mOptionsChange = false;
+        mSetConstantBuffers = true;
     }
-
-    
 
     //Set indices for cached resources
     mCurrentCachedIndex = (mCurrentFrame + 1) % 2;
@@ -176,6 +176,7 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
     if(mEnableDisocclusionBlur)
         BlurDisocclusions(pRenderContext, renderData);
 
+    if (mSetConstantBuffers) mSetConstantBuffers = false;
     mCurrentFrame++;
 }
 
@@ -363,8 +364,11 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
 
     // bind all input and output channels
     ShaderVar var = mpTSSReverseReprojectPass->getRootVar();
-    mTSSRRData.numMantissaBits = mMantissaBits;
-    var["StaticCB"].setBlob(mTSSRRData);    //TODO:: Set once and not every frame
+
+    if (mSetConstantBuffers) {
+        mTSSRRData.numMantissaBits = mMantissaBits;
+        var["StaticCB"].setBlob(mTSSRRData);    //TODO:: Set once and not every frame
+    }
     //render pass inputs
     var["gAOTex"] = aoInputTex;
     var["gNormalTex"] = normalTex;
@@ -416,14 +420,14 @@ void RTAODenoiser::CalculateMeanVariance(RenderContext* pRenderContext, const Re
     // bind all input and output channels
     ShaderVar var = mpMeanVariancePass->getRootVar();
 
-    //update cb (TODO: set only once and if action changed)
-    {
+    //update cb
+    if(mSetConstantBuffers) {
         mMeanVarianceData.textureDim = mFrameDim;
         mMeanVarianceData.kernelWidth = mBilateralFilterKernelWidth;
         mMeanVarianceData.kernelRadius = mMeanVarianceData.kernelWidth >> 1;
+        var["CB"].setBlob(mMeanVarianceData);
     }
-
-    var["CB"].setBlob(mMeanVarianceData);
+    
     var["gInAOTex"] = aoInputTex;
     var["gMeanVar"] = mLocalMeanVariance;
 
@@ -469,8 +473,9 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
     //set minSmoothingfactor here with  mTSS_MaxTspp
     mTSSBlurData.minSmoothingFactor = 1.f / mTSS_MaxTspp;
 
-    //TODO set only if necessary
-    var["CB"].setBlob(mTSSBlurData);
+    //set constant buffer
+    if(mSetConstantBuffers)
+        var["CB"].setBlob(mTSSBlurData);
 
     var["gInVariance"] = aoInputTex;
     var["gLocalMeanVariance"] = mLocalMeanVariance;
@@ -524,9 +529,11 @@ void RTAODenoiser::SmoothVariance(RenderContext* pRenderContext, const RenderDat
     // bind all input and output channels
     ShaderVar var = mpGaussianSmoothPass->getRootVar();
 
-    var["CB"]["gTextureDims"] = mFrameDim;
-    var["CB"]["gInvTextureDims"] = 1.0f / float2(mFrameDim);
-
+    if (mSetConstantBuffers) {
+        var["CB"]["gTextureDims"] = mFrameDim;
+        var["CB"]["gInvTextureDims"] = 1.0f / float2(mFrameDim);
+    }
+    
     var["gSampler"] = mMirrorSampler;
     var["gInput"] = mVarianceRawTex;
     var["gOutput"] = mVarianceSmoothTex;
@@ -581,7 +588,7 @@ void RTAODenoiser::ApplyAtrousWaveletTransformFilter(RenderContext* pRenderConte
 
     float fovY = focalLengthToFovY(mpScene->getCamera()->getFocalLength(), Camera::kDefaultFrameHeight);
 
-    //Set uniform data
+    //Set uniform data (has to be set every frame)
     {
         mAtrousWavletData.textureDim = mFrameDim;
         mAtrousWavletData.fovy = fovY;
@@ -632,7 +639,8 @@ void RTAODenoiser::BlurDisocclusions(RenderContext* pRenderContext, const Render
 
     // bind all input and output channels
     ShaderVar var = mpBlurDisocclusionsPass->getRootVar();
-    var["CB"]["gTextureDims"] = mFrameDim;
+    if(mSetConstantBuffers)
+        var["CB"]["gTextureDims"] = mFrameDim;
 
     var["gInDepth"] = depthTex;
     var["gInBlurStrength"] = mDisocclusionBlurStrength;
