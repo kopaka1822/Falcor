@@ -192,6 +192,9 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
     widget.tooltip("If deactivated the input AO image will only be copied to the output");
     //Only show rest if enabled
     if (mEnabled) {
+        dirty |= widget.var("Sample Radius", mRadiusRTAO, 0.01f, FLT_MAX, 0.01f);
+        widget.tooltip("The sample radius from RTAO. Has to be the same as RTAO pass for optimal results");
+
 
         if (auto group = widget.group("TSS Reverse Reprojection")) {
             dirty |= widget.slider("DepthSigma", mTSSRRData.depthSigma, 0.0f, 10.f);
@@ -599,14 +602,14 @@ void RTAODenoiser::ApplyAtrousWaveletTransformFilter(RenderContext* pRenderConte
         uint i = mCurrentFrame % mRotateKernelNumCycles;
         kernelRadiusLerCoef = i / static_cast<float>(mRotateKernelNumCycles);
     }
-    const float maxRayHitTime = 0.1f; //Normally used for ray sorting. we dont use that here 
-    float rayHitDistanceScaleFactor = 22 / maxRayHitTime * mRayHitDistanceScaleFactor;
+
+    float rayHitDistanceScaleFactor = 22 / mRadiusRTAO * mRayHitDistanceScaleFactor;
     auto lerp = [](float a, float b, float t) {return a + t * (b - a); };
     auto relativeCoef = [](float a, float _min, float _max) {
         float _a = std::max(_min, std::min(_max, a));
         return (_a - _min) / (_max - _min);
     };
-    float rayHitDistanceScaleExponent = lerp(1, mRayHitDistanceScaleExponent, relativeCoef(maxRayHitTime, 4, 22));
+    float rayHitDistanceScaleExponent = lerp(1, mRayHitDistanceScaleExponent, relativeCoef(mRadiusRTAO, 4, 22));
 
     float fovY = focalLengthToFovY(mpScene->getCamera()->getFocalLength(), Camera::kDefaultFrameHeight);
 

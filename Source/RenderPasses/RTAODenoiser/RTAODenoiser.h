@@ -91,7 +91,7 @@ private:
     float mRayHitDistanceScaleFactor = 0.02f; //0.001 - 0.1f
     float mRayHitDistanceScaleExponent = 2.0f; //1.f - 5.f
     float mFilterMaxKernelWidthPercentage = 1.5f; //0 - 100.f
-
+    float mRadiusRTAO = 0.5f;
     bool mEnableDisocclusionBlur = true;
     uint mCurrentAtrousWaveletFilter = 0;    //3x3 Gaussian
     uint mCurrentDisocclusionFilter = 0;    //3x3 Gaussian
