@@ -16,5 +16,6 @@
     <ShaderSource Include="AtrousWaveletTransformFilter.cs.slang" />
     <ShaderSource Include="GaussianKernel3x3.slang" />
     <ShaderSource Include="BlurOcclusion.cs.slang" />
+    <ShaderSource Include="SmoothVariance.cs.slang" />
   </ItemGroup>
 </Project>

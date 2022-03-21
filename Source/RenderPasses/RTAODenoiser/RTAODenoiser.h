@@ -75,7 +75,7 @@ private:
     bool mEnabled = true;
     uint mBilateralFilterKernelWidth = 9;   //Possible 3, 5, 7, 9 
     uint mTSS_MaxTspp = 33;
-    bool mUseSmoothedVariance = false;
+    bool mUseSmoothedVariance = true;
     uint mNumBlurPasses = 3; //0-6
 
     //TODO: set in UI
@@ -113,9 +113,11 @@ private:
 
     //TSS
     Sampler::SharedPtr mClampSampler;
+    Sampler::SharedPtr mMirrorSampler;
     Texture::SharedPtr mPrevFrameNormalDepth;
     Texture::SharedPtr mCachedTsppValueSquaredValueRayHitDistance;
     Texture::SharedPtr mVarianceRawTex;
+    Texture::SharedPtr mVarianceSmoothTex;
 
     struct CachedTemporalTextures {
         Texture::SharedPtr tspp;

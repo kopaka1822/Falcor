@@ -43,6 +43,7 @@
     <ShaderSource Include="GaussianKernel3x3.slang" />
     <ShaderSource Include="RTAODenoiserData.slang" />
     <ShaderSource Include="RTAODenoiserHelper.slang" />
+    <ShaderSource Include="SmoothVariance.cs.slang" />
     <ShaderSource Include="TSSCacheBlend.cs.slang" />
     <ShaderSource Include="TSSReverseReproject.cs.slang" />
   </ItemGroup>

@@ -35,6 +35,7 @@ namespace {
     const std::string kTSSReverseReprojectShader = "RenderPasses/RTAODenoiser/TSSReverseReproject.cs.slang";
     const std::string kMeanVarianceShader = "RenderPasses/RTAODenoiser/CalculateMeanVariance.cs.slang";
     const std::string kTSSCacheBlendShader = "RenderPasses/RTAODenoiser/TSSCacheBlend.cs.slang";
+    const std::string kSmoothVarianceShader = "RenderPasses/RTAODenoiser/SmoothVariance.cs.slang";
     const std::string kAtrousWaveletTransformShader = "RenderPasses/RTAODenoiser/AtrousWaveletTransformFilter.cs.slang";
     const std::string kBlurOcclusionShader = "RenderPasses/RTAODenoiser/BlurOcclusion.cs.slang";
     //Inputs
@@ -392,7 +393,49 @@ void RTAODenoiser::TemporalCacheBlendWithCurrentFrame(RenderContext* pRenderCont
 
 void RTAODenoiser::SmoothVariance(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    //TODO
+    FALCOR_PROFILE("SmoothVariance");
+   
+
+    //create compute pass if invalid
+    if (!mpGaussianSmoothPass) {
+        Program::Desc desc;
+        desc.addShaderLibrary(kSmoothVarianceShader).csEntry("main").setShaderModel("6_5");
+        //desc.addTypeConformances(mpScene->getTypeConformances());
+
+        Program::DefineList defines;
+        defines.add("INVALID_AO_COEFFICIENT_VALUE", std::to_string(kInvalidAPCoefficientValue));
+        //defines.add(mpScene->getSceneDefines());
+
+        mpGaussianSmoothPass = ComputePass::create(desc, defines, true);
+    }
+
+    //Create variance tex and sampler if pass is called the first time
+    if (!mVarianceSmoothTex) {
+        mVarianceSmoothTex = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::R16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mVarianceSmoothTex->setName("RTAODenoiser::VarianceSmooth");
+        FALCOR_ASSERT(mVarianceSmoothTex);
+        //Sampler
+        Sampler::Desc desc;
+        desc.setAddressingMode(Sampler::AddressMode::Mirror, Sampler::AddressMode::Mirror, Sampler::AddressMode::Mirror);
+        desc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Point);
+        mMirrorSampler = Sampler::create(desc);
+        FALCOR_ASSERT(mMirrorSampler);
+    }
+
+    // bind all input and output channels
+    ShaderVar var = mpGaussianSmoothPass->getRootVar();
+
+    var["CB"]["gTextureDims"] = mFrameDim;
+    var["CB"]["gInvTextureDims"] = 1.0f / float2(mFrameDim);
+
+    var["gSampler"] = mMirrorSampler;
+    var["gInput"] = mVarianceRawTex;
+    var["gOutput"] = mVarianceSmoothTex;
+
+
+    mpGaussianSmoothPass->execute(pRenderContext, uint3(mFrameDim, 1));
+
+    pRenderContext->uavBarrier(mVarianceSmoothTex.get());  //Is needed in the next render pass (the optional and mandatary one)
 }
 
 void RTAODenoiser::ApplyAtrousWaveletTransformFilter(RenderContext* pRenderContext, const RenderData& renderData)
