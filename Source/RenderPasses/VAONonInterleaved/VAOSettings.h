@@ -33,6 +33,7 @@ public:
     DepthMode getPrimaryDepthMode() const { return mPrimaryDepthMode; }
     DepthMode getSecondaryDepthMode() const { return mSecondaryDepthMode; }
     bool getRayPipeline() const { return mUseRayPipeline; }
+    int getGuardBand() const { return mGuardBand; }
 
     static Texture::SharedPtr genNoiseTexture();
     static std::vector<float2> genNoiseTextureCPU();
@@ -44,6 +45,7 @@ private:
     VAOData mData;
     bool mDirty = true;
     bool mReset = false;
+    int mGuardBand = 64;
     DepthMode mPrimaryDepthMode = DepthMode::DualDepth;
     DepthMode mSecondaryDepthMode = DepthMode::StochasticDepth;
     bool mUseRayPipeline = false;

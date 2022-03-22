@@ -9,9 +9,8 @@ Texture2D<uint> aoMask;
 
 RWTexture2D<float> output;
 
-struct RayData
+struct RayData // cannot be compressed to half floats => no diff in rendering time + insufficient visual quality
 {
-    // TODO compress to half
     float tLastFrontFaceHalo; // ray min
     float tFirstFrontFaceInside; // ray max
     float tConstRadiusStart;
@@ -227,7 +226,7 @@ void rayGen()
             float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
             float tHaloStart = (posVLength - sphereHeight - CONST_RADIUS - HALO_RADIUS) * initialSamplePosLength / posVLength;
             float tConstRadiusStart = (posVLength - sphereHeight - CONST_RADIUS) * initialSamplePosLength / posVLength;
-            ray.TMin = max(tHaloStart, 0.0); // TODO include buffer value?
+            ray.TMin = max(tHaloStart, 0.0);
             ray.TMax = tSphereEnd;
 
             // include the value of the depth buffer when choosing TMin to save some traversal time

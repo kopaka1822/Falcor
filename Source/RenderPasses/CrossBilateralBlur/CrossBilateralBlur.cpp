@@ -26,7 +26,7 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "CrossBilateralBlur.h"
-
+#include "../SSAO/scissors.h"
 
 namespace
 {
@@ -36,6 +36,7 @@ namespace
     const std::string kColor = "color";
     const std::string kDepth = "linear depth";
     const std::string kPingPong = "pingpong";
+    const std::string kGuardBand = "guardBand";
 }
 
 const RenderPass::Info CrossBilateralBlur::kInfo = { "CrossBilateralBlur", kDesc };
@@ -53,13 +54,15 @@ extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 
 CrossBilateralBlur::SharedPtr CrossBilateralBlur::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new CrossBilateralBlur);
+    SharedPtr pPass = SharedPtr(new CrossBilateralBlur(dict));
     return pPass;
 }
 
 Dictionary CrossBilateralBlur::getScriptingDictionary()
 {
-    return Dictionary();
+    Dictionary dict;
+    dict[kGuardBand] = mGuardBand;
+    return dict;
 }
 
 void CrossBilateralBlur::setKernelRadius(uint32_t radius)
@@ -68,15 +71,20 @@ void CrossBilateralBlur::setKernelRadius(uint32_t radius)
     mPassChangedCB();
 }
 
-CrossBilateralBlur::CrossBilateralBlur()
+CrossBilateralBlur::CrossBilateralBlur(const Dictionary& dict)
     :
     RenderPass(kInfo)
 {
     mpFbo = Fbo::create();
-    mpFbo2 = Fbo::create();
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpSampler = Sampler::create(samplerDesc);
+
+    for (const auto& [key, value] : dict)
+    {
+        if (key == kGuardBand) mGuardBand = value;
+        else logWarning("Unknown field '" + key + "' in a CrossBilateralBlur dictionary");
+    }
 }
 
 RenderPassReflection CrossBilateralBlur::reflect(const CompileData& compileData)
@@ -115,20 +123,14 @@ void CrossBilateralBlur::compile(RenderContext* pContext, const CompileData& com
     Program::DefineList defines;
     defines.add("KERNEL_RADIUS", std::to_string(mKernelRadius));
 
-    defines.add("DIR", "int2(1, 0)");
-    mpBlurX = FullScreenPass::create(kShaderPath, defines);
+    mpBlur = FullScreenPass::create(kShaderPath, defines);
 
-    defines.add("DIR", "int2(0, 1)");
-    mpBlurY = FullScreenPass::create(kShaderPath, defines);
-
-    // share program vars
-    //mpBlurY->setVars(mpBlurX->getVars());
-
-    mpBlurX["gSampler"] = mpSampler;
-    mpBlurY["gSampler"] = mpSampler;
+    mpBlur["gSampler"] = mpSampler;
 
     if ((compileData.defaultTexDims.x % 4 != 0) || (compileData.defaultTexDims.y % 4 != 0))
         logWarning("CrossBilateralBlur textures pixels are not a mutliple of size 4, this might results in artifacts!");
+
+    mSetScissorBuffer = true;
 }
 
 void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -142,31 +144,33 @@ void CrossBilateralBlur::execute(RenderContext* pRenderContext, const RenderData
     assert(pColor->getFormat() == pPingPong->getFormat());
 
     // set resources if they changed
-    if(mpBlurX["gDepthTex"].getTexture() != pDepth)
+    if(mpBlur["gDepthTex"].getTexture() != pDepth)
     {
-        mpBlurX["gDepthTex"] = pDepth;
-        mpBlurY["gDepthTex"] = pDepth;
+        mpBlur["gDepthTex"] = pDepth;
     }
-    
-    if(mpBlurX["gSrcTex"].getTexture() != pColor)
+
+    setGuardBandScissors(*mpBlur->getState(), renderData.getDefaultTextureDims(), mGuardBand);
+    if(mSetScissorBuffer)
     {
-        mpBlurX["gSrcTex"] = pColor;
-        mpFbo2->attachColorTarget(pColor, 0);
-    }
-    
-    if(mpBlurY["gSrcTex"].getTexture() != pPingPong)
-    {
-        mpBlurY["gSrcTex"] = pPingPong;
-        mpFbo->attachColorTarget(pPingPong, 0);
+        // set scissor cb (is shared between both shaders)
+        mpBlur["ScissorCB"]["uvMin"] = float2(float(mGuardBand) + 0.5f) / float2(renderData.getDefaultTextureDims());
+        mpBlur["ScissorCB"]["uvMax"] = (float2(renderData.getDefaultTextureDims()) - float2(float(mGuardBand) + 0.5f)) / float2(renderData.getDefaultTextureDims());
+        mSetScissorBuffer = false;
     }
 
     for(uint32_t i = 0; i < mRepetitions; ++i)
     {
         // blur in x
-        mpBlurX->execute(pRenderContext, mpFbo);
+        mpBlur["gSrcTex"] = pColor;
+        mpFbo->attachColorTarget(pPingPong, 0);
+        mpBlur["Direction"]["dir"] = float2(1.0f, 0.0f);
+        mpBlur->execute(pRenderContext, mpFbo, false);
 
         // blur in y
-        mpBlurY->execute(pRenderContext, mpFbo2);
+        mpBlur["gSrcTex"] = pPingPong;
+        mpFbo->attachColorTarget(pColor, 0);
+        mpBlur["Direction"]["dir"] = float2(0.0f, 1.0f);
+        mpBlur->execute(pRenderContext, mpFbo, false);
     }
 }
 
@@ -174,6 +178,9 @@ void CrossBilateralBlur::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
+
+    if (widget.var("Guard  Band", mGuardBand, 0, 256))
+        mSetScissorBuffer = true;
 
     if (widget.var("Kernel Radius", mKernelRadius, uint32_t(1), uint32_t(20))) setKernelRadius(mKernelRadius);
     widget.var("Blur Repetitions", mRepetitions, uint32_t(1), uint32_t(20));

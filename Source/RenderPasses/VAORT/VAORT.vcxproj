@@ -11,11 +11,11 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{6CC70B9F-CA56-4EF2-8075-A1BE0005DCF4}</ProjectGuid>
+    <ProjectGuid>{425C7C27-E6CE-4127-A0F1-393B4E4DB18F}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>SSAO</RootNamespace>
+    <RootNamespace>VAORT</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ProjectName>SSAO</ProjectName>
+    <ProjectName>VAORT</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -25,24 +25,25 @@
     <Import Project="..\..\Falcor\Falcor.props" />
   </ImportGroup>
   <ItemGroup>
-    <ClCompile Include="SSAO.cpp" />
+    <ClCompile Include="VAORT.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="DepthMode.h" />
-    <ClInclude Include="scissors.h" />
-    <ClInclude Include="SSAO.h" />
+    <ClInclude Include="VAORT.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Falcor\Falcor.vcxproj">
       <Project>{2c535635-e4c5-4098-a928-574f0e7cd5f9}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\Utils\Utils.vcxproj">
-      <Project>{bca3ccd2-6118-4821-bf30-23b725b0c230}</Project>
-    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <ShaderSource Include="SSAO.ps.slang" />
-    <ShaderSource Include="SSAOData.slang" />
+    <ShaderSource Include="VAO.rt.slang">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ShaderSource>
+    <ShaderSource Include="VAOData.slang">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ShaderSource>
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>

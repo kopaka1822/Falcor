@@ -26,7 +26,7 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "HBAOPlusInterleaved.h"
-
+#include "../SSAO/scissors.h"
 #include <glm/gtc/random.hpp>
 
 
@@ -167,6 +167,12 @@ void HBAOPlusInterleaved::execute(RenderContext* pRenderContext, const RenderDat
         return;
     }
 
+    if(mClearTexture)
+    {
+        pRenderContext->clearTexture(pAmbient.get(), float4(0.0f));
+        mClearTexture = false;
+    }
+
     if (mDirty)
     {
         // TODO adjust data
@@ -188,6 +194,8 @@ void HBAOPlusInterleaved::execute(RenderContext* pRenderContext, const RenderDat
     mpPass["gNormalTex"] = pNormal;
     mpPass["gsDepthTex"] = psDepth;
 
+    setGuardBandScissors(*mpPass->getState(), renderData.getDefaultTextureDims() / 4u, mGuardBand / 4);
+
     for(UINT sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
     {
         mpFbo->attachColorTarget(pAmbient, 0, 0, sliceIndex, 1);
@@ -197,7 +205,7 @@ void HBAOPlusInterleaved::execute(RenderContext* pRenderContext, const RenderDat
         mpPass["PerFrameCB"]["quarterOffset"] = uint2(sliceIndex % 4, sliceIndex / 4);
         mpPass["PerFrameCB"]["sliceIndex"] = sliceIndex;
 
-        mpPass->execute(pRenderContext, mpFbo);
+        mpPass->execute(pRenderContext, mpFbo, false);
     }
 }
 
@@ -205,6 +213,9 @@ void HBAOPlusInterleaved::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
+
+    if (widget.var("Guard Band", mGuardBand, 0, 256))
+        mClearTexture = true;
 
     float radius = mData.radius;
     if (widget.var("Radius", radius, 0.01f, FLT_MAX, 0.01f))

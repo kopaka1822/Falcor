@@ -27,77 +27,52 @@
  **************************************************************************/
 #pragma once
 #include "Falcor.h"
-#include "SSAOData.slang"
-#include "../Utils/GaussianBlur/GaussianBlur.h"
-#include "DepthMode.h"
+#include "VAOData.slang"
 
 using namespace Falcor;
 
-class SSAO : public RenderPass
+class VAORT : public RenderPass
 {
 public:
-    using SharedPtr = std::shared_ptr<SSAO>;
-
-    enum class SampleDistribution : uint32_t
-    {
-        Random,
-        Hammersley,
-    };
-
-    enum class ShaderVariant : uint32_t
-    {
-        Raster = 0,
-        Raytracing = 1,
-        Hybrid = 2
-    };
-
-    static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
+    using SharedPtr = std::shared_ptr<VAORT>;
 
     static const Info kInfo;
+
+    /** Create a new render pass object.
+        \param[in] pRenderContext The render context.
+        \param[in] dict Dictionary of serialized parameters.
+        \return A new object, or an exception is thrown if creation failed.
+    */
+    static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
+
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-
-    void setEnabled(bool enabled) {mEnabled = enabled;}
-    void setSampleRadius(float radius);
-    void setKernelSize(uint32_t kernelSize);
-    void setDistribution(uint32_t distribution);
-    void setShaderVariant(uint32_t variant);
-    bool getEnabled() {return mEnabled;}
-    float getSampleRadius() { return mData.radius; }
-    uint32_t getKernelSize() { return mData.kernelSize; }
-    uint32_t getDistribution() { return (uint32_t)mHemisphereDistribution; }
-    uint32_t getShaderVariant() { return (uint32_t)mShaderVariant; }
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
+    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
+    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    SSAO();
-    ResourceFormat getAmbientMapFormat() const;
+    VAORT(const Dictionary& dict);
     void setNoiseTexture();
     void setKernel();
 
-    SSAOData mData;
+    VAOData mData;
     bool mDirty = true;
+    int mFrameIndex = 0;
+    int mGuardBand = 64;
 
     bool mEnabled = true;
-    DepthMode mDepthMode = DepthMode::DualDepth;
-    Fbo::SharedPtr mpAOFbo;
-    uint mFrameIndex = 0;
-    bool mColorMap = false;
 
     Sampler::SharedPtr mpNoiseSampler;
     Texture::SharedPtr mpNoiseTexture;
     uint2 mNoiseSize = uint2(4);
-
     Sampler::SharedPtr mpTextureSampler;
-    SampleDistribution mHemisphereDistribution = SampleDistribution::Hammersley;
-    ShaderVariant mShaderVariant = ShaderVariant::Raster;
 
-    FullScreenPass::SharedPtr mpSSAOPass;
+    RtProgram::SharedPtr mpRayProgram;
+    RtProgramVars::SharedPtr mRayVars;
 
     Scene::SharedPtr mpScene;
-    int mGuardBand = 64;
-    bool mClearTexture = true;
 };

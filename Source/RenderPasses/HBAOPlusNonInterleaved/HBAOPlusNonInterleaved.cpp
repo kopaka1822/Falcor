@@ -26,7 +26,7 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "HBAOPlusNonInterleaved.h"
-
+#include "../SSAO/scissors.h"
 #include <glm/gtc/random.hpp>
 
 
@@ -142,6 +142,7 @@ RenderPassReflection HBAOPlusNonInterleaved::reflect(const CompileData& compileD
 void HBAOPlusNonInterleaved::compile(RenderContext* pContext, const CompileData& compileData)
 {
     mDirty = true;
+    mClearTexture = true;
 
     // static defines
     auto sdepths = compileData.connectedResources.getField(ksDepth);
@@ -167,6 +168,12 @@ void HBAOPlusNonInterleaved::execute(RenderContext* pRenderContext, const Render
         return;
     }
 
+    if(mClearTexture)
+    {
+        pRenderContext->clearTexture(pAmbient.get(), float4(0.0f));
+        mClearTexture = false;
+    }
+
     if(mDirty)
     {
         // static data
@@ -190,13 +197,17 @@ void HBAOPlusNonInterleaved::execute(RenderContext* pRenderContext, const Render
     mpPass["gNormalTex"] = pNormal;
     mpPass["gsDepthTex"] = psDepth;
 
-    mpPass->execute(pRenderContext, mpFbo);
+    setGuardBandScissors(*mpPass->getState(), renderData.getDefaultTextureDims(), mGuardBand);
+    mpPass->execute(pRenderContext, mpFbo, false);
 }   
 
 void HBAOPlusNonInterleaved::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
+
+    if (widget.var("Guard Band", mGuardBand, 0, 256))
+        mClearTexture = true;
 
     float radius = mData.radius;
     if (widget.var("Radius", radius, 0.01f, FLT_MAX, 0.01f))

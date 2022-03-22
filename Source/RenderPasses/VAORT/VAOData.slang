@@ -30,7 +30,7 @@
 
 BEGIN_NAMESPACE_FALCOR
 
-struct SSAOData
+struct VAOData
 {
     static const uint32_t kMaxSamples = 32;
 
@@ -38,8 +38,7 @@ struct SSAOData
     float2 noiseScale = float2(1, 1);
     uint32_t kernelSize = 8;
     float radius = 0.5f;
-    float exponent = 1.6f;
-    float thickness = 0.5f;
+    float exponent = 1.0f;
 };
 
 END_NAMESPACE_FALCOR

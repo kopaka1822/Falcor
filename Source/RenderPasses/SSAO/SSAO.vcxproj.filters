@@ -6,6 +6,7 @@
   <ItemGroup>
     <ClInclude Include="SSAO.h" />
     <ClInclude Include="DepthMode.h" />
+    <ClInclude Include="scissors.h" />
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="SSAO.ps.slang" />

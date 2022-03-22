@@ -26,6 +26,7 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "VAOInterleaved.h"
+#include "../SSAO/scissors.h"
 #include "../VAONonInterleaved/VAOSettings.h"
 
 namespace
@@ -146,6 +147,9 @@ void VAOInterleaved::execute(RenderContext* pRenderContext, const RenderData& re
         // update data
         mpRasterPass["StaticCB"].setBlob(s.getData());
         mpRasterPass["gTextureSampler"] = mpTextureSampler;
+
+        // clear texture for guard band
+        pRenderContext->clearTexture(pAmbient.get(), float4(0.0f));
     }
 
     auto pCamera = mpScene->getCamera().get();
@@ -156,6 +160,10 @@ void VAOInterleaved::execute(RenderContext* pRenderContext, const RenderData& re
     mpRasterPass["gNormalTex"] = pNormal;
     mpRasterPass["gsDepthTex"] = psDepth;
 
+    setGuardBandScissors(*mpRasterPass->getState(), renderData.getDefaultTextureDims() / 4u, VAOSettings::get().getGuardBand() / 4);
+    if (VAOSettings::get().getGuardBand() % 4 != 0)
+        Logger::log(Logger::Level::Warning, "Guard Band should be a multiple of 4 to work with interleaved sampling");
+
     for (UINT sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
     {
         mpFbo->attachColorTarget(pAmbient, 0, 0, sliceIndex, 1);
@@ -165,7 +173,7 @@ void VAOInterleaved::execute(RenderContext* pRenderContext, const RenderData& re
         mpRasterPass["PerFrameCB"]["quarterOffset"] = uint2(sliceIndex % 4, sliceIndex / 4);
         mpRasterPass["PerFrameCB"]["sliceIndex"] = sliceIndex;
 
-        mpRasterPass->execute(pRenderContext, mpFbo);
+        mpRasterPass->execute(pRenderContext, mpFbo, false);
     }
 }
 

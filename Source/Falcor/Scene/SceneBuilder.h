@@ -67,7 +67,7 @@ namespace Falcor
             UseCache                    = 0x10000000, ///< Enable scene caching. This caches the runtime scene representation on disk to reduce load time.
             RebuildCache                = 0x20000000, ///< Rebuild scene cache.
 
-            Default = None
+            Default = UseOriginalTangentSpace
         };
 
         /** Mesh description.

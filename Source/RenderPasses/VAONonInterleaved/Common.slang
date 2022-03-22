@@ -14,14 +14,17 @@ import Scene.Shading;
 // raytraced
 #define DEPTH_MODE_RAYTRACING 3
 
-#define HALO_RADIUS (gData.radius * 3.0)
-#define CONST_RADIUS (gData.radius * 1.0)
+//#define HALO_RADIUS (gData.radius * 3.0)
+#define HALO_RADIUS (sphereStart - sphereEnd)
+//#define CONST_RADIUS (gData.radius * 0.5)
+//#define CONST_RADIUS (gData.radius)
+#define CONST_RADIUS ((1.0 + gData.thickness) * gData.radius - sphereStart)
+//#define CONST_RADIUS 0.0
 
 #define NUM_DIRECTIONS 8
 // normalized radius for each of the NUM_DIRECTION samples (distributed with radical inverse => see SSAO::setKernel() radius)
-static const float sampleRadius[NUM_DIRECTIONS] = { 0.608308673, 0.776627183, 0.417753726, 0.866025388, 0.518647850, 0.692805171, 0.291845083, 0.917883337 };
-// same as above, but distributed uniformly (0.5/8, 1.5/8, 2.5/8, ... 7.5/8) => shuffled afterwards because the rotation follows an increasing angle
-//static const float sampleRadius[NUM_DIRECTIONS] = { 0.917883, 0.470149, 0.205215, 0.650919, 0.734504, 0.359545, 0.564429, 0.820004 };
+//static const float sampleRadius[NUM_DIRECTIONS] = { 0.608308673, 0.776627183, 0.417753726, 0.866025388, 0.518647850, 0.692805171, 0.291845083, 0.917883337 };
+static const float sampleRadius[NUM_DIRECTIONS] = { 0.917883, 0.564429, 0.734504, 0.359545, 0.820004, 0.470149, 0.650919, 0.205215 };
 
 cbuffer StaticCB
 {
