@@ -192,7 +192,7 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
     widget.tooltip("If deactivated the input AO image will only be copied to the output");
     //Only show rest if enabled
     if (mEnabled) {
-        dirty |= widget.var("Sample Radius", mRadiusRTAO, 0.01f, FLT_MAX, 0.01f);
+        dirty |= widget.var("Ray Max THit", mRadiusRTAO, 0.01f, FLT_MAX, 0.01f);
         widget.tooltip("The sample radius from RTAO. Has to be the same as RTAO pass for optimal results");
 
 

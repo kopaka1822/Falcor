@@ -74,6 +74,9 @@ private:
 
     void BlurDisocclusions(RenderContext* pRenderContext, const RenderData& renderData);
 
+    ResourceFormat getFloatFormat(uint format);
+    ResourceFormat getUintFormat(uint format);
+
     //resets the programs
     void reset();
 
@@ -91,12 +94,11 @@ private:
     float mRayHitDistanceScaleFactor = 0.02f; //0.001 - 0.1f
     float mRayHitDistanceScaleExponent = 2.0f; //1.f - 5.f
     float mFilterMaxKernelWidthPercentage = 1.5f; //0 - 100.f
-    float mRadiusRTAO = 0.5f;
+    float mRadiusRTAO = 1.f;
     bool mEnableDisocclusionBlur = true;
     uint mCurrentAtrousWaveletFilter = 0;    //3x3 Gaussian
     uint mCurrentDisocclusionFilter = 0;    //3x3 Gaussian
-
-    uint mMantissaBits;
+      
     //Shader Structs (party used for config as well)
     TSSRRData mTSSRRData;
     MeanVarianceCB mMeanVarianceData;
@@ -107,11 +109,13 @@ private:
     //Runtime Vars
     bool mOptionsChange = true;
     bool mSetConstantBuffers = true;
+    bool mResetTex = true;
     bool mTSSRRInternalTexReady = false;
     uint mCurrentFrame = 0;
     uint mCurrentCachedIndex = 1;
     uint mPrevCachedIndex = 0;
     uint2 mFrameDim = uint2(0, 0);
+    uint mMantissaBits = 10u;
 
    
     Scene::SharedPtr mpScene;
