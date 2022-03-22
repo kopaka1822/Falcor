@@ -39,6 +39,7 @@ struct VAOData
     uint32_t kernelSize = 8;
     float radius = 0.5f;
     float exponent = 1.0f;
+    float thickness = 0.5f;
 };
 
 END_NAMESPACE_FALCOR

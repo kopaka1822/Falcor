@@ -40,6 +40,7 @@ namespace
     const std::string kRadius = "radius";
     const std::string kGuardBand = "guardBand";
     const std::string kShader = "RenderPasses/VAORT/VAO.rt.slang";
+    const std::string kThickness = "thickness";
     const uint32_t kMaxPayloadSize = 4 * 4;
 }
 
@@ -74,6 +75,7 @@ VAORT::VAORT(const Dictionary& dict) : RenderPass(kInfo)
     {
         if (key == kRadius) mData.radius = value;
         else if (key == kGuardBand) mGuardBand = value;
+        else if (key == kThickness) mData.thickness = value;
         else logWarning("Unknown field '" + key + "' in a SSAO dictionary");
     }
 }
@@ -83,6 +85,7 @@ Dictionary VAORT::getScriptingDictionary()
     Dictionary dict;
     dict[kRadius] = mData.radius;
     dict[kGuardBand] = mGuardBand;
+    dict[kThickness] = mData.thickness;
     return dict;
 }
 
@@ -192,6 +195,11 @@ void VAORT::renderUI(Gui::Widgets& widget)
 
     if (widget.var("Sample Radius", mData.radius, 0.01f, FLT_MAX, 0.01f)) mDirty = true;
 
+    if (widget.var("Thickness", mData.thickness, 0.0f, 1.0f, 0.1f)) {
+        mDirty = true;
+        mData.exponent = glm::mix(1.6f, 1.0f, mData.thickness);
+    }
+
     if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
 }
 
@@ -205,11 +213,14 @@ void VAORT::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pSce
 void VAORT::setNoiseTexture()
 {
     std::srand(5960372); // same seed for kernel
+    int vanDerCorputOffset = mData.kernelSize; // (only correct for power of two numbers => offset 8 results in 1/16, 9,16, 5/16... which are 8 different uniformly dstributed numbers, see https://en.wikipedia.org/wiki/Van_der_Corput_sequence)
+
+
     for (uint32_t i = 0; i < mData.kernelSize; i++)
     {
         auto& s = mData.sampleKernel[i];
         float2 rand;
-        rand = float2((float)(i) / (float)(mData.kernelSize), radicalInverse(i + 1));
+        rand = float2((float)(i) / (float)(mData.kernelSize), radicalInverse(vanDerCorputOffset + i));
 
         float theta = rand.x * 2.0f * glm::pi<float>();
         float r = glm::sqrt(1.0f - glm::pow(rand.y, 2.0f / 3.0f));
