@@ -27,6 +27,7 @@
  **************************************************************************/
 #pragma once
 #include "Falcor.h"
+#include "Utils/Sampling/SampleGenerator.h"
 #include "RTAOData.slang"
 
 using namespace Falcor;
@@ -62,6 +63,7 @@ private:
     RtProgramVars::SharedPtr mRayVars;
 
     Scene::SharedPtr mpScene;
+    SampleGenerator::SharedPtr mpSampleGenerator;
 
     bool mEnabled = true;
 
@@ -69,6 +71,7 @@ private:
     uint frameIndex = 0;
 
     RTAOData mData;
-    float mRayNormalOffset = 0.05f;
+    float mMaxTHit = 1.f;
+    float mMinOcclusionCutoff = 0.4f;   //0-1
     bool mDirty = true;
 };

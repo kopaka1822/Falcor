@@ -5,12 +5,14 @@ BEGIN_NAMESPACE_FALCOR
 
 struct RTAOData
 {
-    float2 noiseScale = float2(1, 1);
-    float2 resolution;
-    float2 invResolution;
-    float radius = 0.5f;
-    float exponent = 1.0f;
-    float rayNormalOffset = 0.05f;
+    float maxAORayTHit = 0.5f;
+    float maxTheoreticalTHit = 0.5f;
+    uint spp = 1;
+    bool applyExponentialFalloff = true;
+
+    float exponentialFalloffDecayConstant = 2.f; //0-20
+    float minimumAmbientIllumination = 0.07f; //0-1
+
 };
 
 END_NAMESPACE_FALCOR

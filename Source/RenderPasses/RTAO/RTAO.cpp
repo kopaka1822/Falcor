@@ -72,6 +72,8 @@ Dictionary RTAO::getScriptingDictionary()
 RTAO::RTAO() : RenderPass(kInfo)
 {
     mpSamplesTex = genSamplesTexture(5312);
+    mpSampleGenerator = SampleGenerator::create(SAMPLE_GENERATOR_UNIFORM);
+    FALCOR_ASSERT(mpSampleGenerator);
 }
 
 RenderPassReflection RTAO::reflect(const CompileData& compileData)
@@ -89,7 +91,6 @@ void RTAO::compile(RenderContext* pRenderContext, const CompileData& compileData
 {
     mRayProgram.reset();
     mDirty = true;
-    mData.resolution = float2(compileData.defaultTexDims);
 }
 
 void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -98,7 +99,6 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     auto pWPos = renderData[kWPos]->asTexture();
     auto pFaceNormal = renderData[kFaceNormal]->asTexture();
-    //auto pMotionVec = renderData[kMotionVec]->asTexture();
     auto pAmbient = renderData[kAmbient]->asTexture();
     auto pRayDistance = renderData[kRayDistance]->asTexture();
 
@@ -112,6 +112,7 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     {
         Program::DefineList defines;
         defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
 
         RtProgram::Desc desc;
         desc.addShaderLibrary(kRayShader);
@@ -130,14 +131,26 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mDirty = true;
 
         // set constants
+        mpSampleGenerator->setShaderData(mRayVars->getRootVar());
         mRayVars["gSamples"] = mpSamplesTex;
     }
 
     if(mDirty)
     {
-        // adjust resolution
-        mData.resolution = float2(renderData.getDefaultTextureDims());
-        mData.invResolution = float2(1.0f) / mData.resolution;
+        // Calculate a theoretical max ray distance to be used in occlusion factor computation.
+        // Occlusion factor of a ray hit is computed based of its ray hit time, falloff exponent and a max ray hit time.
+        // By specifying a min occlusion factor of a ray, we can skip tracing rays that would have an occlusion 
+        // factor less than the cutoff to save a bit of performance (generally 1-10% perf win without visible AO result impact).
+        // Therefore the sample discerns between true maxRayHitTime, used in TraceRay, 
+        // and a theoretical one used in calculating the occlusion factor on a hit.
+        {
+            float lambda = mData.exponentialFalloffDecayConstant;
+            // Invert occlusionFactor = exp(-lambda * t * t), where t is tHit/tMax of a ray.
+            float t = sqrt(logf(mMinOcclusionCutoff) / -lambda);
+
+            mData.maxAORayTHit = mData.applyExponentialFalloff ? t * mMaxTHit : mMaxTHit;
+            mData.maxTheoreticalTHit = mMaxTHit;
+        }
         mRayVars["StaticCB"].setBlob(mData);
         mDirty = false;
     }
@@ -158,15 +171,23 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
 void RTAO::renderUI(Gui::Widgets& widget)
 {
+    bool dirty = false;
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
+    dirty |= widget.var("Ray Max THit", mMaxTHit, 0.01f, FLT_MAX, 0.01f);
+    widget.tooltip("Max THit value. Real value is dependent on Occlusion Cutoff and Decay Constant if exponential falloff is enabled");
+    dirty |= widget.checkbox("Exponential falloff", mData.applyExponentialFalloff);
+    if (mData.applyExponentialFalloff) {
+        dirty |= widget.var("Occlusion Cutoff", mMinOcclusionCutoff, 0.f, 1.f, 0.01f);
+        widget.tooltip("Cutoff for occlusion. Cutts of the end of the ray, as they contribute little in exponential falloff");
+        dirty |= widget.var("Falloff decay constant", mData.exponentialFalloffDecayConstant, 0.f, 20.f, 0.1f);
+    }
+    dirty |= widget.var("min Ambient Illumination", mData.minimumAmbientIllumination, 0.0f, 1.0f, 0.001f);
 
-    if (widget.var("Sample Radius", mData.radius, 0.01f, FLT_MAX, 0.01f)) mDirty = true;
+    dirty |= widget.var("spp", mData.spp, 1u, UINT32_MAX, 1u);
+    widget.tooltip("Numbers of ray per pixel. If higher than 1 a slower sample generator is used");
 
-    if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
-
-    if (widget.var("Ray Normal Offset", mData.rayNormalOffset, 0.0f, FLT_MAX, 0.05f)) mDirty = true;
-    widget.tooltip("Offset factor for Ray starting point to avoid self intersection");
+    mDirty = dirty;
 }
 
 void RTAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
