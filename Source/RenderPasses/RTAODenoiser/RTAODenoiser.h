@@ -74,9 +74,6 @@ private:
 
     void BlurDisocclusions(RenderContext* pRenderContext, const RenderData& renderData);
 
-    ResourceFormat getFloatFormat(uint format);
-    ResourceFormat getUintFormat(uint format);
-
     //resets the programs
     void reset();
 
