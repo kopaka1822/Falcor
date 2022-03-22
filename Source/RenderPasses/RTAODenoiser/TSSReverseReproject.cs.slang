@@ -37,7 +37,6 @@ cbuffer StaticCB
 
 
 //Input
-Texture2D<float4> gAOTex;
 Texture2D<float4> gNormalTex;
 Texture2D<float> gDepthTex;
 Texture2D<float2> gLinearDepthTex;

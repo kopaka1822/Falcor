@@ -349,7 +349,7 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
 
     //create internal textures if not done before
     if(!mTSSRRInternalTexReady) {
-        mPrevFrameNormalDepth = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::RGBA32Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mPrevFrameNormalDepth = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::RGBA16Float, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mPrevFrameNormalDepth->setName("RTAODenoiser::CachedNormalDepth");
         FALCOR_ASSERT(mPrevFrameNormalDepth);
 
@@ -390,7 +390,6 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
         var["StaticCB"].setBlob(mTSSRRData);    //TODO:: Set once and not every frame
     }
     //render pass inputs
-    var["gAOTex"] = aoInputTex;
     var["gNormalTex"] = normalTex;
     var["gDepthTex"] = depthTex;
     var["gLinearDepthTex"] = linearDepthTex;
