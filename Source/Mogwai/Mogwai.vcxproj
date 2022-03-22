@@ -130,6 +130,9 @@
     <ProjectReference Include="..\RenderPasses\PixelInspectorPass\PixelInspectorPass.vcxproj">
       <Project>{80ddde59-a412-4e64-880a-6b52697c967b}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\RTAODenoiser\RTAODenoiser.vcxproj">
+      <Project>{12fb9ee5-f061-44cc-885f-a003ac639e0d}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\RTAO\RTAO.vcxproj">
       <Project>{02d131d6-b7ef-4d96-847c-6ba69a500266}</Project>
     </ProjectReference>
@@ -171,6 +174,9 @@
     </ProjectReference>
     <ProjectReference Include="..\RenderPasses\VAONonInterleaved\VAONonInterleaved.vcxproj">
       <Project>{b1110211-2f62-4195-ac8d-bcd758f07654}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\VAORT\VAORT.vcxproj">
+      <Project>{425c7c27-e6ce-4127-a0f1-393b4e4db18f}</Project>
     </ProjectReference>
     <ProjectReference Include="..\RenderPasses\WhittedRayTracer\WhittedRayTracer.vcxproj">
       <Project>{431c3127-e613-424c-b964-fb53daa87789}</Project>
