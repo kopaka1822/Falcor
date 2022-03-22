@@ -32,7 +32,9 @@ struct RayData
 
 [shader("miss")]
 void miss(inout RayData rayData)
-{}
+{
+    rayData.t = 0;
+}
 
 [shader("anyhit")]
 void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
@@ -109,12 +111,12 @@ float AOOnce(out float tHit, in float3 wPos, in float3 faceNormal)
     RayDesc ray;
     ray.Origin = wPos.xyz;
     ray.Direction = normalize(tangent * randDir.x + bitangent * randDir.y + faceNormal * randDir.z);
-    ray.Origin += faceNormal * 0.05f; // push origin in the direction of the face normal to avoid self intersection
-    ray.TMin = 0.0;
+    ray.Origin += faceNormal * gData.normalScale; // push origin in the direction of the face normal to avoid self intersection
+    ray.TMin = 0.001;
     ray.TMax = gData.maxAORayTHit;
 
     RayData rayData;
-    rayData.t = 0.0;    //set to miss
+    rayData.t = 0.0; //set to miss
     TraceRay(
         gScene.rtAccel,
         RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES, // | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
@@ -142,14 +144,14 @@ float AOMoreThanOnce(out float tHit, in float3 wPos, in float3 faceNormal)
 
     RayDesc ray;
     ray.Origin = wPos.xyz;
-    ray.Origin += faceNormal * 0.01f; // push origin in the direction of the face normal to avoid self intersection
-    ray.TMin = 0.0;
+    ray.Origin += faceNormal * gData.normalScale; // push origin in the direction of the face normal to avoid self intersection
+    ray.TMin = 0.001;
     ray.TMax = gData.maxAORayTHit;
 
     RayData rayData;
 
     float ambientCoef = 0;
-    tHit = 0;
+    tHit = gData.maxAORayTHit;
 
     for (uint i = 0; i < gData.spp; i++)
     {
@@ -192,13 +194,6 @@ void rayGen()
 
     // view space normal of current pixel
     float3 faceNormal = normalize(gFaceNormalTex[svPos]);
-
-    //flip normal if backfacing
-    float3 camDir = normalize(gScene.camera.computeNonNormalizedRayDirPinhole(svPos, DispatchRaysDimensions().xy));
-    if (dot(camDir, faceNormal) > 0)
-    {
-        faceNormal = -faceNormal;
-    }
 
     float tHit = 0.0;
     float ambientCoef = 1;

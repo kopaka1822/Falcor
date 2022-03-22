@@ -176,6 +176,8 @@ void RTAO::renderUI(Gui::Widgets& widget)
     if (!mEnabled) return;
     dirty |= widget.var("Ray Max THit", mMaxTHit, 0.01f, FLT_MAX, 0.01f);
     widget.tooltip("Max THit value. Real value is dependent on Occlusion Cutoff and Decay Constant if exponential falloff is enabled");
+    dirty |= widget.var("Origin offset scale", mData.normalScale, 0.0f, FLT_MAX, 0.001f);
+    widget.tooltip("Scale of how much the ray origin is offset by the face normal");
     dirty |= widget.checkbox("Exponential falloff", mData.applyExponentialFalloff);
     if (mData.applyExponentialFalloff) {
         dirty |= widget.var("Occlusion Cutoff", mMinOcclusionCutoff, 0.f, 1.f, 0.01f);

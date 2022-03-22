@@ -12,6 +12,7 @@ struct RTAOData
 
     float exponentialFalloffDecayConstant = 2.f; //0-20
     float minimumAmbientIllumination = 0.07f; //0-1
+    float normalScale = 0.01f;
 
 };
 

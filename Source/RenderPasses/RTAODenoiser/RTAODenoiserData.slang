@@ -20,9 +20,9 @@ struct MeanVarianceCB
 
 struct TSSBlurData
 {
-    float stdDevGamma = 0.6f;          
+    float stdDevGamma = 1.f;          
     bool clampCachedValues = true;
-    float clamping_minStdDevTolerance = 0.05f;  
+    float clamping_minStdDevTolerance = 0.08f;  
     float padding;
 
     float clampDifferenceToTsppScale = 4.f;

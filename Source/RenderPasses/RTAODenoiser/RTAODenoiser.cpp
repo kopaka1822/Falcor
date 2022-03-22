@@ -114,10 +114,12 @@ void RTAODenoiser::execute(RenderContext* pRenderContext, const RenderData& rend
         pRenderContext->copyResource(outputTex.get(), inputTex.get());
         return;
     }
+           
 
     //check if resolution has changed
     {
-        uint2 currTexDim = renderData.getDefaultTextureDims();
+        auto inputTex = renderData[kAOInputName]->asTexture();
+        uint2 currTexDim = uint2(inputTex->getWidth(), inputTex->getHeight());
         if (mFrameDim.x != currTexDim.x || mFrameDim.y != currTexDim.y) {
             mFrameDim = currTexDim;
             resetTextures();
@@ -282,6 +284,8 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
                 widget.tooltip("Number of blur passes. Each pass is a compute dispatch");
             }
         }
+
+        mResetTex |= widget.button("Reset textures");
     }
 
     mOptionsChange = dirty;
@@ -289,8 +293,12 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
 
 void RTAODenoiser::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
 {
+    if (mpScene) {
+        reset();
+    }
+
     mpScene = pScene;
-    reset();
+    
 }
 
 void RTAODenoiser::resetTextures()
@@ -367,11 +375,15 @@ void RTAODenoiser::TemporalSupersamplingReverseReproject(RenderContext* pRenderC
         //Fill value with invalid value
         for (uint i = 0; i < 2; i++) {
             pRenderContext->clearTexture(mCachedTemporalTextures[i].value.get(), float4(kInvalidAPCoefficientValue, 0, 0, 0));
+            pRenderContext->clearTexture(mCachedTemporalTextures[i].tspp.get(), uint4(mTSS_MaxTspp, 0, 0, 0));
         }
 
         mCachedTsppValueSquaredValueRayHitDistance = Texture::create2D(mFrameDim.x, mFrameDim.y, ResourceFormat::RGBA16Uint, 1U, 1U, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mCachedTsppValueSquaredValueRayHitDistance->setName("RTAODenoiser::CachedTsppValueSquaredValueRayDistance");
         FALCOR_ASSERT(mCachedTsppValueSquaredValueRayHitDistance);
+
+        
+
         //Sampler
         Sampler::Desc desc;
         desc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
