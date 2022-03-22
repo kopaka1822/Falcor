@@ -109,7 +109,7 @@ float AOOnce(out float tHit, in float3 wPos, in float3 faceNormal)
     RayDesc ray;
     ray.Origin = wPos.xyz;
     ray.Direction = normalize(tangent * randDir.x + bitangent * randDir.y + faceNormal * randDir.z);
-    ray.Origin += faceNormal * 0.01f; // push origin in the direction of the face normal to avoid self intersection
+    ray.Origin += faceNormal * 0.05f; // push origin in the direction of the face normal to avoid self intersection
     ray.TMin = 0.0;
     ray.TMax = gData.maxAORayTHit;
 
