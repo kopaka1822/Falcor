@@ -285,7 +285,7 @@ void RTAODenoiser::renderUI(Gui::Widgets& widget)
             }
         }
 
-        mResetTex |= widget.button("Reset textures");
+        //mResetTex |= widget.button("Reset textures");
     }
 
     mOptionsChange = dirty;
