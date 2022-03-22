@@ -25,53 +25,48 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#pragma once
-#include "Falcor.h"
-#include "Utils/Sampling/SampleGenerator.h"
-#include "RTAOData.slang"
 
-using namespace Falcor;
+import RTAODenoiserHelper;
 
-class RTAO : public RenderPass
+float4 getBilinearWeight(in float2 TargetOffset)
 {
-public:
-    using SharedPtr = std::shared_ptr<RTAO>;
+    float4 bilinearWeights =
+                float4(
+                    (1 - TargetOffset.x) * (1 - TargetOffset.y),
+                    TargetOffset.x * (1 - TargetOffset.y),
+                    (1 - TargetOffset.x) * TargetOffset.y,
+                    TargetOffset.x * TargetOffset.y);
 
-    static const Info kInfo;
+    return bilinearWeights;
+}
 
-    /** Create a new render pass object.
-        \param[in] pRenderContext The render context.
-        \param[in] dict Dictionary of serialized parameters.
-        \return A new object, or an exception is thrown if creation failed.
-    */
-    static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
+float4 getNormalWeight(in float3 TargetNormal, in float3 SampleNormals[4], float sigma, float sigmaExponent)
+{
+    float4 NdotSampleN = float4(
+                dot(TargetNormal, SampleNormals[0]),
+                dot(TargetNormal, SampleNormals[1]),
+                dot(TargetNormal, SampleNormals[2]),
+                dot(TargetNormal, SampleNormals[3]));
 
-    virtual Dictionary getScriptingDictionary() override;
-    virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
-    virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
-    virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
-    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
-    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
+            // Apply adjustment scale to the dot product. 
+            // Values greater than 1 increase tolerance scale 
+            // for unwanted inflated normal differences,
+            // such as due to low-precision normal quantization.
+    NdotSampleN *= sigma;
 
-private:
-    RTAO();
-    static Texture::SharedPtr genSamplesTexture(uint size);
+    float4 normalWeights = pow(saturate(NdotSampleN), sigmaExponent);
 
-    RtProgram::SharedPtr mRayProgram;
-    RtProgramVars::SharedPtr mRayVars;
+    return normalWeights;
+}
 
-    Scene::SharedPtr mpScene;
-    SampleGenerator::SharedPtr mpSampleGenerator;
+float4 getDepthWeight(in float TargetDepth,in float2 Ddxy,in float4 SampleDepths, float sigma, float weightCutoff, uint numMantissaBits)
+{
+    float depthThreshold = dot(1, abs(Ddxy));
+    float depthFloatPrecision = FloatPrecision(TargetDepth, numMantissaBits);
 
-    bool mEnabled = true;
+    float depthTolerance = sigma * depthThreshold + depthFloatPrecision;
+    float4 depthWeights = min(depthTolerance / (abs(SampleDepths - TargetDepth) + depthFloatPrecision), 1);
+    depthWeights *= depthWeights >= weightCutoff;
 
-    Texture::SharedPtr mpSamplesTex;
-    uint frameIndex = 0;
-
-    RTAOData mData;
-    float mMaxTHit = 1.f;
-    float mMinOcclusionCutoff = 0.4f;   //0-1
-    bool mDirty = true;
-};
+    return depthWeights;
+}

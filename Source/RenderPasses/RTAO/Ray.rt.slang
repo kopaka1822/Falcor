@@ -2,10 +2,15 @@ import Scene.Camera.Camera;
 import RTAOData;
 import Scene.Intersection;
 import Scene.Raytracing;
+import Utils.Geometry.GeometryHelpers;
+import Utils.Sampling.SampleGenerator;
+import Utils.Math.MathHelpers;
 
-Texture2D<float> gDepthTex;
-Texture2D<float3> gNormalTex;
+
+Texture2D<float4> gWPosTex;
+Texture2D<float3> gFaceNormalTex;
 RWTexture2D<float> ambientOut;
+RWTexture2D<float> rayDistanceOut;
 
 Texture1D<float4> gSamples;
 
@@ -27,7 +32,9 @@ struct RayData
 
 [shader("miss")]
 void miss(inout RayData rayData)
-{}
+{
+    rayData.t = 0;
+}
 
 [shader("anyhit")]
 void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
@@ -69,71 +76,137 @@ uint hash(uint3 c)
     return jenkins(c.x * 449 + c.y * 2857 + jenkins(c.z));
 }
 
-float3 getWorldPosition(uint2 svPos, float depth)
+float CalculateAO(in float tHit)
 {
-    float2 texC = (float2(svPos) + 0.5) * gData.invResolution;
-    texC.y = 1.0 - texC.y; // y is flipped
-    float2 ndc = texC * 2.0 - 1.0;
-
-    float4 pos;
-    pos.x = ndc.x;
-    pos.y = ndc.y;
-    pos.z = depth;
-    pos.w = 1.0f;
-
-    float4 posW = mul(pos, gCamera.data.invViewProj);
-    posW /= posW.w;
-
-    return posW.xyz;
-}
-
-[shader("raygeneration")]
-void rayGen()
-{
-    uint2 svPos = DispatchRaysIndex().xy;
-    
-    // non-linear depth
-    float depth = gDepthTex[svPos];
-    if (depth >= 1.0) // max depth value => background hit
+    float ambientCoef = 1.f;
+    if (tHit > 0)
     {
-        ambientOut[svPos] = 1.0;
-        return;
+        float occlusionCoef = 1;
+        if (gData.applyExponentialFalloff)
+        {
+            float t = tHit / gData.maxTheoreticalTHit;
+            float lamda = gData.exponentialFalloffDecayConstant;
+            occlusionCoef = exp(-lamda * t * t);
+        }
+
+        ambientCoef = 1 - (1 - gData.minimumAmbientIllumination) * occlusionCoef;
     }
 
-    // view space normal of current pixel
-    float3 normal = normalize(gNormalTex[svPos]);
+    return ambientCoef;
+}
 
-    // TODO flip normal if backfacing
-   
+float AOOnce(out float tHit, in float3 wPos, in float3 faceNormal)
+{
+    const uint2 svPos = DispatchRaysIndex().xy;
+
     // determine tangent space
-    float3 bitangent = getTangentVector(normal);
-    float3 tangent = cross(bitangent, normal);
-    
-    float visibility = 1.0f;
-
+    float3 bitangent = getTangentVector(faceNormal);
+    float3 tangent = cross(bitangent, faceNormal);
+ 
     // onbtain a single ray sample that is cosine distributed
     uint numSamples;
     gSamples.GetDimensions(numSamples);
     float3 randDir = gSamples[hash(uint3(svPos, frameIndex)) % numSamples].xyz;
 
-    visibility = randDir.z;
-
     RayDesc ray;
-    ray.Origin = getWorldPosition(svPos, depth);
-    ray.Direction = normalize(tangent * randDir.x + bitangent * randDir.y + normal * randDir.z);
-    ray.Origin += normal * 0.05; // push origin in the direction of the face normal to avoid self intersection
-    ray.TMin = 0.0;
-    ray.TMax = gData.radius;
+    ray.Origin = wPos.xyz;
+    ray.Direction = normalize(tangent * randDir.x + bitangent * randDir.y + faceNormal * randDir.z);
+    ray.Origin += faceNormal * gData.normalScale; // push origin in the direction of the face normal to avoid self intersection
+    ray.TMin = 0.001;
+    ray.TMax = gData.maxAORayTHit;
 
     RayData rayData;
-    rayData.t = gData.radius;
+    rayData.t = 0.0; //set to miss
     TraceRay(
         gScene.rtAccel,
         RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES, // | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
         0xff /* instanceInclusionMask */, 0 /* hitIdx */, 1 /*ray type count*/, 0 /* missIdx */,
         ray, rayData
     );
+
+    tHit = rayData.t > 0 ? rayData.t : gData.maxAORayTHit;
+    return CalculateAO(rayData.t);
+}
+
+
+
+//Has its own function as a different sample generator is used
+float AOMoreThanOnce(out float tHit, in float3 wPos, in float3 faceNormal)
+{
+    const uint2 svPos = DispatchRaysIndex().xy;
+
+    // determine tangent space
+    float3 bitangent = getTangentVector(faceNormal);
+    float3 tangent = cross(bitangent, faceNormal);
+
+    //Init sample generator
+    SampleGenerator sg = SampleGenerator(svPos, frameIndex);
+
+    RayDesc ray;
+    ray.Origin = wPos.xyz;
+    ray.Origin += faceNormal * gData.normalScale; // push origin in the direction of the face normal to avoid self intersection
+    ray.TMin = 0.001;
+    ray.TMax = gData.maxAORayTHit;
+
+    RayData rayData;
+
+    float ambientCoef = 0;
+    tHit = gData.maxAORayTHit;
+
+    for (uint i = 0; i < gData.spp; i++)
+    {
+        float pdf;  //needed by the sample function
+        float3 randDir = sample_cosine_hemisphere_polar(sampleNext2D(sg), pdf);
+        ray.Direction = normalize(tangent * randDir.x + bitangent * randDir.y + faceNormal * randDir.z);
+
+        rayData.t = 0.0; //set to miss
+
+        TraceRay(
+        gScene.rtAccel,
+        RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES, // | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+        0xff /* instanceInclusionMask */, 0 /* hitIdx */, 1 /*ray type count*/, 0 /* missIdx */,
+        ray, rayData
+        );
+
+        ambientCoef += CalculateAO(rayData.t);
+        tHit += rayData.t > 0 ? rayData.t : gData.maxAORayTHit;
+    }
+
+    ambientCoef /= gData.spp;
+    tHit /= gData.spp;
     
-    visibility = saturate(rayData.t / gData.radius);
-    ambientOut[svPos] = visibility;
+    return ambientCoef;
+}
+
+[shader("raygeneration")]
+void rayGen()
+{
+    const uint2 svPos = DispatchRaysIndex().xy;
+    
+    // non-linear depth
+    float4 wPos = gWPosTex[svPos];
+    if (wPos.w == 0.0) //0 in w is miss
+    {
+        rayDistanceOut[svPos] = gData.maxAORayTHit;
+        ambientOut[svPos] = 1;
+        return;
+    }
+
+    // view space normal of current pixel
+    float3 faceNormal = normalize(gFaceNormalTex[svPos]);
+
+    float tHit = 0.0;
+    float ambientCoef = 1;
+
+    if (gData.spp > 1)
+    {
+        ambientCoef = AOMoreThanOnce(tHit, wPos.xyz, faceNormal);
+    }
+    else
+    {
+        ambientCoef = AOOnce(tHit, wPos.xyz, faceNormal);
+    }
+
+    rayDistanceOut[svPos] = tHit;
+    ambientOut[svPos] = ambientCoef;
 }

@@ -3,7 +3,7 @@ import VAOData;
 import Scene.Intersection;
 import Scene.Shading;
 
-#include "Scene/Material/MaterialDefines.slangh"
+//#include "Scene/Material/MaterialDefines.slangh"
 
 // single depth texture
 #define DEPTH_MODE_SINGLE 0

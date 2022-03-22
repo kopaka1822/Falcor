@@ -25,53 +25,13 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#pragma once
-#include "Falcor.h"
-#include "Utils/Sampling/SampleGenerator.h"
-#include "RTAOData.slang"
 
-using namespace Falcor;
-
-class RTAO : public RenderPass
+static const uint FilterKernelRadius = 1;
+static const uint FilterKernelWidth = 1 + 2 * FilterKernelRadius;
+static const float FilterKernel1D[FilterKernelWidth] = { 0.27901, 0.44198, 0.27901 };
+static const float FilterKernel[FilterKernelWidth][FilterKernelWidth] =
 {
-public:
-    using SharedPtr = std::shared_ptr<RTAO>;
-
-    static const Info kInfo;
-
-    /** Create a new render pass object.
-        \param[in] pRenderContext The render context.
-        \param[in] dict Dictionary of serialized parameters.
-        \return A new object, or an exception is thrown if creation failed.
-    */
-    static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
-
-    virtual Dictionary getScriptingDictionary() override;
-    virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
-    virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
-    virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
-    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
-    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
-
-private:
-    RTAO();
-    static Texture::SharedPtr genSamplesTexture(uint size);
-
-    RtProgram::SharedPtr mRayProgram;
-    RtProgramVars::SharedPtr mRayVars;
-
-    Scene::SharedPtr mpScene;
-    SampleGenerator::SharedPtr mpSampleGenerator;
-
-    bool mEnabled = true;
-
-    Texture::SharedPtr mpSamplesTex;
-    uint frameIndex = 0;
-
-    RTAOData mData;
-    float mMaxTHit = 1.f;
-    float mMinOcclusionCutoff = 0.4f;   //0-1
-    bool mDirty = true;
+    { FilterKernel1D[0] * FilterKernel1D[0], FilterKernel1D[0] * FilterKernel1D[1], FilterKernel1D[0] * FilterKernel1D[2] },
+    { FilterKernel1D[1] * FilterKernel1D[0], FilterKernel1D[1] * FilterKernel1D[1], FilterKernel1D[1] * FilterKernel1D[2] },
+    { FilterKernel1D[2] * FilterKernel1D[0], FilterKernel1D[2] * FilterKernel1D[1], FilterKernel1D[2] * FilterKernel1D[2] },
 };

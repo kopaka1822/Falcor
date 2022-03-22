@@ -32,7 +32,7 @@ import Scene.Intersection;
 import Scene.Shading;
 import Scene.Raster;
 
-#include "Scene/Material/MaterialDefines.slangh"
+//#include "Scene/Material/MaterialDefines.slangh"
 
 // only uses rasterization
 #define SHADER_VARIANT_RASTER 0

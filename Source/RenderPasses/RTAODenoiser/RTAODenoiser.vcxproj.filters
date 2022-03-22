@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="RTAODenoiser.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="RTAODenoiser.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="TSSReverseReproject.cs.slang" />
+    <ShaderSource Include="RTAODenoiserData.slang" />
+    <ShaderSource Include="CrossBilateralWeights.slang" />
+    <ShaderSource Include="TSSCacheBlend.cs.slang" />
+    <ShaderSource Include="CalculateMeanVariance.cs.slang" />
+    <ShaderSource Include="RTAODenoiserHelper.slang" />
+    <ShaderSource Include="AtrousWaveletTransformFilter.cs.slang" />
+    <ShaderSource Include="GaussianKernel3x3.slang" />
+    <ShaderSource Include="BlurOcclusion.cs.slang" />
+    <ShaderSource Include="SmoothVariance.cs.slang" />
+    <ShaderSource Include="GaussianKernel5x5.slang" />
+  </ItemGroup>
+</Project>
