@@ -5,10 +5,12 @@
 namespace
 {
     const std::string kRadius = "radius";
+    const std::string kGuardBand = "guardBand";
     const std::string kPrimaryDepthMode = "primaryDepthMode";
     const std::string kSecondaryDepthMode = "secondaryDepthMode";
     const std::string kExponent = "exponent";
     const std::string kUseRayPipeline = "rayPipeline";
+    const std::string kThickness = "thickness";
 }
 
 VAOSettings& VAOSettings::get()
@@ -26,6 +28,8 @@ void VAOSettings::updateFromDict(const Dictionary& dict)
         else if (key == kSecondaryDepthMode) mSecondaryDepthMode = value;
         else if (key == kExponent) mData.exponent = value;
         else if (key == kUseRayPipeline) mUseRayPipeline = value;
+        else if (key == kGuardBand) mGuardBand = value;
+        else if (key == kThickness) mData.thickness = value;
         else logWarning("Unknown field '" + key + "' in a VAONonInterleaved dictionary");
     }
 }
@@ -38,6 +42,8 @@ Dictionary VAOSettings::getScriptingDictionary()
     d[kSecondaryDepthMode] = mSecondaryDepthMode;
     d[kExponent] = mData.exponent;
     d[kUseRayPipeline] = mUseRayPipeline;
+    d[kGuardBand] = mGuardBand;
+    d[kThickness] = mData.thickness;
     return d;
 }
 
@@ -81,7 +87,12 @@ void VAOSettings::renderUI(Gui::Widgets& widget)
 
     if (widget.var("Sample Radius", mData.radius, 0.01f, FLT_MAX, 0.01f)) mDirty = true;
 
-    if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
+    if (widget.var("Thickness", mData.thickness, 0.0f, 1.0f, 0.1f)) {
+        mDirty = true;
+        mData.exponent = glm::mix(1.6f, 1.0f, mData.thickness);
+    }
+
+    if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
 }
 
 Texture::SharedPtr VAOSettings::genNoiseTexture()

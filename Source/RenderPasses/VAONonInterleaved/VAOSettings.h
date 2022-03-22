@@ -45,7 +45,7 @@ private:
     VAOData mData;
     bool mDirty = true;
     bool mReset = false;
-    int mGuardBand = 0;
+    int mGuardBand = 64;
     DepthMode mPrimaryDepthMode = DepthMode::DualDepth;
     DepthMode mSecondaryDepthMode = DepthMode::StochasticDepth;
     bool mUseRayPipeline = false;

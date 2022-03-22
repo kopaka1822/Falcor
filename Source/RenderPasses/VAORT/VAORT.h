@@ -62,7 +62,7 @@ private:
     VAOData mData;
     bool mDirty = true;
     int mFrameIndex = 0;
-    int mGuardBand = 0;
+    int mGuardBand = 64;
 
     bool mEnabled = true;
 

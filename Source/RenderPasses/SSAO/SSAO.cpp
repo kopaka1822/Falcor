@@ -98,6 +98,8 @@ namespace
     const std::string kShaderVariant = "shaderVariant";
     const std::string kDepthMode = "depthMode";
     const std::string kColorMap = "colorMap";
+    const std::string kGuardBand = "guardBand";
+    const std::string kThickness = "thickness";
 
     const std::string kAmbientMap = "ambientMap";
     const std::string kDepth = "depth";
@@ -116,7 +118,7 @@ SSAO::SSAO()
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
     mpNoiseSampler = Sampler::create(samplerDesc);
 
-    //samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
+    samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpTextureSampler = Sampler::create(samplerDesc);
     setSampleRadius(mData.radius);
@@ -142,6 +144,8 @@ SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& di
         else if (key == kDistribution) pSSAO->mHemisphereDistribution = value;
         else if (key == kRadius) pSSAO->mData.radius = value;
         else if (key == kDepthMode) pSSAO->mDepthMode = value;
+        else if (key == kGuardBand) pSSAO->mGuardBand = value;
+        else if (key == kThickness) pSSAO->mData.thickness = value;
         else logWarning("Unknown field '" + key + "' in a SSAO dictionary");
     }
     return pSSAO;
@@ -156,6 +160,8 @@ Dictionary SSAO::getScriptingDictionary()
     dict[kRadius] = mData.radius;
     dict[kDistribution] = mHemisphereDistribution;
     dict[kDepthMode] = mDepthMode;
+    dict[kGuardBand] = mGuardBand;
+    dict[kThickness] = mData.thickness;
     return dict;
 }
 
@@ -294,7 +300,13 @@ void SSAO::renderUI(Gui::Widgets& widget)
     float radius = mData.radius;
     if (widget.var("Sample Radius", radius, 0.01f, FLT_MAX, 0.01f)) setSampleRadius(radius);
 
-    if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
+    if (widget.var("Thickness", mData.thickness, 0.0f, 1.0f, 0.1f))
+    {
+        mDirty = true;
+        mData.exponent = glm::mix(1.6f, 1.0f, mData.thickness);
+    }
+
+    if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
 
     
 }
@@ -327,6 +339,9 @@ void SSAO::setShaderVariant(uint32_t variant)
 void SSAO::setKernel()
 {
     std::srand(5960372); // same seed for kernel
+    int vanDerCorputOffset = mData.kernelSize; // (only correct for power of two numbers => offset 8 results in 1/16, 9,16, 5/16... which are 8 different uniformly dstributed numbers, see https://en.wikipedia.org/wiki/Van_der_Corput_sequence)
+
+    std::string nums;
     for (uint32_t i = 0; i < mData.kernelSize; i++)
     {
         auto& s = mData.sampleKernel[i];
@@ -340,7 +355,7 @@ void SSAO::setKernel()
         case SampleDistribution::Hammersley:
             // skip 0 because it will results in (0, 0) which results in sample point (0, 0)
             // => this means that we sample the same position for all tangent space rotations
-            rand = float2((float)(i) / (float)(mData.kernelSize), radicalInverse(i + 1));
+            rand = float2((float)(i) / (float)(mData.kernelSize), radicalInverse(vanDerCorputOffset + i));
             break;
 
         default: throw std::runtime_error("unknown kernel distribution");
@@ -348,6 +363,7 @@ void SSAO::setKernel()
 
         float theta = rand.x * 2.0f * glm::pi<float>();
         float r = glm::sqrt(1.0f - glm::pow(rand.y, 2.0f / 3.0f));
+        nums += std::to_string(r) + ", ";
         s.x = r * sin(theta);
         s.y = r * cos(theta);
         s.z = glm::linearRand(0.0f, 1.0f);

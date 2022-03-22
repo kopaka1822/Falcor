@@ -55,7 +55,7 @@ public:
     uint32_t getKernelRadius() const {return mKernelRadius;}
     void setKernelRadius(uint32_t radius);
 private:
-    CrossBilateralBlur();
+    CrossBilateralBlur(const Dictionary& dict);
 
     Fbo::SharedPtr mpFbo;
     Sampler::SharedPtr mpSampler;
@@ -67,6 +67,6 @@ private:
     FullScreenPass::SharedPtr mpBlur;
     ResourceFormat mLastFormat = ResourceFormat::RGBA32Float;
 
-    int mGuardBand = 0;
+    int mGuardBand = 64;
     bool mSetScissorBuffer = true;
 };

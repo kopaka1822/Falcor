@@ -38,7 +38,8 @@ struct SSAOData
     float2 noiseScale = float2(1, 1);
     uint32_t kernelSize = 8;
     float radius = 0.5f;
-    float exponent = 1.0f;
+    float exponent = 1.6f;
+    float thickness = 0.5f;
 };
 
 END_NAMESPACE_FALCOR

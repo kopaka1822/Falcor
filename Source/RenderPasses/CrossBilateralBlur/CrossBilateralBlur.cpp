@@ -36,6 +36,7 @@ namespace
     const std::string kColor = "color";
     const std::string kDepth = "linear depth";
     const std::string kPingPong = "pingpong";
+    const std::string kGuardBand = "guardBand";
 }
 
 const RenderPass::Info CrossBilateralBlur::kInfo = { "CrossBilateralBlur", kDesc };
@@ -53,13 +54,15 @@ extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 
 CrossBilateralBlur::SharedPtr CrossBilateralBlur::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new CrossBilateralBlur);
+    SharedPtr pPass = SharedPtr(new CrossBilateralBlur(dict));
     return pPass;
 }
 
 Dictionary CrossBilateralBlur::getScriptingDictionary()
 {
-    return Dictionary();
+    Dictionary dict;
+    dict[kGuardBand] = mGuardBand;
+    return dict;
 }
 
 void CrossBilateralBlur::setKernelRadius(uint32_t radius)
@@ -68,7 +71,7 @@ void CrossBilateralBlur::setKernelRadius(uint32_t radius)
     mPassChangedCB();
 }
 
-CrossBilateralBlur::CrossBilateralBlur()
+CrossBilateralBlur::CrossBilateralBlur(const Dictionary& dict)
     :
     RenderPass(kInfo)
 {
@@ -76,6 +79,12 @@ CrossBilateralBlur::CrossBilateralBlur()
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpSampler = Sampler::create(samplerDesc);
+
+    for (const auto& [key, value] : dict)
+    {
+        if (key == kGuardBand) mGuardBand = value;
+        else logWarning("Unknown field '" + key + "' in a CrossBilateralBlur dictionary");
+    }
 }
 
 RenderPassReflection CrossBilateralBlur::reflect(const CompileData& compileData)

@@ -130,5 +130,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 
     output.ao1 *= 2.0 / float(NUM_DIRECTIONS);
 
+    if(output.stencil == 0)
+        output.ao1 = pow(output.ao1, gData.exponent);
+
     return output;
 }
