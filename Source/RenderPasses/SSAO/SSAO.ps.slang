@@ -329,8 +329,8 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     
     float visibility = 0.0f;
     //uint zCurveIndex = ZCurveToLinearIndex(uint2(svPos.xy));
-    //uint i = (zCurveIndex + (frameIndex)) % gData.kernelSize; // JenkinsHash
-    for (uint i = 0; i < gData.kernelSize; i++)
+    //uint i = (zCurveIndex + (frameIndex)) % KERNEL_SIZE; // JenkinsHash
+    [unroll] for (uint i = 0; i < KERNEL_SIZE; i++)
     {
         // obtain sample position on disc around view space position
         float4 rand = gData.sampleKernel[i]; // xy = random location on unit disc, zw = uniform in 0,1
@@ -385,7 +385,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         // object space z of the primary depth buffer or the secondary depth buffer if available (will be set if raster or hybrid)
         float objectSpaceZ = sphereHeight + CONST_RADIUS + HALO_RADIUS;
         if (SHADER_VARIANT == SHADER_VARIANT_RASTER || SHADER_VARIANT == SHADER_VARIANT_HYBRID)
-        {      
+        {
             objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
             curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
 
@@ -401,7 +401,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 {
                     objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
                     curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
-                    if(objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
+                    if (objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
                         hybridRay = true;
                 }
             }
@@ -586,7 +586,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         visibility += curVisibility / pdf;
     }
 
-    float AO = visibility / float(gData.kernelSize);
+    float AO = visibility / float(KERNEL_SIZE);
 
     // values should range from 0 for occluded, to 1 for visible
     if (SAMPLE_MODE == SAMPLE_MODE_SPHERE) 
@@ -604,8 +604,8 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     #else
 
     float4 res = AO;
-    float red = gRaysTraced / float(gData.kernelSize);
-    float blue = gInvalid / float(gData.kernelSize);
+    float red = gRaysTraced / float(KERNEL_SIZE);
+    float blue = gInvalid / float(KERNEL_SIZE);
     //float red = gRaysTraced;
     float green = 1.0 - red - blue;
 
@@ -614,5 +614,5 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     res.g *= green;
     res.b *= blue;
     return res;
-    #endif
+#endif
 }

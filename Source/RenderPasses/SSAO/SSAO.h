@@ -68,7 +68,7 @@ public:
     void setShaderVariant(uint32_t variant);
     bool getEnabled() {return mEnabled;}
     float getSampleRadius() { return mData.radius; }
-    uint32_t getKernelSize() { return mData.kernelSize; }
+    uint32_t getKernelSize() { return mKernelSize; }
     uint32_t getDistribution() { return (uint32_t)mHemisphereDistribution; }
     uint32_t getShaderVariant() { return (uint32_t)mShaderVariant; }
 
@@ -100,4 +100,5 @@ private:
     Scene::SharedPtr mpScene;
     int mGuardBand = 64;
     bool mClearTexture = true;
+    uint32_t mKernelSize = 8;
 };

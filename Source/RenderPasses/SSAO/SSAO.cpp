@@ -139,7 +139,7 @@ SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& di
     for (const auto& [key, value] : dict)
     {
         if (key == kEnabled) pSSAO->mEnabled = value;
-        else if (key == kKernelSize) pSSAO->mData.kernelSize = value;
+        else if (key == kKernelSize) pSSAO->mKernelSize = value;
         else if (key == kNoiseSize) pSSAO->mNoiseSize = value;
         else if (key == kDistribution) pSSAO->mHemisphereDistribution = value;
         else if (key == kRadius) pSSAO->mData.radius = value;
@@ -155,7 +155,7 @@ Dictionary SSAO::getScriptingDictionary()
 {
     Dictionary dict;
     dict[kEnabled] = mEnabled;
-    dict[kKernelSize] = mData.kernelSize;
+    dict[kKernelSize] = mKernelSize;
     dict[kNoiseSize] = mNoiseSize;
     dict[kRadius] = mData.radius;
     dict[kDistribution] = mHemisphereDistribution;
@@ -223,6 +223,7 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             defines.add(mpScene->getSceneDefines());
             defines.add("SHADER_VARIANT", std::to_string(uint32_t(mShaderVariant)));
             defines.add("DEPTH_MODE", std::to_string(uint32_t(mDepthMode)));
+            defines.add("KERNEL_SIZE", std::to_string(mKernelSize));
             if(mColorMap) defines.add("COLOR_MAP", "true");
             if (psDepth) defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
 
@@ -294,7 +295,7 @@ void SSAO::renderUI(Gui::Widgets& widget)
     uint32_t distribution = (uint32_t)mHemisphereDistribution;
     if (widget.dropdown("Kernel Distribution", kDistributionDropdown, distribution)) setDistribution(distribution);
 
-    uint32_t size = mData.kernelSize;
+    uint32_t size = mKernelSize;
     if (widget.var("Kernel Size", size, 1u, SSAOData::kMaxSamples)) setKernelSize(size);
 
     float radius = mData.radius;
@@ -320,8 +321,9 @@ void SSAO::setSampleRadius(float radius)
 void SSAO::setKernelSize(uint32_t kernelSize)
 {
     kernelSize = glm::clamp(kernelSize, 1u, SSAOData::kMaxSamples);
-    mData.kernelSize = kernelSize;
+    mKernelSize = kernelSize;
     setKernel();
+    mPassChangedCB();
 }
 
 void SSAO::setDistribution(uint32_t distribution)
@@ -339,10 +341,10 @@ void SSAO::setShaderVariant(uint32_t variant)
 void SSAO::setKernel()
 {
     std::srand(5960372); // same seed for kernel
-    int vanDerCorputOffset = mData.kernelSize; // (only correct for power of two numbers => offset 8 results in 1/16, 9,16, 5/16... which are 8 different uniformly dstributed numbers, see https://en.wikipedia.org/wiki/Van_der_Corput_sequence)
+    int vanDerCorputOffset = mKernelSize; // (only correct for power of two numbers => offset 8 results in 1/16, 9,16, 5/16... which are 8 different uniformly dstributed numbers, see https://en.wikipedia.org/wiki/Van_der_Corput_sequence)
 
     std::string nums;
-    for (uint32_t i = 0; i < mData.kernelSize; i++)
+    for (uint32_t i = 0; i < mKernelSize; i++)
     {
         auto& s = mData.sampleKernel[i];
         float2 rand;
@@ -355,7 +357,7 @@ void SSAO::setKernel()
         case SampleDistribution::Hammersley:
             // skip 0 because it will results in (0, 0) which results in sample point (0, 0)
             // => this means that we sample the same position for all tangent space rotations
-            rand = float2((float)(i) / (float)(mData.kernelSize), radicalInverse(vanDerCorputOffset + i));
+            rand = float2((float)(i) / (float)(mKernelSize), radicalInverse(vanDerCorputOffset + i));
             break;
 
         default: throw std::runtime_error("unknown kernel distribution");
