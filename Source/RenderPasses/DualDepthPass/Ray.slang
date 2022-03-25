@@ -32,7 +32,8 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
     GeometryInstanceID instanceID = getGeometryInstanceID();
     VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
     const uint materialID = gScene.getMaterialID(instanceID);
-    if (alphaTest(v, gScene.materials[materialID], gScene.materialResources[materialID], 0.f)) IgnoreHit();
+    if (gScene.materials.alphaTest(v, materialID, 0.0f))
+        IgnoreHit();
 }
 
 /** Closest hit shader for triangles.

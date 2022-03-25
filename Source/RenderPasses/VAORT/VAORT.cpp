@@ -130,6 +130,7 @@ void VAORT::execute(RenderContext* pRenderContext, const RenderData& renderData)
             // program defines
             Program::DefineList defines;
             defines.add(mpScene->getSceneDefines());
+            if (mUseDepthBuffer) defines.add("USE_DEPTH_BUFFER", "");
             //defines.add("SHADER_VARIANT", std::to_string(uint32_t(mShaderVariant)));
             //defines.add("DEPTH_MODE", std::to_string(uint32_t(mDepthMode)));
 
@@ -189,6 +190,11 @@ void VAORT::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
 
+    if(widget.checkbox("Use Depth Buffer", mUseDepthBuffer))
+    {
+        mPassChangedCB();
+    }
+
     if (widget.var("Guard Band", mGuardBand, 0, 256)) mDirty = true;
     //uint32_t size = mData.kernelSize;
     //if (widget.var("Kernel Size", size, 1u, SSAOData::kMaxSamples)) setKernelSize(size);
@@ -200,7 +206,7 @@ void VAORT::renderUI(Gui::Widgets& widget)
         mData.exponent = glm::mix(1.6f, 1.0f, mData.thickness);
     }
 
-    if (widget.slider("Power Exponent", mData.exponent, 1.0f, 4.0f)) mDirty = true;
+    if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
 }
 
 void VAORT::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)

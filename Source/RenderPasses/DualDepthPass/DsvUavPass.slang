@@ -4,7 +4,8 @@ RasterizerOrderedTexture2D<float> primaryDepth; // this is the foremost depth bu
 
 float main(VSOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Depth
 {
-    if (alphaTest(vsOut, triangleIndex)) discard;
+    if (alphaTest(vsOut, triangleIndex, ImplicitLodTextureSampler()))
+        discard;
 
     float depth = vsOut.posH.z;
     const int2 uv = int2(vsOut.posH.xy);

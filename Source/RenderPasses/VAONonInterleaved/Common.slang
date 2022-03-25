@@ -35,6 +35,7 @@ cbuffer PerFrameCB
 {
     float4x4 invViewMat;
     Camera gCamera;
+    uint guardBand;
 }
 
 SamplerState gNoiseSampler;

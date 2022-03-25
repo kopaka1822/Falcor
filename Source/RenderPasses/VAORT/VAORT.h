@@ -63,6 +63,7 @@ private:
     bool mDirty = true;
     int mFrameIndex = 0;
     int mGuardBand = 64;
+    bool mUseDepthBuffer = true;
 
     bool mEnabled = true;
 

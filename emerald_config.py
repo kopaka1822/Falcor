@@ -484,7 +484,7 @@ def render_graph_VAORT():
 m.addGraph(render_graph_VAORT())
 
 # Scene
-m.loadScene('EmeraldSquare_Day.fbx')
+m.loadScene('D:/scenes/orca/EmeraldSquare_v4_1/EmeraldSquare_Day.fbx')
 m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True, useGridVolumes=True)
 m.scene.camera.animated = False
 m.scene.camera.position = float3(-77.615219,5.173982,33.769676)

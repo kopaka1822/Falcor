@@ -5,7 +5,8 @@ RasterizerOrderedTexture2D<float> secondaryDepth; // this is the second depth bu
 
 float main(VSOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Depth
 {
-    if (alphaTest(vsOut, triangleIndex)) discard;
+    if (alphaTest(vsOut, triangleIndex, ImplicitLodTextureSampler()))
+        discard;
 
     const int2 uv = int2(vsOut.posH.xy);
 

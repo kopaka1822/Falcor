@@ -38,9 +38,6 @@ import Scene.Raytracing;
 #endif
 #define RAY_MODE RAY_MODE_LONG_RAYS_REF
 
-// indicates if the depth buffer should be used
-#define USE_DEPTH_BUFFER
-
 //#define ENABLED(value) (value != 0)
 
 cbuffer StaticCB

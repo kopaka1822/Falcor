@@ -76,7 +76,7 @@ RaytracingAccelerationStructure nullAS;
 [shader("raygeneration")]
 void rayGen()
 {
-    uint2 svPos = DispatchRaysIndex().xy;
+    uint2 svPos = DispatchRaysIndex().xy + uint2(guardBand);
     float2 texC = (float2(svPos) + 0.5) * gData.invResolution;
 
     uint mask = aoMask[svPos] & 0xFF;

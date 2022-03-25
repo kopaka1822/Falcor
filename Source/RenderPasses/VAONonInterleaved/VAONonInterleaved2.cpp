@@ -202,6 +202,7 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
         auto pCamera = mpScene->getCamera().get();
         pCamera->setShaderData(mRayVars["PerFrameCB"]["gCamera"]);
         mRayVars["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
+        mRayVars["PerFrameCB"]["guardBand"] = s.getGuardBand();
 
         // set textures
         mRayVars["gDepthTex"] = pDepth;
@@ -212,10 +213,7 @@ void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData
         //mRayVars["aoPrev"] = pAoDst; // src view
         mRayVars["output"] = pAoDst; // uav view
 
-        // TODO add guard band
-        if(VAOSettings::get().getGuardBand() != 0)
-            Logger::log(Logger::Level::Warning, "guard band was not implemented for raytracing pipeline");
-
+        uint3 dims = uint3(pAoDst->getWidth() - 2 * s.getGuardBand(), pAoDst->getHeight() - 2 * s.getGuardBand(), 1);
         mpScene->raytrace(pRenderContext, mpRayProgram.get(), mRayVars, uint3{ pAoDst->getWidth(), pAoDst->getHeight(), 1 });
     }
     else // RASTER PIPELINE
