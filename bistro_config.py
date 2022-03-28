@@ -586,7 +586,7 @@ m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights
 m.scene.cameraSpeed = 1.0
 
 # Window Configuration
-m.resizeSwapChain(2120, 1280)
+m.resizeSwapChain(2048, 1208)
 m.ui = True
 
 # Clock Settings

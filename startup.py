@@ -489,7 +489,7 @@ m.scene.camera.up = float3(0.000738,1.000000,0.000248)
 m.scene.cameraSpeed = 1.0
 
 # Window Configuration
-m.resizeSwapChain(2120, 1280)
+m.resizeSwapChain(2048, 1208)
 m.ui = True
 
 # Clock Settings

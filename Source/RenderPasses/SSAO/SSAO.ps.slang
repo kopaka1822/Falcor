@@ -76,6 +76,8 @@ import Scene.Raster;
 #define SAMPLE_MODE_SPHERE 1
 #define SAMPLE_MODE SAMPLE_MODE_HEMISPHERE
 
+#define COMPENSATE_STOCHASTIC_SAMPLES true
+
 #define PREVENT_DARK_HALOS 1
 #define FRONT_FACE_NORMALS true
 // full radius of the halo
@@ -416,6 +418,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
                     const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
                     const float depthOffset = gCamera.data.nearZ;
+                    float prevVisibility = curVisibility;
                     [unroll]
                     for (uint i = 0; i < MSAA_SAMPLES; ++i)
                     {
@@ -424,9 +427,20 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                         linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
                         float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
                         float objectSpaceZ = dot(samplePosV - posV, normal);
+                        //if (COMPENSATE_STOCHASTIC_SAMPLES)
+                        //    objectSpaceZ *= 0.5;
                         float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                        //if (COMPENSATE_STOCHASTIC_SAMPLES)
+                            //newVisibility *= newVisibility;
+                        //if (COMPENSATE_STOCHASTIC_SAMPLES && newVisibility < 1.0)
+                            //newVisibility *= 0.5;
+                        //if (COMPENSATE_STOCHASTIC_SAMPLES)
+                        //    newVisibility = pow(newVisibility, 1.2);
+
                         curVisibility = min(curVisibility, newVisibility);
                     }
+                    //if (prevVisibility != curVisibility && COMPENSATE_STOCHASTIC_SAMPLES && curVisibility < 1.0)
+                    //    curVisibility *= 0.5;
                     // TODO when to trace hybrid rays?
                 }
             }
