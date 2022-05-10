@@ -42,6 +42,7 @@ public:
     {
         Random,
         Hammersley,
+        Poisson
     };
 
     enum class ShaderVariant : uint32_t

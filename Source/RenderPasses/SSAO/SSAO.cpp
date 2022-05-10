@@ -47,6 +47,7 @@ static void regSSAO(pybind11::module& m)
     pybind11::enum_<SSAO::SampleDistribution> sampleDistribution(m, "SampleDistribution");
     sampleDistribution.value("Random", SSAO::SampleDistribution::Random);
     sampleDistribution.value("Hammersley", SSAO::SampleDistribution::Hammersley);
+    sampleDistribution.value("Poisson", SSAO::SampleDistribution::Poisson);
 
     pybind11::enum_<SSAO::ShaderVariant> shaderVariant(m, "ShaderVariant");
     shaderVariant.value("Raster", SSAO::ShaderVariant::Raster);
@@ -74,6 +75,7 @@ namespace
     {
         { (uint32_t)SSAO::SampleDistribution::Random, "Random" },
         { (uint32_t)SSAO::SampleDistribution::Hammersley, "Uniform Hammersley" },
+        { (uint32_t)SSAO::SampleDistribution::Poisson, "Poisson" },
     };
 
     const Gui::DropdownList kShaderVariantDropdown =
@@ -341,36 +343,87 @@ void SSAO::setShaderVariant(uint32_t variant)
 void SSAO::setKernel()
 {
     std::srand(5960372); // same seed for kernel
-    int vanDerCorputOffset = mKernelSize; // (only correct for power of two numbers => offset 8 results in 1/16, 9,16, 5/16... which are 8 different uniformly dstributed numbers, see https://en.wikipedia.org/wiki/Van_der_Corput_sequence)
+    int vanDerCorputOffset = mKernelSize; // (only correct for power of two numbers => offset 8 results in 1/16, 9/16, 5/16... which are 8 different uniformly dstributed numbers, see https://en.wikipedia.org/wiki/Van_der_Corput_sequence)
 
-    std::string nums;
-    for (uint32_t i = 0; i < mKernelSize; i++)
+    if (mHemisphereDistribution == SampleDistribution::Poisson)
     {
-        auto& s = mData.sampleKernel[i];
-        float2 rand;
-        switch (mHemisphereDistribution)
+        // brute force algorithm to generate poisson samples
+        float r = 0.28f; // for kernelSize = 8
+        if (mKernelSize >= 16) r = 0.19f;
+        if (mKernelSize >= 24) r = 0.15f;
+        if (mKernelSize >= 32) r = 0.13f;
+
+        auto pow2 = [](float x) {return x * x; };
+
+        uint i = 0; // current length of list
+        uint cur_attempt = 0;
+        while (i < mKernelSize)
         {
-        case SampleDistribution::Random:
-            rand = float2(glm::linearRand(0.0f, 1.0f), glm::linearRand(0.0f, 1.0f));
-            break;
+            i = 0; // reset list length
+            const uint max_retries = 10000;
+            uint cur_retries = 0;
+            while (i < mKernelSize && cur_retries < max_retries)
+            {
+                cur_retries += 1;
+                float2 point = float2(glm::linearRand(-1.0f, 1.0f), glm::linearRand(-1.0f, 1.0f));
+                if (point.x * point.x + point.y * point.y > pow2(1.0f - r))
+                    continue;
 
-        case SampleDistribution::Hammersley:
-            // skip 0 because it will results in (0, 0) which results in sample point (0, 0)
-            // => this means that we sample the same position for all tangent space rotations
-            rand = float2((float)(i) / (float)(mKernelSize), radicalInverse(vanDerCorputOffset + i));
-            break;
+                bool too_close = false;
+                for (uint j = 0; j < i; ++j)
+                    if (pow2(point.x - mData.sampleKernel[j].x) + pow2(point.y - mData.sampleKernel[j].y) < pow2(2.0f * r))
+                    {
+                        too_close = true;
+                        break;
+                    }
 
-        default: throw std::runtime_error("unknown kernel distribution");
+
+                if (too_close) continue;
+
+                mData.sampleKernel[i++] = float4(point.x, point.y, glm::linearRand(0.0f, 1.0f), glm::linearRand(0.0f, 1.0f));
+            }
+
+            std::cerr << "\rpoisson attempt " << ++cur_attempt;
+
+            if (cur_attempt % 1000 == 0)
+                r = r - 0.01f; // shrink radius every 1000 attempts
         }
 
-        float theta = rand.x * 2.0f * glm::pi<float>();
-        float r = glm::sqrt(1.0f - glm::pow(rand.y, 2.0f / 3.0f));
-        nums += std::to_string(r) + ", ";
-        s.x = r * sin(theta);
-        s.y = r * cos(theta);
-        s.z = glm::linearRand(0.0f, 1.0f);
-        s.w = glm::linearRand(0.0f, 1.0f);
+        // succesfully found points
+
     }
+    else // random or hammersly
+    {
+        std::string nums;
+        for (uint32_t i = 0; i < mKernelSize; i++)
+        {
+            auto& s = mData.sampleKernel[i];
+            float2 rand;
+            switch (mHemisphereDistribution)
+            {
+            case SampleDistribution::Random:
+                rand = float2(glm::linearRand(0.0f, 1.0f), glm::linearRand(0.0f, 1.0f));
+                break;
+
+            case SampleDistribution::Hammersley:
+                // skip 0 because it will results in (0, 0) which results in sample point (0, 0)
+                // => this means that we sample the same position for all tangent space rotations
+                rand = float2((float)(i) / (float)(mKernelSize), radicalInverse(vanDerCorputOffset + i));
+                break;
+
+            default: throw std::runtime_error("unknown kernel distribution");
+            }
+
+            float theta = rand.x * 2.0f * glm::pi<float>();
+            float r = glm::sqrt(1.0f - glm::pow(rand.y, 2.0f / 3.0f));
+            nums += std::to_string(r) + ", ";
+            s.x = r * sin(theta);
+            s.y = r * cos(theta);
+            s.z = glm::linearRand(0.0f, 1.0f);
+            s.w = glm::linearRand(0.0f, 1.0f);
+        }
+    }
+
 
     mDirty = true;
 }

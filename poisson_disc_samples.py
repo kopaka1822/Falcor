@@ -6,9 +6,10 @@ def pow2(x):
     return x * x
 
 # number of samples
-n = 8
+n = 32
 # radius of poisson discs
-r = 0.28 # good radius if sample is completely inside the circle (1-r)
+#r = 0.28 # good radius if sample is completely inside the circle (1-r)
+r = 0.13
 #r = 0.38
 min_distance = 2 * r
 
@@ -59,6 +60,7 @@ ax.add_patch(plt.Circle(sample_points[0], r, color='g', fill=False))
 
 plt.plot(*zip(*sample_points), marker='o', linestyle='None')
 
+print("x,y pairs:")
 # print all points in sample_points
 for point in sample_points:
     # print point[0] and point[1] with 3 decimals
