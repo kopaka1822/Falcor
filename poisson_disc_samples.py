@@ -6,10 +6,10 @@ def pow2(x):
     return x * x
 
 # number of samples
-n = 32
+n = 8
 # radius of poisson discs
-#r = 0.28 # good radius if sample is completely inside the circle (1-r)
-r = 0.13
+r = 0.28 # good radius if sample is completely inside the circle (1-r)
+#r = 0.13
 #r = 0.38
 min_distance = 2 * r
 
