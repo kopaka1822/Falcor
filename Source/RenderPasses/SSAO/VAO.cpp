@@ -25,7 +25,7 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#include "SSAO.h"
+#include "VAO.h"
 
 #include "scissors.h"
 #include "glm/gtc/random.hpp"
@@ -38,21 +38,21 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 static void regSSAO(pybind11::module& m)
 {
-    pybind11::class_<SSAO, RenderPass, SSAO::SharedPtr> pass(m, "SSAO");
-    pass.def_property("enabled", &SSAO::getEnabled, &SSAO::setEnabled);
-    pass.def_property("kernelRadius", &SSAO::getKernelSize, &SSAO::setKernelSize);
-    pass.def_property("distribution", &SSAO::getDistribution, &SSAO::setDistribution);
-    pass.def_property("sampleRadius", &SSAO::getSampleRadius, &SSAO::setSampleRadius);
+    pybind11::class_<VAO, RenderPass, VAO::SharedPtr> pass(m, "VAO");
+    pass.def_property("enabled", &VAO::getEnabled, &VAO::setEnabled);
+    pass.def_property("kernelRadius", &VAO::getKernelSize, &VAO::setKernelSize);
+    pass.def_property("distribution", &VAO::getDistribution, &VAO::setDistribution);
+    pass.def_property("sampleRadius", &VAO::getSampleRadius, &VAO::setSampleRadius);
 
-    pybind11::enum_<SSAO::SampleDistribution> sampleDistribution(m, "SampleDistribution");
-    sampleDistribution.value("Random", SSAO::SampleDistribution::Random);
-    sampleDistribution.value("Hammersley", SSAO::SampleDistribution::Hammersley);
-    sampleDistribution.value("Poisson", SSAO::SampleDistribution::Poisson);
+    pybind11::enum_<VAO::SampleDistribution> sampleDistribution(m, "SampleDistribution");
+    sampleDistribution.value("Random", VAO::SampleDistribution::Random);
+    sampleDistribution.value("Hammersley", VAO::SampleDistribution::Hammersley);
+    sampleDistribution.value("Poisson", VAO::SampleDistribution::Poisson);
 
-    pybind11::enum_<SSAO::ShaderVariant> shaderVariant(m, "ShaderVariant");
-    shaderVariant.value("Raster", SSAO::ShaderVariant::Raster);
-    shaderVariant.value("Raytracing", SSAO::ShaderVariant::Raytracing);
-    shaderVariant.value("Hybrid", SSAO::ShaderVariant::Hybrid);
+    pybind11::enum_<VAO::ShaderVariant> shaderVariant(m, "ShaderVariant");
+    shaderVariant.value("Raster", VAO::ShaderVariant::Raster);
+    shaderVariant.value("Raytracing", VAO::ShaderVariant::Raytracing);
+    shaderVariant.value("Hybrid", VAO::ShaderVariant::Hybrid);
 
     pybind11::enum_<Falcor::DepthMode> depthMode(m, "DepthMode");
     depthMode.value("SingleDepth", Falcor::DepthMode::SingleDepth);
@@ -63,26 +63,26 @@ static void regSSAO(pybind11::module& m)
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerPass(SSAO::kInfo, SSAO::create);
+    lib.registerPass(VAO::kInfo, VAO::create);
     ScriptBindings::registerBinding(regSSAO);
 }
 
-const RenderPass::Info SSAO::kInfo = { "SSAO", "Screen-space ambient occlusion. Can be used with and without a normal-map" };
+const RenderPass::Info VAO::kInfo = { "VAO", "Screen-space ambient occlusion. Can be used with and without a normal-map" };
 
 namespace
 {
     const Gui::DropdownList kDistributionDropdown =
     {
-        { (uint32_t)SSAO::SampleDistribution::Random, "Random" },
-        { (uint32_t)SSAO::SampleDistribution::Hammersley, "Uniform Hammersley" },
-        { (uint32_t)SSAO::SampleDistribution::Poisson, "Poisson" },
+        { (uint32_t)VAO::SampleDistribution::Random, "Random" },
+        { (uint32_t)VAO::SampleDistribution::Hammersley, "Uniform Hammersley" },
+        { (uint32_t)VAO::SampleDistribution::Poisson, "Poisson" },
     };
 
     const Gui::DropdownList kShaderVariantDropdown =
     {
-        { (uint32_t)SSAO::ShaderVariant::Raster, "Raster" },
-        { (uint32_t)SSAO::ShaderVariant::Raytracing, "Raytracing" },
-        { (uint32_t)SSAO::ShaderVariant::Hybrid, "Hybrid" }
+        { (uint32_t)VAO::ShaderVariant::Raster, "Raster" },
+        { (uint32_t)VAO::ShaderVariant::Raytracing, "Raytracing" },
+        { (uint32_t)VAO::ShaderVariant::Hybrid, "Hybrid" }
     };
 
     const Gui::DropdownList kDepthModeDropdown =
@@ -112,7 +112,7 @@ namespace
     const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
 }
 
-SSAO::SSAO()
+VAO::VAO()
     :
     RenderPass(kInfo)
 {
@@ -128,15 +128,15 @@ SSAO::SSAO()
     mpAOFbo = Fbo::create();
 }
 
-ResourceFormat SSAO::getAmbientMapFormat() const
+ResourceFormat VAO::getAmbientMapFormat() const
 {
     if (mColorMap) return ResourceFormat::RGBA8Unorm;
     return ResourceFormat::R8Unorm;
 }
 
-SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& dict)
+VAO::SharedPtr VAO::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pSSAO = SharedPtr(new SSAO);
+    SharedPtr pSSAO = SharedPtr(new VAO);
     Dictionary blurDict;
     for (const auto& [key, value] : dict)
     {
@@ -148,12 +148,12 @@ SSAO::SharedPtr SSAO::create(RenderContext* pRenderContext, const Dictionary& di
         else if (key == kDepthMode) pSSAO->mDepthMode = value;
         else if (key == kGuardBand) pSSAO->mGuardBand = value;
         else if (key == kThickness) pSSAO->mData.thickness = value;
-        else logWarning("Unknown field '" + key + "' in a SSAO dictionary");
+        else logWarning("Unknown field '" + key + "' in a VAO dictionary");
     }
     return pSSAO;
 }
 
-Dictionary SSAO::getScriptingDictionary()
+Dictionary VAO::getScriptingDictionary()
 {
     Dictionary dict;
     dict[kEnabled] = mEnabled;
@@ -167,7 +167,7 @@ Dictionary SSAO::getScriptingDictionary()
     return dict;
 }
 
-RenderPassReflection SSAO::reflect(const CompileData& compileData)
+RenderPassReflection VAO::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
@@ -179,7 +179,7 @@ RenderPassReflection SSAO::reflect(const CompileData& compileData)
     return reflector;
 }
 
-void SSAO::compile(RenderContext* pRenderContext, const CompileData& compileData)
+void VAO::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
     setKernel();
     setNoiseTexture();
@@ -188,7 +188,7 @@ void SSAO::compile(RenderContext* pRenderContext, const CompileData& compileData
     mpSSAOPass.reset();
 }
 
-void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
+void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
@@ -270,13 +270,13 @@ void SSAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     }
 }
 
-void SSAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
+void VAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
 {
     mpScene = pScene;
     mDirty = true;
 }
 
-void SSAO::renderUI(Gui::Widgets& widget)
+void VAO::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
@@ -314,13 +314,13 @@ void SSAO::renderUI(Gui::Widgets& widget)
     
 }
 
-void SSAO::setSampleRadius(float radius)
+void VAO::setSampleRadius(float radius)
 {
     mData.radius = radius;
     mDirty = true;
 }
 
-void SSAO::setKernelSize(uint32_t kernelSize)
+void VAO::setKernelSize(uint32_t kernelSize)
 {
     kernelSize = glm::clamp(kernelSize, 1u, SSAOData::kMaxSamples);
     mKernelSize = kernelSize;
@@ -328,19 +328,19 @@ void SSAO::setKernelSize(uint32_t kernelSize)
     mPassChangedCB();
 }
 
-void SSAO::setDistribution(uint32_t distribution)
+void VAO::setDistribution(uint32_t distribution)
 {
     mHemisphereDistribution = (SampleDistribution)distribution;
     setKernel();
 }
 
-void SSAO::setShaderVariant(uint32_t variant)
+void VAO::setShaderVariant(uint32_t variant)
 {
     mShaderVariant = (ShaderVariant)variant;
     mpSSAOPass.reset();
 }
 
-void SSAO::setKernel()
+void VAO::setKernel()
 {
     std::srand(5960372); // same seed for kernel
     int vanDerCorputOffset = mKernelSize; // (only correct for power of two numbers => offset 8 results in 1/16, 9/16, 5/16... which are 8 different uniformly dstributed numbers, see https://en.wikipedia.org/wiki/Van_der_Corput_sequence)
@@ -428,7 +428,7 @@ void SSAO::setKernel()
     mDirty = true;
 }
 
-void SSAO::setNoiseTexture()
+void VAO::setNoiseTexture()
 {
     std::vector<uint16_t> data;
     data.resize(mNoiseSize.x * mNoiseSize.y);

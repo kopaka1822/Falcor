@@ -33,10 +33,10 @@
 
 using namespace Falcor;
 
-class SSAO : public RenderPass
+class VAO : public RenderPass
 {
 public:
-    using SharedPtr = std::shared_ptr<SSAO>;
+    using SharedPtr = std::shared_ptr<VAO>;
 
     enum class SampleDistribution : uint32_t
     {
@@ -74,7 +74,7 @@ public:
     uint32_t getShaderVariant() { return (uint32_t)mShaderVariant; }
 
 private:
-    SSAO();
+    VAO();
     ResourceFormat getAmbientMapFormat() const;
     void setNoiseTexture();
     void setKernel();
