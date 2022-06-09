@@ -22,8 +22,6 @@ public:
     {
         mData.resolution = float2(x, y);
         mData.invResolution = float2(1.0f) / mData.resolution;
-        mData.quarterResolution = float2((x + 3u) / 4u, (y + 3u) / 4u);
-        mData.invQuarterResolution = float2(1.0f) / mData.quarterResolution;
 ;       mData.noiseScale = mData.resolution / 4.0f; // noise texture is 4x4 resolution
         mDirty = true;
     }
@@ -46,7 +44,7 @@ private:
     bool mDirty = true;
     bool mReset = false;
     int mGuardBand = 64;
-    DepthMode mPrimaryDepthMode = DepthMode::DualDepth;
+    DepthMode mPrimaryDepthMode = DepthMode::SingleDepth;
     DepthMode mSecondaryDepthMode = DepthMode::StochasticDepth;
     bool mUseRayPipeline = false;
 };

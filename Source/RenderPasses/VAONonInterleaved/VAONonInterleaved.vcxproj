@@ -15,7 +15,7 @@
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>VAONonInterleaved</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ProjectName>VAONonInterleaved</ProjectName>
+    <ProjectName>SVAO</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -25,13 +25,13 @@
     <Import Project="..\..\Falcor\Falcor.props" />
   </ImportGroup>
   <ItemGroup>
-    <ClCompile Include="VAONonInterleaved.cpp" />
-    <ClCompile Include="VAONonInterleaved2.cpp" />
+    <ClCompile Include="SVAO.cpp" />
+    <ClCompile Include="SVAO2.cpp" />
     <ClCompile Include="VAOSettings.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="VAONonInterleaved.h" />
-    <ClInclude Include="VAONonInterleaved2.h" />
+    <ClInclude Include="SVAO.h" />
+    <ClInclude Include="SVAO2.h" />
     <ClInclude Include="VAOSettings.h" />
   </ItemGroup>
   <ItemGroup>

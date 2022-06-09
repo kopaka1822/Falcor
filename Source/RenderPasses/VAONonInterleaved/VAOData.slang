@@ -37,9 +37,6 @@ struct VAOData
     float2 invResolution;
     float radius = 0.5f;
     float exponent = 1.6f;
-    // for interleaved
-    float2 quarterResolution;
-    float2 invQuarterResolution;
     float thickness = 0.5f;
 };
 

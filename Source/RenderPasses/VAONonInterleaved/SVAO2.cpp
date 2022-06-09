@@ -25,7 +25,7 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#include "VAONonInterleaved2.h"
+#include "SVAO2.h"
 #include "../SSAO/scissors.h"
 #include "VAOSettings.h"
 #include <glm/gtc/random.hpp>
@@ -35,7 +35,7 @@
 
 namespace
 {
-    const char kDesc[] = "Optimized Volumetric Ambient Occlusion (Non-Interleaved) 2nd pass";
+    const char kDesc[] = "2nd pass of SVAO";
 
     const std::string kAmbientMap = "ao";
     const std::string kAOMask = "aoStencil";
@@ -52,15 +52,15 @@ namespace
     const uint32_t kMaxPayloadSize = 4 * 4;
 }
 
-const RenderPass::Info VAONonInterleaved2::kInfo = { "VAONonInterleaved2", kDesc };
+const RenderPass::Info SVAO2::kInfo = { "SVAO2", kDesc };
 
-VAONonInterleaved2::SharedPtr VAONonInterleaved2::create(RenderContext* pRenderContext, const Dictionary& dict)
+SVAO2::SharedPtr SVAO2::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new VAONonInterleaved2(dict));
+    SharedPtr pPass = SharedPtr(new SVAO2(dict));
     return pPass;
 }
 
-VAONonInterleaved2::VAONonInterleaved2(const Dictionary& dict)
+SVAO2::SVAO2(const Dictionary& dict)
     :
     RenderPass(kInfo)
 {
@@ -99,13 +99,13 @@ VAONonInterleaved2::VAONonInterleaved2(const Dictionary& dict)
     mpStencilFbo = Fbo::create();
 }
 
-Dictionary VAONonInterleaved2::getScriptingDictionary()
+Dictionary SVAO2::getScriptingDictionary()
 {
     Dictionary d; // will be set by first pass
     return d;
 }
 
-RenderPassReflection VAONonInterleaved2::reflect(const CompileData& compileData)
+RenderPassReflection SVAO2::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
@@ -121,13 +121,13 @@ RenderPassReflection VAONonInterleaved2::reflect(const CompileData& compileData)
     return reflector;
 }
 
-void VAONonInterleaved2::compile(RenderContext* pContext, const CompileData& compileData)
+void SVAO2::compile(RenderContext* pContext, const CompileData& compileData)
 {
     mpRasterPass.reset(); // recompile passes
     mpRayProgram.reset();
 }
 
-void VAONonInterleaved2::execute(RenderContext* pRenderContext, const RenderData& renderData)
+void SVAO2::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
@@ -266,14 +266,14 @@ const Gui::DropdownList kDepthModeDropdown =
     { (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
 };
 
-void VAONonInterleaved2::renderUI(Gui::Widgets& widget)
+void SVAO2::renderUI(Gui::Widgets& widget)
 {
     // will be rendered by first pass
     if (VAOSettings::get().IsReset())
         mPassChangedCB();
 }
 
-void VAONonInterleaved2::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
+void SVAO2::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
 {
     mpScene = pScene;
     mpRasterPass.reset(); // new scene defines => recompile

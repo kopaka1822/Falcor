@@ -32,10 +32,10 @@
 
 using namespace Falcor;
 
-class VAONonInterleaved : public RenderPass
+class SVAO : public RenderPass
 {
 public:
-    using SharedPtr = std::shared_ptr<VAONonInterleaved>;
+    using SharedPtr = std::shared_ptr<SVAO>;
 
     /** Create a new render pass object.
         \param[in] pRenderContext The render context.
@@ -55,7 +55,7 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    VAONonInterleaved(const Dictionary& dict);
+    SVAO(const Dictionary& dict);
 
     Fbo::SharedPtr mpFbo;
 

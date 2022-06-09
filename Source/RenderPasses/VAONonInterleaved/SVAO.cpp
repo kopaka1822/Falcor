@@ -25,18 +25,18 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#include "VAONonInterleaved.h"
+#include "SVAO.h"
 
 #include <glm/gtc/random.hpp>
 
-#include "VAONonInterleaved2.h"
+#include "SVAO2.h"
 #include "../SSAO/scissors.h"
 #include "VAOSettings.h"
 
 
 namespace
 {
-    const char kDesc[] = "Optimized Volumetric Ambient Occlusion (Non-Interleaved)";
+    const char kDesc[] = "Stenciled Volumetric Ambient Occlusion";
 
     const std::string kAmbientMap = "ao";
     const std::string kAoStencil = "stencil";
@@ -48,7 +48,7 @@ namespace
     const std::string kRasterShader = "RenderPasses/VAONonInterleaved/Raster.ps.slang";
 }
 
-const RenderPass::Info VAONonInterleaved::kInfo = { "VAONonInterleaved", kDesc };
+const RenderPass::Info SVAO::kInfo = { "SVAO", kDesc };
 
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
@@ -58,17 +58,17 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerPass(VAONonInterleaved::kInfo, VAONonInterleaved::create);
-    lib.registerPass(VAONonInterleaved2::kInfo, VAONonInterleaved2::create);
+    lib.registerPass(SVAO::kInfo, SVAO::create);
+    lib.registerPass(SVAO2::kInfo, SVAO2::create);
 }
 
-VAONonInterleaved::SharedPtr VAONonInterleaved::create(RenderContext* pRenderContext, const Dictionary& dict)
+SVAO::SharedPtr SVAO::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new VAONonInterleaved(dict));
+    SharedPtr pPass = SharedPtr(new SVAO(dict));
     return pPass;
 }
 
-VAONonInterleaved::VAONonInterleaved(const Dictionary& dict)
+SVAO::SVAO(const Dictionary& dict)
     :
     RenderPass(kInfo)
 {
@@ -87,12 +87,12 @@ VAONonInterleaved::VAONonInterleaved(const Dictionary& dict)
     VAOSettings::get().updateFromDict(dict);
 }
 
-Dictionary VAONonInterleaved::getScriptingDictionary()
+Dictionary SVAO::getScriptingDictionary()
 {
     return VAOSettings::get().getScriptingDictionary();
 }
 
-RenderPassReflection VAONonInterleaved::reflect(const CompileData& compileData)
+RenderPassReflection SVAO::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
@@ -106,13 +106,13 @@ RenderPassReflection VAONonInterleaved::reflect(const CompileData& compileData)
     return reflector;
 }
 
-void VAONonInterleaved::compile(RenderContext* pContext, const CompileData& compileData)
+void SVAO::compile(RenderContext* pContext, const CompileData& compileData)
 {
     VAOSettings::get().setResolution(compileData.defaultTexDims.x, compileData.defaultTexDims.y);
     mpRasterPass.reset(); // recompile raster pass
 }
 
-void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData& renderData)
+void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
@@ -175,14 +175,14 @@ void VAONonInterleaved::execute(RenderContext* pRenderContext, const RenderData&
     mpRasterPass->execute(pRenderContext, mpFbo, false);
 }
 
-void VAONonInterleaved::renderUI(Gui::Widgets& widget)
+void SVAO::renderUI(Gui::Widgets& widget)
 {
     VAOSettings::get().renderUI(widget);
     if (VAOSettings::get().IsReset())
         mPassChangedCB();
 }
 
-void VAONonInterleaved::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
+void SVAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
 {
     mpScene = pScene;
     mpRasterPass.reset(); // new scene defines => recompile
