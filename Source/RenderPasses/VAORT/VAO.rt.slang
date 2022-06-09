@@ -1,8 +1,8 @@
 import Scene.Camera.Camera;
 import VAOData;
 import Scene.Raytracing;
-
-#include "Scene/Material/MaterialDefines.slangh"
+import Scene.Intersection;
+import Scene.Shading;
 
 //#define TANGENT_SPACE_VIEW_SPACE 0
 //#define TANGENT_SPACE_CAMERA_ORIENTED 1

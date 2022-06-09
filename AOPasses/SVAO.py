@@ -32,7 +32,7 @@ def render_graph_SVAO():
     loadRenderPassLibrary('SVGFPass.dll')
     loadRenderPassLibrary('ForwardLightingPass.dll')
     loadRenderPassLibrary('WhittedRayTracer.dll')
-    loadRenderPassLibrary('SSAO.dll')
+    loadRenderPassLibrary('VAO.dll')
     loadRenderPassLibrary('LinearizeDepth.dll')
     loadRenderPassLibrary('DepthPeelPass.dll')
     loadRenderPassLibrary('SkyBox.dll')

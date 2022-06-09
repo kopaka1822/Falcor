@@ -25,11 +25,11 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#include "VAORT.h"
+#include "RTVAO.h"
 
 #include <glm/gtc/random.hpp>
 
-const RenderPass::Info VAORT::kInfo { "VAORT", "VAO in a dedicated ray tracing pipeline" };
+const RenderPass::Info RTVAO::kInfo { "RTVAO", "VAO in a dedicated ray tracing pipeline" };
 
 namespace
 {
@@ -52,16 +52,16 @@ extern "C" FALCOR_API_EXPORT const char* getProjDir()
 
 extern "C" FALCOR_API_EXPORT void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerPass(VAORT::kInfo, VAORT::create);
+    lib.registerPass(RTVAO::kInfo, RTVAO::create);
 }
 
-VAORT::SharedPtr VAORT::create(RenderContext* pRenderContext, const Dictionary& dict)
+RTVAO::SharedPtr RTVAO::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new VAORT(dict));
+    SharedPtr pPass = SharedPtr(new RTVAO(dict));
     return pPass;
 }
 
-VAORT::VAORT(const Dictionary& dict) : RenderPass(kInfo)
+RTVAO::RTVAO(const Dictionary& dict) : RenderPass(kInfo)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
@@ -80,7 +80,7 @@ VAORT::VAORT(const Dictionary& dict) : RenderPass(kInfo)
     }
 }
 
-Dictionary VAORT::getScriptingDictionary()
+Dictionary RTVAO::getScriptingDictionary()
 {
     Dictionary dict;
     dict[kRadius] = mData.radius;
@@ -89,7 +89,7 @@ Dictionary VAORT::getScriptingDictionary()
     return dict;
 }
 
-RenderPassReflection VAORT::reflect(const CompileData& compileData)
+RenderPassReflection RTVAO::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
@@ -99,7 +99,7 @@ RenderPassReflection VAORT::reflect(const CompileData& compileData)
     return reflector;
 }
 
-void VAORT::compile(RenderContext* pRenderContext, const CompileData& compileData)
+void RTVAO::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
     setKernel();
     setNoiseTexture();
@@ -108,7 +108,7 @@ void VAORT::compile(RenderContext* pRenderContext, const CompileData& compileDat
     mpRayProgram.reset();
 }
 
-void VAORT::execute(RenderContext* pRenderContext, const RenderData& renderData)
+void RTVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
@@ -185,7 +185,7 @@ void VAORT::execute(RenderContext* pRenderContext, const RenderData& renderData)
     }
 }
 
-void VAORT::renderUI(Gui::Widgets& widget)
+void RTVAO::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
@@ -209,14 +209,14 @@ void VAORT::renderUI(Gui::Widgets& widget)
     if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
 }
 
-void VAORT::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
+void RTVAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
 {
     mpScene = pScene;
     mDirty = true;
     mpRayProgram.reset();
 }
 
-void VAORT::setNoiseTexture()
+void RTVAO::setNoiseTexture()
 {
     std::srand(5960372); // same seed for kernel
     int vanDerCorputOffset = mData.kernelSize; // (only correct for power of two numbers => offset 8 results in 1/16, 9,16, 5/16... which are 8 different uniformly dstributed numbers, see https://en.wikipedia.org/wiki/Van_der_Corput_sequence)
@@ -239,7 +239,7 @@ void VAORT::setNoiseTexture()
     mDirty = true;
 }
 
-void VAORT::setKernel()
+void RTVAO::setKernel()
 {
     std::vector<uint16_t> data;
     data.resize(mNoiseSize.x * mNoiseSize.y);

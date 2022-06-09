@@ -31,10 +31,10 @@
 
 using namespace Falcor;
 
-class VAORT : public RenderPass
+class RTVAO : public RenderPass
 {
 public:
-    using SharedPtr = std::shared_ptr<VAORT>;
+    using SharedPtr = std::shared_ptr<RTVAO>;
 
     static const Info kInfo;
 
@@ -55,7 +55,7 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    VAORT(const Dictionary& dict);
+    RTVAO(const Dictionary& dict);
     void setNoiseTexture();
     void setKernel();
 

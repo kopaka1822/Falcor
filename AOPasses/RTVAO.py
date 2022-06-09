@@ -1,7 +1,7 @@
 from falcor import *
 
-def render_graph_VAORT():
-    g = RenderGraph('VAORT')
+def render_graph_RTVAO():
+    g = RenderGraph('RTVAO')
     loadRenderPassLibrary('BSDFViewer.dll')
     loadRenderPassLibrary('AccumulatePass.dll')
     loadRenderPassLibrary('HBAOPlusNonInterleaved.dll')
@@ -42,18 +42,18 @@ def render_graph_VAORT():
     loadRenderPassLibrary('RTAO.dll')
     loadRenderPassLibrary('SceneDebugger.dll')
     loadRenderPassLibrary('SimplePostFX.dll')
-    loadRenderPassLibrary('SSAO.dll')
+    loadRenderPassLibrary('VAO.dll')
     loadRenderPassLibrary('VAONonInterleaved.dll')
     loadRenderPassLibrary('StochasticDepthMap.dll')
     loadRenderPassLibrary('SVGFPass.dll')
     loadRenderPassLibrary('TemporalDelayPass.dll')
     loadRenderPassLibrary('ToneMapper.dll')
     loadRenderPassLibrary('Utils.dll')
-    loadRenderPassLibrary('VAORT.dll')
+    loadRenderPassLibrary('RTVAO.dll')
     loadRenderPassLibrary('WhittedRayTracer.dll')
     loadRenderPassLibrary('WriteStencil.dll')
-    VAORT = createPass('VAORT')
-    g.addPass(VAORT, 'VAORT')
+    RTVAO = createPass('RTVAO')
+    g.addPass(RTVAO, 'RTVAO')
     GBufferRaster = createPass('GBufferRaster', {'outputSize': IOSize.Default, 'samplePattern': SamplePattern.Center, 'sampleCount': 16, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': CullMode.CullBack})
     g.addPass(GBufferRaster, 'GBufferRaster')
     LinearizeDepth = createPass('LinearizeDepth', {'depthFormat': ResourceFormat.R32Float})
@@ -66,10 +66,10 @@ def render_graph_VAORT():
     g.addPass(Diffuse, 'Diffuse')
     DepthPass = createPass('DepthPass', {'depthFormat': ResourceFormat.D32Float, 'useAlphaTest': True, 'cullMode': CullMode.CullBack})
     g.addPass(DepthPass, 'DepthPass')
-    g.addEdge('GBufferRaster.faceNormalW', 'VAORT.normals')
+    g.addEdge('GBufferRaster.faceNormalW', 'RTVAO.normals')
     g.addEdge('GBufferRaster.depth', 'LinearizeDepth.depth')
-    g.addEdge('LinearizeDepth.linearDepth', 'VAORT.depth')
-    g.addEdge('VAORT.ambientMap', 'CrossBilateralBlur.color')
+    g.addEdge('LinearizeDepth.linearDepth', 'RTVAO.depth')
+    g.addEdge('RTVAO.ambientMap', 'CrossBilateralBlur.color')
     g.addEdge('LinearizeDepth.linearDepth', 'CrossBilateralBlur.linear depth')
     g.addEdge('CrossBilateralBlur.color', 'Ambient.I0')
     g.addEdge('CrossBilateralBlur.color', 'Diffuse.I0')
@@ -79,6 +79,6 @@ def render_graph_VAORT():
     g.markOutput('Diffuse.out')
     return g
 
-VAORT = render_graph_VAORT()
-try: m.addGraph(VAORT)
+RTVAO = render_graph_RTVAO()
+try: m.addGraph(RTVAO)
 except NameError: None
