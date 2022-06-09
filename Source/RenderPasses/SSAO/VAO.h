@@ -41,15 +41,8 @@ public:
     enum class SampleDistribution : uint32_t
     {
         Random,
-        Hammersley,
+        VanDerCorput,
         Poisson
-    };
-
-    enum class ShaderVariant : uint32_t
-    {
-        Raster = 0,
-        Raytracing = 1,
-        Hybrid = 2
     };
 
     static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
@@ -71,7 +64,6 @@ public:
     float getSampleRadius() { return mData.radius; }
     uint32_t getKernelSize() { return mKernelSize; }
     uint32_t getDistribution() { return (uint32_t)mHemisphereDistribution; }
-    uint32_t getShaderVariant() { return (uint32_t)mShaderVariant; }
 
 private:
     VAO();
@@ -83,7 +75,7 @@ private:
     bool mDirty = true;
 
     bool mEnabled = true;
-    DepthMode mDepthMode = DepthMode::DualDepth;
+    DepthMode mDepthMode = DepthMode::SingleDepth;
     Fbo::SharedPtr mpAOFbo;
     uint mFrameIndex = 0;
     bool mColorMap = false;
@@ -93,8 +85,7 @@ private:
     uint2 mNoiseSize = uint2(4);
 
     Sampler::SharedPtr mpTextureSampler;
-    SampleDistribution mHemisphereDistribution = SampleDistribution::Hammersley;
-    ShaderVariant mShaderVariant = ShaderVariant::Raster;
+    SampleDistribution mHemisphereDistribution = SampleDistribution::VanDerCorput;
 
     FullScreenPass::SharedPtr mpSSAOPass;
 

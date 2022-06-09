@@ -46,13 +46,8 @@ static void regSSAO(pybind11::module& m)
 
     pybind11::enum_<VAO::SampleDistribution> sampleDistribution(m, "SampleDistribution");
     sampleDistribution.value("Random", VAO::SampleDistribution::Random);
-    sampleDistribution.value("Hammersley", VAO::SampleDistribution::Hammersley);
+    sampleDistribution.value("VanDerCorput", VAO::SampleDistribution::VanDerCorput);
     sampleDistribution.value("Poisson", VAO::SampleDistribution::Poisson);
-
-    pybind11::enum_<VAO::ShaderVariant> shaderVariant(m, "ShaderVariant");
-    shaderVariant.value("Raster", VAO::ShaderVariant::Raster);
-    shaderVariant.value("Raytracing", VAO::ShaderVariant::Raytracing);
-    shaderVariant.value("Hybrid", VAO::ShaderVariant::Hybrid);
 
     pybind11::enum_<Falcor::DepthMode> depthMode(m, "DepthMode");
     depthMode.value("SingleDepth", Falcor::DepthMode::SingleDepth);
@@ -74,15 +69,8 @@ namespace
     const Gui::DropdownList kDistributionDropdown =
     {
         { (uint32_t)VAO::SampleDistribution::Random, "Random" },
-        { (uint32_t)VAO::SampleDistribution::Hammersley, "Uniform Hammersley" },
+        { (uint32_t)VAO::SampleDistribution::VanDerCorput, "Uniform VanDerCorput" },
         { (uint32_t)VAO::SampleDistribution::Poisson, "Poisson" },
-    };
-
-    const Gui::DropdownList kShaderVariantDropdown =
-    {
-        { (uint32_t)VAO::ShaderVariant::Raster, "Raster" },
-        { (uint32_t)VAO::ShaderVariant::Raytracing, "Raytracing" },
-        { (uint32_t)VAO::ShaderVariant::Hybrid, "Hybrid" }
     };
 
     const Gui::DropdownList kDepthModeDropdown =
@@ -90,6 +78,7 @@ namespace
         { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
         { (uint32_t)DepthMode::DualDepth, "DualDepth" },
         { (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
+        { (uint32_t)DepthMode::Raytraced, "Raytraced" }
     };
 
     const std::string kEnabled = "enabled";
@@ -97,7 +86,6 @@ namespace
     const std::string kNoiseSize = "noiseSize";
     const std::string kDistribution = "distribution";
     const std::string kRadius = "radius";
-    const std::string kShaderVariant = "shaderVariant";
     const std::string kDepthMode = "depthMode";
     const std::string kColorMap = "colorMap";
     const std::string kGuardBand = "guardBand";
@@ -223,7 +211,6 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             // program defines
             Program::DefineList defines;
             defines.add(mpScene->getSceneDefines());
-            defines.add("SHADER_VARIANT", std::to_string(uint32_t(mShaderVariant)));
             defines.add("DEPTH_MODE", std::to_string(uint32_t(mDepthMode)));
             defines.add("KERNEL_SIZE", std::to_string(mKernelSize));
             if(mColorMap) defines.add("COLOR_MAP", "true");
@@ -291,9 +278,6 @@ void VAO::renderUI(Gui::Widgets& widget)
         mpSSAOPass.reset();
     }
 
-    uint32_t shaderVariant = (uint32_t)mShaderVariant;
-    if(widget.dropdown("Variant", kShaderVariantDropdown, shaderVariant)) setShaderVariant(shaderVariant);
-
     uint32_t distribution = (uint32_t)mHemisphereDistribution;
     if (widget.dropdown("Kernel Distribution", kDistributionDropdown, distribution)) setDistribution(distribution);
 
@@ -334,16 +318,13 @@ void VAO::setDistribution(uint32_t distribution)
     setKernel();
 }
 
-void VAO::setShaderVariant(uint32_t variant)
-{
-    mShaderVariant = (ShaderVariant)variant;
-    mpSSAOPass.reset();
-}
-
 void VAO::setKernel()
 {
     std::srand(5960372); // same seed for kernel
     int vanDerCorputOffset = mKernelSize; // (only correct for power of two numbers => offset 8 results in 1/16, 9/16, 5/16... which are 8 different uniformly dstributed numbers, see https://en.wikipedia.org/wiki/Van_der_Corput_sequence)
+    bool isPowerOfTwo = std::_Popcount(uint32_t(vanDerCorputOffset)) == 1;//std::has_single_bit(uint32_t(vanDerCorputOffset));
+    if (mHemisphereDistribution == SampleDistribution::VanDerCorput && !isPowerOfTwo)
+        logWarning("VanDerCorput sequence only works properly if the sample count is a power of two!");
 
     if (mHemisphereDistribution == SampleDistribution::Poisson)
     {
@@ -405,7 +386,7 @@ void VAO::setKernel()
                 rand = float2(glm::linearRand(0.0f, 1.0f), glm::linearRand(0.0f, 1.0f));
                 break;
 
-            case SampleDistribution::Hammersley:
+            case SampleDistribution::VanDerCorput:
                 // skip 0 because it will results in (0, 0) which results in sample point (0, 0)
                 // => this means that we sample the same position for all tangent space rotations
                 rand = float2((float)(i) / (float)(mKernelSize), radicalInverse(vanDerCorputOffset + i));
