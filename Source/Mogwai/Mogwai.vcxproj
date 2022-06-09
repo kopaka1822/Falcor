@@ -94,9 +94,6 @@
     <ProjectReference Include="..\RenderPasses\HBAOPlusNonInterleaved\HBAOPlusNonInterleaved.vcxproj">
       <Project>{5709f7e1-ee49-4f7a-a0c6-0e09fdafb381}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\RenderPasses\HBAOPlus\HBAOPlus.vcxproj">
-      <Project>{30f55fe5-a6ca-479b-aa5d-3179b8453b0a}</Project>
-    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\ImageLoader\ImageLoader.vcxproj">
       <Project>{8ce33f5f-cfb9-4b25-9298-990dae982991}</Project>
     </ProjectReference>
