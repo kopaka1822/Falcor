@@ -25,7 +25,7 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#include "HBAOPlusInterleaved.h"
+#include "HBAOPlus.h"
 #include "../SSAO/scissors.h"
 #include <glm/gtc/random.hpp>
 
@@ -63,18 +63,18 @@ extern "C" __declspec(dllexport) const char* getProjDir()
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerPass(HBAOPlusInterleaved::kInfo, HBAOPlusInterleaved::create);
+    lib.registerPass(HBAOPlus::kInfo, HBAOPlus::create);
 }
 
-HBAOPlusInterleaved::SharedPtr HBAOPlusInterleaved::create(RenderContext* pRenderContext, const Dictionary& dict)
+HBAOPlus::SharedPtr HBAOPlus::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pPass = SharedPtr(new HBAOPlusInterleaved(dict));
+    SharedPtr pPass = SharedPtr(new HBAOPlus(dict));
     return pPass;
 }
 
-const RenderPass::Info HBAOPlusInterleaved::kInfo{ "HBAOPlusInterleaved", kDesc};
+const RenderPass::Info HBAOPlus::kInfo{ "HBAOPlus", kDesc};
 
-Dictionary HBAOPlusInterleaved::getScriptingDictionary()
+Dictionary HBAOPlus::getScriptingDictionary()
 {
     Dictionary d;
     d[kRadius] = mData.radius;
@@ -84,7 +84,7 @@ Dictionary HBAOPlusInterleaved::getScriptingDictionary()
     return d;
 }
 
-HBAOPlusInterleaved::HBAOPlusInterleaved(const Dictionary& dict)
+HBAOPlus::HBAOPlus(const Dictionary& dict)
     : RenderPass(kInfo)
 {
     mpFbo = Fbo::create();
@@ -101,7 +101,7 @@ HBAOPlusInterleaved::HBAOPlusInterleaved(const Dictionary& dict)
         else if (key == kDepthMode) mDepthMode = value;
         else if (key == kDepthBias) mData.NdotVBias = value;
         else if (key == kExponent) mData.powerExponent = value;
-        else logWarning("Unknown field '" + key + "' in a HBAOPlusInterleaved dictionary");
+        else logWarning("Unknown field '" + key + "' in a HBAOPlus dictionary");
     }
 
     setDepthMode(mDepthMode);
@@ -110,7 +110,7 @@ HBAOPlusInterleaved::HBAOPlusInterleaved(const Dictionary& dict)
     mNoiseTexture = genNoiseTexture();
 }
 
-RenderPassReflection HBAOPlusInterleaved::reflect(const CompileData& compileData)
+RenderPassReflection HBAOPlus::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
@@ -127,7 +127,7 @@ RenderPassReflection HBAOPlusInterleaved::reflect(const CompileData& compileData
         // set correct size of output resource
         auto srcWidth = edge->getWidth();
         auto srcHeight = edge->getHeight();
-        if (edge->getArraySize() != 16) throw std::runtime_error("HBAOPlusInterleaved expects deinterleaved depth with array size 16");
+        if (edge->getArraySize() != 16) throw std::runtime_error("HBAOPlus expects deinterleaved depth with array size 16");
         out.texture2D(srcWidth, srcHeight, 1, 1, 16);
         mReady = true;
     }
@@ -135,22 +135,22 @@ RenderPassReflection HBAOPlusInterleaved::reflect(const CompileData& compileData
     return reflector;
 }
 
-void HBAOPlusInterleaved::compile(RenderContext* pContext, const CompileData& compileData)
+void HBAOPlus::compile(RenderContext* pContext, const CompileData& compileData)
 {
-    if(!mReady) throw std::runtime_error("HBAOPlusInterleaved::compile - missing incoming reflection information");
+    if(!mReady) throw std::runtime_error("HBAOPlus::compile - missing incoming reflection information");
 
     mDirty = true;
 
     // static defines
     auto sdepths = compileData.connectedResources.getField(ksDepth);
-    if (!sdepths) throw std::runtime_error("HBAOPlusInterleaved::compile - missing incoming reflection information");
+    if (!sdepths) throw std::runtime_error("HBAOPlus::compile - missing incoming reflection information");
 
     mpPass->getProgram()->addDefine("MSAA_SAMPLES", std::to_string(sdepths->getSampleCount()));
     if (sdepths->getArraySize() == 1) mpPass->getProgram()->removeDefine("STOCHASTIC_ARRAY");
     else mpPass->getProgram()->addDefine("STOCHASTIC_ARRAY");
 }
 
-void HBAOPlusInterleaved::execute(RenderContext* pRenderContext, const RenderData& renderData)
+void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
@@ -209,7 +209,7 @@ void HBAOPlusInterleaved::execute(RenderContext* pRenderContext, const RenderDat
     }
 }
 
-void HBAOPlusInterleaved::renderUI(Gui::Widgets& widget)
+void HBAOPlus::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
@@ -228,20 +228,20 @@ void HBAOPlusInterleaved::renderUI(Gui::Widgets& widget)
         setDepthMode(DepthMode(depthMode));
 }
 
-void HBAOPlusInterleaved::setRadius(float r)
+void HBAOPlus::setRadius(float r)
 {
     mData.radius = r;
     mData.negInvRsq = -1.0f / (r * r);
     mDirty = true;
 }
 
-void HBAOPlusInterleaved::setDepthMode(DepthMode m)
+void HBAOPlus::setDepthMode(DepthMode m)
 {
     mDepthMode = m;
     mpPass->getProgram()->addDefine("DEPTH_MODE", std::to_string(uint32_t(m)));
 }
 
-std::vector<float4> HBAOPlusInterleaved::genNoiseTexture()
+std::vector<float4> HBAOPlus::genNoiseTexture()
 {
     std::vector<float4> data;
     data.resize(4u * 4u);

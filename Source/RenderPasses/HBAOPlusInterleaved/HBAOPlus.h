@@ -32,10 +32,10 @@
 
 using namespace Falcor;
 
-class HBAOPlusInterleaved : public RenderPass
+class HBAOPlus : public RenderPass
 {
 public:
-    using SharedPtr = std::shared_ptr<HBAOPlusInterleaved>;
+    using SharedPtr = std::shared_ptr<HBAOPlus>;
 
     /** Create a new render pass object.
         \param[in] pRenderContext The render context.
@@ -58,7 +58,7 @@ public:
 
     std::vector<float4> genNoiseTexture();
 private:
-    HBAOPlusInterleaved(const Dictionary& dict);
+    HBAOPlus(const Dictionary& dict);
 
     Fbo::SharedPtr mpFbo;
     FullScreenPass::SharedPtr mpPass;
