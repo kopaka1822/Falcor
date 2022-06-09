@@ -110,6 +110,9 @@ RenderPassReflection DeinterleaveTexture::reflect(const CompileData& compileData
         mReady = true;
     }
 
+    if ((compileData.defaultTexDims.x % 4 != 0) || (compileData.defaultTexDims.y % 4 != 0))
+        logWarning("DeinterleaveTexture textures pixels are not a mutliple of size 4, this might results in artifacts!");
+
     return reflector;
 }
 
