@@ -3,7 +3,7 @@ from falcor import *
 
 
 # Scene
-m.loadScene('D:/scenes/obj/sponza/sponza.obj')
+m.loadScene('Sponza/sponza.obj')
 m.scene.renderSettings = SceneRenderSettings(useEnvLight=True, useAnalyticLights=True, useEmissiveLights=True, useGridVolumes=True)
 m.scene.camera.position = float3(22.887949,4.794842,2.332704)
 m.scene.camera.target = float3(21.943356,4.708484,2.016026)
