@@ -142,6 +142,9 @@
     <ProjectReference Include="..\RenderPasses\SimplePostFX\SimplePostFX.vcxproj">
       <Project>{eea2605b-eed3-442e-8d8d-7d2774df080a}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\SimpleSSAO\SimpleSSAO.vcxproj">
+      <Project>{3cd3e92a-150c-4a1d-83c4-2c80f28a213f}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\SkyBox\SkyBox.vcxproj">
       <Project>{c6eb0ac0-ff3b-474e-a453-44d84329d13a}</Project>
     </ProjectReference>

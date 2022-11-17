@@ -58,7 +58,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "PixelInspectorPass", "Sourc
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SVGFPass", "Source\RenderPasses\SVGFPass\SVGFPass.vcxproj", "{691F64DD-0941-49DE-B52E-949341192154}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SSAO", "Source\RenderPasses\SSAO\SSAO.vcxproj", "{6CC70B9F-CA56-4EF2-8075-A1BE0005DCF4}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "VAO", "Source\RenderPasses\SSAO\SSAO.vcxproj", "{6CC70B9F-CA56-4EF2-8075-A1BE0005DCF4}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Antialiasing", "Source\RenderPasses\Antialiasing\Antialiasing.vcxproj", "{8ECC586D-1F5E-46D4-82BB-28044E6D67A2}"
 EndProject
@@ -130,19 +130,21 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DeinterleaveTexture", "Sour
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Texture2DArrayExtract", "Source\RenderPasses\Texture2DArrayExtract\Texture2DArrayExtract.vcxproj", "{0713EC42-FC34-4C01-8FCB-AC29F48675A4}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HBAOPlusInterleaved", "Source\RenderPasses\HBAOPlusInterleaved\HBAOPlusInterleaved.vcxproj", "{3D9C1E43-9D48-4FA4-96AC-724F0B8BB73F}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HBAOPlus", "Source\RenderPasses\HBAOPlusInterleaved\HBAOPlusInterleaved.vcxproj", "{3D9C1E43-9D48-4FA4-96AC-724F0B8BB73F}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HBAOPlusNonInterleaved", "Source\RenderPasses\HBAOPlusNonInterleaved\HBAOPlusNonInterleaved.vcxproj", "{5709F7E1-EE49-4F7A-A0C6-0E09FDAFB381}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "VAONonInterleaved", "Source\RenderPasses\VAONonInterleaved\VAONonInterleaved.vcxproj", "{B1110211-2F62-4195-AC8D-BCD758F07654}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SVAO", "Source\RenderPasses\VAONonInterleaved\VAONonInterleaved.vcxproj", "{B1110211-2F62-4195-AC8D-BCD758F07654}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WriteStencil", "Source\RenderPasses\WriteStencil\WriteStencil.vcxproj", "{B11706EC-0ABC-403A-B7CE-80E6BA2C9E0C}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RTAO", "Source\RenderPasses\RTAO\RTAO.vcxproj", "{02D131D6-B7EF-4D96-847C-6BA69A500266}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "VAORT", "Source\RenderPasses\VAORT\VAORT.vcxproj", "{425C7C27-E6CE-4127-A0F1-393B4E4DB18F}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RTVAO", "Source\RenderPasses\VAORT\VAORT.vcxproj", "{425C7C27-E6CE-4127-A0F1-393B4E4DB18F}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RTAODenoiser", "Source\RenderPasses\RTAODenoiser\RTAODenoiser.vcxproj", "{12FB9EE5-F061-44CC-885F-A003AC639E0D}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SimpleSSAO", "Source\RenderPasses\SimpleSSAO\SimpleSSAO.vcxproj", "{3CD3E92A-150C-4A1D-83C4-2C80F28A213F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -624,6 +626,14 @@ Global
 		{12FB9EE5-F061-44CC-885F-A003AC639E0D}.ReleaseD3D12|x64.Build.0 = Release|x64
 		{12FB9EE5-F061-44CC-885F-A003AC639E0D}.ReleaseGFX|x64.ActiveCfg = Release|x64
 		{12FB9EE5-F061-44CC-885F-A003AC639E0D}.ReleaseGFX|x64.Build.0 = Release|x64
+		{3CD3E92A-150C-4A1D-83C4-2C80F28A213F}.DebugD3D12|x64.ActiveCfg = Debug|x64
+		{3CD3E92A-150C-4A1D-83C4-2C80F28A213F}.DebugD3D12|x64.Build.0 = Debug|x64
+		{3CD3E92A-150C-4A1D-83C4-2C80F28A213F}.DebugGFX|x64.ActiveCfg = Debug|x64
+		{3CD3E92A-150C-4A1D-83C4-2C80F28A213F}.DebugGFX|x64.Build.0 = Debug|x64
+		{3CD3E92A-150C-4A1D-83C4-2C80F28A213F}.ReleaseD3D12|x64.ActiveCfg = Release|x64
+		{3CD3E92A-150C-4A1D-83C4-2C80F28A213F}.ReleaseD3D12|x64.Build.0 = Release|x64
+		{3CD3E92A-150C-4A1D-83C4-2C80F28A213F}.ReleaseGFX|x64.ActiveCfg = Release|x64
+		{3CD3E92A-150C-4A1D-83C4-2C80F28A213F}.ReleaseGFX|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -687,6 +697,7 @@ Global
 		{02D131D6-B7EF-4D96-847C-6BA69A500266} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 		{425C7C27-E6CE-4127-A0F1-393B4E4DB18F} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 		{12FB9EE5-F061-44CC-885F-A003AC639E0D} = {D16038A7-B031-4181-B4A1-2C416C02330C}
+		{3CD3E92A-150C-4A1D-83C4-2C80F28A213F} = {D16038A7-B031-4181-B4A1-2C416C02330C}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {357B2AE0-FE30-4AC6-8D41-B580232BC0DE}
