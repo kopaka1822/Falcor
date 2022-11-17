@@ -1,9 +1,6 @@
 import Scene.Camera.Camera;
 import SSAOData;
 
-#define NUM_STEPS 4
-#define NUM_DIRECTIONS 8
-
 // single depth texture
 #define DEPTH_MODE_SINGLE 0
 // two depth textures
@@ -11,8 +8,18 @@ import SSAOData;
 // single depth texture + stochastic depth texture
 #define DEPTH_MODE_STOCHASTIC 2
 
+#define AO_MITTRING 0
+#define AO_FILION 1
+#define AO_HBAO 2
+#define AO_HBAOPlus 3
+#define AO_VAO 4
+
 #ifndef DEPTH_MODE
 #define DEPTH_MODE DEPTH_MODE_DUAL
+#endif
+
+#ifndef AO_ALGORITHM
+#define AO_ALGORITHM AO_MITTRING
 #endif
 
 #ifndef MSAA_SAMPLES
@@ -132,90 +139,137 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     if (RadiusInPixels < 1.0)
         return 1.0;
 
-    // Compute AO
-    // Divide by NUM_STEPS+1 so that the farthest samples are not fully attenuated
-    float StepSizePixels = RadiusInPixels / (NUM_STEPS + 1);
-
-    // TODO replace with texture lookup
-    float4 Rand = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale);
-    //Rand = float4(1, 0, 0.5, 1);
-    const float Alpha = 2.0 * 3.141f / NUM_DIRECTIONS;
-    //const float AngleOffset = 2.0f * 3.141f * Rand.w;
-
-    float AO = 0.0;
-    // sample NUM_DIRECTIONS directions on the view space disc
-    [unroll]
-    for (int i = 0; i < NUM_DIRECTIONS; ++i)
+    if (AO_ALGORITHM == AO_MITTRING)
     {
-        float Angle = Alpha * float(i); // + AngleOffset;
-
-        // random normalized 2D direction
-        float2 Direction = Rotate2D(Rand.xy, Angle);
-
-        // Jitter starting sample within the first step
-        float RayPixels = (Rand.z * StepSizePixels + 1.0);
-
-        // sample NUM_STEPS steps for each direction
-        for (int step = 0; step < NUM_STEPS; ++step)
+        int numOccluded = 0;
+        
+        // random point in the sphere
+        for (int i = 0; i < gData.numSamples; ++i)
         {
-            // calculate sample position in uv space (round ray pixels to sample in pixel center)
-            float2 snappedSampleUV = texC + round(RayPixels * Direction) * gData.invResolution;
-            if (DEPTH_MODE == DEPTH_MODE_SINGLE)
+            float angle = (2.0 * 3.141 / gData.numSamples) * i;
+            //float elevation = acos(2.0 * )
+            // TODO need second random texture as array
+            //float elevation = acos(2.0 * 0.5 - 1.0) - 3.141 / 2.0;
+            float elevation = -0.3;
+
+            float3 rndDir = float3(cos(elevation) * cos(angle), cos(elevation) * sin(angle), sin(elevation));
+
+            // test if this point is occluded
+            float3 samplePosition = ViewPosition + rndDir * gData.radius; // TODO orient in tangent space
+            
+            float2 sampleUV = ViewSpaceToUV(samplePosition);
+            // TODO snap sampleUV to pixel centers
+            float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, sampleUV, 0);
+
+            if (-samplePosition.z < linearSampleDepth) // sample depth is positive, but sample pos is negative (inverse)
             {
-                float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, snappedSampleUV, 0);
-                // TODO? could check for depth == farZ
-                float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
-                AO += ComputeAO(ViewPosition, ViewNormal, S);
+                // occluded
+                ++numOccluded;
+
             }
-            else if (DEPTH_MODE == DEPTH_MODE_DUAL)
+
+        }
+
+        return 1.0 - ((float)numOccluded / gData.numSamples);
+    }
+
+    
+
+    
+    if (AO_ALGORITHM == AO_HBAOPlus)
+    {
+        const int NUM_STEPS = 4; // steps per direction
+        const int NUM_DIRECTIONS = (gData.numSamples + NUM_STEPS - 1) / NUM_STEPS;
+        
+       // Compute AO
+        // Divide by NUM_STEPS+1 so that the farthest samples are not fully attenuated
+        float StepSizePixels = RadiusInPixels / (NUM_STEPS + 1);
+
+        // TODO replace with texture lookup
+        float4 Rand = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale);
+        //Rand = float4(1, 0, 0.5, 1);
+        const float Alpha = 2.0 * 3.141f / NUM_DIRECTIONS;
+        //const float AngleOffset = 2.0f * 3.141f * Rand.w;
+
+        float AO = 0.0;
+        // sample NUM_DIRECTIONS directions on the view space disc
+
+
+        for (int i = 0; i < NUM_DIRECTIONS; ++i)
+        {
+            float Angle = Alpha * float(i); // + AngleOffset;
+
+            // random normalized 2D direction
+            float2 rndDir = float2(sin(Rand.x * 2.0 * 3.141), cos(Rand.x * 2.0 * 3.141));
+            float2 Direction = Rotate2D(rndDir, Angle);
+
+            // Jitter starting sample within the first step
+            float RayPixels = (Rand.z * StepSizePixels + 1.0);
+
+            // sample NUM_STEPS steps for each direction
+            for (int step = 0; step < NUM_STEPS; ++step)
             {
-                float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, snappedSampleUV, 0);
-                // TODO? could check for depth == farZ
-                float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
-                float ao = 0.0;
-                [branch]
-                if (RecomputeAO(ViewPosition, ViewNormal, S, ao))
+                // calculate sample position in uv space (round ray pixels to sample in pixel center)
+                float2 snappedSampleUV = texC + round(RayPixels * Direction) * gData.invResolution;
+                if (DEPTH_MODE == DEPTH_MODE_SINGLE)
                 {
-                    float linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+                    float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+                    // TODO? could check for depth == farZ
                     float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
-                    ao = max(ao, ComputeAO(ViewPosition, ViewNormal, S));
+                    AO += ComputeAO(ViewPosition, ViewNormal, S);
                 }
-                AO += ao;
-            }
-            else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
-            {
-                float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, snappedSampleUV, 0);
-                // TODO? could check for depth == farZ
-                float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
-                float ao = 0.0;
-                [branch]
-                if (RecomputeAO(ViewPosition, ViewNormal, S, ao))
+                else if (DEPTH_MODE == DEPTH_MODE_DUAL)
                 {
-                    // TODO try to use sampler
-                    int2 pixelCoord = int2(floor(snappedSampleUV * gData.resolution));
-                    const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
-                    const float depthOffset = gCamera.data.nearZ;
-                    [unroll]
-                    for (uint i = 0; i < MSAA_SAMPLES; ++i)
+                    float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+                    // TODO? could check for depth == farZ
+                    float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
+                    float ao = 0.0;
+                    [branch]
+                    if (RecomputeAO(ViewPosition, ViewNormal, S, ao))
                     {
-                        float linearSampleDepth = gsDepthTex.Load(pixelCoord, i);
-                        // linearSampleDepth is in [0, 1] => scale accordingly
-                        linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
+                        float linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, snappedSampleUV, 0);
                         float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
                         ao = max(ao, ComputeAO(ViewPosition, ViewNormal, S));
                     }
+                    AO += ao;
                 }
-                AO += ao;
-            }
+                else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
+                {
+                    float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+                    // TODO? could check for depth == farZ
+                    float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
+                    float ao = 0.0;
+                    [branch]
+                    if (RecomputeAO(ViewPosition, ViewNormal, S, ao))
+                    {
+                        // TODO try to use sampler
+                        int2 pixelCoord = int2(floor(snappedSampleUV * gData.resolution));
+                        const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
+                        const float depthOffset = gCamera.data.nearZ;
+                        [unroll]
+                        for (uint i = 0; i < MSAA_SAMPLES; ++i)
+                        {
+                            float linearSampleDepth = gsDepthTex.Load(pixelCoord, i);
+                        // linearSampleDepth is in [0, 1] => scale accordingly
+                            linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
+                            float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
+                            ao = max(ao, ComputeAO(ViewPosition, ViewNormal, S));
+                        }
+                    }
+                    AO += ao;
+                }
 
-            RayPixels += StepSizePixels;
+                RayPixels += StepSizePixels;
+            }
         }
+
+        AO /= (NUM_DIRECTIONS * NUM_STEPS);
+    // artistic modifications
+        float res = saturate(1.0 - AO * 2.0);
+        res = pow(res, gData.powerExponent);
+
+        return res;
     }
 
-    AO /= (NUM_DIRECTIONS * NUM_STEPS);
-    // artistic modifications
-    float res = saturate(1.0 - AO * 2.0);
-    res = pow(res, gData.powerExponent);
-
-    return res;
+    return 0.0;
 }

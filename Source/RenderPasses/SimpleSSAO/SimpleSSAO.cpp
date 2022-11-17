@@ -48,9 +48,30 @@ namespace
         //{ (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
     };
 
+    const Gui::DropdownList kAoTechniqueDropdown =
+    {
+        { (uint32_t)AO_Algorithm::Mittring07, "Mittring07" },
+        { (uint32_t)AO_Algorithm::Filion08, "Filion08" },
+        { (uint32_t)AO_Algorithm::HBAO08, "HBAO08" },
+        { (uint32_t)AO_Algorithm::HBAOPlus16, "HBAOPlus16" },
+        { (uint32_t)AO_Algorithm::VAO10, "VAO10" },
+    };
+
     const std::string kRadius = "radius";
     const std::string kDepthMode = "depthMode";
     const std::string kExponent = "exponent";
+    const std::string kAoAlgorithm = "aoAlgorithm";
+    const std::string kNumSamples = "numSamples";
+}
+
+static void regPyBinding(pybind11::module& m)
+{
+    pybind11::enum_<AO_Algorithm> algo(m, "AO_Algorithm");
+    algo.value("Mittring07", AO_Algorithm::Mittring07);
+    algo.value("Filion08", AO_Algorithm::Filion08);
+    algo.value("HBAO08", AO_Algorithm::HBAO08);
+    algo.value("HBAOPlus16", AO_Algorithm::HBAOPlus16);
+    algo.value("VAO10", AO_Algorithm::VAO10);
 }
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -62,6 +83,7 @@ extern "C" FALCOR_API_EXPORT const char* getProjDir()
 extern "C" FALCOR_API_EXPORT void getPasses(Falcor::RenderPassLibrary& lib)
 {
     lib.registerPass(SimpleSSAO::kInfo, SimpleSSAO::create);
+    ScriptBindings::registerBinding(regPyBinding);
 }
 
 SimpleSSAO::SharedPtr SimpleSSAO::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -77,6 +99,8 @@ Dictionary SimpleSSAO::getScriptingDictionary()
     d[kDepthMode] = mDepthMode;
     //d[kDepthBias] = mData.NdotVBias;
     d[kExponent] = mData.powerExponent;
+    d[kAoAlgorithm] = mAoAlgorithm;
+    d[kNumSamples] = mData.numSamples;
     return d;
 }
 
@@ -87,10 +111,23 @@ void SimpleSSAO::setRadius(float r)
     mDirty = true;
 }
 
+void SimpleSSAO::setNumSamples(int n)
+{
+    assert(n > 0);
+    mData.numSamples = n;
+    mDirty = true;
+}
+
 void SimpleSSAO::setDepthMode(DepthMode m)
 {
     mDepthMode = m;
     mpPass->getProgram()->addDefine("DEPTH_MODE", std::to_string(uint32_t(m)));
+}
+
+void SimpleSSAO::setAoAlgorithm(AO_Algorithm a)
+{
+    mAoAlgorithm = a;
+    mpPass->getProgram()->addDefine("AO_ALGORITHM", std::to_string(uint32_t(a)));
 }
 
 SimpleSSAO::SimpleSSAO(const Dictionary& dict) : RenderPass(kInfo)
@@ -112,11 +149,13 @@ SimpleSSAO::SimpleSSAO(const Dictionary& dict) : RenderPass(kInfo)
         else if (key == kDepthMode) mDepthMode = value;
         //else if (key == kDepthBias) mData.NdotVBias = value;
         else if (key == kExponent) mData.powerExponent = value;
+        else if (key == kAoAlgorithm) mAoAlgorithm = value;
         else logWarning("Unknown field '" + key + "' in a SimpleSSAO dictionary");
     }
 
     setDepthMode(mDepthMode);
     setRadius(mData.radius);
+    setAoAlgorithm(mAoAlgorithm);
 
     mpNoiseTexture = genNoiseTexture();
 }
@@ -207,11 +246,19 @@ void SimpleSSAO::renderUI(Gui::Widgets& widget)
     if (widget.var("Radius", radius, 0.01f, FLT_MAX, 0.01f))
         setRadius(radius);
 
+    int nSamples = mData.numSamples;
+    if (widget.var("Num Samples", nSamples, 1, 64))
+        setNumSamples(nSamples);
+
     if (widget.slider("Depth Bias", mData.NdotVBias, 0.0f, 0.5f)) mDirty = true;
     if (widget.slider("Power Exponent", mData.powerExponent, 1.0f, 4.0f)) mDirty = true;
     uint32_t depthMode = uint32_t(mDepthMode);
     if (widget.dropdown("Depth Mode", kDepthModeDropdown, depthMode))
         setDepthMode(DepthMode(depthMode));
+
+    uint32_t aoTechnique = uint32_t(mAoAlgorithm);
+    if (widget.dropdown("AO Algorithm", kAoTechniqueDropdown, aoTechnique))
+        setAoAlgorithm((AO_Algorithm)aoTechnique);
 }
 
 Texture::SharedPtr SimpleSSAO::genNoiseTexture()
@@ -222,11 +269,13 @@ Texture::SharedPtr SimpleSSAO::genNoiseTexture()
     std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
     for (uint32_t i = 0; i < data.size(); i++)
     {
-        // Random directions on the XY plane
-        auto theta = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
-        auto r1 = glm::linearRand(0.0f, 1.0f);
-        auto r2 = glm::linearRand(0.0f, 1.0f);
-        data[i] = glm::packSnorm4x8(float4(sin(theta), cos(theta), r1, r2));
+        // 4 random floats
+        data[i] = glm::packSnorm4x8(float4(
+            glm::linearRand(0.0f, 1.0f),
+            glm::linearRand(0.0f, 1.0f),
+            glm::linearRand(0.0f, 1.0f),
+            glm::linearRand(0.0f, 1.0f)
+        ));
     }
 
     return Texture::create2D(4, 4, ResourceFormat::RGBA8Snorm, 1, 1, data.data());

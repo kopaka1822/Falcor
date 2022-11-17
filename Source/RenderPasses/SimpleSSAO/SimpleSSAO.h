@@ -32,6 +32,15 @@
 
 using namespace Falcor;
 
+enum class AO_Algorithm
+{
+    Mittring07 = 0,
+    Filion08 = 1,
+    HBAO08 = 2,
+    HBAOPlus16 = 3,
+    VAO10 = 4
+};
+
 class SimpleSSAO : public RenderPass
 {
 public:
@@ -56,7 +65,9 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
     void setRadius(float r);
+    void setNumSamples(int n);
     void setDepthMode(DepthMode m);
+    void setAoAlgorithm(AO_Algorithm a);
 
     Texture::SharedPtr genNoiseTexture();
 private:
@@ -71,7 +82,8 @@ private:
 
     Scene::SharedPtr mpScene;
 
-    DepthMode mDepthMode = DepthMode::DualDepth;
+    DepthMode mDepthMode = DepthMode::SingleDepth;
+    AO_Algorithm mAoAlgorithm = AO_Algorithm::Mittring07;
     bool mEnabled = true;
 
     SSAOData mData;

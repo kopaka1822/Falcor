@@ -14,6 +14,7 @@ struct SSAOData
     float powerExponent = 2.0f;
 
     float2 noiseScale = float2(1, 1);
+    int numSamples = 16;
 };
 
 END_NAMESPACE_FALCOR
