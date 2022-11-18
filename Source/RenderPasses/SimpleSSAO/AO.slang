@@ -259,10 +259,22 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
             
             float dz = -samplePosition.z - linearSampleDepth;
-            if (dz > epsilon) // sample depth is positive, but sample pos is negative (inverse)
-                //occlusion += saturate(Falloff(dz * dz)); // (not the same falloff as in the paper)
-                occlusion += saturate(exp(-(dz - epsilon) / gData.radius * 4.6 * 0.5)); // e^-4.6 = 0.01 ~ 0.0
-                //occlusion += 1.0;
+            float curOcclusion = 0.0;
+            
+            if (dz > epsilon)
+                //curOcclusion = saturate(Falloff(dz * dz)); // (not the same falloff as in the paper)
+                curOcclusion = saturate(exp(-(dz - epsilon) / gData.radius * 4.6 * 0.5)); // e^-4.6 = 0.01 ~ 0.0;
+             
+
+            if (DEPTH_MODE == DEPTH_MODE_DUAL)
+            {
+                linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, sampleUV, 0);
+                dz = -samplePosition.z - linearSampleDepth;
+                if (dz > epsilon)
+                    curOcclusion = max(curOcclusion, saturate(exp(-(dz - epsilon) / gData.radius * 4.6 * 0.5))); // e^-4.6 = 0.01 ~ 0.0;    
+            
+            }
+            occlusion += curOcclusion;
         }
 
         return pow(saturate(1.0 - occlusion / gData.numSamples), gData.powerExponent);
