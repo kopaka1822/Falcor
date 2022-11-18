@@ -201,10 +201,75 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 //occlusion += 1.0;
         }
 
-        return pow(1.0 - occlusion / gData.numSamples, gData.powerExponent);
+        return pow(saturate(1.0 - occlusion / gData.numSamples), gData.powerExponent);
     }
 
-    
+    if (AO_ALGORITHM == AO_HBAO)
+    {
+        const int NUM_STEPS = 4; // steps per direction
+        const int NUM_DIRECTIONS = (gData.numSamples + NUM_STEPS - 1) / NUM_STEPS;
+        float StepSizePixels = RadiusInPixels / (NUM_STEPS + 1);
+        const float Alpha = 2.0 * 3.141f / NUM_DIRECTIONS;
+        float AO = 0.0;
+
+        for (int i = 0; i < NUM_DIRECTIONS; ++i)
+        {
+            float Angle = Alpha * float(i); // + AngleOffset;
+
+            // random normalized 2D direction
+            float2 rndDir = float2(sin(Rand.x * 2.0 * 3.141), cos(Rand.x * 2.0 * 3.141));
+            float2 Direction = Rotate2D(rndDir, Angle);
+
+            // Jitter starting sample within the first step
+            float RayPixels = (Rand.z * StepSizePixels + 1.0);
+
+            // sample NUM_STEPS steps for each direction
+            float minTheta = 1.0; // corresponds to the max horizon angle
+            float curFalloff = 1.0;
+            for (int step = 0; step < NUM_STEPS; ++step)
+            {
+                // calculate sample position in uv space (round ray pixels to sample in pixel center)
+                float2 snappedSampleUV = texC + round(RayPixels * Direction) * gData.invResolution;
+                if (DEPTH_MODE == DEPTH_MODE_SINGLE)
+                {
+                    float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+                    float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
+                    float dist = distance(S, ViewPosition);
+                    float NdotV = max(dot(S - ViewPosition, ViewNormal) / dist, 0.0);
+                    float falloff = saturate(1.0 - dist / gData.radius);
+                    AO += NdotV * falloff;
+                    //if(NdotV < minTheta)
+                    //{
+                    //    minTheta = NdotV;
+                    //    curFalloff = falloff;
+                    //}
+                }
+                else if (DEPTH_MODE == DEPTH_MODE_DUAL)
+                {
+                    float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+                    float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
+                    float dist = distance(S, ViewPosition);
+                    float NdotV = max(dot(S - ViewPosition, ViewNormal) / dist, 0.0);
+                    float falloff = saturate(1.0 - dist / gData.radius);
+                    float ao = NdotV * falloff;
+                    if(dist > gData.radius && NdotV > 0.0)
+                    {
+                        linearSampleDepth = gDepthTex2.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+                        S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
+                        dist = distance(S, ViewPosition);
+                        NdotV = max(dot(S - ViewPosition, ViewNormal) / dist, 0.0);
+                        falloff = saturate(1.0 - dist / gData.radius);
+                        ao = max(ao, NdotV * falloff); // take max occlusion of both depth samples
+                    }
+                    AO += ao;
+                }
+                RayPixels += StepSizePixels;
+            }
+            //AO += minTheta * curFalloff * NUM_STEPS;
+        }
+        AO /= (NUM_DIRECTIONS * NUM_STEPS);
+        return pow(saturate(1.0 - 2.0 * AO), gData.powerExponent);
+    }
 
     
     if (AO_ALGORITHM == AO_HBAOPlus)
