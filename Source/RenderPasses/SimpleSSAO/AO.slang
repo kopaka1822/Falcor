@@ -481,30 +481,29 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 sphereStart = zIntersectClamped;
 
             // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
-            if (sphereStart - sphereEnd < 0.01)
+            if (sphereStart - sphereEnd <= 0.0)
                 continue;
             
 
             // calculate view position of sample and project to uv coordinates
             float3 initialSamplePosV = ViewPosition + tangent * rand.x + bitangent * rand.y;
             float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
-            float curVisibility = 1.0f;
 
             // clip sample position uv and snap to pixel center
             float2 screenUv = getSnappedUV(samplePosUV); // clip to screen border and pixel center
 
             // primary depth sample
             float objectSpaceZ = calcObjectSpaceZ(ViewPosition, normal, samplePosUV, gDepthTex);
-            curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+            float curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
             bool primaryIsOccluded = (objectSpaceZ > sphereStart + CONST_RADIUS);
 
             if (DEPTH_MODE == DEPTH_MODE_DUAL && primaryIsOccluded)
             {
-            // obtain secondary sample if primary sample is occluded
+                // obtain secondary sample if primary sample is occluded
                 objectSpaceZ = calcObjectSpaceZ(ViewPosition, normal, samplePosUV, gDepthTex2);
                 curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
             }
-            visibility += curVisibility / pdf;
+            visibility += saturate(curVisibility / pdf);
         }
         // since fully visibile are all values in [0.5, 1.0], scale accordingly
         return pow(saturate(visibility / gData.numSamples * 2.0), gData.powerExponent);

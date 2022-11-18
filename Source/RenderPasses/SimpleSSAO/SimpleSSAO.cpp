@@ -311,7 +311,7 @@ Texture::SharedPtr SimpleSSAO::genDiscPositions(int nSamples)
 {
     std::vector<uint16_t> data;
     data.resize(nSamples);
-    std::srand(26353); // same seed
+    std::srand(568); // same seed
     for (uint i = 0; i < data.size(); i++)
     {
         // generate random point in sphere
