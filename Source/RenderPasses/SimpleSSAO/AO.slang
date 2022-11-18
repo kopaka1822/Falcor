@@ -47,6 +47,7 @@ Texture2D gNormalTex;
 Texture2D gNoiseTex; // xy = random normalized direciton, zw = normalized random number => SNORM texture format
 
 Texture1D gSpherePositions; // random positions inside the unit sphere
+Texture1D<float2> gDiscPositions; // random positions inside the unit disc
 
 float2 Rotate2D(float2 vec, float theta)
 {
@@ -102,6 +103,22 @@ float Falloff(float DistanceSquare)
 
 }
 
+float2 GetRandomVector2D(float rand)
+{
+    return float2(sin(rand * 2.0 * 3.141), cos(rand * 2.0 * 3.141));
+}
+
+float3 GetRandomVector3D(float2 rand)
+{
+    float phi = rand.x * 2.0 * 3.141;
+    float theta = acos(rand.y * 2.0 - 1.0);
+    return float3(
+        sin(theta) * cos(phi),
+        sin(theta) * sin(phi),
+        cos(theta)
+    );
+}
+
 // ambient occlusion kernel
 // P: view space position
 // N: view space normal
@@ -127,6 +144,53 @@ bool RecomputeAO(float3 P, float3 N, float3 S, inout float ao)
     ao = angleTerm * distanceTerm;
     return angleTerm > 0.0 && distanceTerm <= 0.0; // sample is in positive hemisphere but further away than the radius
 }
+
+float makeNonZero(float value, float epsilon)
+{
+    float absValue = max(abs(value), epsilon);
+    return value >= 0 ? absValue : -absValue;
+}
+
+float calcObjectSpaceZ(float3 posV, float3 normal, float2 uv, Texture2D<float> depthTex)
+{
+    float linearSampleDepth = depthTex.SampleLevel(gTextureSampler, uv, 0);
+    float3 samplePosV = UVToViewSpace(uv, linearSampleDepth);
+    // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+    float objectSpaceZ = dot(samplePosV - posV, normal);
+    return objectSpaceZ;
+}
+
+// VAO methods -- start
+
+#define HALO_RADIUS (sphereStart - sphereEnd)
+#define CONST_RADIUS (gData.radius - sphereStart)
+
+// get rid of shadowing around edges
+// introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
+// and falls of to 1.0 when it gets further away from the sphere but closer to the camera
+float calcHaloVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
+{
+    //if (!PREVENT_DARK_HALOS)
+    //    return 0.0;
+    
+    return saturate((objectSpaceZ - sphereStart - CONST_RADIUS) / HALO_RADIUS)
+        * (sphereStart - sphereEnd); // this adjust the visibility to the sampling (hemi-)sphere
+}
+
+float calcSphereVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
+{
+    float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
+    return sampleRange;
+}
+
+float calcVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
+{
+    return calcSphereVisibility(objectSpaceZ, sphereStart, sphereEnd)
+         + calcHaloVisibility(objectSpaceZ, sphereStart, sphereEnd);
+}
+
+
+// VAO methods -- end
 
 float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
@@ -155,7 +219,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     if (AO_ALGORITHM == AO_MITTRING)
     {
         int numOccluded = 0;
-        float3 randPlaneNormal = normalize(Rand.xyz * 2.0 - float3(1.0));
+        float3 randPlaneNormal = GetRandomVector3D(Rand.xy);
         float epsilon = gData.radius * gData.NdotVBias;
         
         // random point in the sphere
@@ -178,7 +242,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     if (AO_ALGORITHM == AO_FILION)
     {
         float occlusion = 0.0;
-        float3 randPlaneNormal = normalize(Rand.xyz * 2.0 - float3(1.0));
+        float3 randPlaneNormal = GetRandomVector3D(Rand.xy);
         float epsilon = gData.radius * gData.NdotVBias;
         
         // random point in the sphere
@@ -217,7 +281,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float Angle = Alpha * float(i); // + AngleOffset;
 
             // random normalized 2D direction
-            float2 rndDir = float2(sin(Rand.x * 2.0 * 3.141), cos(Rand.x * 2.0 * 3.141));
+            float2 rndDir = GetRandomVector2D(Rand.x);
             float2 Direction = Rotate2D(rndDir, Angle);
 
             // Jitter starting sample within the first step
@@ -296,7 +360,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float Angle = Alpha * float(i); // + AngleOffset;
 
             // random normalized 2D direction
-            float2 rndDir = float2(sin(Rand.x * 2.0 * 3.141), cos(Rand.x * 2.0 * 3.141));
+            float2 rndDir = GetRandomVector2D(Rand.x);
             float2 Direction = Rotate2D(rndDir, Angle);
 
             // Jitter starting sample within the first step
@@ -367,5 +431,71 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         return res;
     }
 
+    if (AO_ALGORITHM == AO_VAO)
+    {
+
+        
+        // determine tangent space
+        float3 normal = -normalize(ViewPosition);
+        float3 bitangent = normalize(cross(normal, float3(GetRandomVector2D(Rand.x), 0.0f)));
+        float3 tangent = cross(bitangent, normal);
+
+        // transfer view space normal to normal in object coordinates of the sampling sphere
+        float3 normalO = float3(dot(ViewNormal, tangent), dot(ViewNormal, bitangent), dot(ViewNormal, normal));
+
+        float visibility = 0.0f;
+
+        for (uint i = 0; i < gData.numSamples; i++)
+        {
+            // obtain sample position on disc around view space position
+            float2 rand = gDiscPositions[i]; // xy = random location on unit disc, zw = uniform in 0,1
+            rand *= gData.radius; // multiply 2D position with sample radius
+        
+            // height of the sphere at the requested sample position (not at the actual sampling position)
+            const float sphereHeight = sqrt(gData.radius * gData.radius - dot(rand, rand));
+            // probability for choosing this sample
+            const float pdf = 2.0 * sphereHeight;
+
+            // determine distance within [-sphereHeight, +sphereHeight]
+            float sphereStart = sphereHeight; // in object coordinates (bigger is closer to the camera)
+            float sphereEnd = -sphereHeight; // in object coordinates (smaller is futher from the camera)
+
+            // determine correct sphereStart and sphereEnd for hemisphere
+            float zIntersect = -dot(rand.xy, normalO.xy) / makeNonZero(normalO.z, 0.0001);
+            float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
+            if (normalO.z >= 0.0)
+                sphereEnd = zIntersectClamped;
+            else
+                sphereStart = zIntersectClamped;
+
+            // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
+            if (sphereStart - sphereEnd < 0.01)
+                continue;
+            
+
+            // calculate view position of sample and project to uv coordinates
+            float3 initialSamplePosV = ViewPosition + tangent * rand.x + bitangent * rand.y;
+            float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
+            float curVisibility = 1.0f;
+
+            // clip sample position uv and snap to pixel center
+            float2 screenUv = getSnappedUV(samplePosUV); // clip to screen border and pixel center
+
+            // primary depth sample
+            float objectSpaceZ = calcObjectSpaceZ(ViewPosition, normal, samplePosUV, gDepthTex);
+            curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+            bool primaryIsOccluded = (objectSpaceZ > sphereStart + CONST_RADIUS);
+
+            if (DEPTH_MODE == DEPTH_MODE_DUAL && primaryIsOccluded)
+            {
+            // obtain secondary sample if primary sample is occluded
+                objectSpaceZ = calcObjectSpaceZ(ViewPosition, normal, samplePosUV, gDepthTex2);
+                curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
+            }
+            visibility += curVisibility / pdf;
+        }
+        // since fully visibile are all values in [0.5, 1.0], scale accordingly
+        return pow(saturate(visibility / gData.numSamples * 2.0), gData.powerExponent);
+    }
     return 0.0;
 }

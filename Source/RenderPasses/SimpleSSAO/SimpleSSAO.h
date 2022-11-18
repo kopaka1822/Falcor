@@ -71,6 +71,7 @@ public:
 
     Texture::SharedPtr genNoiseTexture();
     static Texture::SharedPtr genSpherePositions(int nSamples);
+    static Texture::SharedPtr genDiscPositions(int nSamples);
 private:
     SimpleSSAO(const Dictionary& dict);
 
@@ -82,6 +83,7 @@ private:
     Texture::SharedPtr mpNoiseTexture;
 
     Texture::SharedPtr mpSpherePositions;
+    Texture::SharedPtr mpDiscPositions;
 
     Scene::SharedPtr mpScene;
 

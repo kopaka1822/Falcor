@@ -159,6 +159,7 @@ SimpleSSAO::SimpleSSAO(const Dictionary& dict) : RenderPass(kInfo)
 
     mpNoiseTexture = genNoiseTexture();
     mpSpherePositions = genSpherePositions(mMaxSamples);
+    mpDiscPositions = genDiscPositions(mMaxSamples);
 }
 
 RenderPassReflection SimpleSSAO::reflect(const CompileData& compileData)
@@ -220,6 +221,7 @@ void SimpleSSAO::execute(RenderContext* pRenderContext, const RenderData& render
         mpPass["gTextureSampler"] = mpTextureSampler;
         mpPass["gNoiseTex"] = mpNoiseTexture;
         mpPass["gSpherePositions"] = mpSpherePositions;
+        mpPass["gDiscPositions"] = mpDiscPositions;
         mDirty = false;
     }
 
@@ -303,4 +305,25 @@ Texture::SharedPtr SimpleSSAO::genSpherePositions(int nSamples)
     }
 
     return Texture::create1D(nSamples, ResourceFormat::RGBA8Snorm, 1, 1, data.data());
+}
+
+Texture::SharedPtr SimpleSSAO::genDiscPositions(int nSamples)
+{
+    std::vector<uint16_t> data;
+    data.resize(nSamples);
+    std::srand(26353); // same seed
+    for (uint i = 0; i < data.size(); i++)
+    {
+        // generate random point in sphere
+        glm::float2 pos;
+        do
+        {
+            pos.x = glm::linearRand(-1.0f, 1.0f);
+            pos.y = glm::linearRand(-1.0f, 1.0f);
+        } while (length(pos) > 1.0f || length(pos) < 0.01f);
+
+        data[i] = (uint16_t)glm::packSnorm4x8(float4(pos, 0.0f, 0.0f));
+    }
+
+    return Texture::create1D(nSamples, ResourceFormat::RG8Snorm, 1, 1, data.data());
 }
