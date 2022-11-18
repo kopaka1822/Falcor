@@ -70,6 +70,7 @@ public:
     void setAoAlgorithm(AO_Algorithm a);
 
     Texture::SharedPtr genNoiseTexture();
+    static Texture::SharedPtr genSpherePositions(int nSamples);
 private:
     SimpleSSAO(const Dictionary& dict);
 
@@ -80,6 +81,8 @@ private:
     Sampler::SharedPtr mpTextureSampler;
     Texture::SharedPtr mpNoiseTexture;
 
+    Texture::SharedPtr mpSpherePositions;
+
     Scene::SharedPtr mpScene;
 
     DepthMode mDepthMode = DepthMode::SingleDepth;
@@ -87,6 +90,7 @@ private:
     bool mEnabled = true;
 
     SSAOData mData;
+    int mMaxSamples = 64;
     bool mDirty = true;
 
     int mGuardBand = 64;

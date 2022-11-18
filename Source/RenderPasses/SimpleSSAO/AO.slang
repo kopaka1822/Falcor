@@ -46,6 +46,7 @@ Texture2DMS<float> gsDepthTex;
 Texture2D gNormalTex;
 Texture2D gNoiseTex; // xy = random normalized direciton, zw = normalized random number => SNORM texture format
 
+Texture1D gSpherePositions; // random positions inside the unit sphere
 
 float2 Rotate2D(float2 vec, float theta)
 {
@@ -75,6 +76,15 @@ float2 ViewSpaceToUV(float3 posV)
     const float2 imageScale = 0.5 * float2(gCamera.data.frameWidth / gCamera.data.focalLength, gCamera.data.frameHeight / gCamera.data.focalLength);
     float2 ndc = posV.xy / (imageScale * posV.z);
     return ndc * float2(-0.5, 0.5) + 0.5; // since posV.z is negative, the sign order is inversed
+}
+
+// snap uv to pixel center (and clip to screen)
+float2 getSnappedUV(float2 uv)
+{
+    float width, height;
+    gDepthTex.GetDimensions(width, height);
+    float2 pixelCoord = floor(saturate(uv) * float2(width, height));
+    return float2((pixelCoord.x + 0.5f) / width, (pixelCoord.y + 0.5f) / height);
 }
 
 float GetAORadiusInPixels(float ViewDepth)
@@ -135,42 +145,63 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     float RadiusInPixels = GetAORadiusInPixels(linearDepth);
     
     // early out when radius is too small
-    [branch]
-    if (RadiusInPixels < 1.0)
-        return 1.0;
+    //[branch]
+    //if (RadiusInPixels < 1.0)
+    //    return 1.0;
 
+    // random uniformly distributed numbers
+    float4 Rand = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale);
+    
     if (AO_ALGORITHM == AO_MITTRING)
     {
         int numOccluded = 0;
+        float3 randPlaneNormal = normalize(Rand.xyz * 2.0 - float3(1.0));
+        float epsilon = gData.radius * gData.NdotVBias;
         
         // random point in the sphere
         for (int i = 0; i < gData.numSamples; ++i)
         {
-            float angle = (2.0 * 3.141 / gData.numSamples) * i;
-            //float elevation = acos(2.0 * )
-            // TODO need second random texture as array
-            //float elevation = acos(2.0 * 0.5 - 1.0) - 3.141 / 2.0;
-            float elevation = -0.3;
-
-            float3 rndDir = float3(cos(elevation) * cos(angle), cos(elevation) * sin(angle), sin(elevation));
-
-            // test if this point is occluded
+            float3 rndDir = gSpherePositions[i].xyz;
+            rndDir = reflect(rndDir, randPlaneNormal); // reflect on plane
             float3 samplePosition = ViewPosition + rndDir * gData.radius; // TODO orient in tangent space
-            
-            float2 sampleUV = ViewSpaceToUV(samplePosition);
-            // TODO snap sampleUV to pixel centers
+            float2 sampleUV = getSnappedUV(ViewSpaceToUV(samplePosition));
             float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, sampleUV, 0);
 
-            if (-samplePosition.z < linearSampleDepth) // sample depth is positive, but sample pos is negative (inverse)
-            {
-                // occluded
+            if (-samplePosition.z > linearSampleDepth + epsilon) // sample depth is positive, but sample pos is negative (inverse)
                 ++numOccluded;
-
-            }
 
         }
 
-        return 1.0 - ((float)numOccluded / gData.numSamples);
+        return pow(1.0 - ((float) numOccluded / gData.numSamples), gData.powerExponent);
+    }
+
+    if (AO_ALGORITHM == AO_FILION)
+    {
+        float occlusion = 0.0;
+        float3 randPlaneNormal = normalize(Rand.xyz * 2.0 - float3(1.0));
+        float epsilon = gData.radius * gData.NdotVBias;
+        
+        // random point in the sphere
+        for (int i = 0; i < gData.numSamples; ++i)
+        {
+            float3 rndDir = gSpherePositions[i].xyz;
+            rndDir *= (length(rndDir) * 0.5 + 0.5) / length(rndDir); // renormalize sample vector to length [0.5, 1.0] (currently [0.01, 1.0])
+            rndDir = reflect(rndDir, randPlaneNormal); // reflect on plane
+            if (dot(rndDir, ViewNormal) < 0.0) // flip if below surface normal
+                rndDir = -rndDir;
+            float3 samplePosition = ViewPosition + rndDir * gData.radius; // TODO orient in tangent space
+            float2 sampleUV = getSnappedUV(ViewSpaceToUV(samplePosition));
+            float linearSampleDepth = gDepthTex.SampleLevel(gTextureSampler, sampleUV, 0);
+
+            
+            float dz = -samplePosition.z - linearSampleDepth;
+            if (dz > epsilon) // sample depth is positive, but sample pos is negative (inverse)
+                //occlusion += saturate(Falloff(dz * dz)); // (not the same falloff as in the paper)
+                occlusion += saturate(exp(-(dz - epsilon) / gData.radius * 4.6 * 0.5)); // e^-4.6 = 0.01 ~ 0.0
+                //occlusion += 1.0;
+        }
+
+        return pow(1.0 - occlusion / gData.numSamples, gData.powerExponent);
     }
 
     
@@ -186,7 +217,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         float StepSizePixels = RadiusInPixels / (NUM_STEPS + 1);
 
         // TODO replace with texture lookup
-        float4 Rand = gNoiseTex.Sample(gNoiseSampler, texC * gData.noiseScale);
+        
         //Rand = float4(1, 0, 0.5, 1);
         const float Alpha = 2.0 * 3.141f / NUM_DIRECTIONS;
         //const float AngleOffset = 2.0f * 3.141f * Rand.w;

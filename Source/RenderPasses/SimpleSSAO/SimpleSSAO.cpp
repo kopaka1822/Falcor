@@ -158,6 +158,7 @@ SimpleSSAO::SimpleSSAO(const Dictionary& dict) : RenderPass(kInfo)
     setAoAlgorithm(mAoAlgorithm);
 
     mpNoiseTexture = genNoiseTexture();
+    mpSpherePositions = genSpherePositions(mMaxSamples);
 }
 
 RenderPassReflection SimpleSSAO::reflect(const CompileData& compileData)
@@ -218,6 +219,7 @@ void SimpleSSAO::execute(RenderContext* pRenderContext, const RenderData& render
         mpPass["gNoiseSampler"] = mpNoiseSampler;
         mpPass["gTextureSampler"] = mpTextureSampler;
         mpPass["gNoiseTex"] = mpNoiseTexture;
+        mpPass["gSpherePositions"] = mpSpherePositions;
         mDirty = false;
     }
 
@@ -247,7 +249,7 @@ void SimpleSSAO::renderUI(Gui::Widgets& widget)
         setRadius(radius);
 
     int nSamples = mData.numSamples;
-    if (widget.var("Num Samples", nSamples, 1, 64))
+    if (widget.var("Num Samples", nSamples, 1, mMaxSamples))
         setNumSamples(nSamples);
 
     if (widget.slider("Depth Bias", mData.NdotVBias, 0.0f, 0.5f)) mDirty = true;
@@ -270,7 +272,7 @@ Texture::SharedPtr SimpleSSAO::genNoiseTexture()
     for (uint32_t i = 0; i < data.size(); i++)
     {
         // 4 random floats
-        data[i] = glm::packSnorm4x8(float4(
+        data[i] = glm::packUnorm4x8(float4(
             glm::linearRand(0.0f, 1.0f),
             glm::linearRand(0.0f, 1.0f),
             glm::linearRand(0.0f, 1.0f),
@@ -278,5 +280,27 @@ Texture::SharedPtr SimpleSSAO::genNoiseTexture()
         ));
     }
 
-    return Texture::create2D(4, 4, ResourceFormat::RGBA8Snorm, 1, 1, data.data());
+    return Texture::create2D(4, 4, ResourceFormat::RGBA8Unorm, 1, 1, data.data());
+}
+
+Texture::SharedPtr SimpleSSAO::genSpherePositions(int nSamples)
+{
+    std::vector<uint32_t> data;
+    data.resize(nSamples);
+    std::srand(26353); // same seed
+    for(uint i = 0; i < data.size(); i++)
+    {
+        // generate random point in sphere
+        glm::float3 pos;
+        do
+        {
+            pos.x = glm::linearRand(-1.0f, 1.0f);
+            pos.y = glm::linearRand(-1.0f, 1.0f);
+            pos.z = glm::linearRand(-1.0f, 1.0f);
+        } while (length(pos) > 1.0f || length(pos) < 0.01f);
+
+        data[i] = glm::packSnorm4x8(float4(pos, 0.0f));
+    }
+
+    return Texture::create1D(nSamples, ResourceFormat::RGBA8Snorm, 1, 1, data.data());
 }
