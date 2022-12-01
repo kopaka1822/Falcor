@@ -69,7 +69,7 @@ def render_graph_VAO():
     g.addPass(CrossBilateralBlur, 'CrossBilateralBlur')
     StochasticDepthMap = createPass('StochasticDepthMap', {'SampleCount': 4, 'Alpha': 0.20000000298023224, 'CullMode': CullMode.CullBack, 'linearize': True, 'depthFormat': ResourceFormat.D24UnormS8})
     g.addPass(StochasticDepthMap, 'StochasticDepthMap')
-    VAO = createPass('VAO', {'enabled': True, 'kernelSize': 8, 'noiseSize': uint2(4,4), 'radius': 0.5, 'distribution': SampleDistribution.VanDerCorput, 'depthMode': DepthMode.SingleDepth, 'guardBand': 64, 'thickness': 0.5})
+    VAO = createPass('VAO', {'enabled': True, 'kernelSize': 8, 'noiseSize': uint2(4,4), 'radius': 0.5, 'distribution': SampleDistribution.VanDerCorput, 'depthMode': DepthMode.Raytraced, 'guardBand': 64, 'thickness': 0.5})
     g.addPass(VAO, 'VAO')
     ConvertFormat__ = createPass('ConvertFormat', {'formula': 'float4(I0[xy].x + I0[xy].y + I0[xy].z,0,0,0)', 'format': ResourceFormat.R8Unorm})
     g.addPass(ConvertFormat__, 'ConvertFormat__')

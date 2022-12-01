@@ -97,6 +97,9 @@ namespace
     const std::string ksDepth = "stochasticDepth";
     const std::string kNormals = "normals";
 
+    const std::string kInternalRasterDepth = "iRasterDepth";
+    const std::string kInternalRayDepth = "iRayDepth";
+
     const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
 }
 
@@ -163,7 +166,12 @@ RenderPassReflection VAO::reflect(const CompileData& compileData)
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(getAmbientMapFormat());
-    
+
+    reflector.addInternal(kInternalRasterDepth, "internal raster depth").texture2D(0, 0, 1, 1, mKernelSize)
+        .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R32Float);
+    reflector.addInternal(kInternalRayDepth, "internal raster depth").texture2D(0, 0, 1, 1, mKernelSize)
+        .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R32Float);
+
     return reflector;
 }
 
@@ -194,6 +202,10 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     if (renderData[ksDepth]) psDepth = renderData[ksDepth]->asTexture();
     else if (mDepthMode == DepthMode::StochasticDepth) mDepthMode = DepthMode::SingleDepth;
 
+    auto pInternalRasterDepth = renderData[kInternalRasterDepth]->asTexture();
+    auto pInternalRayDepth = renderData[kInternalRayDepth]->asTexture();
+
+
     auto pCamera = mpScene->getCamera().get();
     //renderData["k"]->asBuffer();
 
@@ -219,6 +231,9 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
             mpSSAOPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
             mDirty = true;
+
+            mpSSAOPass["gRasterDepth"] = pInternalRasterDepth;
+            mpSSAOPass["gRayDepth"] = pInternalRayDepth;
         }
 
         if (mDirty)
@@ -245,11 +260,22 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpSSAOPass["gsDepthTex"] = psDepth;
         mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
         mpSSAOPass["gNormalTex"] = pNormals;
+
+        // clear uav targets
+        pRenderContext->clearTexture(pInternalRasterDepth.get());
+        pRenderContext->clearTexture(pInternalRayDepth->asTexture().get());
         
         // Generate AO
         mpAOFbo->attachColorTarget(pAoDst, 0);
         setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims(), mGuardBand);
         mpSSAOPass->execute(pRenderContext, mpAOFbo, false);
+
+        if(mSaveDepths)
+        {
+            pInternalRasterDepth->captureToFile(0, -1, "raster.dds", Bitmap::FileFormat::DdsFile);
+            pInternalRayDepth->captureToFile(0, -1, "ray.dds", Bitmap::FileFormat::DdsFile);
+            mSaveDepths = false;
+        }
     }
     else // ! enabled
     {
@@ -295,7 +321,7 @@ void VAO::renderUI(Gui::Widgets& widget)
 
     if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
 
-    
+    if (widget.button("Save Depths")) mSaveDepths = true;
 }
 
 void VAO::setSampleRadius(float radius)

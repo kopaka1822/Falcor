@@ -93,6 +93,9 @@ Texture2D<float> gDepthTex;
 Texture2D<float> gDepthTex2;
 Texture2DMS<float> gsDepthTex;
 
+RWTexture2DArray<float> gRasterDepth;
+RWTexture2DArray<float> gRayDepth;
+
 Texture2D gNormalTex;
 Texture2D gNoiseTex;
 
@@ -288,6 +291,11 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     if (FRONT_FACE_NORMALS && dot(posV, normalV) > 0.0)
         normalV = -normalV;
 
+    // obtain current pixels XY coordinate          
+    float width, height;
+    gDepthTex.GetDimensions(width, height);
+    const int2 XY = int2(floor(texC * float2(width, height)));
+
     // move sampling sphere
     if (SAMPLE_MODE == SAMPLE_MODE_SPHERE)
     {
@@ -363,12 +371,15 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         // object space z of the primary depth buffer or the secondary depth buffer if available
         float objectSpaceZ = sphereHeight + CONST_RADIUS + HALO_RADIUS;
-
+        
         // primary depth sample
         objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
         curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
         bool primaryIsOccluded = (objectSpaceZ > sphereStart + CONST_RADIUS);
 
+        gRasterDepth[uint3(XY, i)] = objectSpaceZ / gData.radius;
+        gRayDepth[uint3(XY, i)] = objectSpaceZ / gData.radius;
+        
         if (DEPTH_MODE == DEPTH_MODE_DUAL && primaryIsOccluded)
         {
             // obtain secondary sample if primary sample is occluded
@@ -377,10 +388,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         }
         else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC && primaryIsOccluded)
         {
-            // obtain stochastic samples if primary sample is occluded            
-            float width, height;
-            gDepthTex.GetDimensions(width, height);
-                // TODO try to use sampler
+            // TODO try to use sampler
             int2 pixelCoord = int2(floor(rasterSamplePosUV * float2(width, height)));
 
             const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
@@ -485,9 +493,16 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             }
 
             // calculate visibility inside and outside of sphere
-            float sphereVisibility = calcSphereVisibility(posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
-            float haloVisibility = calcHaloVisibility(posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
+            float sphereZ = posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength;
+            float haloZ   = posVLength - tLastFrontFaceHalo    * posVLength / initialSamplePosLength;
+            float sphereVisibility = calcSphereVisibility(sphereZ, sphereStart, sphereEnd);
+            float haloVisibility = calcHaloVisibility(haloZ, sphereStart, sphereEnd);
 
+            if(min(sphereVisibility, haloVisibility) < curVisibility)
+            {
+                gRayDepth[uint3(XY, i)] = (sphereVisibility <= haloVisibility ? sphereZ : haloZ) / gData.radius;
+            }
+            
             curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
         }
 
