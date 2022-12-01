@@ -14,7 +14,7 @@ int main(int argc, char* argv[])
     }
 
     gli::texture2d_array texRaster(gli::load(argv[1]));
-    gli::texture2d_array texRay(gli::load(argv[1]));
+    gli::texture2d_array texRay(gli::load(argv[2]));
 
     assert(texRaster.format() == gli::FORMAT_R32_SFLOAT_PACK32);
     assert(texRaster.layers() == 8);
@@ -42,6 +42,8 @@ int main(int argc, char* argv[])
     auto fetch = gli::detail::convert<gli::texture2d_array, float, gli::defaultp>::call(texRaster.format()).Fetch;
     int nTrivial = 0;
     int nEmpty = 0;
+    int nSame = 0;
+    int nDifferent = 0;
 
     for(int y = 0; y < height; ++y) for(int x = 0; x < width; ++x)
     {
@@ -71,21 +73,28 @@ int main(int argc, char* argv[])
         raySamples.insert(raySamples.end(), ray.begin(), ray.end());
 
         // determine if ray is equal to raster
-        auto same = std::equal(raster.begin(), raster.end(), ray.begin());
+        //auto same = std::equal(raster.begin(), raster.end(), ray.begin());
+        // set same to true if all values are almost equal (within 0.01f)
+        auto same = std::equal(raster.begin(), raster.end(), ray.begin(), [](float f1, float f2) { return std::abs(f1 - f2) < 0.01f; });
         sameAsRay.push_back(same ? 1 : 0);
+        nSame += same ? 1 : 0;
+        nDifferent += same ? 0 : 1;
     }
 
     // print out number of all samples, empty samples and skipped samples
     std::cout << "Total samples: " << width * height << std::endl;
     std::cout << "Empty samples: " << nEmpty << std::endl;
     std::cout << "Trivial samples: " << nTrivial << std::endl;
+    std::cout << "Ray==Raster samples: " << nSame << std::endl;
+    std::cout << "Ray!=Raster samples: " << nDifferent << std::endl;
     std::cout << "Remaining samples: " << sameAsRay.size() << std::endl;
 
     // write to numpy files
-    const unsigned long shape[] = { (unsigned long)nSamples, (unsigned long)sameAsRay.size() };
+    const unsigned long shape[] = {  (unsigned long)sameAsRay.size(), (unsigned long)nSamples }; // shape = rows, columns
     npy::SaveArrayAsNumpy("raster.npy", false, 2, shape, rasterSamples);
     npy::SaveArrayAsNumpy("ray.npy", false, 2, shape, raySamples);
-    npy::SaveArrayAsNumpy("same.npy", false, 2, shape, sameAsRay);
+
+    npy::SaveArrayAsNumpy("same.npy", false, 1, shape, sameAsRay);
 
     return 0;
 }
