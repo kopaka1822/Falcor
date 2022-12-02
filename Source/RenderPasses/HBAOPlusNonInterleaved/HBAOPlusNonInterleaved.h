@@ -78,4 +78,7 @@ private:
 
     int mGuardBand = 64;
     bool mClearTexture = true;
+
+    int mNumDirections = 8;
+    int mNumSteps = 4;
 };

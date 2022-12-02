@@ -182,6 +182,9 @@ void HBAOPlusNonInterleaved::execute(RenderContext* pRenderContext, const Render
         mData.noiseScale = mData.resolution / 4.0f; // noise texture is 4x4 resolution
         mpPass["StaticCB"].setBlob(mData);
 
+        mpPass->getProgram()->addDefine("NUM_DIRECTIONS", std::to_string(mNumDirections));
+        mpPass->getProgram()->addDefine("NUM_STEPS", std::to_string(mNumSteps));
+
         mpPass["gNoiseSampler"] = mpNoiseSampler;
         mpPass["gTextureSampler"] = mpTextureSampler;
         mpPass["gNoiseTex"] = mpNoiseTexture;
@@ -212,6 +215,9 @@ void HBAOPlusNonInterleaved::renderUI(Gui::Widgets& widget)
     float radius = mData.radius;
     if (widget.var("Radius", radius, 0.01f, FLT_MAX, 0.01f))
         setRadius(radius);
+
+    if (widget.var("Num Directions", mNumDirections, 1, 32)) mDirty = true;
+    if (widget.var("Num Steps", mNumSteps, 1, 32)) mDirty = true;
 
     if (widget.slider("Depth Bias", mData.NdotVBias, 0.0f, 0.5f)) mDirty = true;
     if (widget.slider("Power Exponent", mData.powerExponent, 1.0f, 4.0f)) mDirty = true;

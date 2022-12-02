@@ -1,8 +1,12 @@
 import Scene.Camera.Camera;
 import HBAOData;
 
+#ifndef NUM_STEPS
 #define NUM_STEPS 4
+#endif
+#ifndef NUM_DIRECTIONS
 #define NUM_DIRECTIONS 8
+#endif
 
 // single depth texture
 #define DEPTH_MODE_SINGLE 0
@@ -151,6 +155,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         // Jitter starting sample within the first step
         float RayPixels = (Rand.z * StepSizePixels + 1.0);
+        //float RayPixels = (0.5 * StepSizePixels + 1.0);
 
         // sample NUM_STEPS steps for each direction
         for (int step = 0; step < NUM_STEPS; ++step)
