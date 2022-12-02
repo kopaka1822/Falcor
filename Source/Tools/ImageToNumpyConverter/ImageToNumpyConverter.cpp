@@ -17,7 +17,7 @@ int main(int argc, char* argv[])
     gli::texture2d_array texRay(gli::load(argv[2]));
 
     assert(texRaster.format() == gli::FORMAT_R32_SFLOAT_PACK32);
-    assert(texRaster.layers() == 8);
+    //assert(texRaster.layers() == 8);
     assert(texRaster.layers() == texRay.layers());
     assert(texRaster.extent() == texRay.extent());
 
@@ -29,6 +29,7 @@ int main(int argc, char* argv[])
     std::vector<float> rasterSamples;
     std::vector<float> raySamples;
     std::vector<int> sameAsRay; // 1 if raster is same as ray, 0 otherwise
+    //std::vector<int> numInvalid; // number of invalid samples
     rasterSamples.reserve(width * height * nSamples);
     raySamples.reserve(width * height * nSamples);
     sameAsRay.reserve(width * height);
