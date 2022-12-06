@@ -103,9 +103,8 @@ void rayGen()
         normalV = -normalV;
 
     // Calculate tangent space (use random direction for tangent orientation)
-    float2 randDir = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0).xy;
-    randDir = normalize(randDir); // should be normalized by default, but precision is lost in texture format
-    //randDir = float2(1.0f, 0.0f);
+    float randRotation = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0) * 2.0 * 3.141;
+    float2 randDir = float2(sin(randRotation), cos(randRotation));
     
     // determine tangent space
     float3 normal = -posV / posVLength;

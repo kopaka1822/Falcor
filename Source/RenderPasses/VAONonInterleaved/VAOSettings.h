@@ -34,7 +34,7 @@ public:
     int getGuardBand() const { return mGuardBand; }
 
     static Texture::SharedPtr genNoiseTexture();
-    static std::vector<float2> genNoiseTextureCPU();
+    //static std::vector<float2> genNoiseTextureCPU();
 private: 
     VAOSettings() = default;
 

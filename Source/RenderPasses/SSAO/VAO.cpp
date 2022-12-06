@@ -101,6 +101,8 @@ namespace
     const std::string kInternalRayDepth = "iRayDepth";
 
     const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
+
+    static const int NOISE_SIZE = 4; // in each dimension: 4x4
 }
 
 VAO::VAO()
@@ -133,7 +135,6 @@ VAO::SharedPtr VAO::create(RenderContext* pRenderContext, const Dictionary& dict
     {
         if (key == kEnabled) pSSAO->mEnabled = value;
         else if (key == kKernelSize) pSSAO->mKernelSize = value;
-        else if (key == kNoiseSize) pSSAO->mNoiseSize = value;
         else if (key == kDistribution) pSSAO->mHemisphereDistribution = value;
         else if (key == kRadius) pSSAO->mData.radius = value;
         else if (key == kDepthMode) pSSAO->mDepthMode = value;
@@ -149,7 +150,6 @@ Dictionary VAO::getScriptingDictionary()
     Dictionary dict;
     dict[kEnabled] = mEnabled;
     dict[kKernelSize] = mKernelSize;
-    dict[kNoiseSize] = mNoiseSize;
     dict[kRadius] = mData.radius;
     dict[kDistribution] = mHemisphereDistribution;
     dict[kDepthMode] = mDepthMode;
@@ -239,7 +239,7 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         if (mDirty)
         {
             // bind static resources
-            mData.noiseScale = float2(pDepth->getWidth(), pDepth->getHeight()) / float2(mNoiseSize.x, mNoiseSize.y);
+            mData.noiseScale = float2(pDepth->getWidth(), pDepth->getHeight()) / float2(NOISE_SIZE, NOISE_SIZE);
             mpSSAOPass["StaticCB"].setBlob(mData);
             mDirty = false;
         }
@@ -437,18 +437,19 @@ void VAO::setKernel()
 
 void VAO::setNoiseTexture()
 {
-    std::vector<uint16_t> data;
-    data.resize(mNoiseSize.x * mNoiseSize.y);
+    mDirty = true;
+
+    std::vector<uint8_t> data;
+    data.resize(NOISE_SIZE * NOISE_SIZE);
+
+    // https://en.wikipedia.org/wiki/Ordered_dithering
+    const float ditherValues[] = {0.0f, 8.0f, 2.0f, 10.0f, 12.0f, 4.0f, 14.0f, 6.0f, 3.0f, 11.0f, 1.0f, 9.0f, 15.0f, 7.0f, 13.0f, 5.0f};
 
     std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
-    for (uint32_t i = 0; i < mNoiseSize.x * mNoiseSize.y; i++)
+    for (uint32_t i = 0; i < data.size(); i++)
     {
-        // Random directions on the XY plane
-        auto theta = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
-        data[i] = uint16_t(glm::packSnorm4x8(float4(sin(theta), cos(theta), 0.0f, 0.0f)));
+        data[i] = uint8_t(ditherValues[i] / 16.0f * 255.0f);
     }
 
-    mpNoiseTexture = Texture::create2D(mNoiseSize.x, mNoiseSize.y, ResourceFormat::RG8Snorm, 1, Texture::kMaxPossible, data.data());
-
-    mDirty = true;
+    mpNoiseTexture = Texture::create2D(NOISE_SIZE, NOISE_SIZE, ResourceFormat::R8Unorm, 1, 1, data.data());
 }

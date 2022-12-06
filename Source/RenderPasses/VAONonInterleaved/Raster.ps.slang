@@ -33,8 +33,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         normalV = -normalV;
 
     // Calculate tangent space (use random direction for tangent orientation)
-    float2 randDir = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0).xy;
-    randDir = normalize(randDir); // should be normalized by default, but precision is lost in texture format
+    float randRotation = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0) * 2.0 * 3.141;
+    float2 randDir = float2(sin(randRotation), cos(randRotation));
     //randDir = float2(1.0f, 0.0f);
     
     // determine tangent space

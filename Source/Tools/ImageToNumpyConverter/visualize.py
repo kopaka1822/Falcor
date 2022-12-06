@@ -110,9 +110,9 @@ np.random.shuffle(notSameIndices)
 np.random.shuffle(sameIndices)
 
 ##plot_sample(firstNotSameIndex)
-#for idx in notSameIndices:
+for idx in notSameIndices:
 #for idx in sameIndices:
-	#plot_sample(idx)
+	plot_sample(idx)
 
 # random forest cross val scores: 0.75295726 0.51554261 0.60914481 0.74363825 0.84142549
 #from sklearn.ensemble import RandomForestClassifier
