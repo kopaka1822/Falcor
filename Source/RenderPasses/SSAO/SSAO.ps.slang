@@ -89,15 +89,21 @@ cbuffer PerFrameCB
 SamplerState gNoiseSampler;
 SamplerState gTextureSampler;
 
+// inputs
 Texture2D<float> gDepthTex;
 Texture2D<float> gDepthTex2;
 Texture2DMS<float> gsDepthTex;
-
-RWTexture2DArray<float> gRasterDepth;
-RWTexture2DArray<float> gRayDepth;
+Texture2D<uint> gInstanceID;
 
 Texture2D gNormalTex;
 Texture2D<float> gNoiseTex;
+
+// outputs for ML
+RWTexture2DArray<float> gRasterDepth;
+RWTexture2DArray<float> gRayDepth;
+RWTexture2DArray<uint> gInstanceIDOut;
+
+
 
 static int gRaysTraced = 0;
 static int gInvalid = 0;
@@ -231,6 +237,13 @@ float2 ViewSpaceToUV(float3 posV)
     return ndc * float2(-0.5, 0.5) + 0.5; // since posV.z is negative, the sign order is inversed
 }
 
+int2 UVToPixel(float2 uv)
+{
+    float width, height;
+    gDepthTex.GetDimensions(width, height);
+    return int2(floor(uv * float2(width, height)));
+}
+
 float makeNonZero(float value, float epsilon)
 {
     float absValue = max(abs(value), epsilon);
@@ -281,7 +294,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0);
     if (linearDepth >= gCamera.data.farZ * 0.99)
         return 1.0f;
-
+    
     // view space position of current pixel
     float3 posV = UVToViewSpace(texC, linearDepth);
 
@@ -294,8 +307,9 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     // obtain current pixels XY coordinate          
     float width, height;
     gDepthTex.GetDimensions(width, height);
-    const int2 XY = int2(floor(texC * float2(width, height)));
-
+    const int2 XY = UVToPixel(texC);
+    uint curInstanceID = gInstanceID[XY];
+    
     // move sampling sphere
     if (SAMPLE_MODE == SAMPLE_MODE_SPHERE)
     {
@@ -355,6 +369,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         if (sphereStart - sphereEnd < 0.01)
         {
             gInvalid += 1;
+            gInstanceIDOut[uint3(XY, i)] = curInstanceID;
             continue;
         }
 
@@ -380,6 +395,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         gRasterDepth[uint3(XY, i)] = objectSpaceZ / gData.radius;
         gRayDepth[uint3(XY, i)] = objectSpaceZ / gData.radius;
+        gInstanceIDOut[uint3(XY, i)] = gInstanceID[UVToPixel(rasterSamplePosUV)];
         
         if (DEPTH_MODE == DEPTH_MODE_DUAL && primaryIsOccluded)
         {

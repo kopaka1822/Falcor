@@ -152,7 +152,7 @@ GBufferPSOut psMain(VSOut vsOut, uint triangleIndex : SV_PrimitiveID, float3 bar
 
     if (is_valid(gInstanceID))
     {
-        gInstanceID[ipos] = vsOut.instanceID.index;
+        gInstanceID[ipos] = (vsOut.instanceID.index % 255) + 1; // make sure index 0 is reserved for background
     }
 
     return psOut;
