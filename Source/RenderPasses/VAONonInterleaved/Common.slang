@@ -45,7 +45,7 @@ Texture2D<float> gDepthTex;
 Texture2D<float> gDepthTex2;
 
 Texture2D gNormalTex;
-Texture2D gNoiseTex;
+Texture2D<float> gNoiseTex;
 
 float2 getScreenClampedUV(float2 uvstart, float2 uvend)
 {

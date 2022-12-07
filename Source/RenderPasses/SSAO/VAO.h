@@ -82,7 +82,6 @@ private:
 
     Sampler::SharedPtr mpNoiseSampler;
     Texture::SharedPtr mpNoiseTexture;
-    uint2 mNoiseSize = uint2(4);
 
     Sampler::SharedPtr mpTextureSampler;
     SampleDistribution mHemisphereDistribution = SampleDistribution::VanDerCorput;

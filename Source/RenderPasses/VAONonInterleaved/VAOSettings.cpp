@@ -97,31 +97,18 @@ void VAOSettings::renderUI(Gui::Widgets& widget)
 
 Texture::SharedPtr VAOSettings::genNoiseTexture()
 {
-    std::vector<uint16_t> data;
-    data.resize(16u);
+    static const int NOISE_SIZE = 4;
+    std::vector<uint8_t> data;
+    data.resize(NOISE_SIZE * NOISE_SIZE);
+
+    // https://en.wikipedia.org/wiki/Ordered_dithering
+    const float ditherValues[] = { 0.0f, 8.0f, 2.0f, 10.0f, 12.0f, 4.0f, 14.0f, 6.0f, 3.0f, 11.0f, 1.0f, 9.0f, 15.0f, 7.0f, 13.0f, 5.0f };
 
     std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
-    for (uint32_t i = 0; i < 16u; i++)
+    for (uint32_t i = 0; i < data.size(); i++)
     {
-        // Random directions on the XY plane
-        auto theta = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
-        data[i] = uint16_t(glm::packSnorm4x8(float4(sin(theta), cos(theta), 0.0f, 0.0f)));
+        data[i] = uint8_t(ditherValues[i] / 16.0f * 255.0f);
     }
 
-    return Texture::create2D(4u, 4u, ResourceFormat::RG8Snorm, 1, 1, data.data());
-}
-
-std::vector<float2> VAOSettings::genNoiseTextureCPU()
-{
-    std::vector<float2> data;
-    data.resize(16u);
-
-    std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
-    for (uint32_t i = 0; i < 16u; i++)
-    {
-        // Random directions on the XY plane
-        auto theta = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
-        data[i] = float2(sin(theta), cos(theta));
-    }
-    return data;
+    return Texture::create2D(NOISE_SIZE, NOISE_SIZE, ResourceFormat::R8Unorm, 1, 1, data.data());
 }

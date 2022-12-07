@@ -97,7 +97,7 @@ RWTexture2DArray<float> gRasterDepth;
 RWTexture2DArray<float> gRayDepth;
 
 Texture2D gNormalTex;
-Texture2D gNoiseTex;
+Texture2D<float> gNoiseTex;
 
 static int gRaysTraced = 0;
 static int gInvalid = 0;
@@ -304,7 +304,8 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     const float posVLength = length(posV);
 
     // Calculate tangent space (use random direction for tangent orientation)
-    float2 randDir = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0).xy;
+    float randRotation = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0) * 2.0 * 3.141;
+    float2 randDir = float2(sin(randRotation), cos(randRotation));
     randDir = normalize(randDir); // should be normalized by default, but precision is lost in texture format
     //randDir = float2(1.0f, 0.0f);
     
