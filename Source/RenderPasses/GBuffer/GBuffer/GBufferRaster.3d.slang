@@ -58,6 +58,7 @@ RasterizerOrderedTexture2D<float4> gEmissive;
 RasterizerOrderedTexture2D<float4> gViewW;
 RasterizerOrderedTexture2D<float2> gPosNormalFwidth;
 RasterizerOrderedTexture2D<float2> gLinearZAndDeriv;
+RasterizerOrderedTexture2D<uint> gInstanceID;
 
 #define is_valid(name) (is_valid_##name != 0)
 
@@ -147,6 +148,11 @@ GBufferPSOut psMain(VSOut vsOut, uint triangleIndex : SV_PrimitiveID, float3 bar
         triangleHit.primitiveIndex = triangleIndex;
         triangleHit.barycentrics = barycentrics.yz;
         gVBuffer[ipos] = triangleHit.pack();
+    }
+
+    if (is_valid(gInstanceID))
+    {
+        gInstanceID[ipos] = vsOut.instanceID.index;
     }
 
     return psOut;
