@@ -33,12 +33,14 @@ int main(int argc, char* argv[])
     std::vector<int> sameAsRay; // 1 if raster is same as ray, 0 otherwise
     std::vector<int> sameInstance; // 1 if raster sample instance is same as pixel center
     std::vector<int> rasterInstanceDiffs; // 0 if both neighbors are same instance, 1 if only one is same instance, 2 if both are different instances
+    std::vector<int> pixelXY; // x,y coordinates of pixel
     //std::vector<int> numInvalid; // number of invalid samples
     rasterSamples.reserve(width * height * nSamples);
     raySamples.reserve(width * height * nSamples);
     sameAsRay.reserve(width * height);
     sameInstance.reserve(width * height * nSamples);
     rasterInstanceDiffs.reserve(width * height * nSamples);
+    pixelXY.reserve(width * height * 2);
 
     std::vector<float> raster;
     raster.resize(nSamples);
@@ -84,6 +86,8 @@ int main(int argc, char* argv[])
         // write to raster data and ray data
         rasterSamples.insert(rasterSamples.end(), raster.begin(), raster.end());
         raySamples.insert(raySamples.end(), ray.begin(), ray.end());
+        pixelXY.push_back(x);
+        pixelXY.push_back(y);
 
         for (size_t i = 0; i < nSamples; ++i)
         {
@@ -118,7 +122,7 @@ int main(int argc, char* argv[])
     std::cout << "Remaining samples: " << sameAsRay.size() << std::endl;
 
     // write to numpy files
-    const unsigned long shape[] = {  (unsigned long)sameAsRay.size(), (unsigned long)nSamples }; // shape = rows, columns
+    unsigned long shape[] = {  (unsigned long)sameAsRay.size(), (unsigned long)nSamples }; // shape = rows, columns
     npy::SaveArrayAsNumpy("raster.npy", false, 2, shape, rasterSamples);
     npy::SaveArrayAsNumpy("ray.npy", false, 2, shape, raySamples);
 
@@ -126,6 +130,10 @@ int main(int argc, char* argv[])
     npy::SaveArrayAsNumpy("rasterInstanceDiffs.npy", false, 2, shape, rasterInstanceDiffs);
 
     npy::SaveArrayAsNumpy("same.npy", false, 1, shape, sameAsRay);
+
+    // adjust shape for pixelXY
+    unsigned long shapeXY[] = {(unsigned long)sameAsRay.size(), 2ul};
+    npy::SaveArrayAsNumpy("pixelXY.npy", false, 2, shapeXY, pixelXY);
 
     return 0;
 }
