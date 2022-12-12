@@ -3,16 +3,21 @@ import os
 import matplotlib.pyplot as plt
 from sklearn.model_selection import cross_val_score
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix
 
 # set current directory as working directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
+# TODO load from file?
+#IMAGE_SIZE = (2048, 1061)
+IMAGE_SIZE = (1061, 2048) # height x width
 # load raster.npy, ray.npy and same.npy as numpy arrays
 raster = np.load('raster.npy')
 ray = np.load('ray.npy')
 same = np.load('same.npy')
 sameInstance = np.load('sameInstance.npy')
 rasterInstanceDiffs = np.load('rasterInstanceDiffs.npy')
+pixelXY = np.load('pixelXY.npy')
 
 # print number of 0's in same.npy
 numberValidSamples = np.count_nonzero(same) # (raster == ray)
@@ -21,11 +26,16 @@ print("ray==raster for ", numberValidSamples, " samples")
 print("ray!=raster for ", numberInvalidSamples, " samples")
 print("score for random guessing: ", max(numberInvalidSamples, numberValidSamples) / len(same))
 
+NUM_SAMPLES = raster.shape[1]
+
 # transform into single samples
 raster = raster.reshape(-1, 1)
 ray = ray.reshape(-1, 1)
 sameInstance = sameInstance.reshape(-1, 1)
 rasterInstanceDiffs = rasterInstanceDiffs.reshape(-1, 1)
+pixelXY = pixelXY.reshape(-1, 2)
+# repeat each entry 8 times
+pixelXY = np.repeat(pixelXY, NUM_SAMPLES, axis=0)
 
 print("number of instance diff occurences [0, 1, 2]: ", np.count_nonzero(rasterInstanceDiffs == 0), np.count_nonzero(rasterInstanceDiffs == 1), np.count_nonzero(rasterInstanceDiffs == 2))
 
@@ -36,6 +46,7 @@ print("number of instance diff occurences [0, 1, 2]: ", np.count_nonzero(rasterI
 ray = ray[raster > 1.0]
 sameInstance = sameInstance[raster > 1.0]
 rasterInstanceDiffs = rasterInstanceDiffs[raster > 1.0]
+pixelXY = [pixelXY[i] for i in range(len(raster)) if raster[i] > 1.0]
 raster = raster[raster > 1.0]
 
 #same = np.logical_or((np.abs(raster - ray) < 0.05), (ray > 2.0))
@@ -98,11 +109,11 @@ def printSameInstanceStats():
 	# plot for same instance
 	decision = logRasterAndSameInstance.predict_proba(np.hstack((xx.reshape(-1, 1), np.ones((len(xx), 1)))))
 	decision = decision[:, 1] # only use second colum (same prediction)
-	plt.plot(xx, decision * 100, 'g-', lw=2)
+	#plt.plot(xx, decision * 100, 'g-', lw=2)
 	# plot for different instance
 	decision = logRasterAndSameInstance.predict_proba(np.hstack((xx.reshape(-1, 1), np.zeros((len(xx), 1)))))
 	decision = decision[:, 1] # only use second colum (same prediction)
-	plt.plot(xx, decision * 100, 'y-', lw=2)
+	#plt.plot(xx, decision * 100, 'y-', lw=2)
 
 	# print accuracy of logistic regression
 	print("logistic regression accuracy (raster+instance): ", logRasterAndSameInstance.score(np.hstack((raster.reshape(-1, 1), sameInstance.reshape(-1, 1))), same))
@@ -111,6 +122,26 @@ def printSameInstanceStats():
 	plt.show()
 
 	print("number of instance diff occurences [0, 1, 2]: ", np.count_nonzero(rasterInstanceDiffs == 0), np.count_nonzero(rasterInstanceDiffs == 1), np.count_nonzero(rasterInstanceDiffs == 2))
+
+	# write errors of logRaster to file:
+	# create numpy 2d array of size 2048 x 1061
+	pixelsFalse = np.zeros(IMAGE_SIZE, dtype=np.uint8)
+	pixelsCorrect = np.zeros(IMAGE_SIZE, dtype=np.uint8)
+	logPredicted = logRaster.predict(raster.reshape(-1, 1))
+	for i in range(len(same)):
+		if logPredicted[i] != same[i]:
+			pixelsFalse[pixelXY[i][1], pixelXY[i][0]] += 1
+		else:
+			pixelsCorrect[pixelXY[i][1], pixelXY[i][0]] += 1
+
+	print("accuracy of raster_errors", np.count_nonzero(logPredicted == same) / len(same))
+
+	np.save("raster_errors.npy", pixelsFalse)
+	np.save("raster_correct.npy", pixelsCorrect)
+
+	# output confusion matrix
+	print("confusion matrix (raster): ", confusion_matrix(same, logPredicted)) # first row is true negative, second row is true positive, colums are predicted
+
 
 printSameInstanceStats()
 
@@ -128,6 +159,8 @@ np.random.seed(seed)
 np.random.shuffle(sameInstance)
 np.random.seed(seed)
 np.random.shuffle(rasterInstanceDiffs)
+np.random.seed(seed)
+np.random.shuffle(pixelXY)
 
 # plot raster as x-axis, sameInstance as y-axis and same as color
 numElements = 10000
