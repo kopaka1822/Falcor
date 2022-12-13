@@ -54,20 +54,9 @@ import Scene.Raster;
 #error please define DEPTH_MODE
 #endif
 
-//#define TANGENT_SPACE_VIEW_SPACE 0
-//#define TANGENT_SPACE_CAMERA_ORIENTED 1
-
-// removed and defaulted to tangent space
-// this samples the hemisphere with the sphere center at the sampling position
-#define SAMPLE_MODE_HEMISPHERE 0
-// this samples a complete sphere, where the center is offsettet by normal*radius (VAO++)
-#define SAMPLE_MODE_SPHERE 1
-#define SAMPLE_MODE SAMPLE_MODE_HEMISPHERE
-
 #define COMPENSATE_STOCHASTIC_SAMPLES true
 
 #define PREVENT_DARK_HALOS 1
-#define FRONT_FACE_NORMALS true
 // full radius of the halo
 //#define HALO_RADIUS (gData.radius * 3.0)
 #define HALO_RADIUS (sphereStart - sphereEnd)
@@ -115,40 +104,6 @@ RWTexture2DArray<uint> gInstanceIDOut;
 static int gRaysTraced = 0;
 static int gInvalid = 0;
 
-
-// clamps uvend to screen space [0, 1]
-// uvstart: uv coordinate that is in screen space
-// uvend: target uv coordinate that might be outside of the screen space
-// return: linear combination t*uvstart + (1-t)*uvend, that is as close to uvend as possible and is in the range of [0, 1]
-float2 getScreenClampedUV(float2 uvstart, float2 uvend)
-{
-    return saturate(uvend); // this actually does not make much of a difference but costs a little bit more...
-    /*float2 satuv = saturate(uvend);
-    if (all(satuv == uvend))
-        return uvend;
-
-    // clip x
-    float dist = abs(uvend.x - uvstart.x);
-    if(dist > 0.0)
-    {
-        float t = abs(uvend.x - satuv.x) / dist;
-        uvend.x = satuv.x;
-        uvend.y = t * uvstart.y + (1.0 - t) * uvend.y;
-    }
-
-    // clip y
-    satuv = saturate(uvend);
-    dist = abs(uvend.y - uvstart.y);
-    if(dist > 0.0)
-    {
-        float t = abs(uvend.y - satuv.y) / dist;
-        uvend.y = satuv.y;
-        uvend.x = t * uvstart.x + (1.0 - t) * uvend.x;
-    }
-    
-    return uvend;*/
-}
-
 float2 getSnappedUV(float2 uv)
 {
     float width, height;
@@ -164,65 +119,6 @@ bool isSamePixel(float2 uv1, float2 uv2)
     float2 pixelSize = float2(rcp(width), rcp(height));
     return all(abs(uv1 - uv2) < pixelSize);
 
-}
-
-float4 getPosition(float2 uv)
-{
-    float4 pos;
-    pos.x = uv.x * 2.0f - 1.0f;
-    pos.y = (1.0f - uv.y) * 2.0f - 1.0f;
-    pos.z = gDepthTex.SampleLevel(gTextureSampler, uv, 0).r;
-    pos.w = 1.0f;
-
-    float4 posW = mul(pos, gCamera.data.invViewProj);
-    posW /= posW.w;
-
-    return posW;
-}
-
-// "Explodes" an integer, i.e. inserts a 0 between each bit. 
-//      For example, 0b11111111 -> 0b1010101010101010
-uint IntegerExplode(uint x)
-{
-    x = (x | (x << 8)) & 0x00FF00FF;
-    x = (x | (x << 4)) & 0x0F0F0F0F;
-    x = (x | (x << 2)) & 0x33333333;
-    x = (x | (x << 1)) & 0x55555555;
-    return x;
-}
-
-// helper math for zcurve
-uint ZCurveToLinearIndex(uint2 xy)
-{
-    return IntegerExplode(xy[0]) | (IntegerExplode(xy[1]) << 1);
-}
-
-uint JenkinsHash(uint a)
-{
-    // http://burtleburtle.net/bob/hash/integer.html
-    a = (a + 0x7ed55d16) + (a << 12);
-    a = (a ^ 0xc761c23c) ^ (a >> 19);
-    a = (a + 0x165667b1) + (a << 5);
-    a = (a + 0xd3a2646c) ^ (a << 9);
-    a = (a + 0xfd7046c5) + (a << 3);
-    a = (a ^ 0xb55a4f09) ^ (a >> 16);
-    return a;
-}
-
-float2 Rotate2D(float2 vec, float theta)
-{
-    float cosTheta = cos(theta);
-    float sinTheta = sin(theta);
-
-    return float2(
-        vec.x * cosTheta - vec.y * sinTheta,
-        vec.x * sinTheta + vec.y * cosTheta
-    );
-}
-
-float2 Rotate90(float2 vec) // CCW
-{
-    return float2(-vec.y, vec.x);
 }
 
 // uv: uv coordinates [0, 1]
@@ -290,13 +186,7 @@ float calcObjectSpaceZ(float3 posV, float3 normal, float2 uv, Texture2D<float> d
     return objectSpaceZ;
 }
 
-
-#ifdef COLOR_MAP
-float4
-#else
-float
-#endif
-main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0);
     if (linearDepth >= gCamera.data.farZ * 0.99)
@@ -308,7 +198,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     // view space normal of current pixel
     float3 normalW = gNormalTex.SampleLevel(gTextureSampler, texC, 0).xyz;
     float3 normalV = mul(normalW, float3x3(gCamera.data.viewMat));
-    if (FRONT_FACE_NORMALS && dot(posV, normalV) > 0.0)
+    if (dot(posV, normalV) > 0.0) // front face normals
         normalV = -normalV;
 
     // obtain current pixels XY coordinate          
@@ -317,11 +207,6 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     const int2 XY = UVToPixel(texC);
     uint curInstanceID = gInstanceID[XY];
     
-    // move sampling sphere
-    if (SAMPLE_MODE == SAMPLE_MODE_SPHERE)
-    {
-        posV += normalize(normalV) * gData.radius;
-    }
     const float posVLength = length(posV);
 
     // Calculate tangent space (use random direction for tangent orientation)
@@ -365,20 +250,10 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             // determine distance within [-sphereHeight, +sphereHeight]
             float sphereStart = sphereHeight; // in object coordinates (bigger is closer to the camera)
             float sphereEnd = -sphereHeight; // in object coordinates (smaller is futher from the camera)
-            //float haloStart = sphereStart;
-            //if (PREVENT_DARK_HALOS)
-            //    haloStart = sphereStart + HALO_RADIUS;
 
-            if (SAMPLE_MODE == SAMPLE_MODE_HEMISPHERE) // determine correct sphereStart and sphereEnd for hemisphere
-            {
-            //float zIntersect = -dot(rand.xy, normalO.xy) / normalO.z;
-                float zIntersect = -dot(rand.xy, normalO.xy) / makeNonZero(normalO.z, 0.0001);
-                float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
-                if (normalO.z >= 0.0)
-                    sphereEnd = zIntersectClamped;
-                else
-                    sphereStart = zIntersectClamped;
-            }
+            float zIntersect = -dot(rand.xy, normalO.xy) / makeNonZero(normalO.z, 0.0001);
+            float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
+            sphereEnd = zIntersectClamped;
 
             // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
             if (sphereStart - sphereEnd < 0.01)
@@ -394,7 +269,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float curVisibility = 1.0f;
 
             // clip sample position uv and snap to pixel center
-            float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
+            float2 screenUv = saturate(samplePosUV); // clip to screen border
             const bool isInScreen = all(samplePosUV == screenUv);
 
             float2 rasterSamplePosUV = screenUv;
@@ -545,31 +420,9 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
     float AO = visibility / float(NUM_DIRECTIONS * NUM_STEPS);
 
-    // values should range from 0 for occluded, to 1 for visible
-    if (SAMPLE_MODE == SAMPLE_MODE_SPHERE) 
-        AO = saturate(AO);
-
-    // since fully visibile are all values in [0.5, 1.0], scale accordingly
-    if (SAMPLE_MODE == SAMPLE_MODE_HEMISPHERE)
-        AO = saturate(AO * 2.0);
+    AO = saturate(AO * 2.0);
 
     // do artistic modifications
     AO = pow(AO, gData.exponent);
-    //AO = 1.0;
-    #ifndef COLOR_MAP
     return AO;
-    #else
-
-    float4 res = AO;
-    float red = gRaysTraced / float(KERNEL_SIZE);
-    float blue = gInvalid / float(KERNEL_SIZE);
-    //float red = gRaysTraced;
-    float green = 1.0 - red - blue;
-
-    //return float4(red, green, blue, 1.0);
-    res.r *= red;
-    res.g *= green;
-    res.b *= blue;
-    return res;
-#endif
 }
