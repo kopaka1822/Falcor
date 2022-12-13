@@ -25,54 +25,35 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#include "VAO.h"
+#include "RTHBAO.h"
 
-#include "scissors.h"
-#include "glm/gtc/random.hpp"
+#include <glm/gtc/random.hpp>
+
+#include "../SSAO/scissors.h"
+
+const RenderPass::Info RTHBAO::kInfo { "RTHBAO", "Screen-space ambient occlusion based on HBAO+ with ray tracing" };
 
 // Don't remove this. it's required for hot-reload to function properly
-extern "C" __declspec(dllexport) const char* getProjDir()
+extern "C" FALCOR_API_EXPORT const char* getProjDir()
 {
     return PROJECT_DIR;
 }
 
 static void regSSAO(pybind11::module& m)
 {
-    pybind11::class_<VAO, RenderPass, VAO::SharedPtr> pass(m, "VAO");
-    pass.def_property("enabled", &VAO::getEnabled, &VAO::setEnabled);
-    pass.def_property("kernelRadius", &VAO::getKernelSize, &VAO::setKernelSize);
-    pass.def_property("distribution", &VAO::getDistribution, &VAO::setDistribution);
-    pass.def_property("sampleRadius", &VAO::getSampleRadius, &VAO::setSampleRadius);
-
-    pybind11::enum_<VAO::SampleDistribution> sampleDistribution(m, "SampleDistribution");
-    sampleDistribution.value("Random", VAO::SampleDistribution::Random);
-    sampleDistribution.value("VanDerCorput", VAO::SampleDistribution::VanDerCorput);
-    sampleDistribution.value("Poisson", VAO::SampleDistribution::Poisson);
-
-    pybind11::enum_<Falcor::DepthMode> depthMode(m, "DepthMode");
-    depthMode.value("SingleDepth", Falcor::DepthMode::SingleDepth);
-    depthMode.value("DualDepth", Falcor::DepthMode::DualDepth);
-    depthMode.value("StochasticDepth", Falcor::DepthMode::StochasticDepth);
-    depthMode.value("Raytraced", Falcor::DepthMode::Raytraced);
+    pybind11::class_<RTHBAO, RenderPass, RTHBAO::SharedPtr> pass(m, "RTHBAO");
+    pass.def_property("enabled", &RTHBAO::getEnabled, &RTHBAO::setEnabled);
+    pass.def_property("sampleRadius", &RTHBAO::getSampleRadius, &RTHBAO::setSampleRadius);
 }
 
-extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)
+extern "C" FALCOR_API_EXPORT void getPasses(Falcor::RenderPassLibrary& lib)
 {
-    lib.registerPass(VAO::kInfo, VAO::create);
+    lib.registerPass(RTHBAO::kInfo, RTHBAO::create);
     ScriptBindings::registerBinding(regSSAO);
 }
 
-const RenderPass::Info VAO::kInfo = { "VAO", "Screen-space ambient occlusion. Can be used with and without a normal-map" };
-
 namespace
 {
-    const Gui::DropdownList kDistributionDropdown =
-    {
-        { (uint32_t)VAO::SampleDistribution::Random, "Random" },
-        { (uint32_t)VAO::SampleDistribution::VanDerCorput, "Uniform VanDerCorput" },
-        { (uint32_t)VAO::SampleDistribution::Poisson, "Poisson" },
-    };
-
     const Gui::DropdownList kDepthModeDropdown =
     {
         { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
@@ -84,10 +65,9 @@ namespace
     const std::string kEnabled = "enabled";
     const std::string kKernelSize = "kernelSize";
     const std::string kNoiseSize = "noiseSize";
-    const std::string kDistribution = "distribution";
     const std::string kRadius = "radius";
     const std::string kDepthMode = "depthMode";
-    const std::string kColorMap = "colorMap";
+    //const std::string kColorMap = "colorMap";
     const std::string kGuardBand = "guardBand";
     const std::string kThickness = "thickness";
 
@@ -102,12 +82,12 @@ namespace
     const std::string kInternalRayDepth = "iRayDepth";
     const std::string kInternalInstanceID = "iInstanceID";
 
-    const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
+    const std::string kSSAOShader = "RenderPasses/RTHBAO/Raster.ps.slang";
 
     static const int NOISE_SIZE = 4; // in each dimension: 4x4
 }
 
-VAO::VAO()
+RTHBAO::RTHBAO()
     :
     RenderPass(kInfo)
 {
@@ -123,44 +103,39 @@ VAO::VAO()
     mpAOFbo = Fbo::create();
 }
 
-ResourceFormat VAO::getAmbientMapFormat() const
+ResourceFormat RTHBAO::getAmbientMapFormat() const
 {
-    if (mColorMap) return ResourceFormat::RGBA8Unorm;
     return ResourceFormat::R8Unorm;
 }
 
-VAO::SharedPtr VAO::create(RenderContext* pRenderContext, const Dictionary& dict)
+RTHBAO::SharedPtr RTHBAO::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
-    SharedPtr pSSAO = SharedPtr(new VAO);
+    SharedPtr pSSAO = SharedPtr(new RTHBAO());
     Dictionary blurDict;
     for (const auto& [key, value] : dict)
     {
         if (key == kEnabled) pSSAO->mEnabled = value;
-        else if (key == kKernelSize) pSSAO->mKernelSize = value;
-        else if (key == kDistribution) pSSAO->mHemisphereDistribution = value;
         else if (key == kRadius) pSSAO->mData.radius = value;
         else if (key == kDepthMode) pSSAO->mDepthMode = value;
         else if (key == kGuardBand) pSSAO->mGuardBand = value;
         else if (key == kThickness) pSSAO->mData.thickness = value;
-        else logWarning("Unknown field '" + key + "' in a VAO dictionary");
+        else logWarning("Unknown field '" + key + "' in a RTHBAO dictionary");
     }
     return pSSAO;
 }
 
-Dictionary VAO::getScriptingDictionary()
+Dictionary RTHBAO::getScriptingDictionary()
 {
     Dictionary dict;
     dict[kEnabled] = mEnabled;
-    dict[kKernelSize] = mKernelSize;
     dict[kRadius] = mData.radius;
-    dict[kDistribution] = mHemisphereDistribution;
     dict[kDepthMode] = mDepthMode;
     dict[kGuardBand] = mGuardBand;
     dict[kThickness] = mData.thickness;
     return dict;
 }
 
-RenderPassReflection VAO::reflect(const CompileData& compileData)
+RenderPassReflection RTHBAO::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
@@ -170,26 +145,27 @@ RenderPassReflection VAO::reflect(const CompileData& compileData)
     reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(getAmbientMapFormat());
 
-    reflector.addInternal(kInternalRasterDepth, "internal raster depth").texture2D(0, 0, 1, 1, mKernelSize)
+    auto numSamples = mNumDirections * mNumSteps;
+    reflector.addInternal(kInternalRasterDepth, "internal raster depth").texture2D(0, 0, 1, 1, numSamples)
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R32Float);
-    reflector.addInternal(kInternalRayDepth, "internal raster depth").texture2D(0, 0, 1, 1, mKernelSize)
+    reflector.addInternal(kInternalRayDepth, "internal raster depth").texture2D(0, 0, 1, 1, numSamples)
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R32Float);
-    reflector.addInternal(kInternalInstanceID, "internal instance ID").texture2D(0, 0, 1, 1, mKernelSize)
+    reflector.addInternal(kInternalInstanceID, "internal instance ID").texture2D(0, 0, 1, 1, numSamples)
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Uint);
 
     return reflector;
 }
 
-void VAO::compile(RenderContext* pRenderContext, const CompileData& compileData)
+void RTHBAO::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
-    setKernel();
     setNoiseTexture();
 
     mDirty = true; // texture size may have changed => reupload data
     mpSSAOPass.reset();
 }
 
-void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
+
+void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
@@ -216,9 +192,9 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     //renderData["k"]->asBuffer();
 
 
-    if(mEnabled)
+    if (mEnabled)
     {
-        if(mClearTexture)
+        if (mClearTexture)
         {
             pRenderContext->clearTexture(pAoDst.get(), float4(0.0f));
             mClearTexture = false;
@@ -230,8 +206,6 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             Program::DefineList defines;
             defines.add(mpScene->getSceneDefines());
             defines.add("DEPTH_MODE", std::to_string(uint32_t(mDepthMode)));
-            defines.add("KERNEL_SIZE", std::to_string(mKernelSize));
-            if(mColorMap) defines.add("COLOR_MAP", "true");
             if (psDepth) defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
 
             mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
@@ -245,6 +219,10 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
         if (mDirty)
         {
+            // redefine defines
+            mpSSAOPass->getProgram()->addDefine("NUM_DIRECTIONS", std::to_string(mNumDirections));
+            mpSSAOPass->getProgram()->addDefine("NUM_STEPS", std::to_string(mNumSteps));
+            
             // bind static resources
             mData.noiseScale = float2(pDepth->getWidth(), pDepth->getHeight()) / float2(NOISE_SIZE, NOISE_SIZE);
             mpSSAOPass["StaticCB"].setBlob(mData);
@@ -274,13 +252,13 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         pRenderContext->clearTexture(pInternalRayDepth->asTexture().get());
         //pRenderContext->clearTexture(pInternalInstanceID->asTexture().get());
         pRenderContext->clearUAV(pInternalInstanceID->asTexture()->getUAV().get(), uint4(0));
-        
+
         // Generate AO
         mpAOFbo->attachColorTarget(pAoDst, 0);
         setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims(), mGuardBand);
         mpSSAOPass->execute(pRenderContext, mpAOFbo, false);
 
-        if(mSaveDepths)
+        if (mSaveDepths)
         {
             // write sample information
             pInternalRasterDepth->captureToFile(0, -1, "raster.dds", Bitmap::FileFormat::DdsFile);
@@ -298,20 +276,19 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     }
 }
 
-void VAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
+void RTHBAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)
 {
     mpScene = pScene;
     mDirty = true;
 }
 
-void VAO::renderUI(Gui::Widgets& widget)
+
+void RTHBAO::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
-    if(!mEnabled) return;
+    if (!mEnabled) return;
 
     if (widget.var("Guard Band", mGuardBand, 0, 256)) mClearTexture = true;
-
-    if (widget.checkbox("Color Map", mColorMap)) mPassChangedCB();
 
     uint32_t depthMode = (uint32_t)mDepthMode;
     if (widget.dropdown("Depth Mode", kDepthModeDropdown, depthMode)) {
@@ -319,11 +296,8 @@ void VAO::renderUI(Gui::Widgets& widget)
         mpSSAOPass.reset();
     }
 
-    uint32_t distribution = (uint32_t)mHemisphereDistribution;
-    if (widget.dropdown("Kernel Distribution", kDistributionDropdown, distribution)) setDistribution(distribution);
-
-    uint32_t size = mKernelSize;
-    if (widget.var("Kernel Size", size, 1u, SSAOData::kMaxSamples)) setKernelSize(size);
+    if (widget.var("Num Directions", mNumDirections, 1, 32)) mPassChangedCB();
+    if (widget.var("Num Steps", mNumSteps, 1, 32)) mPassChangedCB();
 
     float radius = mData.radius;
     if (widget.var("Sample Radius", radius, 0.01f, FLT_MAX, 0.01f)) setSampleRadius(radius);
@@ -339,118 +313,13 @@ void VAO::renderUI(Gui::Widgets& widget)
     if (widget.button("Save Depths")) mSaveDepths = true;
 }
 
-void VAO::setSampleRadius(float radius)
+void RTHBAO::setSampleRadius(float radius)
 {
     mData.radius = radius;
     mDirty = true;
 }
 
-void VAO::setKernelSize(uint32_t kernelSize)
-{
-    kernelSize = glm::clamp(kernelSize, 1u, SSAOData::kMaxSamples);
-    mKernelSize = kernelSize;
-    setKernel();
-    mPassChangedCB();
-}
-
-void VAO::setDistribution(uint32_t distribution)
-{
-    mHemisphereDistribution = (SampleDistribution)distribution;
-    setKernel();
-}
-
-void VAO::setKernel()
-{
-    std::srand(5960372); // same seed for kernel
-    int vanDerCorputOffset = mKernelSize; // (only correct for power of two numbers => offset 8 results in 1/16, 9/16, 5/16... which are 8 different uniformly dstributed numbers, see https://en.wikipedia.org/wiki/Van_der_Corput_sequence)
-    bool isPowerOfTwo = std::_Popcount(uint32_t(vanDerCorputOffset)) == 1;//std::has_single_bit(uint32_t(vanDerCorputOffset));
-    if (mHemisphereDistribution == SampleDistribution::VanDerCorput && !isPowerOfTwo)
-        logWarning("VanDerCorput sequence only works properly if the sample count is a power of two!");
-
-    if (mHemisphereDistribution == SampleDistribution::Poisson)
-    {
-        // brute force algorithm to generate poisson samples
-        float r = 0.28f; // for kernelSize = 8
-        if (mKernelSize >= 16) r = 0.19f;
-        if (mKernelSize >= 24) r = 0.15f;
-        if (mKernelSize >= 32) r = 0.13f;
-
-        auto pow2 = [](float x) {return x * x; };
-
-        uint i = 0; // current length of list
-        uint cur_attempt = 0;
-        while (i < mKernelSize)
-        {
-            i = 0; // reset list length
-            const uint max_retries = 10000;
-            uint cur_retries = 0;
-            while (i < mKernelSize && cur_retries < max_retries)
-            {
-                cur_retries += 1;
-                float2 point = float2(glm::linearRand(-1.0f, 1.0f), glm::linearRand(-1.0f, 1.0f));
-                if (point.x * point.x + point.y * point.y > pow2(1.0f - r))
-                    continue;
-
-                bool too_close = false;
-                for (uint j = 0; j < i; ++j)
-                    if (pow2(point.x - mData.sampleKernel[j].x) + pow2(point.y - mData.sampleKernel[j].y) < pow2(2.0f * r))
-                    {
-                        too_close = true;
-                        break;
-                    }
-
-
-                if (too_close) continue;
-
-                mData.sampleKernel[i++] = float4(point.x, point.y, glm::linearRand(0.0f, 1.0f), glm::linearRand(0.0f, 1.0f));
-            }
-
-            std::cerr << "\rpoisson attempt " << ++cur_attempt;
-
-            if (cur_attempt % 1000 == 0)
-                r = r - 0.01f; // shrink radius every 1000 attempts
-        }
-
-        // succesfully found points
-
-    }
-    else // random or hammersly
-    {
-        std::string nums;
-        for (uint32_t i = 0; i < mKernelSize; i++)
-        {
-            auto& s = mData.sampleKernel[i];
-            float2 rand;
-            switch (mHemisphereDistribution)
-            {
-            case SampleDistribution::Random:
-                rand = float2(glm::linearRand(0.0f, 1.0f), glm::linearRand(0.0f, 1.0f));
-                break;
-
-            case SampleDistribution::VanDerCorput:
-                // skip 0 because it will results in (0, 0) which results in sample point (0, 0)
-                // => this means that we sample the same position for all tangent space rotations
-                rand = float2((float)(i) / (float)(mKernelSize), radicalInverse(vanDerCorputOffset + i));
-                break;
-
-            default: throw std::runtime_error("unknown kernel distribution");
-            }
-
-            float theta = rand.x * 2.0f * glm::pi<float>();
-            float r = glm::sqrt(1.0f - glm::pow(rand.y, 2.0f / 3.0f));
-            nums += std::to_string(r) + ", ";
-            s.x = r * sin(theta);
-            s.y = r * cos(theta);
-            s.z = glm::linearRand(0.0f, 1.0f);
-            s.w = glm::linearRand(0.0f, 1.0f);
-        }
-    }
-
-
-    mDirty = true;
-}
-
-void VAO::setNoiseTexture()
+void RTHBAO::setNoiseTexture()
 {
     mDirty = true;
 
@@ -458,7 +327,7 @@ void VAO::setNoiseTexture()
     data.resize(NOISE_SIZE * NOISE_SIZE);
 
     // https://en.wikipedia.org/wiki/Ordered_dithering
-    const float ditherValues[] = {0.0f, 8.0f, 2.0f, 10.0f, 12.0f, 4.0f, 14.0f, 6.0f, 3.0f, 11.0f, 1.0f, 9.0f, 15.0f, 7.0f, 13.0f, 5.0f};
+    const float ditherValues[] = { 0.0f, 8.0f, 2.0f, 10.0f, 12.0f, 4.0f, 14.0f, 6.0f, 3.0f, 11.0f, 1.0f, 9.0f, 15.0f, 7.0f, 13.0f, 5.0f };
     
     for (uint32_t i = 0; i < data.size(); i++)
     {
