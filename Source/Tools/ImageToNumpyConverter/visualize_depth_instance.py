@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import cross_val_score
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn import tree
 
 # set current directory as working directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -89,8 +92,15 @@ def printSameInstanceStats():
 	# show gridlines in x for every tick
 	plt.grid(True, which='major', axis='x')
 	
+	# apply input scaling
+	#scaler = StandardScaler()
+	#scaledRaster = scaler.fit_transform(raster.reshape(-1, 1))
 	# do logistic regression based on raster heights only
-	logRaster = LogisticRegression(random_state=42, n_jobs=-1, penalty='none')
+	logRaster = Pipeline([
+		('scaler', StandardScaler()), 
+		('log', LogisticRegression(random_state=42, n_jobs=-1, penalty='none', class_weight={True: 1.0, False: 1.0}))
+	])
+	
 	logRaster.fit(raster.reshape(-1, 1), same)
 	# plot the decision function of logRaster
 	xx = np.linspace(1.0, 12.0, 1000)
@@ -103,6 +113,16 @@ def printSameInstanceStats():
 	# print accuracy of logistic regression
 	print("logistic regression accuracy (raster): ", logRaster.score(raster.reshape(-1, 1), same))
 	
+	# fit decision tree
+	dectree = tree.DecisionTreeClassifier(random_state=42, max_depth=1)
+	dectree.fit(raster.reshape(-1, 1), same)
+	#tree.plot_tree(dectree)
+	decision = dectree.predict_proba(xx.reshape(-1, 1))
+	decision = decision[:, 1] # only use second colum (same prediction)
+	plt.plot(xx, decision * 100, 'g-', lw=2)
+
+	print("tree accuracy (raster): ", dectree.score(raster.reshape(-1, 1), same))
+
 	# do logistic regrassion based on raster heights and sameInstance
 	logRasterAndSameInstance = LogisticRegression(random_state=42, n_jobs=-1, penalty='none')
 	logRasterAndSameInstance.fit(np.hstack((raster.reshape(-1, 1), sameInstance.reshape(-1, 1))), same)
