@@ -236,13 +236,15 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         [unroll] for (int step = 0; step < NUM_STEPS; ++step)
         {
-            // calc 'random' sampling pos
-            float2 rand = direction * (step + 0.5 + randJitter) / (NUM_STEPS + 1); // TODO add jitter
+            float curVisibility = 1.0f;
             
-            rand.xy *= gData.radius; // multiply 2D position with sample radius
+            // calc 's' sampling pos
+            float2 s = direction * (step + 0.5 + randJitter) / (NUM_STEPS + 1); // TODO add jitter
+            
+            s *= gData.radius; // multiply 2D position with sample radius
         
             // height of the sphere at the requested sample position (not at the actual sampling position)
-            const float sphereHeight = sqrt(gData.radius * gData.radius - dot(rand.xy, rand.xy));
+            const float sphereHeight = sqrt(gData.radius * gData.radius - dot(s, s));
             // probability for choosing this sample
             const float pdf = 2.0 * sphereHeight;
             //float adaptiveHaloHeight = sqrt((gData.radius + HALO_RADIUS) * (gData.radius + HALO_RADIUS) - dot(rand.xy, rand.xy));
@@ -251,7 +253,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float sphereStart = sphereHeight; // in object coordinates (bigger is closer to the camera)
             float sphereEnd = -sphereHeight; // in object coordinates (smaller is futher from the camera)
 
-            float zIntersect = -dot(rand.xy, normalO.xy) / makeNonZero(normalO.z, 0.0001);
+            float zIntersect = -dot(s, normalO.xy) / makeNonZero(normalO.z, 0.0001);
             float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
             sphereEnd = zIntersectClamped;
 
@@ -259,21 +261,35 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             if (sphereStart - sphereEnd < 0.01)
             {
                 gInvalid += 1;
+                visibility += 1.0;
                 gInstanceIDOut[uint3(XY, i)] = curInstanceID;
                 continue;
             }
 
             // calculate view position of sample and project to uv coordinates
-            float3 initialSamplePosV = posV + tangent * rand.x + bitangent * rand.y;
+            float3 initialSamplePosV = posV + tangent * s.x + bitangent * s.y;
             float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
-            float curVisibility = 1.0f;
 
             // clip sample position uv and snap to pixel center
             float2 screenUv = saturate(samplePosUV); // clip to screen border
             const bool isInScreen = all(samplePosUV == screenUv);
-
             float2 rasterSamplePosUV = screenUv;
-            rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
+
+            float3 hitV = UVToViewSpace(rasterSamplePosUV, gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0));
+            float3 wV = hitV - posV;
+            float lenW = length(wV);
+
+            float NdotW = dot(normalV, wV / lenW);
+            if(lenW > gData.radius && dot(wV, -posV) < 0.0)
+                NdotW = 0.0; // exit hemisphere before any occlusion => no occlusion
+            if (lenW > gData.radius && dot(wV, -posV) > 0.0)
+            {
+                NdotW = 0.0; // TODO ray tracing   
+            }
+            
+            visibility += (1.0 - saturate(NdotW));
+            
+            /*rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
 
             // object space z of the primary depth buffer or the secondary depth buffer if available
             float objectSpaceZ = sphereHeight + CONST_RADIUS + HALO_RADIUS;
@@ -285,9 +301,9 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
             gRasterDepth[uint3(XY, i)] = objectSpaceZ / gData.radius;
             gRayDepth[uint3(XY, i)] = objectSpaceZ / gData.radius;
-            gInstanceIDOut[uint3(XY, i)] = gInstanceID[UVToPixel(rasterSamplePosUV)];
+            gInstanceIDOut[uint3(XY, i)] = gInstanceID[UVToPixel(rasterSamplePosUV)];*/
         
-            if (DEPTH_MODE == DEPTH_MODE_DUAL && primaryIsOccluded)
+            /*if (DEPTH_MODE == DEPTH_MODE_DUAL && primaryIsOccluded)
             {
             // obtain secondary sample if primary sample is occluded
                 objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
@@ -412,15 +428,16 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 }
             
                 curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
-            }
+            }*/
 
-            visibility += curVisibility / pdf;
+
         }
     }
 
     float AO = visibility / float(NUM_DIRECTIONS * NUM_STEPS);
 
-    AO = saturate(AO * 2.0);
+    AO = saturate(AO);
+    //AO = saturate(2 * AO - 1);
 
     // do artistic modifications
     AO = pow(AO, gData.exponent);
