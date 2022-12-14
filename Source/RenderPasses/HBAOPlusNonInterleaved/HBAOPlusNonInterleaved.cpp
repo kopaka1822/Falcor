@@ -231,11 +231,15 @@ Texture::SharedPtr HBAOPlusNonInterleaved::genNoiseTexture()
     std::vector<uint32_t> data;
     data.resize(4u * 4u);
 
+    // https://en.wikipedia.org/wiki/Ordered_dithering
+    const float ditherValues[] = { 0.0f, 8.0f, 2.0f, 10.0f, 12.0f, 4.0f, 14.0f, 6.0f, 3.0f, 11.0f, 1.0f, 9.0f, 15.0f, 7.0f, 13.0f, 5.0f };
+
     std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
     for (uint32_t i = 0; i < data.size(); i++)
     {
         // Random directions on the XY plane
         auto theta = glm::linearRand(0.0f, 2.0f * glm::pi<float>());
+        //auto theta = ditherValues[i] / 16.0f * 2.0f * glm::pi<float>();
         auto r1 = glm::linearRand(0.0f, 1.0f);
         auto r2 = glm::linearRand(0.0f, 1.0f);
         data[i] = glm::packSnorm4x8(float4(sin(theta), cos(theta), r1, r2));

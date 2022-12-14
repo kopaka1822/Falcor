@@ -34,7 +34,7 @@ struct SSAOData
 {
     float2 noiseScale = float2(1, 1);
     float radius = 0.5f;
-    float exponent = 1.3f;
+    float exponent = 2.0f;
     float thickness = 0.5f;
 };
 
