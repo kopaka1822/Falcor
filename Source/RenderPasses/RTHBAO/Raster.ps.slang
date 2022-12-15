@@ -250,7 +250,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float2 screenUv = saturate(samplePosUV); // clip to screen border
             const bool isInScreen = all(samplePosUV == screenUv);
             bool requireRay = !isInScreen;
-            float2 rasterSamplePosUV = screenUv;
+            float2 rasterSamplePosUV = getSnappedUV(screenUv);
 
             /*if (isSamePixel(texC, rasterSamplePosUV))
             {
@@ -303,9 +303,11 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 ray.TMin = 0.01 * gData.radius; // small offset
                 if (isInScreen)
                 {
-                    ray.TMin = length(hitV) + 0.01 * gData.radius; // offset tmin along raster intersection
-                    tLastFrontFaceOutside = length(hitV);
-                    occlusionStack += 1;
+                    //ray.TMin = length(hitV) + 0.1 * gData.radius; // offset tmin along raster intersection
+                    //tLastFrontFaceOutside = length(hitV);
+                    //occlusionStack += 1;
+                    // skip to the first known intersection (this is required to know the attributes for doubleSided etc. alt: get information from a material gbuffer?)
+                    ray.TMin = length(hitV) - 0.1 * gData.radius;
                 }
                 ray.TMax = tSphereEnd; // distance to sample point + additional radius
                 
@@ -336,7 +338,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                     if(t < tRelaxedSphereStart)
                     {
                         // intersection in front of the trusted area
-                        if (isAlphaTested) // ignore alpha tested materials (too thin for occlusion at this distance)
+                        if (isAlphaTested || header.isDoubleSided()) // ignore alpha tested materials (too thin for occlusion at this distance)
                             continue;
                         occlusionStack += frontFace ? 1 : -1; // update occlusion stack
                         if (frontFace)

@@ -57,8 +57,8 @@ namespace
     const Gui::DropdownList kDepthModeDropdown =
     {
         { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
-        { (uint32_t)DepthMode::DualDepth, "DualDepth" },
-        { (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
+        //{ (uint32_t)DepthMode::DualDepth, "DualDepth" },
+        //{ (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
         { (uint32_t)DepthMode::Raytraced, "Raytraced" }
     };
 
