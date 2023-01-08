@@ -238,7 +238,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             {
                 gInvalid += 1;
                 visibility += 1.0;
-                gInstanceIDOut[uint3(XY, sampleIndex)] = curInstanceID;
+                gInstanceIDOut[uint3(XY, sampleIndex)] = 0;
+                //gInstanceIDOut[uint3(XY, sampleIndex)] = curInstanceID;
                 continue;
             }
 
@@ -275,9 +276,10 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             }
 
             gRasterDepth[uint3(XY, sampleIndex)] = zOrtho / gData.radius;
-            gRayDepth[uint3(XY, sampleIndex)] = zOrtho / gData.radius;
-            gInstanceIDOut[uint3(XY, sampleIndex)] = gInstanceID[UVToPixel(rasterSamplePosUV)];
-
+            //gRayDepth[uint3(XY, sampleIndex)] = zOrtho / gData.radius;
+            //gRayDepth[uint3(XY, sampleIndex)] = 0.0;
+            //gInstanceIDOut[uint3(XY, sampleIndex)] = gInstanceID[UVToPixel(rasterSamplePosUV)];
+            gInstanceIDOut[uint3(XY, sampleIndex)] = 0;
 
             if (DEPTH_MODE == DEPTH_MODE_RAYTRACED && requireRay)
             {
@@ -300,14 +302,14 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 float tFirstFaceInside = tSphereEnd;
                 int occlusionStack = 0; // > 1 means occluded (counted for outside front faces)
                 
-                ray.TMin = 0.01 * gData.radius; // small offset
+                ray.TMin = 0.0; // small offset
                 if (isInScreen)
                 {
                     //ray.TMin = length(hitV) + 0.1 * gData.radius; // offset tmin along raster intersection
                     //tLastFrontFaceOutside = length(hitV);
                     //occlusionStack += 1;
                     // skip to the first known intersection (this is required to know the attributes for doubleSided etc. alt: get information from a material gbuffer?)
-                    ray.TMin = length(hitV) - 0.1 * gData.radius;
+                    //ray.TMin = length(hitV) - 0.1 * gData.radius;
                 }
                 ray.TMax = tSphereEnd; // distance to sample point + additional radius
                 
@@ -341,7 +343,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                         if (isAlphaTested || header.isDoubleSided()) // ignore alpha tested materials (too thin for occlusion at this distance)
                             continue;
                         occlusionStack += frontFace ? 1 : -1; // update occlusion stack
-                        if (frontFace)
+                        //if (frontFace) // TODO comment out => use backfaces as well for HBAO (since those can be intersection from other perspectives)
                             tLastFrontFaceOutside = max(tLastFrontFaceOutside, t);
                     }
                     else // inside of the trusted area
@@ -353,7 +355,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                             if (gScene.materials.alphaTest(v, materialID, 0.0)) // TODO correct lod?   
                                 continue; // alpha test failed => ignore this triangle
                         }
-                        if (frontFace) // for rasterizer compability (since backfaces are invisible)
+                        //if (frontFace) // for rasterizer compability (since backfaces are invisible)
                         {
                             tFirstFaceInside = min(tFirstFaceInside, t);
                             rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
@@ -370,138 +372,16 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 NdotW = max(0, dot(normalW, ray.Origin + tFinalHit * ray.Direction - posW));
                 if (tFinalHit >= tSphereEnd)
                     NdotW = 0.0;
-
+                gInstanceIDOut[uint3(XY, sampleIndex)] = 1;
+                gRayDepth[uint3(XY, sampleIndex)] = tFinalHit / orthoToRayFactor / gData.radius;
+                //gRayDepth[uint3(XY, sampleIndex)] = occlusionStack;
                 //NdotW = 1.0;
+                // TODO debug occlusion stack
+                //if (occlusionStack > 0)
+                //    NdotW = 1.0;
             }
 
             visibility += (1.0 - saturate(NdotW));
-            /*if (DEPTH_MODE == DEPTH_MODE_DUAL && primaryIsOccluded)
-            {
-            // obtain secondary sample if primary sample is occluded
-                objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
-                curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
-            }
-            else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC && primaryIsOccluded)
-            {
-            // TODO try to use sampler
-                int2 pixelCoord = int2(floor(rasterSamplePosUV * float2(width, height)));
-
-                const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
-                const float depthOffset = gCamera.data.nearZ;
-                float prevVisibility = curVisibility;
-            [unroll]
-                for (uint i = 0; i < MSAA_SAMPLES; ++i)
-                {
-                    float linearSampleDepth = gsDepthTex.Load(pixelCoord, i);
-                    // linearSampleDepth is in [0, 1] => scale accordingly
-                    linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
-                    float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
-                    float objectSpaceZ = dot(samplePosV - posV, normal);
-                    float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
-
-                    curVisibility = min(curVisibility, newVisibility);
-                }
-            }
-            else if (DEPTH_MODE == DEPTH_MODE_RAYTRACED && (primaryIsOccluded || !isInScreen))
-            {
-                gRaysTraced += 1;
-
-                if (!isInScreen) // reset visibility to 1 if the raster sample was not in screen
-                    curVisibility = 1.0;
-
-                // to be consistent with the rasterizer, we snap the uv coordinate as well to the pixel center,
-                // but we do not clip it since we can shoot outside of the screen space
-                //samplePosUV = getScreenClampedUV(texC, samplePosUV);
-                samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
-            
-                float3 sampleDirV = normalize(UVToViewSpace(samplePosUV, 1.0)); // get sample direction in view space
-                float initialSamplePosLength = length(initialSamplePosV);
-
-                bool occluded = false;
-
-                RayDesc ray;
-                ray.Origin = gCamera.data.posW;
-                ray.Direction = mul(sampleDirV, float3x3(invViewMat));
-
-                float tSphereStart = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
-                float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
-                float tHaloStart = (posVLength - sphereHeight - CONST_RADIUS - HALO_RADIUS) * initialSamplePosLength / posVLength;
-                float tConstRadiusStart = (posVLength - sphereHeight - CONST_RADIUS) * initialSamplePosLength / posVLength;
-                ray.TMin = max(tHaloStart, 0.0); // TODO include buffer value?
-                ray.TMax = tSphereEnd;
-
-                // include the value of the depth buffer when choosing TMin to save some traversal time
-                if (isInScreen)
-                {
-                    const float epsilon = gData.radius * 0.01;
-                    // objectSpaceZ already contains the depth buffer or secondary depth buffer value (fetched in the raster part)
-                    ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
-                }
-
-                // skip procedural and force all triangle to be handled by any-hit traversal
-                RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_NON_OPAQUE > rayQuery;
-                rayQuery.TraceRayInline(gScene.rtAccel, RAY_FLAG_NONE, 0xff, ray);
-
-                float tFirstFrontFaceInside = tSphereEnd;
-                float tLastFrontFaceHalo = tHaloStart;
-
-                while (rayQuery.Proceed())
-                {
-                    if (rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
-                    {
-                        // extract hit properties
-                        float t = rayQuery.CandidateTriangleRayT();
-                        if (t < tLastFrontFaceHalo)
-                            continue; // we can skip this since it would not contribute anyways (unfortunately there is no option to set the ray.min afterwards)
-
-                        bool frontFace = rayQuery.CandidateTriangleFrontFace();
-                        const TriangleHit hit = getCandidateTriangleHit(rayQuery);
-                        const uint materialID = gScene.getMaterialID(hit.instanceID);
-                        const MaterialHeader header = gScene.materials.materialData[materialID].header;
-
-                        bool isAlphaTested = header.getAlphaMode() == AlphaMode::Mask;
-
-                        // needs alpha testing?
-                        if (isAlphaTested)
-                        {
-                            const VertexData v = gScene.getVertexData(hit);
-                            if (gScene.materials.alphaTest(v, materialID, 0.0)) // TODO correct lod?   
-                                continue; // alpha test failed => ignore this triangle
-                        }
-
-                        frontFace = frontFace || isAlphaTested || header.isDoubleSided();
-                        if (!frontFace)
-                            continue; // this is just for rasterizer compability
-
-                        if (t <= tSphereStart)
-                        {
-                            tLastFrontFaceHalo = max(tLastFrontFaceHalo, t);
-                            if (t >= tConstRadiusStart)
-                                break; // we can stop the query, because this will set the visibility to zero
-                        }
-                        else // inside sphere
-                        {
-                            tFirstFrontFaceInside = min(tFirstFrontFaceInside, t);
-                            rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
-                        }
-                        
-                    }
-                }
-
-                // calculate visibility inside and outside of sphere
-                float sphereZ = posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength;
-                float haloZ = posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength;
-                float sphereVisibility = calcSphereVisibility(sphereZ, sphereStart, sphereEnd);
-                float haloVisibility = calcHaloVisibility(haloZ, sphereStart, sphereEnd);
-
-                if (min(sphereVisibility, haloVisibility) < curVisibility)
-                {
-                    gRayDepth[uint3(XY, i)] = (sphereVisibility <= haloVisibility ? sphereZ : haloZ) / gData.radius;
-                }
-            
-                curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
-            }*/
-
 
         }
     }
