@@ -153,6 +153,23 @@ float makeNonZero(float value, float epsilon)
     return value >= 0 ? absValue : -absValue;
 }
 
+// like sign, but returns 1 for v=0
+float signBinary(float v)
+{
+    if (v < 0.0)
+        return -1.0;
+    return 1.0;
+}
+
+float2 getRaySphereIntersections(float3 rayStart, /*normalized*/ float3 rayDir, float3 sphereCenter, float radius)
+{
+    // distance to the closest point near the sphere center (if d > radius, there are no intersections)
+    float d = dot(rayDir, sphereCenter - rayStart);
+    float delta = d * d + radius * radius - dot(sphereCenter - rayStart, sphereCenter - rayStart);
+    delta = max(delta, 0.0); // this is important to have a valid square root (negative values would mean no intersection, but we just assume that this will only be the case for precision reasons)
+    return float2(d - delta, d + delta);
+}
+
 // get rid of shadowing around edges
 // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
 // and falls of to 1.0 when it gets further away from the sphere but closer to the camera
@@ -176,7 +193,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     float3 posW = mul(float4(posV, 1.0), invViewMat).xyz;
     
     // view space normal of current pixel
-    float3 normalW = gNormalTex.SampleLevel(gTextureSampler, texC, 0).xyz;
+    float3 normalW = normalize(gNormalTex.SampleLevel(gTextureSampler, texC, 0).xyz);
     float3 normalV = mul(normalW, float3x3(gCamera.data.viewMat));
     if (dot(posV, normalV) > 0.0) // front face normals
     {
@@ -200,13 +217,17 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     //randDir = float2(1.0f, 0.0f);
     
     // determine tangent space
-    float3 normal = -posV / posVLength;
-    float3 bitangent = normalize(cross(normal, float3(randDir, 0.0f)));
-    float3 tangent = cross(bitangent, normal);
+    float3 V = -posV / posVLength;
+    float3 bitangent = normalize(cross(V, float3(randDir, 0.0f)));
+    float3 tangent = cross(bitangent, V);
     
 
     // transfer view space normal to normal in object coordinates of the sampling sphere
-    float3 normalO = float3(dot(normalV, tangent), dot(normalV, bitangent), dot(normalV, normal));
+    float3 normalO = float3(dot(normalV, tangent), dot(normalV, bitangent), dot(normalV, V));
+
+    // can be used to determine on which side of the sampling plane
+    // TODO i think this needs to be done with the sampling plane instead of V...
+    float3 halfspacePlane = cross(normalV, cross(V, normalV));
     
     float visibility = 0.0f;
     //uint zCurveIndex = ZCurveToLinearIndex(uint2(svPos.xy));
@@ -229,10 +250,10 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             s *= gData.radius; // multiply 2D position with sample radius
         
             // determine distance within [-sphereHeight, +sphereHeight]
-            float sphereStart = sqrt(gData.radius * gData.radius - dot(s, s));; // in object coordinates (bigger is closer to the camera)
+            /*float sphereStart = sqrt(gData.radius * gData.radius - dot(s, s));; // in object coordinates (bigger is closer to the camera)
             float zIntersect = -dot(s, normalO.xy) / makeNonZero(normalO.z, 0.0001);// intersection with hemisphere plane
             float sphereEnd = clamp(zIntersect, -sphereStart, sphereStart);
-
+            
             // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
             if (sphereStart - sphereEnd < 0.01)
             {
@@ -241,10 +262,14 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 gInstanceIDOut[uint3(XY, sampleIndex)] = 0;
                 //gInstanceIDOut[uint3(XY, sampleIndex)] = curInstanceID;
                 continue;
-            }
+            }*/
 
             // calculate view position of sample and project to uv coordinates
-            float3 initialSamplePosV = posV + tangent * s.x + bitangent * s.y;
+            float3 S = tangent * s.x + bitangent * s.y; // sample position relative to posV
+            float3 initialSamplePosV = posV + S; // absolute sample position in view space
+            float initialSampleT = length(initialSamplePosV); // serves as reference for ray/raster depths
+            float2 sphereStartEnd = getRaySphereIntersections(0.0, normalize(initialSamplePosV), posV, gData.radius);
+            // TODO determine if the sphere start is below the hemisphere => if this is the case, no depth sample needs to be taken
             float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
 
             // clip sample position uv and snap to pixel center
@@ -260,26 +285,34 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             }*/
             
             float3 hitV = UVToViewSpace(rasterSamplePosUV, gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0));
-            float3 wV = hitV - posV;
-            float lenW = length(wV);
-            float NdotW = dot(normalV, wV / lenW);
+            float hitT = length(hitV); // distance to camera origin (origin is 0 because of view space)
+            gRasterDepth[uint3(XY, sampleIndex)] = (initialSampleT - hitT) / gData.radius;
+            gRayDepth[uint3(XY, sampleIndex)] = (initialSampleT - hitT) / gData.radius;
+            gInstanceIDOut[uint3(XY, sampleIndex)] = gInstanceID[UVToPixel(rasterSamplePosUV)];
+            
+            float3 P = normalize(hitV - posV); // depth buffer hit vector (P) from posV to hitpoint
 
-            float zOrtho = dot(normal, hitV - posV);
-            //if(lenW > gData.radius && dot(wV, -posV) < 0.0)
-            if (zOrtho < sphereEnd)
-                NdotW = 0.0; // exit hemisphere before any occlusion => no occlusion
-            //if (lenW > gData.radius && dot(wV, -posV) > 0.0)
-            if (zOrtho > gData.radius)
+            //float angleSign = signBinary(dot(normalV, S) + 0.01) * signBinary(dot(P, halfspacePlane));
+            //float alpha = acos(max(dot(normalV, P), 0.0)) * 2.0 / 3.141;
+            float alpha = 1 - max(dot(normalV, P), 0.0);
+            
+            
+            
+            if (hitT > sphereStartEnd.y) // intersection behind the sphere (assume not occluded)
             {
-                NdotW = 0.0; // TODO ray tracing
+                continue;
+            }
+            else if(hitT < sphereStartEnd.x)
+            {
                 requireRay = true;
             }
+            else
+            {
+                visibility += 1 - alpha;
+            }
 
-            gRasterDepth[uint3(XY, sampleIndex)] = zOrtho / gData.radius;
-            //gRayDepth[uint3(XY, sampleIndex)] = zOrtho / gData.radius;
-            //gRayDepth[uint3(XY, sampleIndex)] = 0.0;
-            //gInstanceIDOut[uint3(XY, sampleIndex)] = gInstanceID[UVToPixel(rasterSamplePosUV)];
-            gInstanceIDOut[uint3(XY, sampleIndex)] = 0;
+            //requireRay = true;
+            //requireRay = false;
 
             if (DEPTH_MODE == DEPTH_MODE_RAYTRACED && requireRay)
             {
@@ -287,37 +320,20 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center
 
                 float3 sampleDirV = normalize(UVToViewSpace(samplePosUV, 1.0)); // get sample direction in view space
-                float initialSamplePosLength = length(initialSamplePosV);
-                float orthoToRayFactor = initialSamplePosLength / posVLength; // convert lengths from ortho space to ray space
                 
                 RayDesc ray;
                 ray.Origin = gCamera.data.posW;
                 ray.Direction = mul(sampleDirV, float3x3(invViewMat));
-                
-                float tRelaxedSphereStart = (posVLength - sphereStart) * orthoToRayFactor;
-                //float tRelaxedSphereStart = (posVLength - gData.radius) * orthoToRayFactor;
-                float tSphereEnd = (posVLength - sphereEnd) * orthoToRayFactor;
+                ray.TMin = 0.0;
+                ray.TMax = gCamera.data.farZ;
 
-                float tLastFrontFaceOutside = 0.0;
-                float tFirstFaceInside = tSphereEnd;
+                float tLastFaceOutside = ray.TMin;
+                float tFirstFaceInside = ray.TMax;
                 int occlusionStack = 0; // > 1 means occluded (counted for outside front faces)
-                
-                ray.TMin = 0.0; // small offset
-                if (isInScreen)
-                {
-                    //ray.TMin = length(hitV) + 0.1 * gData.radius; // offset tmin along raster intersection
-                    //tLastFrontFaceOutside = length(hitV);
-                    //occlusionStack += 1;
-                    // skip to the first known intersection (this is required to know the attributes for doubleSided etc. alt: get information from a material gbuffer?)
-                    //ray.TMin = length(hitV) - 0.1 * gData.radius;
-                }
-                ray.TMax = tSphereEnd; // distance to sample point + additional radius
                 
                 // skip procedural and force all triangle to be handled by any-hit traversal
                 RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_NON_OPAQUE > rayQuery;
                 rayQuery.TraceRayInline(gScene.rtAccel, RAY_FLAG_NONE, 0xff, ray);
-
-                
                 
                 while (rayQuery.Proceed())
                 {
@@ -326,8 +342,6 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                     
                     // extract hit properties
                     float t = rayQuery.CandidateTriangleRayT();
-                    //if (t < tLastFrontFaceOutside)
-                    //    continue; // we can skip this since it would not contribute anyways (unfortunately there is no option to set the ray.min afterwards)
 
                     bool frontFace = rayQuery.CandidateTriangleFrontFace();
                     const TriangleHit hit = getCandidateTriangleHit(rayQuery);
@@ -337,14 +351,15 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                     bool isAlphaTested = header.getAlphaMode() == AlphaMode::Mask;
                     frontFace = frontFace || isAlphaTested || header.isDoubleSided();
                         
-                    if(t < tRelaxedSphereStart)
+                    if(t < sphereStartEnd.x) // in front of the sphere
                     {
                         // intersection in front of the trusted area
+
                         if (isAlphaTested || header.isDoubleSided()) // ignore alpha tested materials (too thin for occlusion at this distance)
                             continue;
                         occlusionStack += frontFace ? 1 : -1; // update occlusion stack
                         //if (frontFace) // TODO comment out => use backfaces as well for HBAO (since those can be intersection from other perspectives)
-                            tLastFrontFaceOutside = max(tLastFrontFaceOutside, t);
+                        tLastFaceOutside = max(tLastFaceOutside, t);
                     }
                     else // inside of the trusted area
                     {
@@ -355,34 +370,30 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                             if (gScene.materials.alphaTest(v, materialID, 0.0)) // TODO correct lod?   
                                 continue; // alpha test failed => ignore this triangle
                         }
-                        //if (frontFace) // for rasterizer compability (since backfaces are invisible)
-                        {
-                            tFirstFaceInside = min(tFirstFaceInside, t);
-                            rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
-                        }
+
+                        tFirstFaceInside = min(tFirstFaceInside, t);
+                        rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
                     }                        
                     
                 } // RAY QUERY WHILE
 
-                float tFinalHit = tLastFrontFaceOutside;
+                float tFinalHit = tLastFaceOutside;
                 if (occlusionStack <= 0)
                     tFinalHit = tFirstFaceInside;
 
-                // calc updated NdotW
-                NdotW = max(0, dot(normalW, ray.Origin + tFinalHit * ray.Direction - posW));
-                if (tFinalHit >= tSphereEnd)
-                    NdotW = 0.0;
-                gInstanceIDOut[uint3(XY, sampleIndex)] = 1;
-                gRayDepth[uint3(XY, sampleIndex)] = tFinalHit / orthoToRayFactor / gData.radius;
-                //gRayDepth[uint3(XY, sampleIndex)] = occlusionStack;
-                //NdotW = 1.0;
-                // TODO debug occlusion stack
-                //if (occlusionStack > 0)
-                //    NdotW = 1.0;
+                gRayDepth[uint3(XY, sampleIndex)] = (initialSampleT - tFinalHit) / gData.radius;
+                float3 hitV = mul(float4(ray.Origin + ray.Direction * tFinalHit, 1.0), gCamera.data.viewMat).xyz; 
+                float3 P = normalize(hitV - posV);
+                float alpha = 1 - max(dot(normalV, P), 0.0);
+
+                if (tFinalHit > sphereStartEnd.y) // intersection behind the sphere (assume not occluded)
+                {
+                    continue;
+                }
+                visibility += 1 - alpha;
+
             }
-
-            visibility += (1.0 - saturate(NdotW));
-
+            
         }
     }
 
@@ -392,6 +403,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     float AO = visibility / float(NUM_DIRECTIONS * NUM_STEPS);
 
     AO = saturate(AO);
+    AO = 1 - AO;
     //AO = saturate(2 * AO - 1);
 
     // do artistic modifications
