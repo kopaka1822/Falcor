@@ -98,7 +98,7 @@ Texture2D<float> gNoiseTex;
 RWTexture2DArray<float> gRasterDepth;
 RWTexture2DArray<float> gRayDepth;
 RWTexture2DArray<uint> gInstanceIDOut;
-
+RWTexture2D<uint> gInScreen; // 1 if all samples were in screen, 0 otherwise (raytracing is enforced for outside of screen samples)
 
 
 static int gRaysTraced = 0;
@@ -228,7 +228,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     // can be used to determine on which side of the sampling plane
     // TODO i think this needs to be done with the sampling plane instead of V...
     float3 halfspacePlane = cross(normalV, cross(V, normalV));
-    
+
+    int isInScreenCount = 1; // assume all samples are in the screen, will be overwritten if the opposite occurs
     float visibility = 0.0f;
     //uint zCurveIndex = ZCurveToLinearIndex(uint2(svPos.xy));
     //uint i = (zCurveIndex + (frameIndex)) % KERNEL_SIZE; // JenkinsHash
@@ -241,8 +242,6 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         [unroll] for (int step = 0; step < NUM_STEPS; ++step)
         {
             const uint sampleIndex = i * NUM_STEPS + step;
-
-            float curVisibility = 1.0f;
             
             // calc 's' sampling pos
             float2 s = direction * (step + 0.5 + randJitter) / (NUM_STEPS + 1); // TODO add jitter
@@ -275,6 +274,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             // clip sample position uv and snap to pixel center
             float2 screenUv = saturate(samplePosUV); // clip to screen border
             const bool isInScreen = all(samplePosUV == screenUv);
+            if (!isInScreen) isInScreenCount = 0; // remember for sample evaluation with ML
             bool requireRay = !isInScreen;
             float2 rasterSamplePosUV = getSnappedUV(screenUv);
 
@@ -297,10 +297,10 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float alpha = 1 - max(dot(normalV, P), 0.0);
             
             
-            
+            float curVisibility = 1.0;
             if (hitT > sphereStartEnd.y) // intersection behind the sphere (assume not occluded)
             {
-                continue;
+                // do nothing
             }
             else if(hitT < sphereStartEnd.x)
             {
@@ -308,7 +308,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             }
             else
             {
-                visibility += 1 - alpha;
+                // evalulate inside 
+                curVisibility = alpha;
             }
 
             //requireRay = true;
@@ -385,25 +386,27 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 float3 hitV = mul(float4(ray.Origin + ray.Direction * tFinalHit, 1.0), gCamera.data.viewMat).xyz; 
                 float3 P = normalize(hitV - posV);
                 float alpha = 1 - max(dot(normalV, P), 0.0);
-
+                curVisibility = alpha;
+                
                 if (tFinalHit > sphereStartEnd.y) // intersection behind the sphere (assume not occluded)
                 {
-                    continue;
+                    curVisibility = 1.0;
                 }
-                visibility += 1 - alpha;
-
             }
+
+            visibility += curVisibility;
             
         }
     }
 
     //float meanAO = (visibility - gRaysTraced) / max(1, NUM_DIRECTIONS * NUM_STEPS - gRaysTraced);
     //visibility += meanAO * gRaysTraced - 1.0 * gRaysTraced;
+
+    gInScreen[XY] = isInScreenCount;
     
     float AO = visibility / float(NUM_DIRECTIONS * NUM_STEPS);
 
     AO = saturate(AO);
-    AO = 1 - AO;
     //AO = saturate(2 * AO - 1);
 
     // do artistic modifications
