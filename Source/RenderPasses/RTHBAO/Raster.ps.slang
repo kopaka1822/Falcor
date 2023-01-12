@@ -285,7 +285,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             }*/
             
             float3 hitV = UVToViewSpace(rasterSamplePosUV, gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0));
-            float hitT = length(hitV); // distance to camera origin (origin is 0 because of view space)
+            float hitT = min(length(hitV), gCamera.data.farZ); // distance to camera origin (origin is 0 because of view space)
             gRasterDepth[uint3(XY, sampleIndex)] = (initialSampleT - hitT) / gData.radius;
             gRayDepth[uint3(XY, sampleIndex)] = (initialSampleT - hitT) / gData.radius;
             gInstanceIDOut[uint3(XY, sampleIndex)] = gInstanceID[UVToPixel(rasterSamplePosUV)];
@@ -312,7 +312,9 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 curVisibility = alpha;
             }
 
-            //requireRay = true;
+            //if (hitT < sphereStartEnd.y)
+            //    curVisibility = alpha;
+            requireRay = true;
             //requireRay = false;
 
             if (DEPTH_MODE == DEPTH_MODE_RAYTRACED && requireRay)
@@ -351,7 +353,21 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
                     bool isAlphaTested = header.getAlphaMode() == AlphaMode::Mask;
                     frontFace = frontFace || isAlphaTested || header.isDoubleSided();
+
+                    /*if(frontFace) // for testing if the results between ray and raster are identical
+                    {
+                        if (isAlphaTested)
+                        {
+                            const VertexData v = gScene.getVertexData(hit);
+                            if (gScene.materials.alphaTest(v, materialID, 0.0)) // TODO correct lod?   
+                                continue; // alpha test failed => ignore this triangle
+                        }
                         
+                        tLastFaceOutside = t;
+                        occlusionStack = 1;
+                        rayQuery.CommitNonOpaqueTriangleHit();
+                    }*/
+                    
                     if(t < sphereStartEnd.x) // in front of the sphere
                     {
                         // intersection in front of the trusted area
@@ -374,7 +390,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
                         tFirstFaceInside = min(tFirstFaceInside, t);
                         rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
-                    }                        
+                    }                
                     
                 } // RAY QUERY WHILE
 
