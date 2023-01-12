@@ -85,7 +85,8 @@ GBufferPSOut psMain(VSOut vsOut, uint triangleIndex : SV_PrimitiveID, float3 bar
     let lod = ImplicitLodTextureSampler();
 
 #if USE_ALPHA_TEST
-    if (gScene.materials.alphaTest(v, vsOut.materialID, lod)) discard;
+    // explicit lod to get the same results as the ray tracer
+    if (gScene.materials.alphaTest(v, vsOut.materialID, ExplicitLodTextureSampler(0.0))) discard;
 #endif
     const float3 viewDir = normalize(gScene.camera.getPosition() - v.posW);
     ShadingData sd = gScene.materials.prepareShadingData(v, vsOut.materialID, viewDir, lod);
