@@ -8,6 +8,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn import tree
 from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
 
 NUM_DIRECTIONS = 8
 NUM_STEPS = 4
@@ -17,14 +18,20 @@ NUM_SAMPLES = NUM_DIRECTIONS * NUM_STEPS
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # TODO load from file?
-raster = np.load('raster.npy')
-ray = np.load('ray.npy')
+
+raster = np.load('raster_train.npy')
+ray = np.load('ray_train.npy')
+print("length of input data: ", len(raster))
+
+raster_validation = np.load('raster_validation.npy')
+ray_validation = np.load('ray_validation.npy')
 #pixelXY = np.load('pixelXY.npy')
 
 
 
 def inspectSample(i):
-	print("length of input data: ", len(raster))
+
+	print(f"--------- SAMPLE {i} -------------------------------------------------")
 
 	# filter data
 	filter = [r[i] > 1.0 for r in raster]
@@ -32,25 +39,48 @@ def inspectSample(i):
 	rasterf = raster[filter]
 	print("length of filtered data: ", len(rasterf))
 
+	# filter validation set
+	filter = [r[i] > 1.0 for r in raster_validation]
+	ray_validationf = ray_validation[filter]
+	raster_validationf = raster_validation[filter]
+
 	different = [rayf[j, i] < rasterf[j, i] for j in range(len(rayf))]
+	print(f"different: {different.count(True)} / {len(different)}")
+
+	different_validation = [ray_validationf[j, i] < raster_validationf[j, i] for j in range(len(ray_validationf))]
 
 	# split rasterf and different into training and test data
 	x_train, x_test, y_train, y_test = train_test_split(rasterf, different, test_size=0.2, random_state=0)
 
 	# train decision tree classifier
-	clf = tree.DecisionTreeClassifier(random_state=0)
+	#clf = tree.DecisionTreeClassifier(random_state=0) # TODO random forest?
+	clf = RandomForestClassifier(
+		random_state=0, 
+		n_estimators=100, 
+		#max_features=None, # all features
+		bootstrap=False,
+		#class_weight={True: 1, False: 100}, # increase false weight to punish false negatives (non-raytraced samples that need to be ray traced) => higher image quality but less performance
+		#max_depth=10,
+		n_jobs=-1)
 	clf = clf.fit(x_train, y_train)
 
 	# predict test data
 	y_pred = clf.predict(x_test)
-	# print accuracy
-	print("accuracy: ", np.count_nonzero(y_pred == y_test) / len(y_test))
-
-	# print confusion matrix
-	print("confusion matrix:")
+	# print test set stats
+	print("accuracy test: ", np.count_nonzero(y_pred == y_test) / len(y_test))
+	print("confusion matrix test:")
 	print(confusion_matrix(y_test, y_pred))
 
-	tree_importance = clf.tree_.compute_feature_importances(normalize=True)
+	# print validation set stats
+	y_pred = clf.predict(raster_validationf)
+	print("accuracy validation: ", np.count_nonzero(y_pred == different_validation) / len(different_validation))
+	print("confusion matrix validation:")
+	print(confusion_matrix(different_validation, y_pred))
+
+	#tree_importance = clf.tree_.compute_feature_importances(normalize=True)
+	#tree_importance = clf.tree_.compute_feature_importances(normalize=True)
+	tree_importance = clf.feature_importances_
+	#tree_importance = sum([tree.feature_importances_ for tree in clf.estimators_])
 	# write feature importances to numpy 2d array for visualization
 	importance = np.zeros((9, 9))
 	importance[3, 4] = tree_importance[0]
@@ -87,12 +117,12 @@ def inspectSample(i):
 	importance[0, 0] = tree_importance[31]
 	# save numpy array in file
 	np.save("importance" + str(i) + ".npy", importance)
-
+	print("----------------------------------------------------------------")
 	#tree.plot_tree(clf)
 	#plt.show()
 
 
+inspectSample(3)
 
-
-for i in range(NUM_SAMPLES):
-	inspectSample(i)
+#for i in range(NUM_SAMPLES):
+#	inspectSample(i)

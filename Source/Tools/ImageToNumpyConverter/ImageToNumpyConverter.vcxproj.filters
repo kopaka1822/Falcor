@@ -19,5 +19,8 @@
     <ClInclude Include="npy.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="convert_to_numpy.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

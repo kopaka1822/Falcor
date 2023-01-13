@@ -41,7 +41,6 @@
 #include <iterator>
 #include <utility>
 
-
 namespace npy {
 
     /* Compile-time test for byte order.
@@ -90,7 +89,7 @@ namespace npy {
         inline std::string str() const {
             const size_t max_buflen = 16;
             char buf[max_buflen];
-            std::snprintf(buf, max_buflen, "%c%c%u", byteorder, kind, itemsize);
+            snprintf(buf, max_buflen, "%c%c%u", byteorder, kind, itemsize);
             return std::string(buf);
         }
 

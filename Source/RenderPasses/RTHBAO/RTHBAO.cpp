@@ -31,6 +31,8 @@
 
 #include "../SSAO/scissors.h"
 
+#include "../Tools/ImageToNumpyConverter/convert_to_numpy.h"
+
 const RenderPass::Info RTHBAO::kInfo { "RTHBAO", "Screen-space ambient occlusion based on HBAO+ with ray tracing" };
 
 // Don't remove this. it's required for hot-reload to function properly
@@ -269,11 +271,16 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
             // write sample information
             pInternalRasterDepth->captureToFile(0, -1, "raster.dds", Bitmap::FileFormat::DdsFile);
             pInternalRayDepth->captureToFile(0, -1, "ray.dds", Bitmap::FileFormat::DdsFile);
-            pInternalInstanceID->captureToFile(0, -1, "instance.dds", Bitmap::FileFormat::DdsFile);
+            //pInternalInstanceID->captureToFile(0, -1, "instance.dds", Bitmap::FileFormat::DdsFile);
             pInternalInScreen->captureToFile(0, -1, "inScreen.dds", Bitmap::FileFormat::DdsFile);
 
             // write pixel information
-            pInstanceID->captureToFile(0, -1, "instance_center.dds", Bitmap::FileFormat::DdsFile);
+            //pInstanceID->captureToFile(0, -1, "instance_center.dds", Bitmap::FileFormat::DdsFile);
+
+            // convert to numpy
+            static int curIndex = 0;
+            convert_to_numpy("raster.dds", "ray.dds", "inScreen.dds", curIndex++);
+
             mSaveDepths = false;
         }
     }

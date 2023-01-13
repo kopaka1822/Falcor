@@ -142,6 +142,7 @@
     <ClCompile Include="ImageToNumpyConverter.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="convert_to_numpy.h" />
     <ClInclude Include="npy.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
