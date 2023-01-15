@@ -3,10 +3,13 @@
 #include "npy.h"
 #include <iostream>
 
-void convert_to_numpy(std::string raster_image, std::string ray_image, std::string inScreen, int index = 0)
+void convert_to_numpy(std::string raster_image, std::string ray_image, std::string inScreen, std::string sphere_start, int index = 0)
 {
+    static constexpr bool useSphereStart = true;
+
     gli::texture2d_array texRaster(gli::load(raster_image));
     gli::texture2d_array texRay(gli::load(ray_image));
+    gli::texture2d_array texSphereStart(gli::load(sphere_start));
     //gli::texture2d_array texInstances(gli::load(argv[3]));
     //gli::texture2d_array texCurInstance(gli::load(argv[4]));
     gli::texture2d_array texInScreen(gli::load(inScreen));
@@ -23,12 +26,14 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     // prepare data in float vector
     std::vector<float> rasterSamples;
     std::vector<float> raySamples;
+    std::vector<float> sphereStartSamples;
     //std::vector<int> sameInstance; // 1 if raster sample instance is same as pixel center
     //std::vector<int> rasterInstanceDiffs; // 0 if both neighbors are same instance, 1 if only one is same instance, 2 if both are different instances
     std::vector<int> pixelXY; // x,y coordinates of pixel
     //std::vector<int> numInvalid; // number of invalid samples
     rasterSamples.reserve(width * height * nSamples);
     raySamples.reserve(width * height * nSamples);
+    sphereStartSamples.reserve(width * height * nSamples);
     //sameInstance.reserve(width * height * nSamples);
     //rasterInstanceDiffs.reserve(width * height * nSamples);
     pixelXY.reserve(width * height * 2);
@@ -37,6 +42,8 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     raster.resize(nSamples);
     std::vector<float> ray;
     ray.resize(nSamples);
+    std::vector<float> sphereStart;
+    sphereStart.resize(nSamples);
     //std::vector<uint32_t> instances;
     //instances.resize(nSamples);
 
@@ -45,7 +52,6 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     //auto fetchInt = gli::detail::convert<gli::texture2d_array, float, gli::defaultp>::call(texInstances.format()).Fetch;
     auto fetchBool = gli::detail::convert<gli::texture2d_array, float, gli::defaultp>::call(texInScreen.format()).Fetch;
     int nTrivial = 0;
-    int nEmpty = 0;
     int nOutsideScreen = 0;
     int dubiousSamples = 0;
     float equalityThreshold = 0.01; // assume ray and raster are equal when the values are within this threshold (reduce noise in training data)
@@ -61,23 +67,19 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
             continue;
         }
 
+        bool trivial = true; // assume trivial (all raster samples are within range)
         // obtain sample data
         for (size_t i = 0; i < nSamples; ++i)
         {
             raster[i] = fetch(texRaster, gli::extent2d(x, y), i, 0, 0).r;
             ray[i] = fetch(texRay, gli::extent2d(x, y), i, 0, 0).r;
+            sphereStart[i] = fetch(texSphereStart, gli::extent2d(x, y), i, 0, 0).r;
             //instances[i] = (uint32_t)fetchInt(texInstances, gli::extent2d(x, y), i, 0, 0).r;
+            if (useSphereStart && raster[i] > sphereStart[i]) trivial = false; // raster is outside of range (not trivial)
+            if (!useSphereStart && raster[i] > 1.0f) trivial = false;
         }
 
-        // skip pure zero entries (background)
-        if (std::all_of(raster.begin(), raster.end(), [](float f) { return f == 0.0f; }))
-        {
-            nEmpty++;
-            continue;
-        }
-
-        // check if trivial sample
-        if (std::all_of(raster.begin(), raster.end(), [](float f) { return f <= 1.0f; }))
+        if(trivial)
         {
             nTrivial++;
             continue;
@@ -107,6 +109,7 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
         // write to raster data and ray data
         rasterSamples.insert(rasterSamples.end(), raster.begin(), raster.end());
         raySamples.insert(raySamples.end(), ray.begin(), ray.end());
+        sphereStartSamples.insert(sphereStartSamples.end(), sphereStart.begin(), sphereStart.end());
         pixelXY.push_back(x);
         pixelXY.push_back(y);
 
@@ -129,7 +132,6 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     // print out number of all samples, empty samples and skipped samples
     auto nRemainingSamples = pixelXY.size() / 2;
     std::cout << "Total samples: " << width * height << std::endl;
-    std::cout << "Empty samples: " << nEmpty << std::endl;
     std::cout << "Trivial samples: " << nTrivial << std::endl;
     std::cout << "Outside screen samples: " << nOutsideScreen << std::endl;
     std::cout << "Dubious samples (ray > raster): " << dubiousSamples << std::endl;
@@ -141,6 +143,7 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     unsigned long shape[] = { (unsigned long)nRemainingSamples, (unsigned long)nSamples }; // shape = rows, columns
     npy::SaveArrayAsNumpy("raster" + strIndex + ".npy", false, 2, shape, rasterSamples);
     npy::SaveArrayAsNumpy("ray" + strIndex + ".npy", false, 2, shape, raySamples);
+    npy::SaveArrayAsNumpy("sphereStart" + strIndex + ".npy", false, 2, shape, sphereStartSamples);
 
     //npy::SaveArrayAsNumpy("sameInstance.npy", false, 2, shape, sameInstance);
     //npy::SaveArrayAsNumpy("rasterInstanceDiffs.npy", false, 2, shape, rasterInstanceDiffs);

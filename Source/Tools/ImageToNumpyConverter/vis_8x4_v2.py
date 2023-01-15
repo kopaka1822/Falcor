@@ -21,10 +21,12 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 raster = np.load('raster_train.npy')
 ray = np.load('ray_train.npy')
+sphereStart = np.load('sphereStart_train.npy')
 print("length of input data: ", len(raster))
 
 raster_validation = np.load('raster_validation.npy')
 ray_validation = np.load('ray_validation.npy')
+sphereStart_validation = np.load('sphereStart_validation.npy')
 #pixelXY = np.load('pixelXY.npy')
 
 
@@ -34,13 +36,13 @@ def inspectSample(i):
 	print(f"--------- SAMPLE {i} -------------------------------------------------")
 
 	# filter data
-	filter = [r[i] > 1.0 for r in raster]
+	filter = [raster[j, i] > sphereStart[j, i] for j in range(len(raster))]
 	rayf = ray[filter]
 	rasterf = raster[filter]
 	print("length of filtered data: ", len(rasterf))
 
 	# filter validation set
-	filter = [r[i] > 1.0 for r in raster_validation]
+	filter = [raster_validation[j, i] > sphereStart_validation[j, i] for j in range(len(raster_validation))]
 	ray_validationf = ray_validation[filter]
 	raster_validationf = raster_validation[filter]
 
@@ -58,7 +60,8 @@ def inspectSample(i):
 		random_state=0, 
 		n_estimators=100, 
 		#max_features=None, # all features
-		bootstrap=False,
+		bootstrap=True,
+		max_samples=300000, # 300k samples
 		#class_weight={True: 1, False: 100}, # increase false weight to punish false negatives (non-raytraced samples that need to be ray traced) => higher image quality but less performance
 		#max_depth=10,
 		n_jobs=-1)
@@ -122,7 +125,7 @@ def inspectSample(i):
 	#plt.show()
 
 
-#inspectSample(3)
+inspectSample(3)
 
-for i in range(NUM_SAMPLES):
-	inspectSample(i)
+#for i in range(NUM_SAMPLES):
+#	inspectSample(i)

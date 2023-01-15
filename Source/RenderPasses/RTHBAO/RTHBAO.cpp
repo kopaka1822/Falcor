@@ -84,6 +84,7 @@ namespace
     const std::string kInternalRayDepth = "iRayDepth";
     const std::string kInternalInstanceID = "iInstanceID";
     const std::string kInternalInScreen = "iInScreen";
+    const std::string kInternalSphereStart = "iSphereStart";
 
     const std::string kSSAOShader = "RenderPasses/RTHBAO/Raster.ps.slang";
 
@@ -157,6 +158,8 @@ RenderPassReflection RTHBAO::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Uint);
     reflector.addInternal(kInternalInScreen, "internal in screen").texture2D()
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Uint);
+    reflector.addInternal(kInternalSphereStart, "internal sphere start").texture2D(0, 0, 1, 1, numSamples)
+        .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R32Float);
 
     return reflector;
 }
@@ -193,6 +196,7 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
     auto pInternalRayDepth = renderData[kInternalRayDepth]->asTexture();
     auto pInternalInstanceID = renderData[kInternalInstanceID]->asTexture();
     auto pInternalInScreen = renderData[kInternalInScreen]->asTexture();
+    auto pInternalSphereStart = renderData[kInternalSphereStart]->asTexture();
 
     auto pCamera = mpScene->getCamera().get();
     //renderData["k"]->asBuffer();
@@ -222,6 +226,7 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
             mpSSAOPass["gRayDepth"] = pInternalRayDepth;
             mpSSAOPass["gInstanceIDOut"] = pInternalInstanceID;
             mpSSAOPass["gInScreen"] = pInternalInScreen;
+            mpSSAOPass["gSphereStart"] = pInternalSphereStart;
         }
 
         if (mDirty)
@@ -256,7 +261,8 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
 
         // clear uav targets
         pRenderContext->clearTexture(pInternalRasterDepth.get());
-        pRenderContext->clearTexture(pInternalRayDepth->asTexture().get());
+        pRenderContext->clearTexture(pInternalRayDepth.get());
+        pRenderContext->clearTexture(pInternalSphereStart.get());
         //pRenderContext->clearTexture(pInternalInstanceID->asTexture().get());
         pRenderContext->clearUAV(pInternalInstanceID->asTexture()->getUAV().get(), uint4(0));
         pRenderContext->clearUAV(pInternalInScreen->asTexture()->getUAV().get(), uint4(0));
@@ -271,6 +277,7 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
             // write sample information
             pInternalRasterDepth->captureToFile(0, -1, "raster.dds", Bitmap::FileFormat::DdsFile);
             pInternalRayDepth->captureToFile(0, -1, "ray.dds", Bitmap::FileFormat::DdsFile);
+            pInternalSphereStart->captureToFile(0, -1, "sphere.dds", Bitmap::FileFormat::DdsFile);
             //pInternalInstanceID->captureToFile(0, -1, "instance.dds", Bitmap::FileFormat::DdsFile);
             pInternalInScreen->captureToFile(0, -1, "inScreen.dds", Bitmap::FileFormat::DdsFile);
 
@@ -279,7 +286,7 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
 
             // convert to numpy
             static int curIndex = 0;
-            convert_to_numpy("raster.dds", "ray.dds", "inScreen.dds", curIndex++);
+            convert_to_numpy("raster.dds", "ray.dds", "inScreen.dds", "sphere.dds", curIndex++);
 
             mSaveDepths = false;
         }

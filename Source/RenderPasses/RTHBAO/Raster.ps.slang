@@ -99,7 +99,7 @@ RWTexture2DArray<float> gRasterDepth;
 RWTexture2DArray<float> gRayDepth;
 RWTexture2DArray<uint> gInstanceIDOut;
 RWTexture2D<uint> gInScreen; // 1 if all samples were in screen, 0 otherwise (raytracing is enforced for outside of screen samples)
-
+RWTexture2DArray<float> gSphereStart;
 
 static int gRaysTraced = 0;
 static int gInvalid = 0;
@@ -287,6 +287,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float3 hitV = UVToViewSpace(rasterSamplePosUV, gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0));
             float hitT = min(length(hitV), gCamera.data.farZ); // distance to camera origin (origin is 0 because of view space)
             gRasterDepth[uint3(XY, sampleIndex)] = (initialSampleT - hitT) / gData.radius;
+            gSphereStart[uint3(XY, sampleIndex)] = (initialSampleT - sphereStartEnd.x) / gData.radius;
             gRayDepth[uint3(XY, sampleIndex)] = (initialSampleT - hitT) / gData.radius;
             gInstanceIDOut[uint3(XY, sampleIndex)] = gInstanceID[UVToPixel(rasterSamplePosUV)];
             
@@ -303,6 +304,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 // do nothing
             }
             else if(hitT < sphereStartEnd.x)
+            //else if ((initialSampleT - hitT) > gData.radius)
             {
                 requireRay = true;
             }
