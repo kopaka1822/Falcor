@@ -61,7 +61,7 @@ def inspectSample(i):
 		n_estimators=100, 
 		#max_features=None, # all features
 		bootstrap=True,
-		max_samples=300000, # 300k samples
+		max_samples=min(900000, len(x_train)), # 900k samples
 		#class_weight={True: 1, False: 100}, # increase false weight to punish false negatives (non-raytraced samples that need to be ray traced) => higher image quality but less performance
 		#max_depth=10,
 		n_jobs=-1)
@@ -125,7 +125,7 @@ def inspectSample(i):
 	#plt.show()
 
 
-inspectSample(3)
+#inspectSample(3)
 
-#for i in range(NUM_SAMPLES):
-#	inspectSample(i)
+for i in range(NUM_SAMPLES):
+	inspectSample(i)
