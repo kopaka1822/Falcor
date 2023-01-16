@@ -125,7 +125,7 @@ def inspectSample(i):
 	#plt.show()
 
 
-#inspectSample(3)
+inspectSample(3)
 
-for i in range(NUM_SAMPLES):
-	inspectSample(i)
+#for i in range(NUM_SAMPLES):
+#	inspectSample(i)
