@@ -131,5 +131,5 @@ def inspectSample(i):
 
 #inspectSample(7)
 
-for i in range(NUM_SAMPLES):
+for i in range(24, NUM_SAMPLES):
 	inspectSample(i)
