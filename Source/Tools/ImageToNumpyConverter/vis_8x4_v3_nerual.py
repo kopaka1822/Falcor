@@ -77,20 +77,22 @@ def inspectSample(i):
 	# build neural network
 	model = keras.Sequential()
 	model.add(keras.Input(shape=(NUM_SAMPLES,)))
-	model.add(keras.layers.Dense(64, activation='relu')) # try linear activation
-	model.add(keras.layers.Dense(64, activation='relu')) # try linear activation
-	model.add(keras.layers.Dense(64, activation='relu')) # try linear activation
-	model.add(keras.layers.Dense(64, activation='relu')) # try linear activation
+	model.add(keras.layers.Dense(64, activation='sigmoid')) 
+	model.add(keras.layers.Dense(64, activation='sigmoid')) 
+	model.add(keras.layers.Dense(64, activation='sigmoid')) 
+	model.add(keras.layers.Dense(64, activation='sigmoid')) 
 	model.add(keras.layers.Dense(1, activation='sigmoid')) # single output
-	model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+	#model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+	#model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.TruePositives()])
+	model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.PrecisionAtRecall(0.75)]) # 75% of ray tracing samples are found (at most 25% image error)
 
 	# train neural network
-	model.fit(train_data, epochs=15, verbose=1, validation_data=validation_data, use_multiprocessing=True, workers=24)
+	model.fit(train_data, epochs=10, verbose=1, validation_data=validation_data) # , class_weight={0: 1.0, 1: 10.0}
 
 	# predict test data
 	y_pred = np.array([floatToBool(f) for f in model.predict(x_test)])
 	# print test set stats
-	tmp = y_pred == y_test
+	
 	print("accuracy test: ", np.count_nonzero(y_pred == y_test) / len(y_test))
 	print("confusion matrix test:")
 	print(confusion_matrix(y_test, y_pred))

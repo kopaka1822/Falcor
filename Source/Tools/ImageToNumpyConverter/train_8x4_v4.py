@@ -29,7 +29,19 @@ ray_validation = np.load('ray_validation.npy')
 sphereStart_validation = np.load('sphereStart_validation.npy')
 #pixelXY = np.load('pixelXY.npy')
 
-
+def getSampleMask(i):
+	# divide i by 4 with integer division
+	i = i // 4
+	if i == 0 or i == 4:
+		return np.array([True, True, True, True, False, False, False, False, False, False, False, False, False, False, False, False, True, True, True, True, False, False, False, False, False, False, False, False, False, False, False, False])
+	elif i == 1 or i == 5:
+		return np.array([False, False, False, False, True, True, True, True, False, False, False, False, False, False, False, False, False, False, False, False, True, True, True, True, False, False, False, False, False, False, False, False])
+	elif i == 2 or i == 6:
+		return np.array([False, False, False, False, False, False, False, False, True, True, True, True, False, False, False, False, False, False, False, False, False, False, False, False, True, True, True, True, False, False, False, False])
+	elif i == 3 or i == 7:
+		return np.array([False, False, False, False, False, False, False, False, False, False, False, False, True, True, True, True, False, False, False, False, False, False, False, False, False, False, False, False, True, True, True, True])
+	return None
+	
 
 def inspectSample(i):
 
@@ -49,9 +61,15 @@ def inspectSample(i):
 	raster_validationf = raster_validation[filter]
 
 	different = [rayf[j, i] < rasterf[j, i] for j in range(len(rayf))]
-	print(f"different: {different.count(True)} / {len(different)}")
+	print(f"different: {different.count(True)} / {len(different)} ({round(different.count(True) / len(different) * 100)}%)")
 
 	different_validation = [ray_validationf[j, i] < raster_validationf[j, i] for j in range(len(ray_validationf))]
+
+	# filter raster further to only include the sample mask
+	# convert 32 input samples to 8 input samples (straight line only)
+	sample_mask = getSampleMask(i)
+	rasterf = rasterf[:, sample_mask]
+	raster_validationf = raster_validationf[:, sample_mask]
 
 	# split rasterf and different into training and test data
 	x_train, x_test, y_train, y_test = train_test_split(rasterf, different, test_size=0.2, random_state=0)
@@ -71,7 +89,7 @@ def inspectSample(i):
 			n_estimators=100, 
 			#max_features=None, # all features
 			bootstrap=True,
-			max_samples=min(300000, len(x_train)), # 900k samples
+			max_samples=min(3000000, len(x_train)), # 3m samples
 			#class_weight={True: 1, False: 100}, # increase false weight to punish false negatives (non-raytraced samples that need to be ray traced) => higher image quality but less performance
 			#max_depth=10,
 			n_jobs=-1)
@@ -84,52 +102,26 @@ def inspectSample(i):
 	# print test set stats
 	print("accuracy test: ", np.count_nonzero(y_pred == y_test) / len(y_test))
 	print("confusion matrix test:")
-	print(confusion_matrix(y_test, y_pred))
+	cm = confusion_matrix(y_test, y_pred)
+	print(cm)
+	print("Recall: ", cm[1, 1] / (cm[1, 1] + cm[1, 0]))
 
 	# print validation set stats
 	y_pred = clf.predict(raster_validationf)
 	print("accuracy validation: ", np.count_nonzero(y_pred == different_validation) / len(different_validation))
 	print("confusion matrix validation:")
-	print(confusion_matrix(different_validation, y_pred))
+	cm = confusion_matrix(different_validation, y_pred)
+	print(cm)
+	print("Recall: ", cm[1, 1] / (cm[1, 1] + cm[1, 0]))
 
 	#tree_importance = clf.tree_.compute_feature_importances(normalize=True)
 	#tree_importance = clf.tree_.compute_feature_importances(normalize=True)
 	tree_importance = clf.feature_importances_
 	#tree_importance = sum([tree.feature_importances_ for tree in clf.estimators_])
 	# write feature importances to numpy 2d array for visualization
-	importance = np.zeros((9, 9))
-	importance[3, 4] = tree_importance[0]
-	importance[2, 4] = tree_importance[1]
-	importance[1, 4] = tree_importance[2]
-	importance[0, 4] = tree_importance[3]
-	importance[3, 5] = tree_importance[4]
-	importance[2, 6] = tree_importance[5]
-	importance[1, 7] = tree_importance[6]
-	importance[0, 8] = tree_importance[7]
-	importance[4, 5] = tree_importance[8]
-	importance[4, 6] = tree_importance[9]
-	importance[4, 7] = tree_importance[10]
-	importance[4, 8] = tree_importance[11]
-	importance[5, 5] = tree_importance[12]
-	importance[6, 6] = tree_importance[13]
-	importance[7, 7] = tree_importance[14]
-	importance[8, 8] = tree_importance[15]
-	importance[5, 4] = tree_importance[16]
-	importance[6, 4] = tree_importance[17]
-	importance[7, 4] = tree_importance[18]
-	importance[8, 4] = tree_importance[19]
-	importance[5, 3] = tree_importance[20]
-	importance[6, 2] = tree_importance[21]
-	importance[7, 1] = tree_importance[22]
-	importance[8, 0] = tree_importance[23]
-	importance[4, 3] = tree_importance[24]
-	importance[4, 2] = tree_importance[25]
-	importance[4, 1] = tree_importance[26]
-	importance[4, 0] = tree_importance[27]
-	importance[3, 3] = tree_importance[28]
-	importance[2, 2] = tree_importance[29]
-	importance[1, 1] = tree_importance[30]
-	importance[0, 0] = tree_importance[31]
+	importance = np.zeros(len(tree_importance))
+	for i in range(len(tree_importance)):
+		importance[i] = tree_importance[i]
 	# save numpy array in file
 	np.save("importance" + str(i) + ".npy", importance)
 	print("----------------------------------------------------------------")
@@ -137,7 +129,7 @@ def inspectSample(i):
 	#plt.show()
 
 
-#inspectSample(3)
+#inspectSample(7)
 
 for i in range(NUM_SAMPLES):
 	inspectSample(i)

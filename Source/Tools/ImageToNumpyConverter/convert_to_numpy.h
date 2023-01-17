@@ -6,6 +6,7 @@
 void convert_to_numpy(std::string raster_image, std::string ray_image, std::string inScreen, std::string sphere_start, int index = 0)
 {
     static constexpr bool useSphereStart = true;
+    static constexpr bool useDubiousSamples = true; // false for training, true for evaluation
 
     gli::texture2d_array texRaster(gli::load(raster_image));
     gli::texture2d_array texRay(gli::load(ray_image));
@@ -100,11 +101,10 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
                 dubiousSamples++;
                 //std::cout << "doubious sample at: " << x << ", " << y << " id: " << i << " diff: " << ray[i] - raster[i] << '\n';
                 isDubious = true;
-                break;
             }
         }
 
-        if (isDubious) continue; // less noise in training data
+        if (isDubious && !useDubiousSamples) continue; // less noise in training data
 
         // write to raster data and ray data
         rasterSamples.insert(rasterSamples.end(), raster.begin(), raster.end());
@@ -151,6 +151,6 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     //npy::SaveArrayAsNumpy("same.npy", false, 1, shape, sameAsRay);
 
     // adjust shape for pixelXY
-    //unsigned long shapeXY[] = { (unsigned long)nRemainingSamples, 2ul };
-    //npy::SaveArrayAsNumpy("pixelXY" + strIndex + ".npy", false, 2, shapeXY, pixelXY);
+    unsigned long shapeXY[] = { (unsigned long)nRemainingSamples, 2ul };
+    npy::SaveArrayAsNumpy("pixelXY" + strIndex + ".npy", false, 2, shapeXY, pixelXY);
 }
