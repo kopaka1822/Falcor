@@ -85,6 +85,8 @@ namespace
     const std::string kInternalInstanceID = "iInstanceID";
     const std::string kInternalInScreen = "iInScreen";
     const std::string kInternalSphereStart = "iSphereStart";
+    const std::string kInternalRasterAO = "iRasterAO";
+    const std::string kInternalRayAO = "iRayAO";
 
     const std::string kSSAOShader = "RenderPasses/RTHBAO/Raster.ps.slang";
 
@@ -160,6 +162,10 @@ RenderPassReflection RTHBAO::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Uint);
     reflector.addInternal(kInternalSphereStart, "internal sphere start").texture2D(0, 0, 1, 1, numSamples)
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R32Float);
+    reflector.addInternal(kInternalRasterAO, "internal raster AO").texture2D(0, 0, 1, 1, numSamples)
+        .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Unorm);
+    reflector.addInternal(kInternalRayAO, "internal ray AO").texture2D(0, 0, 1, 1, numSamples)
+        .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Unorm);
 
     return reflector;
 }
@@ -197,6 +203,8 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
     auto pInternalInstanceID = renderData[kInternalInstanceID]->asTexture();
     auto pInternalInScreen = renderData[kInternalInScreen]->asTexture();
     auto pInternalSphereStart = renderData[kInternalSphereStart]->asTexture();
+    auto pInternalRasterAO = renderData[kInternalRasterAO]->asTexture();
+    auto pInternalRayAO = renderData[kInternalRayAO]->asTexture();
 
     auto pCamera = mpScene->getCamera().get();
     //renderData["k"]->asBuffer();
@@ -227,6 +235,8 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
             mpSSAOPass["gInstanceIDOut"] = pInternalInstanceID;
             mpSSAOPass["gInScreen"] = pInternalInScreen;
             mpSSAOPass["gSphereStart"] = pInternalSphereStart;
+            mpSSAOPass["gRasterAO"] = pInternalRasterAO;
+            mpSSAOPass["gRayAO"] = pInternalRayAO;
         }
 
         if (mDirty)
@@ -263,6 +273,9 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
         pRenderContext->clearTexture(pInternalRasterDepth.get());
         pRenderContext->clearTexture(pInternalRayDepth.get());
         pRenderContext->clearTexture(pInternalSphereStart.get());
+
+        pRenderContext->clearTexture(pInternalRasterAO.get());
+        pRenderContext->clearTexture(pInternalRayAO.get());
         //pRenderContext->clearTexture(pInternalInstanceID->asTexture().get());
         pRenderContext->clearUAV(pInternalInstanceID->asTexture()->getUAV().get(), uint4(0));
         pRenderContext->clearUAV(pInternalInScreen->asTexture()->getUAV().get(), uint4(0));
@@ -280,6 +293,9 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
             pInternalSphereStart->captureToFile(0, -1, "sphere.dds", Bitmap::FileFormat::DdsFile);
             //pInternalInstanceID->captureToFile(0, -1, "instance.dds", Bitmap::FileFormat::DdsFile);
             pInternalInScreen->captureToFile(0, -1, "inScreen.dds", Bitmap::FileFormat::DdsFile);
+
+            pInternalRasterAO->captureToFile(0, -1, "rasterAO.dds", Bitmap::FileFormat::DdsFile);
+            pInternalRayAO->captureToFile(0, -1, "rayAO.dds", Bitmap::FileFormat::DdsFile);
 
             // write pixel information
             //pInstanceID->captureToFile(0, -1, "instance_center.dds", Bitmap::FileFormat::DdsFile);

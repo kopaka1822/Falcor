@@ -96,7 +96,9 @@ Texture2D<float> gNoiseTex;
 
 // outputs for ML
 RWTexture2DArray<float> gRasterDepth;
+RWTexture2DArray<float> gRasterAO;
 RWTexture2DArray<float> gRayDepth;
+RWTexture2DArray<float> gRayAO;
 RWTexture2DArray<uint> gInstanceIDOut;
 RWTexture2D<uint> gInScreen; // 1 if all samples were in screen, 0 otherwise (raytracing is enforced for outside of screen samples)
 RWTexture2DArray<float> gSphereStart;
@@ -307,6 +309,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             //else if ((initialSampleT - hitT) > gData.radius)
             {
                 requireRay = true;
+                curVisibility = alpha;
             }
             else
             {
@@ -314,6 +317,9 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 curVisibility = alpha;
             }
 
+            gRasterAO[uint3(XY, sampleIndex)] = curVisibility;
+            gRayAO[uint3(XY, sampleIndex)] = curVisibility;
+            
             //if (hitT < sphereStartEnd.y)
             //    curVisibility = alpha;
             requireRay = true;
@@ -410,6 +416,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 {
                     curVisibility = 1.0;
                 }
+
+                gRayAO[uint3(XY, sampleIndex)] = curVisibility;
             }
 
             visibility += curVisibility;
