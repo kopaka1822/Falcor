@@ -120,8 +120,8 @@ def inspectSample(i):
 	#tree_importance = sum([tree.feature_importances_ for tree in clf.estimators_])
 	# write feature importances to numpy 2d array for visualization
 	importance = np.zeros(len(tree_importance))
-	for i in range(len(tree_importance)):
-		importance[i] = tree_importance[i]
+	for j in range(len(tree_importance)):
+		importance[j] = tree_importance[j]
 	# save numpy array in file
 	np.save("importance" + str(i) + ".npy", importance)
 	print("----------------------------------------------------------------")
@@ -131,5 +131,5 @@ def inspectSample(i):
 
 #inspectSample(7)
 
-for i in range(24, NUM_SAMPLES):
+for i in range(NUM_SAMPLES):
 	inspectSample(i)
