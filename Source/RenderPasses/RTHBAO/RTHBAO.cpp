@@ -302,9 +302,14 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
 
             // convert to numpy
             static int curIndex = 0;
-            convert_to_numpy("raster.dds", "ray.dds", "inScreen.dds", "sphere.dds", curIndex++);
+            convert_to_numpy("raster.dds", "ray.dds", "inScreen.dds", "sphere.dds", "rasterAO.dds", "rayAO.dds", curIndex);
+
+            // preview final image as png
+            std::string curIndexStr = std::to_string(curIndex);
+            pAoDst->captureToFile(0, 0, "ao" + curIndexStr + ".png", Bitmap::FileFormat::PngFile);
 
             mSaveDepths = false;
+            curIndex++;
         }
     }
     else // ! enabled
