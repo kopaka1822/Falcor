@@ -10,7 +10,7 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     static constexpr size_t NUM_SAMPLES = NUM_STEPS * NUM_DIRECTIONS;
 
     // indicates if we export training data (without pixelXY information and dubious samples) or evaluation data (pixel information with all samples)
-    static constexpr bool IsTraining = false;
+    static constexpr bool IsTraining = true;
 
     static constexpr bool useSphereStart = true;
     static constexpr bool useDubiousSamples = !IsTraining; // false for training, true for evaluation

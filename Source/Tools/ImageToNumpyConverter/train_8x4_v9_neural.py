@@ -1,4 +1,4 @@
-# idea: take all 32 samples but train only 4 estimators (one for each step)
+# idea: train logistic regression on all 32 samples
 
 import numpy as np
 import os
@@ -11,12 +11,20 @@ from sklearn.pipeline import Pipeline
 from sklearn import tree
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.svm import LinearSVC
+from sklearn.ensemble import BaggingClassifier
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.model_selection import RandomizedSearchCV
+import tensorflow as tf
+from tensorflow import keras
 import pickle
 
 NUM_DIRECTIONS = 8
 NUM_STEPS = 4
 NUM_SAMPLES = NUM_DIRECTIONS * NUM_STEPS
-CLEAR_FILE = True # clears cached files
+CLEAR_FILE = False # clears cached files
 
 # set current directory as working directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -36,11 +44,23 @@ for i in range(NUM_STEPS):
 	raster_validation[i] = np.load(f'eval/raster_eval{i}_0.npy')
 	required_validation[i] = np.load(f'eval/required_eval{i}_0.npy').reshape(-1)
 
+def build_net(n_hidden = 1, n_neurons = 32, learning_rate=3e-3):
+	model = keras.models.Sequential()
+	model.add(keras.Input(shape=(NUM_SAMPLES,)))
+	for layer in range(n_hidden):
+		model.add(keras.layers.Dense(n_neurons, activation="selu", kernel_initializer="lecun_normal"))
+	# final layer for binary classification
+	model.add(keras.layers.Dense(1, activation="sigmoid"))
+	model.compile(optimizer='Nadam', loss='binary_crossentropy')
+	return model
+
 def inspectSample(stepIndex):
 
-	filename = f"rnd_forest_{stepIndex}.pkl"
+	filename = f"net{stepIndex}.pkl"
 
 	print(f"--------- SAMPLE {stepIndex} -------------------------------------------------")
+
+
 
 	rasterf = raster[stepIndex]
 	requiredf = required[stepIndex]
@@ -60,16 +80,30 @@ def inspectSample(stepIndex):
 		print('no saved model found -> training new model')
 		# train decision tree classifier
 		#clf = tree.DecisionTreeClassifier(random_state=0) # TODO random forest?
-		clf = RandomForestClassifier(
-			random_state=0, 
-			n_estimators=100, 
-			#max_features=None, # all features
-			bootstrap=True,
-			max_samples=min(10000000, len(rasterf)), # 4M samples
-			#class_weight={True: 1, False: 100}, # increase false weight to punish false negatives (non-raytraced samples that need to be ray traced) => higher image quality but less performance
-			#max_depth=10,
-			n_jobs=-1)
-		clf = clf.fit(rasterf, requiredf)
+		#poly = PolynomialFeatures(2, interaction_only=True, include_bias=True)
+		scaler = StandardScaler()
+		#estimator = RandomForestClassifier(
+		#	random_state=0, 
+		#	n_estimators=100, 
+		#	#max_features=None, # all features
+		#	bootstrap=True,
+		#	max_samples=min(10000000, len(rasterf)), # 4M samples
+		#	#class_weight={True: 1, False: 100}, # increase false weight to punish false negatives (non-raytraced samples that need to be ray traced) => higher image quality but less performance
+		#	#max_depth=10,
+		#	n_jobs=-1)
+		params = {
+			"n_hidden": [1, 2, 3, 4, 5, 6, 7, 8],
+			"n_neurons": np.arange(32, 1025, 32),
+			"learning_rate": [0.001, 0.005, 0.01, 0.05, 0.1]
+		}
+
+		kreas_reg = keras.wrappers.scikit_learn.KerasClassifier(build_net)
+
+		rnd_search = RandomizedSearchCV(kreas_reg, params, n_iter=1, cv=3, verbose=3, n_jobs=-1)
+
+		clf = Pipeline(steps=[('scaler', scaler), ('net', rnd_search)])
+
+		clf = clf.fit(rasterf, requiredf, net__epochs=10, net__validation_data=(raster_validationf, required_validationf), net__verbose=0)
 		# also save in file
 		pickle.dump(clf, open(filename, "wb"))
 
@@ -86,52 +120,17 @@ def inspectSample(stepIndex):
 	print("confusion matrix validation:")
 	print(confusion_matrix(required_validationf, y_pred))
 
-	#tree_importance = clf.tree_.compute_feature_importances(normalize=True)
-	#tree_importance = clf.tree_.compute_feature_importances(normalize=True)
-	tree_importance = clf.feature_importances_
-	#tree_importance = sum([tree.feature_importances_ for tree in clf.estimators_])
-	# write feature importances to numpy 2d array for visualization
-	importance = np.zeros((9, 9))
-	importance[3, 4] = tree_importance[0]
-	importance[2, 4] = tree_importance[1]
-	importance[1, 4] = tree_importance[2]
-	importance[0, 4] = tree_importance[3]
-	importance[3, 5] = tree_importance[4]
-	importance[2, 6] = tree_importance[5]
-	importance[1, 7] = tree_importance[6]
-	importance[0, 8] = tree_importance[7]
-	importance[4, 5] = tree_importance[8]
-	importance[4, 6] = tree_importance[9]
-	importance[4, 7] = tree_importance[10]
-	importance[4, 8] = tree_importance[11]
-	importance[5, 5] = tree_importance[12]
-	importance[6, 6] = tree_importance[13]
-	importance[7, 7] = tree_importance[14]
-	importance[8, 8] = tree_importance[15]
-	importance[5, 4] = tree_importance[16]
-	importance[6, 4] = tree_importance[17]
-	importance[7, 4] = tree_importance[18]
-	importance[8, 4] = tree_importance[19]
-	importance[5, 3] = tree_importance[20]
-	importance[6, 2] = tree_importance[21]
-	importance[7, 1] = tree_importance[22]
-	importance[8, 0] = tree_importance[23]
-	importance[4, 3] = tree_importance[24]
-	importance[4, 2] = tree_importance[25]
-	importance[4, 1] = tree_importance[26]
-	importance[4, 0] = tree_importance[27]
-	importance[3, 3] = tree_importance[28]
-	importance[2, 2] = tree_importance[29]
-	importance[1, 1] = tree_importance[30]
-	importance[0, 0] = tree_importance[31]
-	# save numpy array in file
-	np.save("importance" + str(stepIndex) + ".npy", importance)
+	grid = clf.named_steps['net']
+	#print(grid.cv_results_['params'][grid.best_index_])
+	print(grid.best_params_)
+	print(grid.best_score_)
+
 	print("----------------------------------------------------------------")
 	#tree.plot_tree(clf)
 	#plt.show()
 
 
-#inspectSample(3)
+#inspectSample(0)
 
 for i in range(NUM_STEPS):
 	inspectSample(i)

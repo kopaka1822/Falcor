@@ -1,4 +1,4 @@
-# idea: take all 32 samples but train only 4 estimators (one for each step)
+# idea: take all only 8 samples and train 4 classifiers
 
 import numpy as np
 import os
@@ -16,10 +16,12 @@ import pickle
 NUM_DIRECTIONS = 8
 NUM_STEPS = 4
 NUM_SAMPLES = NUM_DIRECTIONS * NUM_STEPS
-CLEAR_FILE = True # clears cached files
+CLEAR_FILE = False # clears cached files
 
 # set current directory as working directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+indices = np.array([3, 2, 1, 0, 16, 17, 18, 19])
 
 raster = [None] * NUM_STEPS
 required = [None] * NUM_STEPS
@@ -30,17 +32,24 @@ for i in range(NUM_STEPS):
 	weight[i] = np.load(f'train/weight_train{i}_.npy').reshape(-1)
 	print(f"length of data {i}: ", len(raster[i]))
 
+	# filter with indices
+	raster[i] = np.take(raster[i], indices, axis=1)
+
 raster_validation = [None] * NUM_STEPS
 required_validation = [None] * NUM_STEPS
 for i in range(NUM_STEPS):
 	raster_validation[i] = np.load(f'eval/raster_eval{i}_0.npy')
 	required_validation[i] = np.load(f'eval/required_eval{i}_0.npy').reshape(-1)
+	# filter with indices
+	raster_validation[i] = np.take(raster_validation[i], indices, axis=1)
 
 def inspectSample(stepIndex):
 
 	filename = f"rnd_forest_{stepIndex}.pkl"
 
 	print(f"--------- SAMPLE {stepIndex} -------------------------------------------------")
+
+
 
 	rasterf = raster[stepIndex]
 	requiredf = required[stepIndex]
@@ -91,39 +100,10 @@ def inspectSample(stepIndex):
 	tree_importance = clf.feature_importances_
 	#tree_importance = sum([tree.feature_importances_ for tree in clf.estimators_])
 	# write feature importances to numpy 2d array for visualization
-	importance = np.zeros((9, 9))
-	importance[3, 4] = tree_importance[0]
-	importance[2, 4] = tree_importance[1]
-	importance[1, 4] = tree_importance[2]
-	importance[0, 4] = tree_importance[3]
-	importance[3, 5] = tree_importance[4]
-	importance[2, 6] = tree_importance[5]
-	importance[1, 7] = tree_importance[6]
-	importance[0, 8] = tree_importance[7]
-	importance[4, 5] = tree_importance[8]
-	importance[4, 6] = tree_importance[9]
-	importance[4, 7] = tree_importance[10]
-	importance[4, 8] = tree_importance[11]
-	importance[5, 5] = tree_importance[12]
-	importance[6, 6] = tree_importance[13]
-	importance[7, 7] = tree_importance[14]
-	importance[8, 8] = tree_importance[15]
-	importance[5, 4] = tree_importance[16]
-	importance[6, 4] = tree_importance[17]
-	importance[7, 4] = tree_importance[18]
-	importance[8, 4] = tree_importance[19]
-	importance[5, 3] = tree_importance[20]
-	importance[6, 2] = tree_importance[21]
-	importance[7, 1] = tree_importance[22]
-	importance[8, 0] = tree_importance[23]
-	importance[4, 3] = tree_importance[24]
-	importance[4, 2] = tree_importance[25]
-	importance[4, 1] = tree_importance[26]
-	importance[4, 0] = tree_importance[27]
-	importance[3, 3] = tree_importance[28]
-	importance[2, 2] = tree_importance[29]
-	importance[1, 1] = tree_importance[30]
-	importance[0, 0] = tree_importance[31]
+	importance = np.zeros(len(tree_importance))
+	for j in range(len(tree_importance)):
+		importance[j] = tree_importance[j]
+
 	# save numpy array in file
 	np.save("importance" + str(stepIndex) + ".npy", importance)
 	print("----------------------------------------------------------------")
