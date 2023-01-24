@@ -97,6 +97,7 @@ def render_graph_RTHBAO():
     g.addEdge('DepthPass.depth', 'GBufferRaster.depth')
     g.addEdge('GBufferRaster.faceNormalW', 'RTHBAO.normals')
     g.addEdge('GBufferRaster.instanceID', 'RTHBAO.instanceID')
+    g.addEdge('GBufferRaster.mtlData', 'RTHBAO.materialData')
     g.markOutput('Ambient.out')
     g.markOutput('Diffuse.out')
     g.markOutput('RTHBAO.ambientMap')

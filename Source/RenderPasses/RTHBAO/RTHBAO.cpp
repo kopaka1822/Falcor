@@ -79,6 +79,7 @@ namespace
     const std::string ksDepth = "stochasticDepth";
     const std::string kNormals = "normals";
     const std::string kInstanceID = "instanceID";
+    const std::string kMaterialData = "materialData";
 
     const std::string kInternalRasterDepth = "iRasterDepth";
     const std::string kInternalRayDepth = "iRayDepth";
@@ -149,6 +150,7 @@ RenderPassReflection RTHBAO::reflect(const CompileData& compileData)
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInstanceID, "Instance ID").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kMaterialData, "Material Data").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(getAmbientMapFormat());
 
     auto numSamples = mNumDirections * mNumSteps;
@@ -197,6 +199,7 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
     Texture::SharedPtr psDepth;
     if (renderData[ksDepth]) psDepth = renderData[ksDepth]->asTexture();
     else if (mDepthMode == DepthMode::StochasticDepth) mDepthMode = DepthMode::SingleDepth;
+    auto pMaterialData = renderData[kMaterialData]->asTexture();
 
     auto pInternalRasterDepth = renderData[kInternalRasterDepth]->asTexture();
     auto pInternalRayDepth = renderData[kInternalRayDepth]->asTexture();
@@ -268,6 +271,7 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
         mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
         mpSSAOPass["gNormalTex"] = pNormals;
         mpSSAOPass["gInstanceID"] = pInstanceID;
+        mpSSAOPass["gMaterialData"] = pMaterialData;
 
         // clear uav targets
         pRenderContext->clearTexture(pInternalRasterDepth.get());
