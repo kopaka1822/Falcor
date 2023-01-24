@@ -100,7 +100,7 @@ RWTexture2DArray<float> gRasterAO;
 RWTexture2DArray<float> gRayDepth;
 RWTexture2DArray<float> gRayAO;
 RWTexture2DArray<uint> gInstanceIDOut;
-RWTexture2D<uint> gInScreen; // 1 if all samples were in screen, 0 otherwise (raytracing is enforced for outside of screen samples)
+RWTexture2DArray<uint> gForceRay; // 1 ray tracing needs to be forced. Either because the raster sample is outside the screen space or because the raster hit a double sided material before the sampling sphere starts.
 RWTexture2DArray<float> gSphereStart;
 
 static int gRaysTraced = 0;
@@ -231,7 +231,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     // TODO i think this needs to be done with the sampling plane instead of V...
     float3 halfspacePlane = cross(normalV, cross(V, normalV));
 
-    int isInScreenCount = 1; // assume all samples are in the screen, will be overwritten if the opposite occurs
+    bool allSamplesInScreen = true; // assume all samples are in the screen, will be overwritten if the opposite occurs
     float visibility = 0.0f;
     //uint zCurveIndex = ZCurveToLinearIndex(uint2(svPos.xy));
     //uint i = (zCurveIndex + (frameIndex)) % KERNEL_SIZE; // JenkinsHash
@@ -276,7 +276,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             // clip sample position uv and snap to pixel center
             float2 screenUv = saturate(samplePosUV); // clip to screen border
             const bool isInScreen = all(samplePosUV == screenUv);
-            if (!isInScreen) isInScreenCount = 0; // remember for sample evaluation with ML
+            if (!isInScreen)
+                allSamplesInScreen = false; // remember for sample evaluation with ML
             bool requireRay = !isInScreen;
             float2 rasterSamplePosUV = getSnappedUV(screenUv);
 
@@ -298,7 +299,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             //float angleSign = signBinary(dot(normalV, S) + 0.01) * signBinary(dot(P, halfspacePlane));
             //float alpha = acos(max(dot(normalV, P), 0.0)) * 2.0 / 3.141;
             float alpha = 1 - max(dot(normalV, P), 0.0);
-            
+
+            // TODO test if sample point is below the sphere
             
             float curVisibility = 1.0;
             if (hitT > sphereStartEnd.y) // intersection behind the sphere (assume not occluded)
@@ -428,7 +430,13 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     //float meanAO = (visibility - gRaysTraced) / max(1, NUM_DIRECTIONS * NUM_STEPS - gRaysTraced);
     //visibility += meanAO * gRaysTraced - 1.0 * gRaysTraced;
 
-    gInScreen[XY] = isInScreenCount;
+    if(!allSamplesInScreen)
+    {
+        // exlude all samples from ml by setting the forced ray flag for all samples
+        for (uint sampleIndex = 0; sampleIndex < NUM_DIRECTIONS * NUM_STEPS; ++sampleIndex)
+            gForceRay[uint3(XY, sampleIndex)] = 1;
+    }
+    
     
     float AO = visibility / float(NUM_DIRECTIONS * NUM_STEPS);
 

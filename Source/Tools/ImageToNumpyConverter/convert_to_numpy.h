@@ -3,7 +3,7 @@
 #include "npy.h"
 #include <iostream>
 
-void convert_to_numpy(std::string raster_image, std::string ray_image, std::string inScreen, std::string sphere_start, std::string raster_ao, std::string ray_ao, int index = 0)
+void convert_to_numpy(std::string raster_image, std::string ray_image, std::string force_ray, std::string sphere_start, std::string raster_ao, std::string ray_ao, int index = 0)
 {
     static constexpr size_t NUM_STEPS = 4;
     static constexpr size_t NUM_DIRECTIONS = 8;
@@ -20,7 +20,7 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     gli::texture2d_array texSphereStart(gli::load(sphere_start));
     //gli::texture2d_array texInstances(gli::load(argv[3]));
     //gli::texture2d_array texCurInstance(gli::load(argv[4]));
-    gli::texture2d_array texInScreen(gli::load(inScreen));
+    gli::texture2d_array texForceRay(gli::load(force_ray));
 
     gli::texture2d_array texRasterAO(gli::load(raster_ao));
     gli::texture2d_array texRayAO(gli::load(ray_ao));
@@ -61,6 +61,7 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     std::array<float, NUM_SAMPLES> ray;
     std::array<float, NUM_SAMPLES> sphereStart;
     std::array<float, NUM_SAMPLES> aoDiff; // difference in AO values
+    std::array<bool, NUM_SAMPLES> forceRay;
     //std::vector<uint32_t> instances;
     //instances.resize(nSamples);
 
@@ -68,23 +69,12 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     auto fetch = gli::detail::convert<gli::texture2d_array, float, gli::defaultp>::call(texRaster.format()).Fetch;
     auto fetchAO = gli::detail::convert<gli::texture2d_array, float, gli::defaultp>::call(texRasterAO.format()).Fetch;
     //auto fetchInt = gli::detail::convert<gli::texture2d_array, float, gli::defaultp>::call(texInstances.format()).Fetch;
-    auto fetchBool = gli::detail::convert<gli::texture2d_array, float, gli::defaultp>::call(texInScreen.format()).Fetch;
-    int nOutsideScreen = 0;
+    auto fetchBool = gli::detail::convert<gli::texture2d_array, float, gli::defaultp>::call(texForceRay.format()).Fetch;
     int dubiousSamples = 0;
     float equalityThreshold = 0.01; // assume ray and raster are equal when the values are within this threshold (reduce noise in training data)
 
     for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x)
     {
-        //const auto curInstance = (uint32_t)fetchInt(texCurInstance, gli::extent2d(x, y), 0, 0, 0).r;;
-        bool inScreen = fetchBool(texInScreen, gli::extent2d(x, y), 0, 0, 0).r > 0.5f;
-
-        if (!inScreen) // skip samples that are partly outside the screen
-        {
-            nOutsideScreen++;
-            continue;
-        }
-
-        
         for (size_t i = 0; i < nSamples; ++i)
         {
             raster[i] = fetch(texRaster, gli::extent2d(x, y), i, 0, 0).r;
@@ -93,6 +83,7 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
             //instances[i] = (uint32_t)fetchInt(texInstances, gli::extent2d(x, y), i, 0, 0).r;
             aoDiff[i] = abs(fetchAO(texRasterAO, gli::extent2d(x, y), i, 0, 0).r - fetchAO(texRayAO, gli::extent2d(x, y), i, 0, 0).r);
             assert(aoDiff[i] <= 1.0f);
+            forceRay[i] = fetchBool(texForceRay, gli::extent2d(x, y), i, 0, 0).r > 0.5f;
         }
 
         // reduce noise
@@ -119,6 +110,8 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
         {
             for (size_t step = 0; step < NUM_STEPS; ++step)
             {
+                // check if forced
+                if (forceRay[step]) continue;
                 // check if trivial
                 if (useSphereStart && raster[step] <= sphereStart[step]) continue; // raster is in sphere
                 if (!useSphereStart && raster[step] <= 1.0f) continue; // raster is in trusted area
@@ -165,7 +158,6 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     const auto strIndex = std::to_string(index);
 
     // print out number of all samples, empty samples and skipped samples
-    std::cout << "Outside screen samples: " << nOutsideScreen << std::endl;
     std::cout << "Dubious samples (ray > raster): " << dubiousSamples << std::endl;
     for(size_t i = 0; i < NUM_STEPS; ++i)
     {
