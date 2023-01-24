@@ -1,2 +1,6 @@
 /*.npy
 /catboost_info
+*.png
+*.dds
+*.npy
+*.pkl

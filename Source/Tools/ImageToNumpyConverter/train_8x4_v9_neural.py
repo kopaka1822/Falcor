@@ -29,20 +29,7 @@ CLEAR_FILE = False # clears cached files
 # set current directory as working directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-raster = [None] * NUM_STEPS
-required = [None] * NUM_STEPS
-weight = [None] * NUM_STEPS
-for i in range(NUM_STEPS):
-	raster[i] = np.load(f'train/raster_train{i}_.npy')
-	required[i] = np.load(f'train/required_train{i}_.npy').reshape(-1)
-	weight[i] = np.load(f'train/weight_train{i}_.npy').reshape(-1)
-	print(f"length of data {i}: ", len(raster[i]))
 
-raster_validation = [None] * NUM_STEPS
-required_validation = [None] * NUM_STEPS
-for i in range(NUM_STEPS):
-	raster_validation[i] = np.load(f'eval/raster_eval{i}_0.npy')
-	required_validation[i] = np.load(f'eval/required_eval{i}_0.npy').reshape(-1)
 
 def build_net(n_hidden = 1, n_neurons = 32, learning_rate=3e-3):
 	model = keras.models.Sequential()
@@ -51,7 +38,7 @@ def build_net(n_hidden = 1, n_neurons = 32, learning_rate=3e-3):
 		model.add(keras.layers.Dense(n_neurons, activation="selu", kernel_initializer="lecun_normal"))
 	# final layer for binary classification
 	model.add(keras.layers.Dense(1, activation="sigmoid"))
-	model.compile(optimizer='Nadam', loss='binary_crossentropy')
+	model.compile(optimizer='Nadam', loss='binary_crossentropy', metrics=['accuracy'])
 	return model
 
 def inspectSample(stepIndex):
@@ -62,11 +49,11 @@ def inspectSample(stepIndex):
 
 
 
-	rasterf = raster[stepIndex]
-	requiredf = required[stepIndex]
-	weightf = weight[stepIndex]
-	raster_validationf = raster_validation[stepIndex]
-	required_validationf = required_validation[stepIndex]
+	rasterf = np.load(f'train/raster_train{stepIndex}_.npy')
+	requiredf = np.load(f'train/required_train{stepIndex}_.npy').reshape(-1)
+	weightf = np.load(f'train/weight_train{stepIndex}_.npy').reshape(-1)
+	raster_validationf = np.load(f'eval/raster_eval{stepIndex}_0.npy')
+	required_validationf = np.load(f'eval/required_eval{stepIndex}_0.npy').reshape(-1)
 
 	print("length of data: ", len(rasterf))
 
@@ -92,38 +79,45 @@ def inspectSample(stepIndex):
 		#	#max_depth=10,
 		#	n_jobs=-1)
 		params = {
-			"n_hidden": [1, 2, 3, 4, 5, 6, 7, 8],
-			"n_neurons": np.arange(32, 1025, 32),
-			"learning_rate": [0.001, 0.005, 0.01, 0.05, 0.1]
+			"n_hidden": [4, 5, 6],
+			"n_neurons": np.arange(64, 512+1, 64),
+			"learning_rate": [0.001, 0.005, 0.01]
 		}
 
 		kreas_reg = keras.wrappers.scikit_learn.KerasClassifier(build_net)
 
-		rnd_search = RandomizedSearchCV(kreas_reg, params, n_iter=1, cv=3, verbose=3, n_jobs=-1)
+		#rnd_search = RandomizedSearchCV(kreas_reg, params, n_iter=10, cv=4, verbose=3, n_jobs=-1)
+		net = build_net(5, 64, 0.005)
 
-		clf = Pipeline(steps=[('scaler', scaler), ('net', rnd_search)])
+		#clf = Pipeline(steps=[('scaler', scaler), ('net', rnd_search)])
+		clf = Pipeline(steps=[('scaler', scaler), ('net', net)])
 
-		clf = clf.fit(rasterf, requiredf, net__epochs=10, net__validation_data=(raster_validationf, required_validationf), net__verbose=0)
+		clf = clf.fit(rasterf, requiredf, net__epochs=20, net__validation_data=(raster_validationf, required_validationf), net__verbose=1)
 		# also save in file
 		pickle.dump(clf, open(filename, "wb"))
 
 	# predict test data
-	y_pred = clf.predict(rasterf)
+	#y_pred = clf.predict(rasterf).reshape(-1)
+	# convert > 0.5 to 1.0 and < 0.5 to 0.0
+	#y_pred = np.where(y_pred > 0.5, 1, 0)
+
 	# print test set stats
-	print("accuracy training: ", np.count_nonzero(y_pred == requiredf) / len(y_pred))
-	print("confusion matrix training:")
-	print(confusion_matrix(requiredf, y_pred))
+	#print("accuracy training: ", np.count_nonzero(y_pred == requiredf) / len(y_pred))
+	#print("confusion matrix training:")
+	#print(confusion_matrix(requiredf, y_pred))
 
 	# print validation set stats
-	y_pred = clf.predict(raster_validationf)
+	y_pred = clf.predict(raster_validationf).reshape(-1)
+	y_pred = np.where(y_pred > 0.5, 1, 0)
+
 	print("accuracy validation: ", np.count_nonzero(y_pred == required_validationf) / len(y_pred))
 	print("confusion matrix validation:")
 	print(confusion_matrix(required_validationf, y_pred))
 
-	grid = clf.named_steps['net']
+	#grid = clf.named_steps['net']
 	#print(grid.cv_results_['params'][grid.best_index_])
-	print(grid.best_params_)
-	print(grid.best_score_)
+	#print(grid.best_params_)
+	#print(grid.best_score_)
 
 	print("----------------------------------------------------------------")
 	#tree.plot_tree(clf)
