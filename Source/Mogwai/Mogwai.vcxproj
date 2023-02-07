@@ -109,6 +109,12 @@
     <ProjectReference Include="..\RenderPasses\MinimalPathTracer\MinimalPathTracer.vcxproj">
       <Project>{ff7fe9b8-2ace-4044-869d-a5c4ef8042d3}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\ML_HBAOInterleaved\ML_HBAOInterleaved.vcxproj">
+      <Project>{950b2265-b675-431d-bb08-0b97fe695d31}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\ML_HBAO\ML_HBAO.vcxproj">
+      <Project>{1c5bf168-d6b1-414c-a2c1-6a93c2d2d48c}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\ModulateIllumination\ModulateIllumination.vcxproj">
       <Project>{4e192689-e377-4936-8a1b-94b08226fc83}</Project>
     </ProjectReference>
