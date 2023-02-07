@@ -102,7 +102,6 @@ RTHBAO::RTHBAO()
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
     mpNoiseSampler = Sampler::create(samplerDesc);
 
-    samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpTextureSampler = Sampler::create(samplerDesc);
     setSampleRadius(mData.radius);
@@ -118,7 +117,6 @@ ResourceFormat RTHBAO::getAmbientMapFormat() const
 RTHBAO::SharedPtr RTHBAO::create(RenderContext* pRenderContext, const Dictionary& dict)
 {
     SharedPtr pSSAO = SharedPtr(new RTHBAO());
-    Dictionary blurDict;
     for (const auto& [key, value] : dict)
     {
         if (key == kEnabled) pSSAO->mEnabled = value;

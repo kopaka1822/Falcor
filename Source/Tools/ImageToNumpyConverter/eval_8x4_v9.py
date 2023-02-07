@@ -39,6 +39,21 @@ output_correct = np.zeros((NUM_SAMPLES, IMG_HEIGHT, IMG_WIDTH), dtype=np.uint8)
 output_all = np.zeros((NUM_SAMPLES, IMG_HEIGHT, IMG_WIDTH), dtype=np.uint8)
 output_probability = np.zeros((NUM_SAMPLES, IMG_HEIGHT, IMG_WIDTH), dtype=np.float32)
 
+def print_weights(weights):
+	kernel0 = weights[0]
+	bias0 = weights[1]
+	kernel1 = weights[2]
+	bias1 = weights[3]
+	kernel2 = weights[4]
+	bias2 = weights[5]
+	print("kernel0", ','.join(map(str, kernel0.flatten())))
+	print("bias0", ','.join(map(str, bias0.flatten())))
+	print("kernel1", ','.join(map(str, kernel1.flatten())))
+	print("bias1", ','.join(map(str, bias1.flatten())))
+	print("kernel2", ','.join(map(str, kernel2.flatten())))
+	print("bias2", ','.join(map(str, bias2.flatten())))
+
+
 def custom_predict(weights, X):
 	kernel0 = weights[0]
 	bias0 = weights[1]
@@ -118,6 +133,9 @@ def inspectSample(i):
 
 	# get weights of the first layer
 	weights = net.get_weights()
+	print_weights(weights)
+	return
+
 	np.save(f'{ML_NAME}_weights{i}_kernel0.npy', weights[0])
 	np.save(f'{ML_NAME}_weights{i}_bias0.npy', weights[1])
 	np.save(f'{ML_NAME}_weights{i}_kernel1.npy', weights[2])
@@ -130,7 +148,8 @@ def inspectSample(i):
 	print("predicting...")
 	# predict all test data
 	y_pred = clf.predict(rasterf).reshape(-1)
-	
+
+
 	#y_cpred = custom_predict(weights, rasterf)
 	#print("y_pred == y_cpred: ", np.isclose(y_pred, y_cpred, atol=0.001, rtol=0.001).all())
 

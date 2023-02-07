@@ -213,7 +213,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     const float posVLength = length(posV);
 
     // Calculate tangent space (use random direction for tangent orientation)
-    float randJitter = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0);
+    float randJitter = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0) * 0.8 - 0.4 ;
     float randRotation = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0) * 2.0 * 3.141;
     float2 randDir = float2(sin(randRotation), cos(randRotation));
     randDir = normalize(randDir); // should be normalized by default, but precision is lost in texture format
@@ -247,8 +247,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             const uint sampleIndex = i * NUM_STEPS + step;
             
             // calc 's' sampling pos
-            float2 s = direction * (step + 0.5 + randJitter) / (NUM_STEPS + 1); // TODO add jitter
-            
+            float2 s = direction * (step + 0.5 + randJitter) / (NUM_STEPS);
             s *= gData.radius; // multiply 2D position with sample radius
         
             // determine distance within [-sphereHeight, +sphereHeight]

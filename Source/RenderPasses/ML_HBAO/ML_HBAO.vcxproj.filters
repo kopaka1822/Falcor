@@ -6,4 +6,8 @@
   <ItemGroup>
     <ClInclude Include="ML_HBAO.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="Raster.ps.slang" />
+    <ShaderSource Include="SSAOData.slang" />
+  </ItemGroup>
 </Project>

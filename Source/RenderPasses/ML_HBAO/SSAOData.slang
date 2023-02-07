@@ -26,55 +26,16 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #pragma once
-#include "Falcor.h"
-#include "SSAOData.slang"
+#include "Utils/HostDeviceShared.slangh"
 
-using namespace Falcor;
+BEGIN_NAMESPACE_FALCOR
 
-class ML_HBAO : public RenderPass
+struct SSAOData
 {
-public:
-    using SharedPtr = std::shared_ptr<ML_HBAO>;
-
-    static const Info kInfo;
-
-    /** Create a new render pass object.
-        \param[in] pRenderContext The render context.
-        \param[in] dict Dictionary of serialized parameters.
-        \return A new object, or an exception is thrown if creation failed.
-    */
-    static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
-
-    virtual Dictionary getScriptingDictionary() override;
-    virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
-    virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
-    virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
-    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
-    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
-
-    void setSampleRadius(float radius);
-    float getSampleRadius() { return mData.radius; }
-
-private:
-    ML_HBAO();
-    void setNoiseTexture();
-
-    SSAOData mData;
-    bool mDirty = true;
-
-    bool mEnabled = true;
-    Fbo::SharedPtr mpAOFbo;
-
-    Sampler::SharedPtr mpNoiseSampler;
-    Texture::SharedPtr mpNoiseTexture;
-
-    Sampler::SharedPtr mpTextureSampler;
-
-    FullScreenPass::SharedPtr mpSSAOPass;
-
-    Scene::SharedPtr mpScene;
-    int mGuardBand = 64;
-    bool mClearTexture = true;
+    float2 noiseScale = float2(1, 1);
+    float radius = 0.5f;
+    float exponent = 2.0f;
+    float thickness = 0.5f;
 };
+
+END_NAMESPACE_FALCOR
