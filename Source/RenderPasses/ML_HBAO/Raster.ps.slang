@@ -201,7 +201,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     const float posVLength = length(posV);
 
     // Calculate tangent space (use random direction for tangent orientation)
-    float randJitter = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0) * 0.8 - 0.4; 
+    float randJitter = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0); 
     float randRotation = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0) * 2.0 * 3.141; // range [0, 2pi]
     float2 randDir = float2(sin(randRotation), cos(randRotation));
     randDir = normalize(randDir); // should be normalized by default, but precision is lost in texture format
@@ -226,7 +226,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     [unroll] for (uint i = 0; i < (NUM_DIRECTIONS / 2); ++i)
     {
         float angle = (2.0 * 3.141 * i) / NUM_DIRECTIONS;
-        float2 direction = float2(sin(angle), cos(angle)); // TODO use the random direction from the noise field?
+        float2 direction = float2(sin(angle), cos(angle));
 
         // temporary array with raster heights for current line of 8 samples
         float rasterHeights[NUM_STEPS * 2];
@@ -236,7 +236,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         [unroll] for (step = -NUM_STEPS; step < NUM_STEPS; ++step)
         {
             // calc 's' sampling pos
-            float2 s = direction * (step + 0.5 + randJitter) / (NUM_STEPS);
+            float jitterSign = step < 0 ? -1 : 1;
+            float2 s = direction * (step + 0.5 + jitterSign * randJitter) / (NUM_STEPS + 1);
             s *= gData.radius; // multiply 2D position with sample radius
 
             // calculate view position of sample and project to uv coordinates
@@ -308,7 +309,12 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             }
 
             //forceRay = forceRay || requireRay;
+            //if (step == -4) forceRay = true;
+            //if (step == -3) forceRay = true;
+            //if (step < 0) requireRay = true;
 
+
+            
             if (forceRay && validSample)
                 finalRayMask |= 1u << (step + NUM_STEPS);
             else if(requireRay && validSample)
@@ -320,12 +326,19 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
         // use machine learning to evaluate questionable steps
         step = -NUM_STEPS;
-        [unroll] for (; step < NUM_STEPS; ++step)
+        while (pendingRayMask != 0u)
+        //[unroll] for (; step < NUM_STEPS; ++step)
         {
-            if (!(pendingRayMask & (1u << (step + NUM_STEPS))))
-                continue; // only work with marked samples
-
+            while ((pendingRayMask & 1u) == 0)
+            {
+                step++;
+                pendingRayMask = pendingRayMask >> 1;
+            }
+            
+            //if (!(pendingRayMask & (1u << (step + NUM_STEPS)))) continue; // only work with marked samples
+            
             float inputs[5];
+            int astep; // absolute step value for lookup (0,1,2,3)
             if (step < 0)
             {
                 inputs[0] = rasterHeights[3];
@@ -333,6 +346,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 inputs[2] = rasterHeights[1];
                 inputs[3] = rasterHeights[0];
                 inputs[4] = rasterHeights[4];
+                astep = -step - 1;
             }
             else
             {
@@ -341,29 +355,33 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 inputs[2] = rasterHeights[6];
                 inputs[3] = rasterHeights[7];
                 inputs[4] = rasterHeights[3];
+                astep = step;
             }
 
-            float layer1Output[5] = { BIAS0(step, 0), BIAS0(step, 1), BIAS0(step, 2), BIAS0(step, 3), BIAS0(step, 4) };
+            float layer1Output[5] = { BIAS0(astep, 0), BIAS0(astep, 1), BIAS0(astep, 2), BIAS0(astep, 3), BIAS0(astep, 4) };
             [unroll]for (int outIdx = 0; outIdx < 5; outIdx++)
                 [unroll]for (int inIdx = 0; inIdx < 5; inIdx++)
-                    layer1Output[outIdx] += KERNEL0(step, inIdx, outIdx) * inputs[inIdx];
+                    layer1Output[outIdx] += KERNEL0(astep, inIdx, outIdx) * inputs[inIdx];
             [unroll]for (int outIdx = 0; outIdx < 5; ++outIdx)
                 layer1Output[outIdx] = max(layer1Output[outIdx], 0); // RELU
 
-            float layer2Output[5] = { BIAS1(step, 0), BIAS1(step, 1), BIAS1(step, 2), BIAS1(step, 3), BIAS1(step, 4) };
+            float layer2Output[5] = { BIAS1(astep, 0), BIAS1(astep, 1), BIAS1(astep, 2), BIAS1(astep, 3), BIAS1(astep, 4) };
             [unroll]for (int outIdx = 0; outIdx < 5; outIdx++)
                 [unroll]for (int inIdx = 0; inIdx < 5; inIdx++)
-                    layer2Output[outIdx] += KERNEL1(step, inIdx, outIdx) * layer1Output[inIdx];
+                    layer2Output[outIdx] += KERNEL1(astep, inIdx, outIdx) * layer1Output[inIdx];
             [unroll] for (int outIdx = 0; outIdx < 5; ++outIdx)
                 layer2Output[outIdx] = max(layer2Output[outIdx], 0); // RELU
 
-            float layer3Output = BIAS2(step);
+            float layer3Output = BIAS2(astep);
             [unroll]for (int inIdx = 0; inIdx < 5; inIdx++)
-                layer3Output += KERNEL2(step, inIdx) * layer2Output[inIdx];
+                layer3Output += KERNEL2(astep, inIdx) * layer2Output[inIdx];
             layer3Output = 1.0 / (1.0 + exp(-layer3Output)); // SIGMOID
 
             if(layer3Output > 0.5) // require ray
                 finalRayMask |= 1u << (step + NUM_STEPS);
+
+            step++;
+            pendingRayMask = pendingRayMask >> 1;
         }
         
         // for simplicity start in same shader
@@ -380,7 +398,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             //if (!(finalRayMask & (1u << (step + NUM_STEPS)))) continue; // only work with marked samples
             
             // calc 's' sampling pos
-            float2 s = direction * (step + 0.5 + randJitter) / (NUM_STEPS);
+            float jitterSign = step < 0 ? -1 : 1;
+            float2 s = direction * (step + 0.5 + jitterSign * randJitter) / (NUM_STEPS + 1);
             s *= gData.radius; // multiply 2D position with sample radius
 
             // calculate view position of sample and project to uv coordinates
