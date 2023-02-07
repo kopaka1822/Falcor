@@ -101,7 +101,7 @@ RWTexture2DArray<float> gRasterAO;
 RWTexture2DArray<float> gRayDepth;
 RWTexture2DArray<float> gRayAO;
 RWTexture2DArray<uint> gInstanceIDOut;
-RWTexture2DArray<uint> gForceRay; // 1 ray tracing needs to be forced. Either because the raster sample is outside the screen space or because the raster hit a double sided material before the sampling sphere starts.
+RWTexture2DArray<uint> gForceRay; // 1 ray tracing needs to be forced. Either because the raster sample is outside the screen space or because the raster hit a double sided material before the sampling sphere starts. It is also set if the sample is an invalid sample (below the hemisphere), to ignore this for ML training
 RWTexture2DArray<float> gSphereStart;
 
 static int gRaysTraced = 0;
@@ -271,6 +271,16 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float3 initialSamplePosV = posV + S; // absolute sample position in view space
             float initialSampleT = length(initialSamplePosV); // serves as reference for ray/raster depths
             float2 sphereStartEnd = getRaySphereIntersections(0.0, normalize(initialSamplePosV), posV, gData.radius);
+
+            bool validSample = true;
+            float3 sphereStartVector = (initialSamplePosV / initialSampleT * sphereStartEnd.x - posV);
+            if (dot(normalV, sphereStartVector) <= 0.01)
+            {
+                // below surface
+                validSample = false; // this should always evaluate to visibility = 1.0
+                gForceRay[uint3(XY, sampleIndex)] = 3; // ignored for training data
+            }
+            
             // TODO determine if the sphere start is below the hemisphere => if this is the case, no depth sample needs to be taken
             float2 samplePosUV = ViewSpaceToUV(initialSamplePosV);
 
@@ -308,7 +318,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             // TODO test if sample point is below the sphere
             
             float curVisibility = 1.0;
-            if (hitT > sphereStartEnd.y) // intersection behind the sphere (assume not occluded)
+            if (!validSample || hitT > sphereStartEnd.y) // intersection behind the sphere (assume not occluded)
             {
                 // do nothing
             }
@@ -335,7 +345,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             requireRay = true;
             //requireRay = false;
 
-            if (DEPTH_MODE == DEPTH_MODE_RAYTRACED && requireRay)
+            if (DEPTH_MODE == DEPTH_MODE_RAYTRACED && requireRay && validSample)
             {
                 gRaysTraced += 1;
                 samplePosUV = getSnappedUV(samplePosUV); // snap to pixel center

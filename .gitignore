@@ -20,3 +20,5 @@ Tests/data
 *.tlog
 /Source/RenderPasses/HBAOPlus/SDK/build/platforms/vs2015/x64/release
 /Source/Falcor/dependencies.user.xml
+*.txt
+*.dds

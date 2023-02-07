@@ -10,7 +10,7 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     static constexpr size_t NUM_SAMPLES = NUM_STEPS * NUM_DIRECTIONS;
 
     // indicates if we export training data (without pixelXY information and dubious samples) or evaluation data (pixel information with all samples)
-    static constexpr bool IsTraining = true;
+    static constexpr bool IsTraining = false;
 
     static constexpr bool useSphereStart = true;
     static constexpr bool useDubiousSamples = !IsTraining; // false for training, true for evaluation
@@ -45,6 +45,7 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
     std::array<std::vector<int>, NUM_STEPS> pixelXYi; // x,y coordinates of pixel
     std::array<std::vector<uint8_t>, NUM_STEPS> required; // 1 if ray tracing is required, 0 if not
     std::array<std::vector<float>, NUM_STEPS> weight; // sample weights
+    std::vector<int> forcedPixels; // XYi coordinates of the pixel that was forced to be ray traced (or is invalid, in which case the saved ao is 1.0)
     //std::vector<int> numInvalid; // number of invalid samples
     for(size_t i = 0; i < NUM_STEPS; ++i)
     {
@@ -54,7 +55,9 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
         //rasterInstanceDiffs.reserve(width * height * nSamples);
         pixelXYi[i].reserve(width * height * 3);
         required[i].reserve(width * height);
+        weight[i].reserve(width * height);
     }
+    forcedPixels.reserve(width * height * 3 * NUM_SAMPLES);
 
     // local arrays
     std::array<float, NUM_SAMPLES> raster;
@@ -111,7 +114,18 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
             for (size_t step = 0; step < NUM_STEPS; ++step)
             {
                 // check if forced
-                if (forceRay[step]) continue;
+                if (forceRay[step])
+                {
+                    if (!IsTraining)
+                    {
+                        // save forced pixel
+                        forcedPixels.push_back(x);
+                        forcedPixels.push_back(y);
+                        forcedPixels.push_back(int(direction * NUM_STEPS + step));
+                    }
+                    continue;
+                }
+
                 // check if trivial
                 if (useSphereStart && raster[step] <= sphereStart[step]) continue; // raster is in sphere
                 if (!useSphereStart && raster[step] <= 1.0f) continue; // raster is in trusted area
@@ -139,6 +153,7 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
             std::rotate(ray.begin(), ray.begin() + NUM_STEPS, ray.end());
             std::rotate(sphereStart.begin(), sphereStart.begin() + NUM_STEPS, sphereStart.end());
             std::rotate(aoDiff.begin(), aoDiff.begin() + NUM_STEPS, aoDiff.end());
+            std::rotate(forceRay.begin(), forceRay.begin() + NUM_STEPS, forceRay.end());
         }
 
         //for (size_t i = 0; i < nSamples; ++i)
@@ -186,5 +201,11 @@ void convert_to_numpy(std::string raster_image, std::string ray_image, std::stri
             npy::SaveArrayAsNumpy("pixelXY" + strStep + "_" + strIndex + ".npy", false, 2, shapeXY, pixelXYi[i]);
             npy::SaveArrayAsNumpy("weight_eval" + strStep + "_" + strIndex + ".npy", false, 2, shapeRequired, weight[i]);
         }
+    }
+
+    if(!IsTraining)
+    {
+        unsigned long shapeXYForced[] = { (unsigned long)(forcedPixels.size() / 3), 3ul };
+        npy::SaveArrayAsNumpy("forcedXY_eval_" + strIndex + ".npy", false, 2, shapeXYForced, forcedPixels);
     }
 }

@@ -292,21 +292,21 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
         if (mSaveDepths)
         {
             // write sample information
-            pInternalRasterDepth->captureToFile(0, -1, "raster.dds", Bitmap::FileFormat::DdsFile);
-            pInternalRayDepth->captureToFile(0, -1, "ray.dds", Bitmap::FileFormat::DdsFile);
-            pInternalSphereStart->captureToFile(0, -1, "sphere.dds", Bitmap::FileFormat::DdsFile);
+            pInternalRasterDepth->captureToFile(0, -1, "ML/raster.dds", Bitmap::FileFormat::DdsFile);
+            pInternalRayDepth->captureToFile(0, -1, "ML/ray.dds", Bitmap::FileFormat::DdsFile);
+            pInternalSphereStart->captureToFile(0, -1, "ML/sphere.dds", Bitmap::FileFormat::DdsFile);
             //pInternalInstanceID->captureToFile(0, -1, "instance.dds", Bitmap::FileFormat::DdsFile);
-            pInternalForceRay->captureToFile(0, -1, "forceRay.dds", Bitmap::FileFormat::DdsFile);
+            pInternalForceRay->captureToFile(0, -1, "ML/forceRay.dds", Bitmap::FileFormat::DdsFile);
 
-            pInternalRasterAO->captureToFile(0, -1, "rasterAO.dds", Bitmap::FileFormat::DdsFile);
-            pInternalRayAO->captureToFile(0, -1, "rayAO.dds", Bitmap::FileFormat::DdsFile);
+            pInternalRasterAO->captureToFile(0, -1, "ML/rasterAO.dds", Bitmap::FileFormat::DdsFile);
+            pInternalRayAO->captureToFile(0, -1, "ML/rayAO.dds", Bitmap::FileFormat::DdsFile);
 
             // write pixel information
-            //pInstanceID->captureToFile(0, -1, "instance_center.dds", Bitmap::FileFormat::DdsFile);
+            //pInstanceID->captureToFile(0, -1, "ML/instance_center.dds", Bitmap::FileFormat::DdsFile);
 
             // convert to numpy
             static int curIndex = 0;
-            convert_to_numpy("raster.dds", "ray.dds", "forceRay.dds", "sphere.dds", "rasterAO.dds", "rayAO.dds", curIndex);
+            convert_to_numpy("ML/raster.dds", "ML/ray.dds", "ML/forceRay.dds", "ML/sphere.dds", "ML/rasterAO.dds", "ML/rayAO.dds", curIndex);
 
             // preview final image as png
             std::string curIndexStr = std::to_string(curIndex);
