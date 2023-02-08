@@ -30,12 +30,13 @@ from keras.layers import LeakyReLU
 NUM_DIRECTIONS = 8
 NUM_STEPS = 4
 NUM_SAMPLES = NUM_DIRECTIONS * NUM_STEPS
-CLEAR_FILE = True # clears cached files
+CLEAR_FILE = False # clears cached files
 
 LAYERS = 2
 NEURONS = 4
 #ML_NAME = f"net_{LAYERS}_{NEURONS}_"
 ML_NAME = f"net_relu"
+ML_REFINED = f"{ML_NAME}_refined"
 
 # set current directory as working directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -47,8 +48,21 @@ print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 #tf.config.set_visible_devices([], 'GPU')
 #tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
-STEP_IDX = 3
+STEP_IDX = 0
 ACCURACY_LOG = f'accuracy_log{STEP_IDX}.txt'
+
+def keep_strongest(weights):
+	factor = 0.25
+	#for row in weights:
+	#	max = np.max(np.abs(row))
+	#	row[np.abs(row) < max * factor] = 0
+	for column in weights.T:
+		max = np.max(np.abs(column))
+		column[np.abs(column) < max * factor] = 0
+
+def compile_model(model):
+	opt = tf.keras.optimizers.Nadam(learning_rate=0.003)
+	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
 
 def build_net(n_hidden, n_neurons):
 	model = keras.models.Sequential()
@@ -57,8 +71,7 @@ def build_net(n_hidden, n_neurons):
 		model.add(keras.layers.Dense(n_neurons, activation="selu", kernel_initializer="lecun_normal"))
 	# final layer for binary classification
 	model.add(keras.layers.Dense(1, activation="sigmoid"))
-	opt = tf.keras.optimizers.Nadam(learning_rate=0.003)
-	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
+	compile_model(model)
 	return model
 
 def build_net_relu(n_hidden = LAYERS, n_neurons = NEURONS):
@@ -72,6 +85,20 @@ def build_net_relu(n_hidden = LAYERS, n_neurons = NEURONS):
 	opt = tf.keras.optimizers.Nadam(learning_rate=0.003)
 	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
 	return model
+
+def print_stats(clf, rasterf, requiredf):
+	# predict test data
+	y_pred = clf.predict(rasterf).reshape(-1)
+	y_pred = np.where(y_pred > 0.5, 1, 0)
+	# print test set stats
+	acc = np.count_nonzero(y_pred == requiredf) / len(y_pred)
+	print("accuracy training: ", acc)
+	print("confusion matrix training:")
+	cm = confusion_matrix(requiredf, y_pred)
+	print(cm)
+	f1 = f1_score(requiredf, y_pred)
+	print("F1 score: ", f1)
+	print("Recall: ", cm[1][1] / (cm[1][1] + cm[1][0]))
 
 def inspectSample(stepIndex, batch_size):
 	tf.keras.utils.set_random_seed(0) # use same random seed for training
@@ -87,7 +114,12 @@ def inspectSample(stepIndex, batch_size):
 	raster_validationf = np.load(f'eval/raster_eval{stepIndex}_0.npy')
 	required_validationf = np.load(f'eval/required_eval{stepIndex}_0.npy').reshape(-1)
 
+	numClass1 = np.count_nonzero(requiredf)
+	numClass0 = len(requiredf) - numClass1
+	class_weight = {0: max(numClass1/numClass0, 1.0), 1: max(numClass0/numClass1, 1.0)}
+	
 	print("length of data: ", len(rasterf))
+	print("class weight: ", class_weight)
 
 	clf = None
 	try:
@@ -97,45 +129,11 @@ def inspectSample(stepIndex, batch_size):
 		clf = pickle.load(open(filename, 'rb'))
 	except:
 		print('no saved model found -> training new model')
-		# train decision tree classifier
-		#clf = tree.DecisionTreeClassifier(random_state=0) # TODO random forest?
-		#poly = PolynomialFeatures(2, interaction_only=True, include_bias=True)
-		scaler = StandardScaler()
-		#scaler = RobustScaler()
-		#estimator = RandomForestClassifier(
-		#	random_state=0, 
-		#	n_estimators=100, 
-		#	#max_features=None, # all features
-		#	bootstrap=True,
-		#	max_samples=min(10000000, len(rasterf)), # 4M samples
-		#	#class_weight={True: 1, False: 100}, # increase false weight to punish false negatives (non-raytraced samples that need to be ray traced) => higher image quality but less performance
-		#	#max_depth=10,
-		#	n_jobs=-1)
-		params = {
-			#"n_hidden": [6],
-			"n_neurons": [4, 8, 12, 16],
-			#"learning_rate": [0.001, 0.005, 0.01]
-		}
-
-		#rnd_search = RandomizedSearchCV(kreas_reg, params, n_iter=10, cv=4, verbose=3, n_jobs=-1)
-		#grid_search = GridSearchCV(kreas_reg, params, cv=4, verbose=3)
-		#net = None
-		#net = keras.wrappers.scikit_learn.KerasClassifier(build_net(LAYERS, NEURONS, 0.005))
-		#net = build_net()
 		net = build_net_relu()
-		#net.summary()
 		
-		numClass1 = np.count_nonzero(requiredf)
-		numClass0 = len(requiredf) - numClass1
-		class_weight = {0: max(numClass1/numClass0, 1.0), 1: max(numClass0/numClass1, 1.0)}
-		print("class weight: ", class_weight)
-		#class_weight = {0: 1.0, 1: 10.0}
-
-		#clf = Pipeline(steps=[('scaler', scaler), ('net', rnd_search)])
 		clf = Pipeline(steps=[
 			('filter', FilterInputsTransformer()),
 			('clamper', ClampTransformer(16)),
-			#('scaler', scaler), 
 			('net', net)
 		])
 
@@ -151,58 +149,70 @@ def inspectSample(stepIndex, batch_size):
 		pickle.dump(clf, open(filename, "wb"))
 
 	# predict test data
-	y_pred = clf.predict(rasterf).reshape(-1)
-	y_pred = np.where(y_pred > 0.5, 1, 0)
+	
 
-	# print test set stats
-	acc = np.count_nonzero(y_pred == requiredf) / len(y_pred)
-	print("accuracy training: ", acc)
-	print("confusion matrix training:")
-	cm = confusion_matrix(requiredf, y_pred)
-	print(cm)
-	f1 = f1_score(requiredf, y_pred)
-	print("F1 score: ", f1)
-	print("Recall: ", cm[1][1] / (cm[1][1] + cm[1][0]))
+	# take network and refine weights
+	clf2 = pickle.load(open(filename, 'rb')) # load from file again
+	net2 = clf2.named_steps['net']
 
-	#with open(ACCURACY_LOG, 'a') as f:
-	#	f.write(f'TRAIN step {stepIndex}  batch {batch_size} acc:\t{acc} \tf1: {f1} \n[[{cm[0][0]} {cm[0][1]}]\n [{cm[1][0]} {cm[1][1]}]]\n')
+	REFINE_EPOCHS = 6
 
-	# print validation set stats
-	#y_pred = clf.predict(raster_validationf).reshape(-1)
-	y_pred = clf.predict(raster_validationf).reshape(-1)
-	y_pred = np.where(y_pred > 0.5, 1, 0)
+	for _ in range(REFINE_EPOCHS): # layer 0
+		clf2.fit(rasterf, requiredf, net__epochs=1, net__verbose=1, net__batch_size=batch_size, net__class_weight=class_weight)
+		# modify layer weights
+		weights0 = net2.get_layer(index=0).get_weights()
+		keep_strongest(weights0[0])
+		net2.get_layer(index=0).set_weights(weights0)
 
-	acc = np.count_nonzero(y_pred == required_validationf) / len(y_pred)
-	print("accuracy validation: ", acc)
-	print("confusion matrix validation:")
-	cm = confusion_matrix(required_validationf, y_pred)
-	# f1 score
-	print(cm)
-	f1 = f1_score(required_validationf, y_pred)
-	print("F1 score: ", f1)
-	print("Recall: ", cm[1][1] / (cm[1][1] + cm[1][0]))
+	# fix weights of layer 0
+	net2.get_layer(index=0).trainable = False
+	compile_model(net2)
 
-	# append accuracy to txt file
-	#with open(ACCURACY_LOG, 'a') as f:
-	#	f.write(f'VALID step {stepIndex} batch {batch_size} acc:\t{acc} \tf1: {f1} \n[[{cm[0][0]} {cm[0][1]}]\n [{cm[1][0]} {cm[1][1]}]]\n')
-	#	f.write('\n')
+	for _ in range(REFINE_EPOCHS):
+		clf2.fit(rasterf, requiredf, net__epochs=1, net__verbose=1, net__batch_size=batch_size, net__class_weight=class_weight)
+		# modify layer weights
+		weights0 = net2.get_layer(index=1).get_weights()
+		keep_strongest(weights0[0])
+		net2.get_layer(index=1).set_weights(weights0)
 
-	#grid = clf.named_steps['net']
-	#print(grid.cv_results_['params'][grid.best_index_])
-	#print(grid.best_params_)
-	#print(grid.best_score_)
+	# fix weights of layer 1
+	net2.get_layer(index=1).trainable = False
+	compile_model(net2)
+	# final train (on last layer)
+	clf2.fit(rasterf, requiredf, net__epochs=100, net__verbose=1, net__batch_size=batch_size, net__class_weight=class_weight,
+	net__callbacks=[EarlyStopping(monitor='binary_accuracy', patience=5, min_delta=0.001, start_from_epoch=REFINE_EPOCHS)])
+	
+	#print("------- original test -------")
+	#print_stats(clf, rasterf, requiredf)
+	#print("------- refined test -------")
+	#print_stats(clf2, rasterf, requiredf)
+
+	#print("------- original valid -------")
+	#print_stats(clf, raster_validationf, required_validationf)
+	#print("------- refined valid -------")
+	#print_stats(clf2, raster_validationf, required_validationf)
+
+	# print rounded weights
+	weights0 = net2.get_layer(index=0).get_weights()
+	weights1 = net2.get_layer(index=1).get_weights()
+	weights2 = net2.get_layer(index=2).get_weights()
+	print("kernel0: ", np.round(weights0[0], 2))
+	print("kernel1: ", np.round(weights1[0], 2))
+	print("kernel2: ", np.round(weights2[0], 2))
+	print("bias0: ", np.round(weights0[1], 2))
+	print("bias1: ", np.round(weights1[1], 2))
+	print("bias2: ", np.round(weights2[1], 2))
 
 	print("----------------------------------------------------------------")
 	#tree.plot_tree(clf)
 	#plt.show()
-	return acc
 
 
 #inspectSample(3)
 
 #for i in range(NUM_STEPS):
 #for rng_seed in range(4):
-acc = inspectSample(STEP_IDX, 1024)
+inspectSample(STEP_IDX, 1024)
 
 #with open(ACCURACY_LOG, 'a') as f:
 #	f.write('----------------------------------------------------------------\n')
