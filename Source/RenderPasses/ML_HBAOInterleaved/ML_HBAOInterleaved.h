@@ -27,6 +27,9 @@
  **************************************************************************/
 #pragma once
 #include "Falcor.h"
+#include "SSAOData.slang"
+#include "../DeinterleaveTexture/DeinterleaveTexture.h"
+#include "../InterleaveTexture/InterleaveTexture.h"
 
 using namespace Falcor;
 
@@ -46,13 +49,35 @@ public:
 
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
+    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
+    void setSampleRadius(float radius);
+    float getSampleRadius() { return mData.radius; }
 private:
-    ML_HBAOInterleaved() : RenderPass(kInfo) {}
+    ML_HBAOInterleaved();
+    std::vector<float> genNoiseTexture();
+    
+    SSAOData mData;
+    bool mDirty = true;
+
+    bool mEnabled = true;
+    Fbo::SharedPtr mpAOFbo;
+    FullScreenPass::SharedPtr mpSSAOPass;
+
+    Sampler::SharedPtr mpTextureSampler;
+
+    bool mReady = false;
+    std::vector<float> mNoiseTexture; // 2d rotations
+
+    Scene::SharedPtr mpScene;
+    int mGuardBand = 64;
+    bool mClearTexture = true;
+
+    DeinterleaveTexture::SharedPtr mpDeinterleave;
+    InterleaveTexture::SharedPtr mpInterleave;
 };
