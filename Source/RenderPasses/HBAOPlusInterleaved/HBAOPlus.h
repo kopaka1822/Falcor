@@ -29,6 +29,8 @@
 #include "Falcor.h"
 #include "HBAOData.slang"
 #include "../SSAO/DepthMode.h"
+#include "../DeinterleaveTexture/DeinterleaveTexture.h"
+#include "../InterleaveTexture/InterleaveTexture.h"
 
 using namespace Falcor;
 
@@ -78,4 +80,7 @@ private:
 
     int mGuardBand = 64;
     bool mClearTexture = true;
+
+    DeinterleaveTexture::SharedPtr mpDeinterleave;
+    InterleaveTexture::SharedPtr mpInterleave;
 };

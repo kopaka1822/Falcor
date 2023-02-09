@@ -103,7 +103,12 @@ void InterleaveTexture::compile(RenderContext* pContext, const CompileData& comp
     if (!edge) throw std::runtime_error("InterleaveTexture::compile - missing input information");
 
     auto inFormat = edge->getFormat();
-    auto formatDesc = kFormatDesc[(uint32_t)inFormat];
+    setInputFormat(inFormat);
+}
+
+void InterleaveTexture::setInputFormat(ResourceFormat format)
+{
+    auto formatDesc = kFormatDesc[(uint32_t)format];
 
     // set correct format type
     switch (formatDesc.channelCount)
@@ -120,6 +125,11 @@ void InterleaveTexture::execute(RenderContext* pRenderContext, const RenderData&
     auto pTexIn = renderData[kTexIn]->asTexture();
     auto pTexOut = renderData[kTexOut]->asTexture();
 
+    execute(pRenderContext, pTexIn, pTexOut);
+}
+
+void InterleaveTexture::execute(RenderContext* pRenderContext, Texture::SharedPtr pTexIn, Texture::SharedPtr pTexOut)
+{
     mpFbo->attachColorTarget(pTexOut, 0);
     mpPass["src"] = pTexIn;
     mpPass->execute(pRenderContext, mpFbo);

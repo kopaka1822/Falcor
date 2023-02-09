@@ -34,6 +34,12 @@
     <ProjectReference Include="..\..\Falcor\Falcor.vcxproj">
       <Project>{2c535635-e4c5-4098-a928-574f0e7cd5f9}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\DeinterleaveTexture\DeinterleaveTexture.vcxproj">
+      <Project>{5dd08471-1a5a-428f-83c0-044342cae4ba}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\InterleaveTexture\InterleaveTexture.vcxproj">
+      <Project>{16cfd448-7146-4109-b292-a26d6810fadf}</Project>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="HBAOData.slang" />

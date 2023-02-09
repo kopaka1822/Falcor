@@ -63,6 +63,8 @@ Dictionary DeinterleaveTexture::getScriptingDictionary()
     return Dictionary();
 }
 
+
+
 DeinterleaveTexture::DeinterleaveTexture()
     :
 RenderPass(kInfo),
@@ -124,11 +126,16 @@ void DeinterleaveTexture::compile(RenderContext* pContext, const CompileData& co
     if (!edge) throw std::runtime_error("DeinterleaveTexture::compile - missing input information");
 
     auto inFormat = edge->getFormat();
-    auto formatDesc = kFormatDesc[(uint32_t)inFormat];
+    setInputFormat(inFormat);
+}
+
+void DeinterleaveTexture::setInputFormat(ResourceFormat format)
+{
+    auto formatDesc = kFormatDesc[(uint32_t)format];
 
     std::string type;
     // set correct format type
-    switch(formatDesc.channelCount)
+    switch (formatDesc.channelCount)
     {
     case 1: type = "float"; break;
     case 2: type = "float2"; break;
@@ -144,13 +151,18 @@ void DeinterleaveTexture::execute(RenderContext* pRenderContext, const RenderDat
     auto pTexIn = renderData[kTexIn]->asTexture();
     auto pTexOut = renderData[kTexOut]->asTexture();
 
+    execute(pRenderContext, pTexIn, pTexOut);
+}
+
+void DeinterleaveTexture::execute(RenderContext* pRenderContext, Texture::SharedPtr pTexIn, Texture::SharedPtr pTexOut)
+{
     auto pass = mpPass;
     if (pTexIn->getSampleCount() > 1) pass = mpPassMS;
 
     pass["src"] = pTexIn;
-    for(uint32_t slice = 0; slice < mSize; slice += 8)
+    for (uint32_t slice = 0; slice < mSize; slice += 8)
     {
-        for(uint slot = 0; slot < 8; ++slot)
+        for (uint slot = 0; slot < 8; ++slot)
         {
             // attach single slice of texture
             mpFbo->attachColorTarget(pTexOut, slot, 0, slice + slot, 1);

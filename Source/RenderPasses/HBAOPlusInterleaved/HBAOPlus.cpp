@@ -36,8 +36,14 @@ namespace
 
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
+    // deinterleaved versions
+    const std::string kDepthArray = "depthArray";
+    const std::string kDepthArray2 = "depthArray2";
+    
     const std::string ksDepth = "stochasticDepth";
     const std::string kNormal = "normals";
+
+    const std::string kAmbientArray = "ambientMapArray"; // internal deinterleaved
     const std::string kAmbientMap = "ambientMap";
 
     const std::string kProgram = "RenderPasses/HBAOPlusInterleaved/HBAOPlus.slang";
@@ -108,29 +114,53 @@ HBAOPlus::HBAOPlus(const Dictionary& dict)
     setRadius(mData.radius);
 
     mNoiseTexture = genNoiseTexture();
+
+    mpDeinterleave = DeinterleaveTexture::create();
+    mpInterleave = InterleaveTexture::create();
 }
 
 RenderPassReflection HBAOPlus::reflect(const CompileData& compileData)
 {
-    // Define the required resources here
-    RenderPassReflection reflector;
-    reflector.addInput(kDepth, "linear-depth").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 1, 1, 16);
-    reflector.addInput(kDepth2, "linear-depth2").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 1, 1, 16);
-    reflector.addInput(kNormal, "normals").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(ksDepth, "linearized stochastic depths").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 0, 1, 0);
-    auto& out = reflector.addOutput(kAmbientMap, "ambient occlusion").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Unorm).texture2D(0, 0, 1, 1, 16);
-    mReady = false;
+    // set correct size of output resource
+    auto srcWidth = compileData.defaultTexDims.x;
+    auto srcHeight = compileData.defaultTexDims.y;
 
+    auto dstWidth = (srcWidth + 4 - 1) / 4;
+    auto dstHeight = (srcHeight + 4 - 1) / 4;
+
+    auto inputFormat = ResourceFormat::R32Float;
     auto edge = compileData.connectedResources.getField(kDepth);
-    if(edge)
+    if (edge)
     {
-        // set correct size of output resource
-        auto srcWidth = edge->getWidth();
-        auto srcHeight = edge->getHeight();
-        if (edge->getArraySize() != 16) throw std::runtime_error("HBAOPlus expects deinterleaved depth with array size 16");
-        out.texture2D(srcWidth, srcHeight, 1, 1, 16);
+        inputFormat = edge->getFormat();
+        if (isDepthFormat(inputFormat))
+        {
+            inputFormat = depthToRendertargetFormat(inputFormat);
+        }
         mReady = true;
     }
+
+    // Define the required resources here
+    RenderPassReflection reflector;
+    reflector.addInput(kDepth, "linear-depth").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kDepth2, "linear-depth2").bindFlags(ResourceBindFlags::ShaderResource);
+
+    reflector.addInternal(kDepthArray, "linear-depth array").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource)
+        .texture2D(dstWidth, dstHeight, 1, 1, 16).format(inputFormat);
+    reflector.addInternal(kDepthArray2, "linear-depth2 array").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource)
+        .texture2D(dstWidth, dstHeight, 1, 1, 16).format(inputFormat);
+
+    reflector.addInput(kNormal, "normals").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(ksDepth, "linearized stochastic depths").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 0, 1, 0);
+
+    reflector.addInternal(kAmbientArray, "ambient occlusion array").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource)
+        .texture2D(dstWidth, dstHeight, 1, 1, 16).format(ResourceFormat::R8Unorm);
+    reflector.addOutput(kAmbientMap, "ambient occlusion").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource)
+        .texture2D().format(ResourceFormat::R8Unorm);
+    mpInterleave->setInputFormat(ResourceFormat::R8Unorm);
+
+    if ((compileData.defaultTexDims.x % 4 != 0) || (compileData.defaultTexDims.y % 4 != 0))
+        logWarning("HBAOPlus textures pixels are not a mutliple of size 4, this might results in artifacts!");
 
     return reflector;
 }
@@ -148,23 +178,38 @@ void HBAOPlus::compile(RenderContext* pContext, const CompileData& compileData)
     mpPass->getProgram()->addDefine("MSAA_SAMPLES", std::to_string(sdepths->getSampleCount()));
     if (sdepths->getArraySize() == 1) mpPass->getProgram()->removeDefine("STOCHASTIC_ARRAY");
     else mpPass->getProgram()->addDefine("STOCHASTIC_ARRAY");
+
+    auto depthFormat = compileData.connectedResources.getField(kDepth)->getFormat();
+    mpDeinterleave->setInputFormat(depthFormat);
 }
 
 void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
-    auto pDepth = renderData[kDepth]->asTexture();
-    auto pDepth2 = renderData[kDepth2]->asTexture();
+    auto pDepthIn = renderData[kDepth]->asTexture();
+    auto pDepth2In = renderData[kDepth2]->asTexture();
+    auto pDepth = renderData[kDepthArray]->asTexture();
+    auto pDepth2 = renderData[kDepthArray2]->asTexture();
     auto psDepth = renderData[ksDepth]->asTexture();
     auto pNormal = renderData[kNormal]->asTexture();
-    auto pAmbient = renderData[kAmbientMap]->asTexture();
+    auto pAmbient = renderData[kAmbientArray]->asTexture();
+    auto pAmbientOut = renderData[kAmbientMap]->asTexture();
 
     if (!mEnabled)
     {
         // clear and return
-        pRenderContext->clearTexture(pAmbient.get(), float4(1.0f));
+        pRenderContext->clearTexture(pAmbientOut.get(), float4(1.0f));
         return;
+    }
+
+    {
+        FALCOR_PROFILE("DeinterleaveDepth1");
+        mpDeinterleave->execute(pRenderContext, pDepthIn, pDepth);
+    }
+    {
+        FALCOR_PROFILE("DeinterleaveDepth2");
+        mpDeinterleave->execute(pRenderContext, pDepth2In, pDepth2);
     }
 
     if(mClearTexture)
@@ -196,16 +241,24 @@ void HBAOPlus::execute(RenderContext* pRenderContext, const RenderData& renderDa
 
     setGuardBandScissors(*mpPass->getState(), renderData.getDefaultTextureDims() / 4u, mGuardBand / 4);
 
-    for(UINT sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
     {
-        mpFbo->attachColorTarget(pAmbient, 0, 0, sliceIndex, 1);
-        mpPass["gDepthTexQuarter"].setSrv(pDepth->getSRV(0, 1, sliceIndex, 1));
-        mpPass["gDepthTex2Quarter"].setSrv(pDepth2->getSRV(0, 1, sliceIndex, 1));
-        mpPass["PerFrameCB"]["Rand"] = mNoiseTexture[sliceIndex];
-        mpPass["PerFrameCB"]["quarterOffset"] = uint2(sliceIndex % 4, sliceIndex / 4);
-        mpPass["PerFrameCB"]["sliceIndex"] = sliceIndex;
+        FALCOR_PROFILE("AO");
+        for (UINT sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
+        {
+            mpFbo->attachColorTarget(pAmbient, 0, 0, sliceIndex, 1);
+            mpPass["gDepthTexQuarter"].setSrv(pDepth->getSRV(0, 1, sliceIndex, 1));
+            mpPass["gDepthTex2Quarter"].setSrv(pDepth2->getSRV(0, 1, sliceIndex, 1));
+            mpPass["PerFrameCB"]["Rand"] = mNoiseTexture[sliceIndex];
+            mpPass["PerFrameCB"]["quarterOffset"] = uint2(sliceIndex % 4, sliceIndex / 4);
+            mpPass["PerFrameCB"]["sliceIndex"] = sliceIndex;
 
-        mpPass->execute(pRenderContext, mpFbo, false);
+            mpPass->execute(pRenderContext, mpFbo, false);
+        }
+    }
+
+    {
+        FALCOR_PROFILE("InterleaveAO");
+        mpInterleave->execute(pRenderContext, pAmbient, pAmbientOut);
     }
 }
 

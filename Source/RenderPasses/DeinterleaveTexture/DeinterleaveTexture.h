@@ -30,7 +30,7 @@
 
 using namespace Falcor;
 
-class DeinterleaveTexture : public RenderPass
+class FALCOR_API_EXPORT DeinterleaveTexture : public RenderPass
 {
 public:
     using SharedPtr = std::shared_ptr<DeinterleaveTexture>;
@@ -47,11 +47,14 @@ public:
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void compile(RenderContext* pContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
+    void execute(RenderContext* pRenderContext, Texture::SharedPtr texIn, Texture::SharedPtr texOut);
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override {}
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
+    // will be called by compile. Must be called manually if compiled will not be used
+    void setInputFormat(ResourceFormat format);
 private:
     DeinterleaveTexture();
 
