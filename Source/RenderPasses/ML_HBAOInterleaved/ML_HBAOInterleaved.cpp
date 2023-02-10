@@ -135,14 +135,14 @@ RenderPassReflection ML_HBAOInterleaved::reflect(const CompileData& compileData)
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kMaterialData, "Material Data (double sided flag)").bindFlags(ResourceBindFlags::ShaderResource);
     // internal interleave textures:
-    reflector.addInternal(kDepthArray, "Depth Array").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget)
+    reflector.addOutput(kDepthArray, "Depth Array").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget)
         .texture2D(dstWidth, dstHeight, 1, 1, 16).format(inputFormat);
-    reflector.addInternal(kMaterialArray, "Material Array").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget)
+    reflector.addOutput(kMaterialArray, "Material Array").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget)
         .texture2D(dstWidth, dstHeight, 1, 1, 16).format(ResourceFormat::R8Uint);
 
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
 
-    reflector.addInternal(kAmbientArray, "Ambient Array").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget)
+    reflector.addOutput(kAmbientArray, "Ambient Array").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget)
         .texture2D(dstWidth, dstHeight, 1, 1, 16).format(ResourceFormat::R8Unorm);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
     return reflector;
@@ -221,18 +221,14 @@ void ML_HBAOInterleaved::execute(RenderContext* pRenderContext, const RenderData
     // Update state/vars
     mpSSAOPass["gTextureSampler"] = mpTextureSampler;
     mpSSAOPass["gNormalTex"] = pNormals;
-
-
-    // Generate AO
-    mpAOFbo->attachColorTarget(pAoArray, 0);
-    setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims() / 4u, mGuardBand / 4);
     
-    mpSSAOPass->execute(pRenderContext, mpAOFbo, false);
+    setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims() / 4u, mGuardBand / 4);
 
     {
         FALCOR_PROFILE("AO");
         for (UINT sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
         {
+            mpAOFbo->attachColorTarget(pAoArray, 0, 0, sliceIndex, 1);
             mpSSAOPass["gDepthTexQuarter"].setSrv(pDepthArray->getSRV(0, 1, sliceIndex, 1));
             mpSSAOPass["gMaterialDataQuarter"].setSrv(pMaterialArray->getSRV(0, 1, sliceIndex, 1));
             mpSSAOPass["PerFrameCB"]["Rand"] = mNoiseTexture[sliceIndex];

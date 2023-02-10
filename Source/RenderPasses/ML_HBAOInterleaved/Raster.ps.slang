@@ -97,30 +97,31 @@ cbuffer PerFrameCB
 {
     float4x4 invViewMat;
     Camera gCamera;
-    float4 Rand; // the random values are fixed for a quarter res texture (4x4 grid)
-    uint2 quarterOffset; // offset inside the quarter resolution texture
+    float Rand; // the random values are fixed for a quarter res texture (4x4 grid)
     uint sliceIndex;
+    uint2 quarterOffset; // offset inside the quarter resolution texture
 }
 
 SamplerState gTextureSampler;
 
 // inputs
 Texture2D<float> gDepthTexQuarter;
-Texture2D<uint4> gMaterialDataQuarter;
+#define MTL_DOUBLE_SIDED 1
+Texture2D<uint> gMaterialDataQuarter;
 Texture2D gNormalTex; // normals do not need the extra effor for quarter texture since they are read once anyways (for sampling the local hemisphere)
 
 float2 getSnappedUV(float2 uv)
 {
     float width, height;
-    gDepthTex.GetDimensions(width, height);
-    float2 pixelCoord = floor(uv * float2(width, height));
-    return float2((pixelCoord.x + 0.5f) / width, (pixelCoord.y + 0.5f) / height);
+    gDepthTexQuarter.GetDimensions(width, height);
+    float2 pixelCoord = floor(uv * float2(width, height)) + 0.25 * float2(quarterOffset);
+    return float2((pixelCoord.x + 0.125f) / width, (pixelCoord.y + 0.125f) / height);
 }
 
 bool isSamePixel(float2 uv1, float2 uv2)
 {
     float width, height;
-    gDepthTex.GetDimensions(width, height);
+    gDepthTexQuarter.GetDimensions(width, height);
     float2 pixelSize = float2(rcp(width), rcp(height));
     return all(abs(uv1 - uv2) < pixelSize);
 
@@ -145,25 +146,18 @@ float2 ViewSpaceToUV(float3 posV)
     return ndc * float2(-0.5, 0.5) + 0.5; // since posV.z is negative, the sign order is inversed
 }
 
-int2 UVToPixel(float2 uv)
+int2 UVToPixelFull(float2 uv)
 {
     float width, height;
-    gDepthTex.GetDimensions(width, height);
+    gNormalTex.GetDimensions(width, height);
     return int2(floor(uv * float2(width, height)));
 }
 
-float makeNonZero(float value, float epsilon)
+int2 UVToPixelQuarter(float2 uv)
 {
-    float absValue = max(abs(value), epsilon);
-    return value >= 0 ? absValue : -absValue;
-}
-
-// like sign, but returns 1 for v=0
-float signBinary(float v)
-{
-    if (v < 0.0)
-        return -1.0;
-    return 1.0;
+    float width, height;
+    gDepthTexQuarter.GetDimensions(width, height);
+    return int2(floor(uv * float2(width, height)));
 }
 
 float2 getRaySphereIntersections(float3 rayStart, /*normalized*/ float3 rayDir, float3 sphereCenter, float radius)
@@ -177,7 +171,10 @@ float2 getRaySphereIntersections(float3 rayStart, /*normalized*/ float3 rayDir, 
 
 float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
-    float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0);
+    // fix texc
+    texC = getSnappedUV(texC); // snappping to the quarter resolution texture
+    
+    float linearDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, texC, 0);
     if (linearDepth >= gCamera.data.farZ * 0.99)
         return 1.0f;
     
@@ -193,20 +190,13 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         normalW = -normalW;
         normalV = -normalV;
     }
-
-    // obtain current pixels XY coordinate          
-    float width, height;
-    gDepthTex.GetDimensions(width, height);
-    const int2 XY = UVToPixel(texC);
     
     const float posVLength = length(posV);
 
     // Calculate tangent space (use random direction for tangent orientation)
-    float randJitter = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0); 
-    float randRotation = gNoiseTex.SampleLevel(gNoiseSampler, texC * gData.noiseScale, 0) * 2.0 * 3.141; // range [0, 2pi]
+    float randJitter = Rand;
+    float randRotation = Rand * 2.0 * 3.141;
     float2 randDir = float2(sin(randRotation), cos(randRotation));
-    randDir = normalize(randDir); // should be normalized by default, but precision is lost in texture format
-    //randDir = float2(1.0f, 0.0f);
     
     // determine tangent space
     float3 V = -posV / posVLength;
@@ -267,27 +257,21 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             bool requireRay = false;
             float2 rasterSamplePosUV = getSnappedUV(screenUv);
 
-            /*if (isSamePixel(texC, rasterSamplePosUV))
-            {
-                visibility += 1.0;
-                continue;
-            }*/
-            
-            float3 hitV = UVToViewSpace(rasterSamplePosUV, gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0));
+   
+            float3 hitV = UVToViewSpace(rasterSamplePosUV, gDepthTexQuarter.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0));
             float hitT = min(length(hitV), gCamera.data.farZ); // distance to camera origin (origin is 0 because of view space)
             //uint4 mtlData = gMaterialData.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0);
-            uint4 mtlData = gMaterialData[UVToPixel(rasterSamplePosUV)];
-            MaterialHeader matHeader;
-            matHeader.packedData = mtlData.yz; // x = id, yz = packed data
             rasterHeights[step + NUM_STEPS] = clamp((initialSampleT - hitT) / gData.radius, -16.0, 16.0);
+
+            if (isSamePixel(texC, rasterSamplePosUV))
+            {
+                validSample = false; // also evaluate to visibility = 1.0
+                //rasterHeights[step + NUM_STEPS] = 0.0;
+            }
             
             float3 P = normalize(hitV - posV); // depth buffer hit vector (P) from posV to hitpoint
 
-            //float angleSign = signBinary(dot(normalV, S) + 0.01) * signBinary(dot(P, halfspacePlane));
-            //float alpha = acos(max(dot(normalV, P), 0.0)) * 2.0 / 3.141;
             float alpha = 1 - max(dot(normalV, P), 0.0);
-
-            // TODO test if sample point is below the sphere
             
             float curVisibility = 1.0;
             if (!validSample || hitT > sphereStartEnd.y) // intersection behind the sphere (assume not occluded)
@@ -300,7 +284,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 requireRay = true;
                 curVisibility = alpha;
                 // check if it was a double sided hit
-                if (matHeader.isDoubleSided())
+                if (gMaterialDataQuarter[UVToPixelQuarter(rasterSamplePosUV)] & MTL_DOUBLE_SIDED)
                     forceRay = true; // force rays for double sided materials in front of the sphere => they cannot be occluders by definition
             }
             else
@@ -311,7 +295,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
             //forceRay = forceRay || requireRay;
             //requireRay = false;
-            
+            //forceRay = requireRay = false;
             
             if (forceRay && validSample)
                 finalRayMask |= 1u << (step + NUM_STEPS);

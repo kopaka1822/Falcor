@@ -266,18 +266,18 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             forceRay = !isInScreen;
             bool requireRay = false;
             float2 rasterSamplePosUV = getSnappedUV(screenUv);
-
-            /*if (isSamePixel(texC, rasterSamplePosUV))
-            {
-                visibility += 1.0;
-                continue;
-            }*/
             
             float3 hitV = UVToViewSpace(rasterSamplePosUV, gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0));
             float hitT = min(length(hitV), gCamera.data.farZ); // distance to camera origin (origin is 0 because of view space)
             //uint4 mtlData = gMaterialData.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0);
             
             rasterHeights[step + NUM_STEPS] = clamp((initialSampleT - hitT) / gData.radius, -16.0, 16.0);
+
+            if (isSamePixel(texC, rasterSamplePosUV))
+            {
+                validSample = false; // also evaluate to visibility = 1.0
+                //rasterHeights[step + NUM_STEPS] = 0.0;
+            }
             
             float3 P = normalize(hitV - posV); // depth buffer hit vector (P) from posV to hitpoint
 
