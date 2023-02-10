@@ -56,9 +56,12 @@ namespace
     const std::string kGuardBand = "guardBand";
 
     const std::string kAmbientMap = "ambientMap";
+    const std::string kAmbientArray = "ambientArray";
     const std::string kDepth = "depth";
+    const std::string kDepthArray = "depthArray";
     const std::string kNormals = "normals";
-    const std::string kMaterialData = "materialData";
+    const std::string kMaterialData = "doubleSided";
+    const std::string kMaterialArray = "materialArray";
 
     // interleaved data
 
@@ -77,6 +80,8 @@ RenderPass(kInfo)
     mpAOFbo = Fbo::create();
     
     mpDeinterleave = DeinterleaveTexture::create();
+    mpDeinterleaveMat = DeinterleaveTexture::create();
+    mpDeinterleaveMat->setInputFormat(ResourceFormat::R8Uint);
     mpInterleave = InterleaveTexture::create();
 
     mNoiseTexture = genNoiseTexture();
@@ -106,13 +111,39 @@ Dictionary ML_HBAOInterleaved::getScriptingDictionary()
 
 RenderPassReflection ML_HBAOInterleaved::reflect(const CompileData& compileData)
 {
+    // set correct size of output resource
+    auto srcWidth = compileData.defaultTexDims.x;
+    auto srcHeight = compileData.defaultTexDims.y;
+
+    auto dstWidth = (srcWidth + 4 - 1) / 4;
+    auto dstHeight = (srcHeight + 4 - 1) / 4;
+
+    auto inputFormat = ResourceFormat::R32Float;
+    auto edge = compileData.connectedResources.getField(kDepth);
+    if (edge)
+    {
+        inputFormat = edge->getFormat();
+        if (isDepthFormat(inputFormat))
+        {
+            inputFormat = depthToRendertargetFormat(inputFormat);
+        }
+        mReady = true;
+    }
+
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
-    // TODO add interleaved stuff
-    // TODO optimize material data =>  extract flag
+    reflector.addInput(kMaterialData, "Material Data (double sided flag)").bindFlags(ResourceBindFlags::ShaderResource);
+    // internal interleave textures:
+    reflector.addInternal(kDepthArray, "Depth Array").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget)
+        .texture2D(dstWidth, dstHeight, 1, 1, 16).format(inputFormat);
+    reflector.addInternal(kMaterialArray, "Material Array").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget)
+        .texture2D(dstWidth, dstHeight, 1, 1, 16).format(ResourceFormat::R8Uint);
+
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(kMaterialData, "Material Data").bindFlags(ResourceBindFlags::ShaderResource);
+
+    reflector.addInternal(kAmbientArray, "Ambient Array").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget)
+        .texture2D(dstWidth, dstHeight, 1, 1, 16).format(ResourceFormat::R8Unorm);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
     return reflector;
 }
@@ -127,9 +158,12 @@ void ML_HBAOInterleaved::execute(RenderContext* pRenderContext, const RenderData
 {
     if (!mpScene) return;
 
-    auto pDepth = renderData[kDepth]->asTexture();
+    auto pDepthIn = renderData[kDepth]->asTexture();
     auto pNormals = renderData[kNormals]->asTexture();
-    auto pMaterialData = renderData[kMaterialData]->asTexture();
+    auto pMaterialDataIn = renderData[kMaterialData]->asTexture();
+    auto pDepthArray = renderData[kDepthArray]->asTexture();
+    auto pMaterialArray = renderData[kMaterialArray]->asTexture();
+    auto pAoArray = renderData[kAmbientArray]->asTexture();
     auto pAoDst = renderData[kAmbientMap]->asTexture();
     auto pCamera = mpScene->getCamera().get();
 
@@ -140,8 +174,8 @@ void ML_HBAOInterleaved::execute(RenderContext* pRenderContext, const RenderData
     }
 
     if (mClearTexture)
-    { // TODO change
-        pRenderContext->clearTexture(pAoDst.get(), float4(0.0f));
+    {
+        pRenderContext->clearTexture(pAoArray.get(), float4(0.0f));
         mClearTexture = false;
     }
 
@@ -165,6 +199,18 @@ void ML_HBAOInterleaved::execute(RenderContext* pRenderContext, const RenderData
         mDirty = false;
     }
 
+    // do deinterleave
+    {
+        FALCOR_PROFILE("DeinterleaveDepth");
+        mpDeinterleave->execute(pRenderContext, pDepthIn, pDepthArray);
+    }
+
+    {
+        FALCOR_PROFILE("DeinterleaveMaterial");
+        mpDeinterleaveMat->execute(pRenderContext, pMaterialDataIn, pMaterialArray);
+    }
+
+
     // bind dynamic resources
     auto var = mpSSAOPass->getRootVar();
     mpScene->setRaytracingShaderData(pRenderContext, var);
@@ -174,14 +220,33 @@ void ML_HBAOInterleaved::execute(RenderContext* pRenderContext, const RenderData
 
     // Update state/vars
     mpSSAOPass["gTextureSampler"] = mpTextureSampler;
-    mpSSAOPass["gDepthTex"] = pDepth;
     mpSSAOPass["gNormalTex"] = pNormals;
-    mpSSAOPass["gMaterialData"] = pMaterialData;
+
 
     // Generate AO
-    mpAOFbo->attachColorTarget(pAoDst, 0);
-    setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims(), mGuardBand);
+    mpAOFbo->attachColorTarget(pAoArray, 0);
+    setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims() / 4u, mGuardBand / 4);
+    
     mpSSAOPass->execute(pRenderContext, mpAOFbo, false);
+
+    {
+        FALCOR_PROFILE("AO");
+        for (UINT sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
+        {
+            mpSSAOPass["gDepthTexQuarter"].setSrv(pDepthArray->getSRV(0, 1, sliceIndex, 1));
+            mpSSAOPass["gMaterialDataQuarter"].setSrv(pMaterialArray->getSRV(0, 1, sliceIndex, 1));
+            mpSSAOPass["PerFrameCB"]["Rand"] = mNoiseTexture[sliceIndex];
+            mpSSAOPass["PerFrameCB"]["quarterOffset"] = uint2(sliceIndex % 4, sliceIndex / 4);
+            mpSSAOPass["PerFrameCB"]["sliceIndex"] = sliceIndex;
+
+            mpSSAOPass->execute(pRenderContext, mpAOFbo, false);
+        }
+    }
+
+    {
+        FALCOR_PROFILE("InterleaveAO");
+        mpInterleave->execute(pRenderContext, pAoArray, pAoDst);
+    }
 }
 
 void ML_HBAOInterleaved::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)

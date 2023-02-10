@@ -97,14 +97,17 @@ cbuffer PerFrameCB
 {
     float4x4 invViewMat;
     Camera gCamera;
+    float4 Rand; // the random values are fixed for a quarter res texture (4x4 grid)
+    uint2 quarterOffset; // offset inside the quarter resolution texture
+    uint sliceIndex;
 }
 
 SamplerState gTextureSampler;
 
 // inputs
-Texture2D<float> gDepthTex;
-Texture2D gNormalTex;
-Texture2D<uint4> gMaterialData;
+Texture2D<float> gDepthTexQuarter;
+Texture2D<uint4> gMaterialDataQuarter;
+Texture2D gNormalTex; // normals do not need the extra effor for quarter texture since they are read once anyways (for sampling the local hemisphere)
 
 float2 getSnappedUV(float2 uv)
 {

@@ -135,13 +135,31 @@ void DeinterleaveTexture::setInputFormat(ResourceFormat format)
 
     std::string type;
     // set correct format type
+
+    switch (formatDesc.Type)
+    {
+    case FormatType::Float:
+    case FormatType::Unorm:
+    case FormatType::UnormSrgb:
+    case FormatType::Snorm:
+        type = "float";
+        break;
+    case FormatType::Uint:
+        type = "uint";
+        break;
+    case FormatType::Sint:
+        type = "int";
+        break;
+    }
+
     switch (formatDesc.channelCount)
     {
-    case 1: type = "float"; break;
-    case 2: type = "float2"; break;
-    case 3: type = "float3"; break;
-    case 4: type = "float4"; break;
+    case 1: break;
+    case 2: type += "2"; break;
+    case 3: type += "3"; break;
+    case 4: type += "4"; break;
     }
+    
     mpPass->addDefine("type", type);
     mpPassMS->addDefine("type", type);
 }

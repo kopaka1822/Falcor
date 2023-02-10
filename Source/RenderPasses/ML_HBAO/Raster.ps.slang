@@ -276,7 +276,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float3 hitV = UVToViewSpace(rasterSamplePosUV, gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0));
             float hitT = min(length(hitV), gCamera.data.farZ); // distance to camera origin (origin is 0 because of view space)
             //uint4 mtlData = gMaterialData.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0);
-            uint mtlFlags = gMaterialData[UVToPixel(rasterSamplePosUV)];
+            
             rasterHeights[step + NUM_STEPS] = clamp((initialSampleT - hitT) / gData.radius, -16.0, 16.0);
             
             float3 P = normalize(hitV - posV); // depth buffer hit vector (P) from posV to hitpoint
@@ -298,7 +298,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 requireRay = true;
                 curVisibility = alpha;
                 // check if it was a double sided hit
-                if (mtlFlags & MTL_DOUBLE_SIDED)
+                if (gMaterialData[UVToPixel(rasterSamplePosUV)] & MTL_DOUBLE_SIDED)
                     forceRay = true; // force rays for double sided materials in front of the sphere => they cannot be occluders by definition
             }
             else

@@ -79,5 +79,6 @@ private:
     bool mClearTexture = true;
 
     DeinterleaveTexture::SharedPtr mpDeinterleave;
+    DeinterleaveTexture::SharedPtr mpDeinterleaveMat;
     InterleaveTexture::SharedPtr mpInterleave;
 };
