@@ -103,6 +103,9 @@
     <ProjectReference Include="..\RenderPasses\LinearizeDepth\LinearizeDepth.vcxproj">
       <Project>{bb0cceac-f82e-4219-8487-043e49911bdd}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\MaterialDoubleSided\MaterialDoubleSided.vcxproj">
+      <Project>{7169fa22-1d9a-4791-b296-7eb59a59a428}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\MegakernelPathTracer\MegakernelPathTracer.vcxproj">
       <Project>{873f13ca-a9c7-47ba-857d-8848c5e7f07e}</Project>
     </ProjectReference>

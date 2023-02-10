@@ -106,7 +106,8 @@ SamplerState gTextureSampler;
 Texture2D<float> gDepthTex;
 Texture2D<float> gNoiseTex;
 Texture2D gNormalTex;
-Texture2D<uint4> gMaterialData;
+#define MTL_DOUBLE_SIDED 1
+Texture2D<uint> gMaterialData; // double sided flag
 
 float2 getSnappedUV(float2 uv)
 {
@@ -275,9 +276,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float3 hitV = UVToViewSpace(rasterSamplePosUV, gDepthTex.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0));
             float hitT = min(length(hitV), gCamera.data.farZ); // distance to camera origin (origin is 0 because of view space)
             //uint4 mtlData = gMaterialData.SampleLevel(gTextureSampler, rasterSamplePosUV, 0.0);
-            uint4 mtlData = gMaterialData[UVToPixel(rasterSamplePosUV)];
-            MaterialHeader matHeader;
-            matHeader.packedData = mtlData.yz; // x = id, yz = packed data
+            uint mtlFlags = gMaterialData[UVToPixel(rasterSamplePosUV)];
             rasterHeights[step + NUM_STEPS] = clamp((initialSampleT - hitT) / gData.radius, -16.0, 16.0);
             
             float3 P = normalize(hitV - posV); // depth buffer hit vector (P) from posV to hitpoint
@@ -299,7 +298,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 requireRay = true;
                 curVisibility = alpha;
                 // check if it was a double sided hit
-                if (matHeader.isDoubleSided())
+                if (mtlFlags & MTL_DOUBLE_SIDED)
                     forceRay = true; // force rays for double sided materials in front of the sphere => they cannot be occluders by definition
             }
             else

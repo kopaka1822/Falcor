@@ -58,7 +58,7 @@ namespace
     const std::string kAmbientMap = "ambientMap";
     const std::string kDepth = "depth";
     const std::string kNormals = "normals";
-    const std::string kMaterialData = "materialData";
+    const std::string kMaterialData = "doubleSided";
 
     const std::string kSSAOShader = "RenderPasses/ML_HBAO/Raster.ps.slang";
 
@@ -108,7 +108,7 @@ RenderPassReflection ML_HBAO::reflect(const CompileData& compileData)
     RenderPassReflection reflector;
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(kMaterialData, "Material Data").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kMaterialData, "Material Data (double sided flag)").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
 
     return reflector;
