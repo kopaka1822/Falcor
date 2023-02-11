@@ -34,8 +34,10 @@ import Scene.Raster;
 
 //#include "Scene/Material/MaterialDefines.slangh"
 
+#define ml_float float
+
 // ml network
-static const float kernel0[4 * 5 * 5] =
+static const ml_float kernel0[4 * 5 * 5] =
 {
     -2.1529474, -0.22074331, 2.6480758, -1.2584015, -0.28819174, 0.8789276, 0.38466936, 0.022578537, -0.004050717, 0.30297506, 0.035171174, 0.17631598, -0.05319165, -0.50373733, 0.14312294, -0.5837663, -0.29822022, 0.078120686, 1.0556755, -0.20848484, -0.12656504, -2.2454267, 0.059932016, 0.7978356, -2.2481554,
     3.8233576, -0.17893381, -1.9495546, 0.1253949, 0.004297561, -1.4594983, 3.7157764, 0.3517659, -1.800106, -0.7068048, 0.7926677, 0.025229696, 0.30072054, -0.92199486, 0.7403585, 0.15179537, 0.05578087, 0.28190252, -0.57500947, -0.38420802, 0.024217246, 0.08247212, 0.43449768, 0.009338685, -3.373533,
@@ -44,7 +46,7 @@ static const float kernel0[4 * 5 * 5] =
     
 };
 #define KERNEL0(step, row, col) kernel0[step * 5 * 5 + row * 5 + col]
-static const float bias0[4 * 5] =
+static const ml_float bias0[4 * 5] =
 {
     1.1631331, -0.06082821, -0.4667503, 0.5140993, 0.4035607,
     0.8670715, -0.46901023, 0.93886226, 1.6690806, 0.8498954,
@@ -52,7 +54,7 @@ static const float bias0[4 * 5] =
     -0.015608429, 0.8526345, 0.60784566, 0.8707579, 0.9019055
 };
 #define BIAS0(step, col) bias0[step * 5 + col]
-static const float kernel1[4 * 5 * 5] =
+static const ml_float kernel1[4 * 5 * 5] =
 {
     0.078057036, 0.2107422, -3.5479248, 0.10689201, 0.011195385, 2.4116623, -0.560882, 1.6831114, 0.6987789, 0.02600676, 0.0841675, -1.1471808, 0.2369262, 1.2171623, -0.9384125, -0.1052978, 0.095147796, -1.0771282, 0.11407696, -0.07878899, -2.9747589, 0.5397344, -1.73844, -0.47401133, -0.24260028,
     1.4168367, 0.36601797, -2.6717858, -2.8442566, -0.3486352, 0.13301066, -1.7021703, 1.3058927, 0.7409957, 0.12507373, -0.9577057, 0.12580922, -0.2573012, -0.048141334, -1.1746746, 0.43338102, -0.01224304, -18.936464, -0.08552319, -5.2429233, 0.03609894, -0.04451053, 0.08494705, -0.04828412, -3.1804955,
@@ -60,7 +62,7 @@ static const float kernel1[4 * 5 * 5] =
      -0.03204945, 0.24805048, -14.072321, -0.7950415, -0.02584654, 2.2421587, -0.3348794, 1.7593398, 1.1568526, 0.0053971587, 0.6760102, -1.7839174, 0.7423849, -0.7128633, -0.9869542, -2.1151628, 0.82067335, -1.7320192, 1.1195401, -0.14110619, -3.1076295, 0.4169148, -0.34305027, 0.5337315, -0.31124455
 };
 #define KERNEL1(step, row, col) kernel1[step * 5 * 5 + row * 5 + col]
-static const float bias1[4 * 5] =
+static const ml_float bias1[4 * 5] =
 {
     1.0084023, 2.7913795, 1.8205782, -0.034690764, -0.21305476,
     -1.3357264, 4.302976, -1.2789307, 3.1032166, 2.9681976,
@@ -68,7 +70,7 @@ static const float bias1[4 * 5] =
     2.4171095, 5.4000063, 1.2496324, 1.141482, -0.3966589
 };
 #define BIAS1(step, col) bias1[step * 5 + col]
-static const float kernel2[4 * 5 * 1] =
+static const ml_float kernel2[4 * 5 * 1] =
 {
     1.1561285, -1.0737535, 0.99911916, 0.25504047, 0.11513423,
     0.27637112, -0.90580726, 0.21328549, 0.45614877, 1.4903924,
@@ -76,7 +78,7 @@ static const float kernel2[4 * 5 * 1] =
     0.7513209, -0.93860745, 0.8664237, 0.31559163, 0.12267117
 };
 #define KERNEL2(step, row) kernel2[step * 5 * 1 + row]
-static const float bias2[4 * 1] =
+static const ml_float bias2[4 * 1] =
 {
     -2.0550632,
     -1.696745,
@@ -175,11 +177,21 @@ float2 getRaySphereIntersections(float3 rayStart, /*normalized*/ float3 rayDir, 
     return float2(d - delta, d + delta);
 }
 
-float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+struct PSOut
 {
+    float ao : SV_Target0;
+    uint rayMask : SV_Target1;
+};
+
+PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+{
+    PSOut o;
+    o.ao = 0.0;
+    o.rayMask = 0;
+    
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0);
     if (linearDepth >= gCamera.data.farZ * 0.99)
-        return 1.0f;
+        return o;
     
     // view space position of current pixel
     float3 posV = UVToViewSpace(texC, linearDepth);
@@ -230,7 +242,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         float2 direction = float2(sin(angle), cos(angle));
 
         // temporary array with raster heights for current line of 8 samples
-        float rasterHeights[NUM_STEPS * 2];
+        ml_float rasterHeights[NUM_STEPS * 2];
         uint finalRayMask = 0; // bits that need ray tracing (100% sure)
         uint pendingRayMask = 0; // bits that might need ray tracing
         int step;
@@ -308,13 +320,14 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             }
 
             //forceRay = forceRay || requireRay;
+            //forceRay = true;
             //requireRay = false;
             
             
             if (forceRay && validSample)
                 finalRayMask |= 1u << (step + NUM_STEPS);
             else if(requireRay && validSample)
-                pendingRayMask |= 1u << (step + NUM_STEPS);
+                pendingRayMask |= 1u << (step + NUM_STEPS); // TODO curVisibility needs to be saved as well if no ray was required...
             else
                 visibility += curVisibility;
 
@@ -333,7 +346,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             
             //if (!(pendingRayMask & (1u << (step + NUM_STEPS)))) continue; // only work with marked samples
             
-            float inputs[5];
+            ml_float inputs[5];
             int astep; // absolute step value for lookup (0,1,2,3)
             if (step < 0)
             {
@@ -354,34 +367,36 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 astep = step;
             }
 
-            float layer1Output[5] = { BIAS0(astep, 0), BIAS0(astep, 1), BIAS0(astep, 2), BIAS0(astep, 3), BIAS0(astep, 4) };
+            ml_float layer1Output[5] = { BIAS0(astep, 0), BIAS0(astep, 1), BIAS0(astep, 2), BIAS0(astep, 3), BIAS0(astep, 4) };
             [unroll]for (int outIdx = 0; outIdx < 5; outIdx++)
                 [unroll]for (int inIdx = 0; inIdx < 5; inIdx++)
                     layer1Output[outIdx] = mad(KERNEL0(astep, inIdx, outIdx), inputs[inIdx], layer1Output[outIdx]);
             [unroll]for (int outIdx = 0; outIdx < 5; ++outIdx)
                 layer1Output[outIdx] = max(layer1Output[outIdx], 0); // RELU
 
-            float layer2Output[5] = { BIAS1(astep, 0), BIAS1(astep, 1), BIAS1(astep, 2), BIAS1(astep, 3), BIAS1(astep, 4) };
+            ml_float layer2Output[5] = { BIAS1(astep, 0), BIAS1(astep, 1), BIAS1(astep, 2), BIAS1(astep, 3), BIAS1(astep, 4) };
             [unroll]for (int outIdx = 0; outIdx < 5; outIdx++)
                 [unroll]for (int inIdx = 0; inIdx < 5; inIdx++)
                     layer2Output[outIdx] = mad(KERNEL1(astep, inIdx, outIdx), layer1Output[inIdx], layer2Output[outIdx]);
             [unroll] for (int outIdx = 0; outIdx < 5; ++outIdx)
                 layer2Output[outIdx] = max(layer2Output[outIdx], 0); // RELU
 
-            float layer3Output = BIAS2(astep);
+            ml_float layer3Output = BIAS2(astep);
             [unroll]for (int inIdx = 0; inIdx < 5; inIdx++)
                 layer3Output = mad(KERNEL2(astep, inIdx), layer2Output[inIdx], layer3Output);
 
             //layer3Output = 1.0 / (1.0 + exp(-layer3Output)); // SIGMOID
             //if(layer3Output > 0.5) // require ray
-            if(layer3Output > 0.0) // require ray
+            if (layer3Output > ml_float(0.0)) // require ray
                 finalRayMask |= 1u << (step + NUM_STEPS);
 
             step++;
             pendingRayMask = pendingRayMask >> 1;
         }
-        
-        // for simplicity start in same shader
+
+        // defer ray tracing to other pass
+        o.rayMask = o.rayMask | (finalRayMask << (i * 8));
+        /*
         step = -NUM_STEPS;
         while(finalRayMask != 0u)
         //[unroll] for (; step < NUM_STEPS; ++step)
@@ -493,14 +508,15 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             step++;
             finalRayMask = finalRayMask >> 1;
         }
+        */
     }
     
     float AO = visibility / float(NUM_DIRECTIONS * NUM_STEPS);
 
-    AO = saturate(AO);
-    //AO = saturate(2 * AO - 1);
-
-    // do artistic modifications
-    AO = pow(AO, gData.exponent);
-    return AO;
+    //AO = saturate(AO);
+    if(o.rayMask == 0u)
+        AO = pow(AO, gData.exponent); // apply exponent here since it will be ignored in the ray shader
+    
+    o.ao = AO;
+    return o;
 }

@@ -9,7 +9,7 @@ class ClampTransformer(BaseEstimator, TransformerMixin):
 		return self
 
 	def transform(self, X, y=None):
-		X = np.clip(X, -self.value, self.value)
+		X = np.clip(X, -self.value, self.value) #/ self.value # clip and normalize
 		return X
 
 class FilterInputsTransformer(BaseEstimator, TransformerMixin):

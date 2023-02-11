@@ -9,5 +9,6 @@
   <ItemGroup>
     <ShaderSource Include="Raster.ps.slang" />
     <ShaderSource Include="SSAOData.slang" />
+    <ShaderSource Include="Ray.slang" />
   </ItemGroup>
 </Project>

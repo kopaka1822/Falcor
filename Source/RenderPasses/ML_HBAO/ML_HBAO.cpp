@@ -60,9 +60,14 @@ namespace
     const std::string kNormals = "normals";
     const std::string kMaterialData = "doubleSided";
 
+    // second (ray) pass
+    const std::string kRayStencil = "rayStencil";
+
     const std::string kSSAOShader = "RenderPasses/ML_HBAO/Raster.ps.slang";
+    const std::string kRayShader = "RenderPasses/ML_HBAO/Ray.slang";
 
     static const int NOISE_SIZE = 4; // in each dimension: 4x4
+    const uint32_t kMaxPayloadSize = 4 * 4;
 }
 
 ML_HBAO::ML_HBAO()
@@ -109,7 +114,10 @@ RenderPassReflection ML_HBAO::reflect(const CompileData& compileData)
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kMaterialData, "Material Data (double sided flag)").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
+
+    reflector.addOutput(kRayStencil, "Stencil Bitmask for ray tracng").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::R32Uint);
+    reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R32Float);
 
     return reflector;
 }
@@ -120,6 +128,7 @@ void ML_HBAO::compile(RenderContext* pRenderContext, const CompileData& compileD
 
     mDirty = true; // texture size may have changed => reupload data
     mpSSAOPass.reset();
+    mpRayProgram.reset();
 }
 
 void ML_HBAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -130,60 +139,101 @@ void ML_HBAO::execute(RenderContext* pRenderContext, const RenderData& renderDat
     auto pNormals = renderData[kNormals]->asTexture();
     auto pMaterialData = renderData[kMaterialData]->asTexture();
     auto pAoDst = renderData[kAmbientMap]->asTexture();
+    auto pRayStencil = renderData[kRayStencil]->asTexture();
     auto pCamera = mpScene->getCamera().get();
 
-    if (mEnabled)
-    {
-        if (mClearTexture)
-        {
-            pRenderContext->clearTexture(pAoDst.get(), float4(0.0f));
-            mClearTexture = false;
-        }
-
-        if (!mpSSAOPass)
-        {
-            // program defines
-            Program::DefineList defines;
-            defines.add(mpScene->getSceneDefines());
-
-            mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
-            mpSSAOPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
-            mDirty = true;
-        }
-
-        if (mDirty)
-        {
-            // redefine defines
-
-            // bind static resources
-            mData.noiseScale = float2(pDepth->getWidth(), pDepth->getHeight()) / float2(NOISE_SIZE, NOISE_SIZE);
-            mpSSAOPass["StaticCB"].setBlob(mData);
-            mDirty = false;
-        }
-
-        // bind dynamic resources
-        auto var = mpSSAOPass->getRootVar();
-        mpScene->setRaytracingShaderData(pRenderContext, var);
-
-        pCamera->setShaderData(mpSSAOPass["PerFrameCB"]["gCamera"]);
-        mpSSAOPass["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
-
-        // Update state/vars
-        mpSSAOPass["gNoiseSampler"] = mpNoiseSampler;
-        mpSSAOPass["gTextureSampler"] = mpTextureSampler;
-        mpSSAOPass["gDepthTex"] = pDepth;
-        mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
-        mpSSAOPass["gNormalTex"] = pNormals;
-        mpSSAOPass["gMaterialData"] = pMaterialData;
-
-        // Generate AO
-        mpAOFbo->attachColorTarget(pAoDst, 0);
-        setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims(), mGuardBand);
-        mpSSAOPass->execute(pRenderContext, mpAOFbo, false);
-    }
-    else // ! enabled
+    if (!mEnabled)
     {
         pRenderContext->clearTexture(pAoDst.get(), float4(1.0f));
+        return;
+    }
+
+    if (mClearTexture)
+    {
+        pRenderContext->clearTexture(pAoDst.get(), float4(0.0f));
+        mClearTexture = false;
+    }
+
+    if (!mpSSAOPass || !mpRayProgram)
+    {
+        // program defines
+        Program::DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+
+        mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
+        mpSSAOPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
+
+        // ray pass
+        RtProgram::Desc desc;
+        desc.addShaderLibrary(kRayShader);
+        desc.setMaxPayloadSize(kMaxPayloadSize);
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1);
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        RtBindingTable::SharedPtr sbt = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setMiss(0, desc.addMiss("miss"));
+        sbt->setHitGroup(0, mpScene->getGeometryIDs(GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+        // TODO add remaining primitives
+        mpRayProgram = RtProgram::create(desc, defines);
+        mRayVars = RtProgramVars::create(mpRayProgram, sbt);
+
+        mDirty = true;
+    }
+
+    if (mDirty)
+    {
+        // redefine defines
+
+        // bind static resources
+        mData.noiseScale = float2(pDepth->getWidth(), pDepth->getHeight()) / float2(NOISE_SIZE, NOISE_SIZE);
+        mpSSAOPass["StaticCB"].setBlob(mData);
+        mRayVars["StaticCB"].setBlob(mData);
+        mDirty = false;
+    }
+
+    // bind dynamic resources
+    auto var = mpSSAOPass->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var);
+
+    pCamera->setShaderData(mpSSAOPass["PerFrameCB"]["gCamera"]);
+    //mpSSAOPass["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
+
+    // Update state/vars
+    mpSSAOPass["gNoiseSampler"] = mpNoiseSampler;
+    mpSSAOPass["gTextureSampler"] = mpTextureSampler;
+    mpSSAOPass["gDepthTex"] = pDepth;
+    mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
+    mpSSAOPass["gNormalTex"] = pNormals;
+    mpSSAOPass["gMaterialData"] = pMaterialData;
+
+    // Generate AO
+    mpAOFbo->attachColorTarget(pAoDst, 0);
+    mpAOFbo->attachColorTarget(pRayStencil, 1);
+    setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims(), mGuardBand);
+
+    {
+        FALCOR_PROFILE("RasterAO");
+        mpSSAOPass->execute(pRenderContext, mpAOFbo, false);
+    }
+
+    pCamera->setShaderData(mRayVars["PerFrameCB"]["gCamera"]);
+    mRayVars["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
+    mRayVars["PerFrameCB"]["guardBand"] = mGuardBand;
+    
+    mRayVars["gNoiseSampler"] = mpNoiseSampler;
+    mRayVars["gTextureSampler"] = mpTextureSampler;
+    mRayVars["gDepthTex"] = pDepth;
+    mRayVars["gNoiseTex"] = mpNoiseTexture;
+    mRayVars["gNormalTex"] = pNormals;
+    mRayVars["gStencil"] = pRayStencil;
+    mRayVars["gOutput"] = pAoDst; // uav view
+
+    {
+        FALCOR_PROFILE("RayAO");
+        uint3 dims = uint3(pAoDst->getWidth() - 2 * mGuardBand, pAoDst->getHeight() - 2 * mGuardBand, 1);
+        mpScene->raytrace(pRenderContext, mpRayProgram.get(), mRayVars, dims);
     }
 }
 

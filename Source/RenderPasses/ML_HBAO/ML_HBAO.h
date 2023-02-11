@@ -77,4 +77,8 @@ private:
     Scene::SharedPtr mpScene;
     int mGuardBand = 64;
     bool mClearTexture = true;
+
+
+    RtProgram::SharedPtr mpRayProgram;
+    RtProgramVars::SharedPtr mRayVars;
 };

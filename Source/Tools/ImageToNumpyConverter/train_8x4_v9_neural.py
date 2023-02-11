@@ -30,10 +30,10 @@ from keras.layers import LeakyReLU
 NUM_DIRECTIONS = 8
 NUM_STEPS = 4
 NUM_SAMPLES = NUM_DIRECTIONS * NUM_STEPS
-CLEAR_FILE = False # clears cached files
+CLEAR_FILE = True # clears cached files
 
 LAYERS = 2
-NEURONS = 4
+NEURONS = 5
 #ML_NAME = f"net_{LAYERS}_{NEURONS}_"
 ML_NAME = f"net_relu"
 ML_REFINED = f"{ML_NAME}_refined"
@@ -64,26 +64,35 @@ def compile_model(model):
 	opt = tf.keras.optimizers.Nadam(learning_rate=0.003)
 	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
 
-def build_net(n_hidden, n_neurons):
-	model = keras.models.Sequential()
-	model.add(keras.Input(shape=(NUM_SAMPLES,)))
-	for layer in range(n_hidden):
-		model.add(keras.layers.Dense(n_neurons, activation="selu", kernel_initializer="lecun_normal"))
-	# final layer for binary classification
-	model.add(keras.layers.Dense(1, activation="sigmoid"))
-	compile_model(model)
-	return model
+class SnormConstraint(tf.keras.constraints.Constraint):
+# constrain each value to be between -1 and 1
+
+	def __init__(self):
+		pass
+
+	def __call__(self, w):
+		# find the largest value in tensor
+		maxval = tf.reduce_max(tf.abs(w))
+		# divide by max
+		return w / maxval
+		#return tf.clip_by_value(w, -1.0, 1.0)
+
+	def get_config(self):
+		return {}
 
 def build_net_relu(n_hidden = LAYERS, n_neurons = NEURONS):
+	kernel_constraint = None#SnormConstraint()
+	bias_constraint = None
+
 	model = keras.models.Sequential()
 	model.add(keras.Input(shape=(5,)))
 	for layer in range(n_hidden):
-		model.add(keras.layers.Dense(n_neurons, activation="relu", kernel_initializer="he_normal"))
+		model.add(keras.layers.Dense(n_neurons, activation="relu", kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
 		#model.add(keras.layers.Dense(n_neurons, activation=LeakyReLU(alpha=0.1), kernel_initializer="he_normal"))
 	# final layer for binary classification
-	model.add(keras.layers.Dense(1, activation="sigmoid"))
+	model.add(keras.layers.Dense(1, activation="sigmoid", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
 	opt = tf.keras.optimizers.Nadam(learning_rate=0.003)
-	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
+	model.compile(optimizer=opt, loss='mse', metrics=[tf.keras.metrics.BinaryAccuracy()])
 	return model
 
 def print_stats(clf, rasterf, requiredf):
@@ -101,7 +110,7 @@ def print_stats(clf, rasterf, requiredf):
 	print("Recall: ", cm[1][1] / (cm[1][1] + cm[1][0]))
 
 def inspectSample(stepIndex, batch_size):
-	tf.keras.utils.set_random_seed(0) # use same random seed for training
+	tf.keras.utils.set_random_seed(1) # use same random seed for training
 	filename = f"{ML_NAME}{stepIndex}.pkl"
 
 	print(f"--------- SAMPLE {stepIndex} -------------------------------------------------")
@@ -138,7 +147,7 @@ def inspectSample(stepIndex, batch_size):
 		])
 
 		clf = clf.fit(rasterf, requiredf, 
-			net__epochs=1000, 
+			net__epochs=1000, # 1000 
 			#net__validation_data=(raster_validationf, required_validationf), 
 			net__verbose=1, 
 			net__batch_size=batch_size, #8192
@@ -149,10 +158,13 @@ def inspectSample(stepIndex, batch_size):
 		pickle.dump(clf, open(filename, "wb"))
 
 	# predict test data
-	
+	# print weights
+	weights = clf.named_steps['net'].get_weights()
+	for i in range(len(weights)):
+		print("weights", i, ":", weights[i])
 
 	# take network and refine weights
-	clf2 = pickle.load(open(filename, 'rb')) # load from file again
+	'''clf2 = pickle.load(open(filename, 'rb')) # load from file again
 	net2 = clf2.named_steps['net']
 
 	REFINE_EPOCHS = 6
@@ -182,17 +194,6 @@ def inspectSample(stepIndex, batch_size):
 	clf2.fit(rasterf, requiredf, net__epochs=100, net__verbose=1, net__batch_size=batch_size, net__class_weight=class_weight,
 	net__callbacks=[EarlyStopping(monitor='binary_accuracy', patience=5, min_delta=0.001, start_from_epoch=REFINE_EPOCHS)])
 	
-	#print("------- original test -------")
-	#print_stats(clf, rasterf, requiredf)
-	#print("------- refined test -------")
-	#print_stats(clf2, rasterf, requiredf)
-
-	#print("------- original valid -------")
-	#print_stats(clf, raster_validationf, required_validationf)
-	#print("------- refined valid -------")
-	#print_stats(clf2, raster_validationf, required_validationf)
-
-	# print rounded weights
 	weights0 = net2.get_layer(index=0).get_weights()
 	weights1 = net2.get_layer(index=1).get_weights()
 	weights2 = net2.get_layer(index=2).get_weights()
@@ -201,7 +202,26 @@ def inspectSample(stepIndex, batch_size):
 	print("kernel2: ", np.round(weights2[0], 2))
 	print("bias0: ", np.round(weights0[1], 2))
 	print("bias1: ", np.round(weights1[1], 2))
-	print("bias2: ", np.round(weights2[1], 2))
+	print("bias2: ", np.round(weights2[1], 2))'''
+	
+	print("------- original test -------")
+	print_stats(clf, rasterf, requiredf)
+	#print("------- refined test -------")
+	#print_stats(clf2, rasterf, requiredf)
+
+	print("------- original valid -------")
+	print_stats(clf, raster_validationf, required_validationf)
+
+	'''[[ 703510   68179] training ref 0.8696727055933129
+ 	   [ 228246 1274531]]'''
+	'''[[ 50271   3182]  validation ref 0.8901166274192874
+ 	    [ 20476 141372]]'''
+
+	#print("------- refined valid -------")
+	#print_stats(clf2, raster_validationf, required_validationf)
+
+	# print rounded weights
+	
 
 	print("----------------------------------------------------------------")
 	#tree.plot_tree(clf)
