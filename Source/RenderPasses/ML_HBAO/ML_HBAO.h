@@ -28,6 +28,7 @@
 #pragma once
 #include "Falcor.h"
 #include "SSAOData.slang"
+#include "NeuralNet.h"
 
 using namespace Falcor;
 
@@ -81,4 +82,7 @@ private:
 
     RtProgram::SharedPtr mpRayProgram;
     RtProgramVars::SharedPtr mRayVars;
+
+    NeuralNetCollection mNeuralNets;
+        
 };

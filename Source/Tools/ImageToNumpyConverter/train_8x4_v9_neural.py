@@ -68,31 +68,42 @@ class SnormConstraint(tf.keras.constraints.Constraint):
 # constrain each value to be between -1 and 1
 
 	def __init__(self):
+		self.lastMax = 0
+		self.isKernel = True
 		pass
 
 	def __call__(self, w):
-		# find the largest value in tensor
-		maxval = tf.reduce_max(tf.abs(w))
-		# divide by max
-		return w / maxval
-		#return tf.clip_by_value(w, -1.0, 1.0)
+		
+		# contraint will be called for kernel first, then for bias
+		if self.isKernel:
+			# find the largest value in tensor
+			reduce_max = tf.reduce_max(tf.abs(w))
+			self.lastMax = max(reduce_max, 1.0)
+			self.isKernel = False
+		else:
+			self.isKernel = True
+		
+		
+		
+		return w / self.lastMax
 
 	def get_config(self):
 		return {}
 
 def build_net_relu(n_hidden = LAYERS, n_neurons = NEURONS):
-	kernel_constraint = None#SnormConstraint()
-	bias_constraint = None
+	combined_constraint = SnormConstraint()
+	kernel_constraint = combined_constraint
+	bias_constraint = combined_constraint
 
 	model = keras.models.Sequential()
 	model.add(keras.Input(shape=(5,)))
 	for layer in range(n_hidden):
-		model.add(keras.layers.Dense(n_neurons, activation="relu", kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
-		#model.add(keras.layers.Dense(n_neurons, activation=LeakyReLU(alpha=0.1), kernel_initializer="he_normal"))
+		#model.add(keras.layers.Dense(n_neurons, activation="relu", kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
+		model.add(keras.layers.Dense(n_neurons, activation=LeakyReLU(alpha=0.01), kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
 	# final layer for binary classification
 	model.add(keras.layers.Dense(1, activation="sigmoid", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
 	opt = tf.keras.optimizers.Nadam(learning_rate=0.003)
-	model.compile(optimizer=opt, loss='mse', metrics=[tf.keras.metrics.BinaryAccuracy()])
+	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
 	return model
 
 def print_stats(clf, rasterf, requiredf):
@@ -101,8 +112,8 @@ def print_stats(clf, rasterf, requiredf):
 	y_pred = np.where(y_pred > 0.5, 1, 0)
 	# print test set stats
 	acc = np.count_nonzero(y_pred == requiredf) / len(y_pred)
-	print("accuracy training: ", acc)
-	print("confusion matrix training:")
+	print("accuracy: ", acc)
+	print("confusion matrix:")
 	cm = confusion_matrix(requiredf, y_pred)
 	print(cm)
 	f1 = f1_score(requiredf, y_pred)

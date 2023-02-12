@@ -368,16 +368,18 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             }
 
             ml_float layer1Output[5] = { BIAS0(astep, 0), BIAS0(astep, 1), BIAS0(astep, 2), BIAS0(astep, 3), BIAS0(astep, 4) };
-            [unroll]for (int outIdx = 0; outIdx < 5; outIdx++)
-                [unroll]for (int inIdx = 0; inIdx < 5; inIdx++)
+            [unroll] for (int inIdx = 0; inIdx < 5; inIdx++)
+                [unroll]for (int outIdx = 0; outIdx < 5; outIdx++)
                     layer1Output[outIdx] = mad(KERNEL0(astep, inIdx, outIdx), inputs[inIdx], layer1Output[outIdx]);
+            
             [unroll]for (int outIdx = 0; outIdx < 5; ++outIdx)
                 layer1Output[outIdx] = max(layer1Output[outIdx], 0); // RELU
 
             ml_float layer2Output[5] = { BIAS1(astep, 0), BIAS1(astep, 1), BIAS1(astep, 2), BIAS1(astep, 3), BIAS1(astep, 4) };
-            [unroll]for (int outIdx = 0; outIdx < 5; outIdx++)
-                [unroll]for (int inIdx = 0; inIdx < 5; inIdx++)
+            [unroll] for (int inIdx = 0; inIdx < 5; inIdx++)
+                [unroll] for (int outIdx = 0; outIdx < 5; outIdx++)
                     layer2Output[outIdx] = mad(KERNEL1(astep, inIdx, outIdx), layer1Output[inIdx], layer2Output[outIdx]);
+            
             [unroll] for (int outIdx = 0; outIdx < 5; ++outIdx)
                 layer2Output[outIdx] = max(layer2Output[outIdx], 0); // RELU
 

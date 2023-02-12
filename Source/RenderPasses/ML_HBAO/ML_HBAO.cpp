@@ -72,7 +72,8 @@ namespace
 
 ML_HBAO::ML_HBAO()
     :
-    RenderPass(kInfo)
+    RenderPass(kInfo),
+    mNeuralNets(4 /*nets*/, 3 /*layers*/)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
@@ -83,6 +84,8 @@ ML_HBAO::ML_HBAO()
     setSampleRadius(mData.radius);
 
     mpAOFbo = Fbo::create();
+
+    mNeuralNets.load("../../NeuralNet/net_relu");
 }
 
 ML_HBAO::SharedPtr ML_HBAO::create(RenderContext* pRenderContext, const Dictionary& dict)

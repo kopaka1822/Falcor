@@ -5,6 +5,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ML_HBAO.h" />
+    <ClInclude Include="NeuralNet.h" />
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="Raster.ps.slang" />
