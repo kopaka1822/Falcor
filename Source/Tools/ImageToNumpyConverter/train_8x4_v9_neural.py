@@ -33,7 +33,7 @@ NUM_SAMPLES = NUM_DIRECTIONS * NUM_STEPS
 CLEAR_FILE = True # clears cached files
 
 LAYERS = 2
-NEURONS = 5
+NEURONS = 16
 #ML_NAME = f"net_{LAYERS}_{NEURONS}_"
 ML_NAME = f"net_relu"
 ML_REFINED = f"{ML_NAME}_refined"
@@ -76,9 +76,10 @@ class SnormConstraint(tf.keras.constraints.Constraint):
 		
 		# contraint will be called for kernel first, then for bias
 		if self.isKernel:
-			# find the largest value in tensor
-			reduce_max = tf.reduce_max(tf.abs(w))
-			self.lastMax = max(reduce_max, 1.0)
+			# convert tensor to numpy
+			w2 = w.numpy()
+			reduce_max = np.max(np.abs(w2), axis=0)
+			self.lastMax = np.clip(reduce_max, 1.0, None)
 			self.isKernel = False
 		else:
 			self.isKernel = True
@@ -91,19 +92,23 @@ class SnormConstraint(tf.keras.constraints.Constraint):
 		return {}
 
 def build_net_relu(n_hidden = LAYERS, n_neurons = NEURONS):
-	combined_constraint = SnormConstraint()
+	combined_constraint = None#SnormConstraint()
 	kernel_constraint = combined_constraint
 	bias_constraint = combined_constraint
 
+	#regualizer = keras.regularizers.l2(0.01)
+	regualizer = None#tf.keras.regularizers.OrthogonalRegularizer(factor=0.01, mode="rows")
+
 	model = keras.models.Sequential()
 	model.add(keras.Input(shape=(5,)))
+
 	for layer in range(n_hidden):
 		#model.add(keras.layers.Dense(n_neurons, activation="relu", kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
-		model.add(keras.layers.Dense(n_neurons, activation=LeakyReLU(alpha=0.01), kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
+		model.add(keras.layers.Dense(n_neurons, activation=LeakyReLU(alpha=0.01), kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint, kernel_regularizer=regualizer))
 	# final layer for binary classification
 	model.add(keras.layers.Dense(1, activation="sigmoid", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
 	opt = tf.keras.optimizers.Nadam(learning_rate=0.003)
-	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
+	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()], run_eagerly=True)
 	return model
 
 def print_stats(clf, rasterf, requiredf):
@@ -158,7 +163,7 @@ def inspectSample(stepIndex, batch_size):
 		])
 
 		clf = clf.fit(rasterf, requiredf, 
-			net__epochs=1000, # 1000 
+			net__epochs=3, # 1000 
 			#net__validation_data=(raster_validationf, required_validationf), 
 			net__verbose=1, 
 			net__batch_size=batch_size, #8192
@@ -172,7 +177,7 @@ def inspectSample(stepIndex, batch_size):
 	# print weights
 	weights = clf.named_steps['net'].get_weights()
 	for i in range(len(weights)):
-		print("weights", i, ":", weights[i])
+		print("weights", i, ":", np.round(weights[i], 2))
 
 	# take network and refine weights
 	'''clf2 = pickle.load(open(filename, 'rb')) # load from file again
