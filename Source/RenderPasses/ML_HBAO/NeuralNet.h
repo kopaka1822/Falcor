@@ -44,14 +44,23 @@ class NeuralNetCollection
 {
     using Texture = Falcor::Texture;
 public:
+    enum class Binding
+    {
+        TextureFloat,
+        TextureHalf,
+        StaticFloat,
+    };
+
     NeuralNetCollection(int numNets, int numLayers)
         :
     mNumNets(numNets),
-    mLayers(numLayers)
+    mLayers(numLayers),
+    mGuiLayers(numLayers)
     {}
 
     void load(const std::string& baseFilename)
     {
+        mFilename = baseFilename;
         mNets.resize(mNumNets);
         for (int i = 0; i < mNumNets; ++i)
         {
@@ -78,10 +87,57 @@ public:
         assert(pVars);
         for (size_t l = 0; l < mLayers; ++l)
         {
-            pVars->setTexture("kernel" + std::to_string(l), mTextures[2 * l]);
-            
-            pVars->setTexture("bias" + std::to_string(l), mTextures[2 * l + 1]);
+            switch (mBinding)
+            {
+            case Binding::TextureFloat:
+                pVars->setTexture("kernel" + std::to_string(l), mTextures[2 * l]);
+                pVars->setTexture("bias" + std::to_string(l), mTextures[2 * l + 1]);
+                break;
+            case Binding::TextureHalf:
+                pVars->setTexture("kernel" + std::to_string(l), mTextureHalfs[2 * l]);
+                pVars->setTexture("bias" + std::to_string(l), mTextureHalfs[2 * l + 1]);
+                break;
+            }
+
         }
+    }
+
+    bool renderUI(Falcor::Gui::Widgets& widget)
+    {
+        widget.separator();
+
+        bool changed = false;
+        const Falcor::Gui::DropdownList kBindingValues =
+        {
+            { (uint32_t)Binding::TextureFloat, "Texture Float" },
+            { (uint32_t)Binding::TextureHalf, "Texture Half" },
+            { (uint32_t)Binding::StaticFloat, "Static Float" },
+        };
+
+        uint32_t binding = (uint32_t)mBinding;
+        changed = widget.dropdown("Neural Net Binding", kBindingValues, binding) || changed;
+        mBinding = (Binding)binding;
+
+        widget.var("Layers", mGuiLayers, 1, 8, 1);
+        widget.textbox("File: ", mFilename);
+        if(widget.button("Load From File"))
+        {
+            try
+            {
+                NeuralNetCollection tmp(mNumNets, mGuiLayers);
+                tmp.load(mFilename);
+                *this = tmp;
+            }
+            catch(const std::exception& e)
+            {
+                Falcor::msgBox("Error loading neural net: " + std::string(e.what()));
+            }
+            changed = true;
+        }
+
+        widget.separator();
+
+        return changed;
     }
 
 private:
@@ -89,15 +145,35 @@ private:
     std::string getShaderDefine() const
     {
         std::stringstream ss;
+        ss << "#define NUM_LAYERS " << mLayers << '\n';
+
         for (size_t l = 0; l < mLayers; ++l)
         {
             auto kernel = mNets[0].kernels[l];
-            ss << "Texture1DArray<float> kernel" << l << ";\n";
-            ss << "#define KERNEL" << l << "(step, row, col) kernel" << l << "[uint2(row * " << kernel.columns << " + col,step)]\n";
-
             auto bias = mNets[0].biases[l];
-            ss << "Texture1DArray<float> bias" << l << ";\n";
-            ss << "#define BIAS" << l << "(step, col) bias" << l << "[uint2(col,step)]\n";
+            
+            switch (mBinding)
+            {
+            case Binding::TextureFloat:
+                ss << "Texture1D<float> kernel" << l << ";\n";
+                ss << "Texture1D<float> bias" << l << ";\n";
+                break;
+            case Binding::TextureHalf:
+                ss << "Texture1D<float> kernel" << l << ";\n";
+                ss << "Texture1D<float> bias" << l << ";\n";
+                break;
+            case Binding::StaticFloat:
+                ss << mDataStrings[2 * l];
+                ss << mDataStrings[2 * l + 1];
+                break;
+            }
+            
+            ss << "#define KERNEL" << l << "(step, row, col) kernel" << l << "[step * " << (kernel.rows * kernel.columns) << " + row * " << kernel.columns << " + col]\n";
+
+            ss << "#define BIAS" << l << "(step, col) bias" << l << "[step * " << (bias.columns) << " + col]\n";
+
+            ss << "#define KERNEL" << l << "_ROWS " << kernel.rows << "\n";
+            ss << "#define KERNEL" << l << "_COLUMNS " << kernel.columns << "\n";
         }
 
         return ss.str();
@@ -106,6 +182,9 @@ private:
     void createTextures()
     {
         mTextures.resize(mLayers * 2); // for each layer: kernel and bias
+        mDataStrings.resize(mLayers * 2);
+        mTextureHalfs.resize(mLayers * 2);
+
         for (size_t l = 0; l < mLayers; ++l)
         {
             auto kernel = mNets[0].kernels[l];
@@ -119,9 +198,13 @@ private:
             }
             
             // kernel
-            mTextures[2 * l] = Texture::create1D(kernel.rows * kernel.columns, Falcor::ResourceFormat::R32Float,
-                mNumNets, 1, kernelData.data(), Falcor::Resource::BindFlags::ShaderResource);
-            
+            mTextures[2 * l] = Texture::create1D(kernel.rows * kernel.columns * mNumNets, Falcor::ResourceFormat::R32Float,
+                1, 1, kernelData.data(), Falcor::Resource::BindFlags::ShaderResource);
+            auto kernelHalf = convertToHalfs(kernelData);
+            mTextureHalfs[2 * l] = Texture::create1D(kernel.rows * kernel.columns * mNumNets, Falcor::ResourceFormat::R16Float,
+                1, 1, kernelHalf.data(), Falcor::Resource::BindFlags::ShaderResource);
+            mDataStrings[2 * l] = getDataString("kernel" + std::to_string(l), kernelData);
+
             auto bias = mNets[0].biases[l];
             std::vector<float> biasData;
             biasData.resize(bias.rows * bias.columns * mNumNets);
@@ -132,14 +215,49 @@ private:
             }
 
             // bias
-            mTextures[2 * l + 1] = Texture::create1D(bias.rows * bias.columns, Falcor::ResourceFormat::R32Float,
-                mNumNets, 1, biasData.data(), Falcor::Resource::BindFlags::ShaderResource);
+            mTextures[2 * l + 1] = Texture::create1D(bias.rows * bias.columns * mNumNets, Falcor::ResourceFormat::R32Float,
+                1, 1, biasData.data(), Falcor::Resource::BindFlags::ShaderResource);
+            auto biasHalf = convertToHalfs(biasData);
+            mTextureHalfs[2 * l + 1] = Texture::create1D(bias.rows * bias.columns * mNumNets, Falcor::ResourceFormat::R16Float,
+                1, 1, biasHalf.data(), Falcor::Resource::BindFlags::ShaderResource);
+            mDataStrings[2 * l + 1] = getDataString("bias" + std::to_string(l), biasData);
         }
     }
 
+    std::string getDataString(std::string name, const std::vector<float>& data) const
+    {
+        std::stringstream ss;
+        ss << "static const float " << name << "[" << data.size() << "] = {";
+        for (size_t i = 0; i < data.size(); ++i)
+        {
+            ss << data[i];
+            if (i < data.size() - 1)
+            {
+                ss << ", ";
+            }
+        }
+        ss << "};\n";
+        return ss.str();
+    }
+
+    std::vector<int16_t> convertToHalfs(const std::vector<float>& data) const
+    {
+        std::vector<int16_t> halfs;
+        halfs.resize(data.size());
+        for (size_t i = 0; i < data.size(); ++i)
+        {
+            halfs[i] = glm::detail::toFloat16(data[i]);
+        }
+        return halfs;
+    }
 private:
+    Binding mBinding = Binding::StaticFloat;
     std::vector<NeuralNet> mNets;
     std::vector<Texture::SharedPtr> mTextures;
+    std::vector<Texture::SharedPtr> mTextureHalfs;
+    std::vector<std::string> mDataStrings;
     int mNumNets = 0;
     int mLayers = 0;
+    std::string mFilename;
+    int mGuiLayers = 0;
 };

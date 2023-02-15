@@ -16,11 +16,6 @@ import pickle
 import tensorflow as tf
 from tensorflow import keras
 
-print("TensorFlow version: ", tf.__version__)
-print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
-# hide gpu for cpu usage
-tf.config.set_visible_devices([], 'GPU')
-
 NUM_DIRECTIONS = 8
 NUM_STEPS = 4
 NUM_SAMPLES = NUM_DIRECTIONS * NUM_STEPS
@@ -133,15 +128,14 @@ def inspectSample(i):
 
 	# get weights of the first layer
 	weights = net.get_weights()
-	print_weights(weights)
-	return
+	#print_weights(weights)
 
 	np.save(f'{ML_NAME}_weights{i}_kernel0.npy', weights[0])
 	np.save(f'{ML_NAME}_weights{i}_bias0.npy', weights[1])
 	np.save(f'{ML_NAME}_weights{i}_kernel1.npy', weights[2])
 	np.save(f'{ML_NAME}_weights{i}_bias1.npy', weights[3])
-	np.save(f'{ML_NAME}_weights{i}_kernel2.npy', weights[4])
-	np.save(f'{ML_NAME}_weights{i}_bias2.npy', weights[5])
+	#np.save(f'{ML_NAME}_weights{i}_kernel2.npy', weights[4])
+	#np.save(f'{ML_NAME}_weights{i}_bias2.npy', weights[5])
 	#print("Weights:\n", weights)
 	
 

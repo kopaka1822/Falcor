@@ -13,7 +13,7 @@ class ClampTransformer(BaseEstimator, TransformerMixin):
 		return X
 
 class FilterInputsTransformer(BaseEstimator, TransformerMixin):
-	def __init__(self, filter = np.array([16, 0, 1, 2, 3])):
+	def __init__(self, filter = np.array([0, 1, 2, 3, 16])):
 		self.filter = filter
 
 	def fit(self, X, y=None):

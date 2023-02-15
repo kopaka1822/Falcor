@@ -34,8 +34,8 @@ CLEAR_FILE = True # clears cached files
 
 BATCH_SIZE = 1024
 
-LAYERS = 2
-NEURONS = 5
+LAYERS = 1
+NEURONS = 8
 #ML_NAME = f"net_{LAYERS}_{NEURONS}_"
 ML_NAME = f"net_relu"
 ML_REFINED = f"{ML_NAME}_refined"
@@ -50,7 +50,7 @@ print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 #tf.config.set_visible_devices([], 'GPU')
 #tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
-STEP_IDX = 0
+STEP_IDX = 3
 ACCURACY_LOG = f'accuracy_log{STEP_IDX}.txt'
 
 def keep_strongest(weights):
@@ -105,12 +105,12 @@ def build_net_relu(n_hidden = LAYERS, n_neurons = NEURONS):
 	model.add(keras.Input(shape=(5, )))
 
 	for layer in range(n_hidden):
-		#model.add(keras.layers.Dense(n_neurons, activation="relu", kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
-		model.add(keras.layers.Dense(n_neurons, activation=LeakyReLU(alpha=0.01), kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint, kernel_regularizer=regualizer))
+		model.add(keras.layers.Dense(n_neurons, activation="relu", kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
+		#model.add(keras.layers.Dense(n_neurons, activation=LeakyReLU(alpha=0.01), kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint, kernel_regularizer=regualizer))
 	# final layer for binary classification
 	model.add(keras.layers.Dense(1, activation="sigmoid", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
 	opt = tf.keras.optimizers.Nadam(learning_rate=0.003)
-	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()], run_eagerly=True)
+	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()], run_eagerly=False)
 	return model
 
 def build_net_conv():
@@ -175,7 +175,7 @@ def inspectSample(stepIndex):
 		])
 
 		clf = clf.fit(rasterf, requiredf, 
-			net__epochs=3, # 1000 
+			net__epochs=1000,
 			#net__validation_data=(raster_validationf, required_validationf), 
 			net__verbose=1, 
 			net__batch_size=BATCH_SIZE, #8192
