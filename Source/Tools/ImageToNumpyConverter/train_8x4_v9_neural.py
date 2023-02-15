@@ -32,8 +32,10 @@ NUM_STEPS = 4
 NUM_SAMPLES = NUM_DIRECTIONS * NUM_STEPS
 CLEAR_FILE = True # clears cached files
 
+BATCH_SIZE = 1024
+
 LAYERS = 2
-NEURONS = 16
+NEURONS = 5
 #ML_NAME = f"net_{LAYERS}_{NEURONS}_"
 ML_NAME = f"net_relu"
 ML_REFINED = f"{ML_NAME}_refined"
@@ -100,13 +102,23 @@ def build_net_relu(n_hidden = LAYERS, n_neurons = NEURONS):
 	regualizer = None#tf.keras.regularizers.OrthogonalRegularizer(factor=0.01, mode="rows")
 
 	model = keras.models.Sequential()
-	model.add(keras.Input(shape=(5,)))
+	model.add(keras.Input(shape=(5, )))
 
 	for layer in range(n_hidden):
 		#model.add(keras.layers.Dense(n_neurons, activation="relu", kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
 		model.add(keras.layers.Dense(n_neurons, activation=LeakyReLU(alpha=0.01), kernel_initializer="he_normal", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint, kernel_regularizer=regualizer))
 	# final layer for binary classification
 	model.add(keras.layers.Dense(1, activation="sigmoid", kernel_constraint=kernel_constraint, bias_constraint=bias_constraint))
+	opt = tf.keras.optimizers.Nadam(learning_rate=0.003)
+	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()], run_eagerly=True)
+	return model
+
+def build_net_conv():
+	model = keras.models.Sequential()
+	#model.add(keras.Input(shape=(5,)))
+	model.add(keras.layers.Conv1D(5, 3, activation="relu", padding="valid", kernel_initializer="he_normal", input_shape=(5,1)))
+	model.add(keras.layers.Flatten())
+	model.add(keras.layers.Dense(1, activation="sigmoid"))
 	opt = tf.keras.optimizers.Nadam(learning_rate=0.003)
 	model.compile(optimizer=opt, loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()], run_eagerly=True)
 	return model
@@ -125,7 +137,7 @@ def print_stats(clf, rasterf, requiredf):
 	print("F1 score: ", f1)
 	print("Recall: ", cm[1][1] / (cm[1][1] + cm[1][0]))
 
-def inspectSample(stepIndex, batch_size):
+def inspectSample(stepIndex):
 	tf.keras.utils.set_random_seed(1) # use same random seed for training
 	filename = f"{ML_NAME}{stepIndex}.pkl"
 
@@ -166,7 +178,7 @@ def inspectSample(stepIndex, batch_size):
 			net__epochs=3, # 1000 
 			#net__validation_data=(raster_validationf, required_validationf), 
 			net__verbose=1, 
-			net__batch_size=batch_size, #8192
+			net__batch_size=BATCH_SIZE, #8192
 			net__class_weight=class_weight,
 			net__callbacks=[EarlyStopping(monitor='binary_accuracy', patience=50, min_delta=0.001, start_from_epoch=10)]
 		)
@@ -248,7 +260,7 @@ def inspectSample(stepIndex, batch_size):
 
 #for i in range(NUM_STEPS):
 #for rng_seed in range(4):
-inspectSample(STEP_IDX, 1024)
+inspectSample(STEP_IDX)
 
 #with open(ACCURACY_LOG, 'a') as f:
 #	f.write('----------------------------------------------------------------\n')

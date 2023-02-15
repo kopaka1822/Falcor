@@ -34,10 +34,12 @@ import Scene.Raster;
 
 //#include "Scene/Material/MaterialDefines.slangh"
 
+#include "NeuralNetDefines.slangh"
+
 #define ml_float float
 
 // ml network
-static const ml_float kernel0[4 * 5 * 5] =
+/*static const ml_float kernel0[4 * 5 * 5] =
 {
     -2.1529474, -0.22074331, 2.6480758, -1.2584015, -0.28819174, 0.8789276, 0.38466936, 0.022578537, -0.004050717, 0.30297506, 0.035171174, 0.17631598, -0.05319165, -0.50373733, 0.14312294, -0.5837663, -0.29822022, 0.078120686, 1.0556755, -0.20848484, -0.12656504, -2.2454267, 0.059932016, 0.7978356, -2.2481554,
     3.8233576, -0.17893381, -1.9495546, 0.1253949, 0.004297561, -1.4594983, 3.7157764, 0.3517659, -1.800106, -0.7068048, 0.7926677, 0.025229696, 0.30072054, -0.92199486, 0.7403585, 0.15179537, 0.05578087, 0.28190252, -0.57500947, -0.38420802, 0.024217246, 0.08247212, 0.43449768, 0.009338685, -3.373533,
@@ -77,7 +79,7 @@ static const ml_float kernel2[4 * 5 * 1] =
     -0.636092, -0.8628456, 0.649735, 0.69571066, 0.12947835,
     0.7513209, -0.93860745, 0.8664237, 0.31559163, 0.12267117
 };
-#define KERNEL2(step, row) kernel2[step * 5 * 1 + row]
+#define KERNEL2(step, row, col) kernel2[step * 5 * 1 + row]
 static const ml_float bias2[4 * 1] =
 {
     -2.0550632,
@@ -85,7 +87,8 @@ static const ml_float bias2[4 * 1] =
     -0.9425369,
     - 2.4453201
 };
-#define BIAS2(step) bias2[step]
+#define BIAS2(step, col) bias2[step]*/
+
 
 #define NUM_STEPS 4
 #define NUM_DIRECTIONS 8
@@ -383,9 +386,9 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             [unroll] for (int outIdx = 0; outIdx < 5; ++outIdx)
                 layer2Output[outIdx] = max(layer2Output[outIdx], 0); // RELU
 
-            ml_float layer3Output = BIAS2(astep);
+            ml_float layer3Output = BIAS2(astep, 0);
             [unroll]for (int inIdx = 0; inIdx < 5; inIdx++)
-                layer3Output = mad(KERNEL2(astep, inIdx), layer2Output[inIdx], layer3Output);
+                layer3Output = mad(KERNEL2(astep, inIdx, 0), layer2Output[inIdx], layer3Output);
 
             //layer3Output = 1.0 / (1.0 + exp(-layer3Output)); // SIGMOID
             //if(layer3Output > 0.5) // require ray

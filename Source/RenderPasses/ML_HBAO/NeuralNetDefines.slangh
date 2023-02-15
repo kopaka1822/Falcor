@@ -1,0 +1,12 @@
+Texture1DArray<float> kernel0;
+#define KERNEL0(step, row, col) kernel0[uint2(row * 5 + col,step)]
+Texture1DArray<float> bias0;
+#define BIAS0(step, col) bias0[uint2(col,step)]
+Texture1DArray<float> kernel1;
+#define KERNEL1(step, row, col) kernel1[uint2(row * 5 + col,step)]
+Texture1DArray<float> bias1;
+#define BIAS1(step, col) bias1[uint2(col,step)]
+Texture1DArray<float> kernel2;
+#define KERNEL2(step, row, col) kernel2[uint2(row * 1 + col,step)]
+Texture1DArray<float> bias2;
+#define BIAS2(step, col) bias2[uint2(col,step)]

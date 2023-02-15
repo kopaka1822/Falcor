@@ -162,6 +162,7 @@ void ML_HBAO::execute(RenderContext* pRenderContext, const RenderData& renderDat
         // program defines
         Program::DefineList defines;
         defines.add(mpScene->getSceneDefines());
+        mNeuralNets.writeDefinesToFile("../RenderPasses/ML_HBAO/NeuralNetDefines.slangh");
 
         mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
         mpSSAOPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
@@ -210,6 +211,8 @@ void ML_HBAO::execute(RenderContext* pRenderContext, const RenderData& renderDat
     mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
     mpSSAOPass["gNormalTex"] = pNormals;
     mpSSAOPass["gMaterialData"] = pMaterialData;
+
+    mNeuralNets.bindData(mpSSAOPass->getVars().get());
 
     // Generate AO
     mpAOFbo->attachColorTarget(pAoDst, 0);
