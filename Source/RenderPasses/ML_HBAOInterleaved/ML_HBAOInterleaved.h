@@ -30,6 +30,7 @@
 #include "SSAOData.slang"
 #include "../DeinterleaveTexture/DeinterleaveTexture.h"
 #include "../InterleaveTexture/InterleaveTexture.h"
+#include "../ML_HBAO/NeuralNet.h"
 
 using namespace Falcor;
 
@@ -81,4 +82,6 @@ private:
     DeinterleaveTexture::SharedPtr mpDeinterleave;
     DeinterleaveTexture::SharedPtr mpDeinterleaveMat;
     InterleaveTexture::SharedPtr mpInterleave;
+
+    NeuralNetCollection mNeuralNets;
 };

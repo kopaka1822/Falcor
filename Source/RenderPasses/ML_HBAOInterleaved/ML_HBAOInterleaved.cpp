@@ -70,7 +70,8 @@ namespace
 
 ML_HBAOInterleaved::ML_HBAOInterleaved()
     :
-RenderPass(kInfo)
+RenderPass(kInfo),
+mNeuralNets(4 /*nets*/, 3 /*layers*/)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
@@ -85,6 +86,8 @@ RenderPass(kInfo)
     mpInterleave = InterleaveTexture::create();
 
     mNoiseTexture = genNoiseTexture();
+
+    mNeuralNets.load("../../NeuralNet/net_relu");
 }
 
 ML_HBAOInterleaved::SharedPtr ML_HBAOInterleaved::create(RenderContext* pRenderContext, const Dictionary& dict)
@@ -184,7 +187,8 @@ void ML_HBAOInterleaved::execute(RenderContext* pRenderContext, const RenderData
         // program defines
         Program::DefineList defines;
         defines.add(mpScene->getSceneDefines());
-
+        mNeuralNets.writeDefinesToFile("../RenderPasses/ML_HBAOInterleaved/NeuralNetDefines.slangh");
+        
         mpSSAOPass = FullScreenPass::create(kSSAOShader, defines);
         mpSSAOPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
         mDirty = true;
@@ -221,7 +225,8 @@ void ML_HBAOInterleaved::execute(RenderContext* pRenderContext, const RenderData
     // Update state/vars
     mpSSAOPass["gTextureSampler"] = mpTextureSampler;
     mpSSAOPass["gNormalTex"] = pNormals;
-    
+    mNeuralNets.bindData(mpSSAOPass->getVars().get());
+
     setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims() / 4u, mGuardBand / 4);
 
     {
@@ -260,6 +265,9 @@ void ML_HBAOInterleaved::renderUI(Gui::Widgets& widget)
 
     float radius = mData.radius;
     if (widget.var("Sample Radius", radius, 0.01f, FLT_MAX, 0.01f)) setSampleRadius(radius);
+
+    if (mNeuralNets.renderUI(widget))
+        mpSSAOPass.reset(); // reload shaders
 
     if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
 }
