@@ -122,14 +122,24 @@ float2 getRaySphereIntersections(float3 rayStart, /*normalized*/ float3 rayDir, 
     return float2(d - delta, d + delta);
 }
 
-float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+struct PSOut
 {
+    float ao : SV_Target0;
+    uint rayMask : SV_Target1;
+};
+
+PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+{
+    PSOut o;
+    o.ao = 0.0;
+    o.rayMask = 0;
+    
     // fix texc
     texC = getSnappedUV(texC); // snappping to the quarter resolution texture
     
     float linearDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, texC, 0);
     if (linearDepth >= gCamera.data.farZ * 0.99)
-        return 1.0f;
+        return o;
     
     // view space position of current pixel
     float3 posV = UVToViewSpace(texC, linearDepth);
@@ -258,7 +268,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 visibility += curVisibility;
 
         }
-
+        
         // use machine learning to evaluate questionable steps
         step = -NUM_STEPS;
         //while (pendingRayMask != 0u)
@@ -344,9 +354,12 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             //step++;
             //pendingRayMask = pendingRayMask >> 1;
         }
+
+        // defer ray tracing to other pass
+        o.rayMask = o.rayMask | (finalRayMask << (i * 8));
         
         // for simplicity start in same shader
-        step = -NUM_STEPS;
+        /*step = -NUM_STEPS;
         while(finalRayMask != 0u)
         //[unroll] for (; step < NUM_STEPS; ++step)
         {
@@ -456,15 +469,13 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             // prepare for next iteration
             step++;
             finalRayMask = finalRayMask >> 1;
-        }
+        }*/
     }
     
     float AO = visibility / float(NUM_DIRECTIONS * NUM_STEPS);
-
-    AO = saturate(AO);
-    //AO = saturate(2 * AO - 1);
-
-    // do artistic modifications
-    AO = pow(AO, gData.exponent);
-    return AO;
+    if (o.rayMask == 0u)
+        AO = pow(AO, gData.exponent); // apply exponent here since it will be ignored in the ray shader
+    
+    o.ao = AO;
+    return o;
 }

@@ -63,7 +63,7 @@ namespace
     const std::string kMaterialData = "doubleSided";
     const std::string kMaterialArray = "materialArray";
 
-    // interleaved data
+    const std::string kMaskArray = "maskArray";
 
     const std::string kSSAOShader = "RenderPasses/ML_HBAOInterleaved/Raster.ps.slang";
 }
@@ -148,6 +148,10 @@ RenderPassReflection ML_HBAOInterleaved::reflect(const CompileData& compileData)
     reflector.addOutput(kAmbientArray, "Ambient Array").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget)
         .texture2D(dstWidth, dstHeight, 1, 1, 16).format(ResourceFormat::R8Unorm);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
+
+    reflector.addOutput(kMaskArray, "(Ray) Mask Array").bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget)
+        .texture2D(dstWidth, dstHeight, 1, 1, 16).format(ResourceFormat::R32Uint);
+    
     return reflector;
 }
 
@@ -168,6 +172,7 @@ void ML_HBAOInterleaved::execute(RenderContext* pRenderContext, const RenderData
     auto pMaterialArray = renderData[kMaterialArray]->asTexture();
     auto pAoArray = renderData[kAmbientArray]->asTexture();
     auto pAoDst = renderData[kAmbientMap]->asTexture();
+    auto pMaskArray = renderData[kMaskArray]->asTexture();
     auto pCamera = mpScene->getCamera().get();
 
     if (!mEnabled)
@@ -234,6 +239,7 @@ void ML_HBAOInterleaved::execute(RenderContext* pRenderContext, const RenderData
         for (UINT sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
         {
             mpAOFbo->attachColorTarget(pAoArray, 0, 0, sliceIndex, 1);
+            mpAOFbo->attachColorTarget(pMaskArray, 1, 0, sliceIndex, 1);
             mpSSAOPass["gDepthTexQuarter"].setSrv(pDepthArray->getSRV(0, 1, sliceIndex, 1));
             mpSSAOPass["gMaterialDataQuarter"].setSrv(pMaterialArray->getSRV(0, 1, sliceIndex, 1));
             mpSSAOPass["PerFrameCB"]["Rand"] = mNoiseTexture[sliceIndex];
