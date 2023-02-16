@@ -32,6 +32,7 @@
 #include "../SSAO/scissors.h"
 
 #include "../Tools/ImageToNumpyConverter/convert_to_numpy.h"
+#include "../Tools/ImageToNumpyConverter/convert_to_numpyv2.h"
 
 const RenderPass::Info RTHBAO::kInfo { "RTHBAO", "Screen-space ambient occlusion based on HBAO+ with ray tracing" };
 
@@ -304,7 +305,8 @@ void RTHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
 
             // convert to numpy
             static int curIndex = 0;
-            convert_to_numpy("ML/raster.dds", "ML/ray.dds", "ML/forceRay.dds", "ML/sphere.dds", "ML/rasterAO.dds", "ML/rayAO.dds", curIndex);
+            //convert_to_numpy("ML/raster.dds", "ML/ray.dds", "ML/forceRay.dds", "ML/sphere.dds", "ML/rasterAO.dds", "ML/rayAO.dds", curIndex);
+            convert_to_numpyv2("ML/raster.dds", "ML/ray.dds", "ML/forceRay.dds", "ML/sphere.dds", "ML/rasterAO.dds", "ML/rayAO.dds", curIndex);
 
             // preview final image as png
             std::string curIndexStr = std::to_string(curIndex);

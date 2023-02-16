@@ -19,11 +19,18 @@ def combineFiles(baseName):
 	combined = np.concatenate([np.load(filename) for filename in filenames])
 	np.save(f'{baseName}.npy', combined)
 
-for i in range(4):
-	combineFiles(f'raster_train{i}_')
-	combineFiles(f'ray_train{i}_')
-	combineFiles(f'required_train{i}_')
-	combineFiles(f'weight_train{i}_')
+#v1
+#for i in range(4):
+#	combineFiles(f'raster_train{i}_')
+#	combineFiles(f'ray_train{i}_')
+#	combineFiles(f'required_train{i}_')
+#	combineFiles(f'weight_train{i}_')
+
+combineFiles('raster_train_')
+combineFiles('ray_train_')
+combineFiles('required_train_')
+combineFiles('required_forced_train_')
+combineFiles('asked_train_')
 
 # cleanup the old files
 for filename in cleanupFiles:
