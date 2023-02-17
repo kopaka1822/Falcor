@@ -73,7 +73,7 @@ namespace
 ML_HBAO::ML_HBAO()
     :
     RenderPass(kInfo),
-    mNeuralNets(4 /*nets*/, 3 /*layers*/)
+    mNeuralNets(1 /*nets*/, 2 /*layers*/)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
@@ -118,7 +118,7 @@ RenderPassReflection ML_HBAO::reflect(const CompileData& compileData)
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kMaterialData, "Material Data (double sided flag)").bindFlags(ResourceBindFlags::ShaderResource);
 
-    reflector.addOutput(kRayStencil, "Stencil Bitmask for ray tracng").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource)
+    reflector.addOutput(kRayStencil, "Stencil Bitmask for ray tracing").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource)
         .format(ResourceFormat::R32Uint);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R32Float);
 

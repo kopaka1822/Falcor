@@ -273,7 +273,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         step = -NUM_STEPS;
         //while (pendingRayMask != 0u)
         [unroll]
-        for (; step < NUM_STEPS; ++step)
+        for (; step < NUM_STEPS; step += NUM_STEPS)
         {
             /*while ((pendingRayMask & 1u) == 0)
             {
@@ -281,11 +281,10 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 pendingRayMask = pendingRayMask >> 1;
             }*/
             
-            if (!(pendingRayMask & (1u << (step + NUM_STEPS))))
+            if (!(pendingRayMask & (0xF << (step + NUM_STEPS))))
                 continue; // only work with marked samples
             
             ml_float inputs[5];
-            int astep; // absolute step value for lookup (0,1,2,3)
             if (step < 0)
             {
                 inputs[0] = rasterHeights[3];
@@ -293,7 +292,6 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 inputs[2] = rasterHeights[1];
                 inputs[3] = rasterHeights[0];
                 inputs[4] = rasterHeights[4];
-                astep = -step - 1;
             }
             else
             {
@@ -302,52 +300,50 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 inputs[2] = rasterHeights[6];
                 inputs[3] = rasterHeights[7];
                 inputs[4] = rasterHeights[3];
-                astep = step;
             }
 
             ml_float layer1Output[KERNEL0_COLUMNS];
             [unroll]
             for (int outIdx = 0; outIdx < KERNEL0_COLUMNS; outIdx++)
-                layer1Output[outIdx] = BIAS0(astep, outIdx);
+                layer1Output[outIdx] = BIAS0(outIdx);
             
             [unroll]
             for (int inIdx = 0; inIdx < KERNEL0_ROWS; inIdx++)
                 [unroll]
                 for (int outIdx = 0; outIdx < KERNEL0_COLUMNS; outIdx++)
-                    layer1Output[outIdx] = mad(KERNEL0(astep, inIdx, outIdx), inputs[inIdx], layer1Output[outIdx]);
+                    layer1Output[outIdx] = mad(KERNEL0(inIdx, outIdx), inputs[inIdx], layer1Output[outIdx]);
             
             [unroll]
             for (int outIdx = 0; outIdx < KERNEL0_COLUMNS; ++outIdx)
                 layer1Output[outIdx] = max(layer1Output[outIdx], 0); // RELU
 
 #if NUM_LAYERS == 2
-            ml_float layer2Output = BIAS1(astep, 0);
-            [unroll]for (int inIdx = 0; inIdx < KERNEL1_ROWS; inIdx++)
-                layer2Output = mad(KERNEL1(astep, inIdx, 0), layer1Output[inIdx], layer2Output);
-
-            if (layer2Output > ml_float(0.0)) // require ray
-                finalRayMask |= 1u << (step + NUM_STEPS);
-#endif
-#if NUM_LAYERS == 3
-            ml_float layer2Output[KERNEL1_ROWS];
+            ml_float layer2Output[KERNEL1_COLUMNS];
             [unroll] for (int outIdx = 0; outIdx < KERNEL1_COLUMNS; outIdx++)
-                layer2Output[outIdx] = BIAS1(astep, outIdx);
+                layer2Output[outIdx] = BIAS1(outIdx);
             
             [unroll] for (int inIdx = 0; inIdx < KERNEL1_ROWS; inIdx++)
                 [unroll] for (int outIdx = 0; outIdx < KERNEL1_COLUMNS; outIdx++)
-                    layer2Output[outIdx] = mad(KERNEL1(astep, inIdx, outIdx), layer1Output[inIdx], layer2Output[outIdx]);
+                    layer2Output[outIdx] = mad(KERNEL1(inIdx, outIdx), layer1Output[inIdx], layer2Output[outIdx]);
+
+#if KERNEL1_COLUMNS != 4
+            #error expected 4 output neurons for layer 2
+#endif
             
-            [unroll] for (int outIdx = 0; outIdx < KERNEL1_COLUMNS; ++outIdx)
-                layer2Output[outIdx] = max(layer2Output[outIdx], 0); // RELU
+            uint bitmask = 0;
+            [unroll] for (int outIdx = 0; outIdx < KERNEL1_COLUMNS; outIdx++)
+                if (layer2Output[outIdx] > ml_float(0.0))
+                    bitmask = bitmask | (1u << outIdx);
+                    
 
-            ml_float layer3Output = BIAS2(astep, 0);
-            [unroll]for (int inIdx = 0; inIdx < KERNEL2_ROWS; inIdx++)
-                layer3Output = mad(KERNEL2(astep, inIdx, 0), layer2Output[inIdx], layer3Output);
-
-            //layer3Output = 1.0 / (1.0 + exp(-layer3Output)); // SIGMOID
-            //if(layer3Output > 0.5) // require ray
-            if (layer3Output > ml_float(0.0)) // require ray
-                finalRayMask |= 1u << (step + NUM_STEPS);
+            if (step == -NUM_STEPS)
+                bitmask = reversebits(bitmask) >> (32 - 4);
+            
+            // mask bitmask with requested flags
+            bitmask = (bitmask << (step + NUM_STEPS));
+            bitmask = pendingRayMask & bitmask;
+            
+            finalRayMask |= bitmask;
 #endif
 
             

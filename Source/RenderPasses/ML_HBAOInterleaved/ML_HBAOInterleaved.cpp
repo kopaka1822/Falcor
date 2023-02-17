@@ -71,7 +71,7 @@ namespace
 ML_HBAOInterleaved::ML_HBAOInterleaved()
     :
 RenderPass(kInfo),
-mNeuralNets(4 /*nets*/, 3 /*layers*/)
+mNeuralNets(1 /*nets*/, 2 /*layers*/)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);

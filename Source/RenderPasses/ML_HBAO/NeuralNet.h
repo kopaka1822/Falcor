@@ -167,10 +167,20 @@ private:
                 ss << mDataStrings[2 * l + 1];
                 break;
             }
-            
-            ss << "#define KERNEL" << l << "(step, row, col) kernel" << l << "[step * " << (kernel.rows * kernel.columns) << " + row * " << kernel.columns << " + col]\n";
 
-            ss << "#define BIAS" << l << "(step, col) bias" << l << "[step * " << (bias.columns) << " + col]\n";
+            if(mNumNets == 1) // combined multi-label classifier
+            {
+                ss << "#define KERNEL" << l << "(row, col) kernel" << l << "[row * " << kernel.columns << " + col]\n";
+
+                ss << "#define BIAS" << l << "(col) bias" << l << "[col]\n";
+            }
+            else // 1 classifier for each step
+            {
+                ss << "#define KERNEL" << l << "(step, row, col) kernel" << l << "[step * " << (kernel.rows * kernel.columns) << " + row * " << kernel.columns << " + col]\n";
+
+                ss << "#define BIAS" << l << "(step, col) bias" << l << "[step * " << (bias.columns) << " + col]\n";
+            }
+            
 
             ss << "#define KERNEL" << l << "_ROWS " << kernel.rows << "\n";
             ss << "#define KERNEL" << l << "_COLUMNS " << kernel.columns << "\n";
