@@ -75,7 +75,7 @@ private:
     bool mDirty = true;
 
     bool mEnabled = true;
-    DepthMode mDepthMode = DepthMode::SingleDepth;
+    DepthMode mDepthMode = DepthMode::Raytraced;
     Fbo::SharedPtr mpAOFbo;
     uint mFrameIndex = 0;
     bool mColorMap = false;

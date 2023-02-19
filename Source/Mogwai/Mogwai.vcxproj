@@ -118,9 +118,6 @@
     <ProjectReference Include="..\RenderPasses\ML_HBAO\ML_HBAO.vcxproj">
       <Project>{1c5bf168-d6b1-414c-a2c1-6a93c2d2d48c}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\RenderPasses\ML_VAORecorder\ML_VAORecorder.vcxproj">
-      <Project>{4a2be002-1cc8-4ba9-83f3-bb2a50d14ef7}</Project>
-    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\ML_VAO\ML_VAO.vcxproj">
       <Project>{3e8ec24b-7d08-41aa-a857-b0652b358af5}</Project>
     </ProjectReference>
