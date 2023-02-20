@@ -96,11 +96,14 @@ namespace
     const std::string kDepth2 = "depth2";
     const std::string ksDepth = "stochasticDepth";
     const std::string kNormals = "normals";
-    const std::string kInstanceID = "instanceID";
+    //const std::string kInstanceID = "instanceID";
 
     const std::string kInternalRasterDepth = "iRasterDepth";
     const std::string kInternalRayDepth = "iRayDepth";
-    const std::string kInternalInstanceID = "iInstanceID";
+    const std::string kInternalForceRay = "iForceRay";
+    //const std::string kInternalInstanceID = "iInstanceID";
+    const std::string kInternalRasterAO = "iRasterAO";
+    const std::string kInternalRayAO = "iRayAO";
 
     const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
 
@@ -166,7 +169,7 @@ RenderPassReflection VAO::reflect(const CompileData& compileData)
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(kInstanceID, "Instance ID").bindFlags(ResourceBindFlags::ShaderResource);
+    //reflector.addInput(kInstanceID, "Instance ID").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(getAmbientMapFormat());
 
@@ -174,8 +177,14 @@ RenderPassReflection VAO::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R32Float);
     reflector.addInternal(kInternalRayDepth, "internal raster depth").texture2D(0, 0, 1, 1, mKernelSize)
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R32Float);
-    reflector.addInternal(kInternalInstanceID, "internal instance ID").texture2D(0, 0, 1, 1, mKernelSize)
+    reflector.addInternal(kInternalForceRay, "internal force ray").texture2D(0, 0, 1, 1, mKernelSize)
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Uint);
+    //reflector.addInternal(kInternalInstanceID, "internal instance ID").texture2D(0, 0, 1, 1, mKernelSize)
+    //    .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Uint);
+    reflector.addInternal(kInternalRasterAO, "internal raster AO").texture2D(0, 0, 1, 1, mKernelSize)
+        .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Unorm);
+    reflector.addInternal(kInternalRayAO, "internal ray AO").texture2D(0, 0, 1, 1, mKernelSize)
+        .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Unorm);
 
     return reflector;
 }
@@ -200,7 +209,7 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pDepth = renderData[kDepth]->asTexture();
     auto pNormals = renderData[kNormals]->asTexture();
     auto pAoDst = renderData[kAmbientMap]->asTexture();
-    auto pInstanceID = renderData[kInstanceID]->asTexture();
+    //auto pInstanceID = renderData[kInstanceID]->asTexture();
     Texture::SharedPtr pDepth2;
     if (renderData[kDepth2]) pDepth2 = renderData[kDepth2]->asTexture();
     else if (mDepthMode == DepthMode::DualDepth) mDepthMode = DepthMode::SingleDepth;
@@ -210,7 +219,10 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     auto pInternalRasterDepth = renderData[kInternalRasterDepth]->asTexture();
     auto pInternalRayDepth = renderData[kInternalRayDepth]->asTexture();
-    auto pInternalInstanceID = renderData[kInternalInstanceID]->asTexture();
+    //auto pInternalInstanceID = renderData[kInternalInstanceID]->asTexture();
+    auto pInternalForceRay = renderData[kInternalForceRay]->asTexture();
+    auto pInternalRasterAO = renderData[kInternalRasterAO]->asTexture();
+    auto pInternalRayAO = renderData[kInternalRayAO]->asTexture();
 
     auto pCamera = mpScene->getCamera().get();
     //renderData["k"]->asBuffer();
@@ -240,7 +252,7 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
             mpSSAOPass["gRasterDepth"] = pInternalRasterDepth;
             mpSSAOPass["gRayDepth"] = pInternalRayDepth;
-            mpSSAOPass["gInstanceIDOut"] = pInternalInstanceID;
+            //mpSSAOPass["gInstanceIDOut"] = pInternalInstanceID;
         }
 
         if (mDirty)
@@ -267,13 +279,16 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpSSAOPass["gsDepthTex"] = psDepth;
         mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
         mpSSAOPass["gNormalTex"] = pNormals;
-        mpSSAOPass["gInstanceID"] = pInstanceID;
-
+        //mpSSAOPass["gInstanceID"] = pInstanceID;
+        mpSSAOPass["gRasterAO"] = pInternalRasterAO;
+        mpSSAOPass["gRayAO"] = pInternalRayAO;
+        mpSSAOPass["gForceRay"] = pInternalForceRay;
+        
         // clear uav targets
         pRenderContext->clearTexture(pInternalRasterDepth.get());
         pRenderContext->clearTexture(pInternalRayDepth->asTexture().get());
         //pRenderContext->clearTexture(pInternalInstanceID->asTexture().get());
-        pRenderContext->clearUAV(pInternalInstanceID->asTexture()->getUAV().get(), uint4(0));
+        //pRenderContext->clearUAV(pInternalInstanceID->asTexture()->getUAV().get(), uint4(0));
         
         // Generate AO
         mpAOFbo->attachColorTarget(pAoDst, 0);
@@ -285,10 +300,8 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             // write sample information
             pInternalRasterDepth->captureToFile(0, -1, "raster.dds", Bitmap::FileFormat::DdsFile);
             pInternalRayDepth->captureToFile(0, -1, "ray.dds", Bitmap::FileFormat::DdsFile);
-            pInternalInstanceID->captureToFile(0, -1, "instance.dds", Bitmap::FileFormat::DdsFile);
-
-            // write pixel information
-            pInstanceID->captureToFile(0, -1, "instance_center.dds", Bitmap::FileFormat::DdsFile);
+            //pInternalInstanceID->captureToFile(0, -1, "instance.dds", Bitmap::FileFormat::DdsFile);
+            //pInstanceID->captureToFile(0, -1, "instance_center.dds", Bitmap::FileFormat::DdsFile);
             mSaveDepths = false;
         }
     }

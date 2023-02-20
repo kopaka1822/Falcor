@@ -41,6 +41,10 @@ import Scene.Raster;
 #define NUM_DIRECTIONS 8
 #endif
 
+#define FORCE_RAY_OUT_OF_SCREEN 1
+#define FORCE_RAY_DOUBLE_SIDED 2
+#define FORCE_RAY_INVALID 3
+
 // single depth texture
 #define DEPTH_MODE_SINGLE 0
 // two depth textures
@@ -277,7 +281,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             {
                 // below surface
                 validSample = false; // this should always evaluate to visibility = 1.0
-                gForceRay[uint3(XY, sampleIndex)] = 3; // ignored for training data
+                gForceRay[uint3(XY, sampleIndex)] = FORCE_RAY_INVALID; // ignored for training data
             }
             
             // TODO determine if the sphere start is below the hemisphere => if this is the case, no depth sample needs to be taken
@@ -328,7 +332,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 curVisibility = alpha;
                 // check if it was a double sided hit
                 if (matHeader.isDoubleSided())
-                    gForceRay[uint3(XY, sampleIndex)] = 2; // force rays for double sided materials in front of the sphere => they cannot be occluders by definition
+                    gForceRay[uint3(XY, sampleIndex)] = FORCE_RAY_DOUBLE_SIDED; // force rays for double sided materials in front of the sphere => they cannot be occluders by definition
             }
             else
             {
@@ -451,7 +455,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     {
         // exlude all samples from ml by setting the forced ray flag for all samples
         for (uint sampleIndex = 0; sampleIndex < NUM_DIRECTIONS * NUM_STEPS; ++sampleIndex)
-            gForceRay[uint3(XY, sampleIndex)] = 1;
+            gForceRay[uint3(XY, sampleIndex)] = FORCE_RAY_OUT_OF_SCREEN;
     }
     
     
