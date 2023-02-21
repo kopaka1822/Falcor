@@ -377,6 +377,7 @@ def render_graph_VAO():
     g.addEdge('ConvertFormat__', 'CrossBilateralBlur')
     g.addEdge('DepthPass.depth', 'GBufferRaster.depth')
     g.addEdge('GBufferRaster.faceNormalW', 'VAO.normals')
+    g.addEdge('GBufferRaster.mtlData', 'VAO.materialData')
     #g.addEdge('GBufferRaster.instanceID', 'VAO.instanceID')
     g.markOutput('Ambient.out')
     g.markOutput('Diffuse.out')

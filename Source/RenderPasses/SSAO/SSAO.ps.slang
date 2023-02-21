@@ -103,6 +103,7 @@ RWTexture2DArray<float> gRayDepth;
 RWTexture2DArray<float> gRasterAO;
 RWTexture2DArray<float> gRayAO;
 RWTexture2DArray<uint> gForceRay;
+Texture2D<uint4> gMaterialData;
 
 #define FORCE_RAY_OUT_OF_SCREEN 1
 #define FORCE_RAY_DOUBLE_SIDED 2
@@ -330,7 +331,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
         curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
         bool primaryIsOccluded = (objectSpaceZ > sphereStart + CONST_RADIUS);
-
+        
         // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
         bool isInvalid = (sphereStart - sphereEnd < 0.01);
         if (isInvalid) curVisibility = 0.0;
@@ -340,10 +341,19 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         gRasterAO[uint3(XY, i)] = curVisibility;
         gRayAO[uint3(XY, i)] = curVisibility;
 
+        // material info about sample
+        uint4 mtlData = gMaterialData[UVToPixel(rasterSamplePosUV)];
+        MaterialHeader matHeader;
+        matHeader.packedData = mtlData.yz; // x = id, yz = packed data
+        
         if(isInvalid)
         {
             gInvalid += 1;
             gForceRay[uint3(XY, i)] = FORCE_RAY_INVALID;
+        }
+        else if (primaryIsOccluded && matHeader.isDoubleSided())
+        {
+            gForceRay[uint3(XY, i)] = FORCE_RAY_DOUBLE_SIDED; // force rays for double sided materials in front of the sphere
         }
 
         primaryIsOccluded = true; // force ray

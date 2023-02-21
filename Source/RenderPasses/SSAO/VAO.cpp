@@ -96,6 +96,7 @@ namespace
     const std::string kDepth2 = "depth2";
     const std::string ksDepth = "stochasticDepth";
     const std::string kNormals = "normals";
+    const std::string kMaterial = "materialData";
     //const std::string kInstanceID = "instanceID";
 
     const std::string kInternalRasterDepth = "iRasterDepth";
@@ -171,6 +172,7 @@ RenderPassReflection VAO::reflect(const CompileData& compileData)
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
     //reflector.addInput(kInstanceID, "Instance ID").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(ksDepth, "Linear Stochastic Depth Map").texture2D(0, 0, 0).bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kMaterial, "Material data").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion").bindFlags(Falcor::ResourceBindFlags::RenderTarget).format(getAmbientMapFormat());
 
     reflector.addInternal(kInternalRasterDepth, "internal raster depth").texture2D(0, 0, 1, 1, mKernelSize)
@@ -216,6 +218,7 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     Texture::SharedPtr psDepth;
     if (renderData[ksDepth]) psDepth = renderData[ksDepth]->asTexture();
     else if (mDepthMode == DepthMode::StochasticDepth) mDepthMode = DepthMode::SingleDepth;
+    auto pMaterial = renderData[kMaterial]->asTexture();
 
     auto pInternalRasterDepth = renderData[kInternalRasterDepth]->asTexture();
     auto pInternalRayDepth = renderData[kInternalRayDepth]->asTexture();
@@ -283,6 +286,7 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpSSAOPass["gRasterAO"] = pInternalRasterAO;
         mpSSAOPass["gRayAO"] = pInternalRayAO;
         mpSSAOPass["gForceRay"] = pInternalForceRay;
+        mpSSAOPass["gMaterialData"] = pMaterial;
         
         // clear uav targets
         pRenderContext->clearTexture(pInternalRasterDepth.get());
@@ -298,10 +302,13 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         if(mSaveDepths)
         {
             // write sample information
-            pInternalRasterDepth->captureToFile(0, -1, "raster.dds", Bitmap::FileFormat::DdsFile);
-            pInternalRayDepth->captureToFile(0, -1, "ray.dds", Bitmap::FileFormat::DdsFile);
+            pInternalRasterDepth->captureToFile(0, -1, "ML/raster.dds", Bitmap::FileFormat::DdsFile);
+            pInternalRayDepth->captureToFile(0, -1, "ML/ray.dds", Bitmap::FileFormat::DdsFile);
             //pInternalInstanceID->captureToFile(0, -1, "instance.dds", Bitmap::FileFormat::DdsFile);
             //pInstanceID->captureToFile(0, -1, "instance_center.dds", Bitmap::FileFormat::DdsFile);
+            pInternalForceRay->captureToFile(0, -1, "ML/forceRay.dds", Bitmap::FileFormat::DdsFile);
+            pInternalRasterAO->captureToFile(0, -1, "ML/rasterAO.dds", Bitmap::FileFormat::DdsFile);
+            pInternalRayAO->captureToFile(0, -1, "ML/rayAO.dds", Bitmap::FileFormat::DdsFile);
             mSaveDepths = false;
         }
     }
