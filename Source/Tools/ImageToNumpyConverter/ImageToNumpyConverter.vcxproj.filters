@@ -25,5 +25,11 @@
     <ClInclude Include="convert_to_numpyv2.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="vao_to_numpy.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="force_ray.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

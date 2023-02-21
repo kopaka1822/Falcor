@@ -29,3 +29,9 @@ def preprocess_inputs(raster, asked):
 	#final = np.concatenate((final, asked), axis=1)
 	final = [final, asked]
 	return final
+
+def preprocess_inputs_vao(raster, asked):
+	final = np.clip(raster, -16, 16) # clip
+	#final = np.concatenate((final, asked), axis=1)
+	final = [final, asked]
+	return final

@@ -144,7 +144,9 @@
   <ItemGroup>
     <ClInclude Include="convert_to_numpy.h" />
     <ClInclude Include="convert_to_numpyv2.h" />
+    <ClInclude Include="force_ray.h" />
     <ClInclude Include="npy.h" />
+    <ClInclude Include="vao_to_numpy.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

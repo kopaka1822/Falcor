@@ -70,6 +70,7 @@ private:
     ResourceFormat getAmbientMapFormat() const;
     void setNoiseTexture();
     void setKernel();
+    std::vector<float> getSphereHeights() const;
 
     SSAOData mData;
     bool mDirty = true;
@@ -94,4 +95,7 @@ private:
     uint32_t mKernelSize = 8;
 
     bool mSaveDepths = false;
+
+    bool mIsTraining = true;
+    int mTrainingIndex = 0;
 };

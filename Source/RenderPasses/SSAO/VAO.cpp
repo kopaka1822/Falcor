@@ -29,6 +29,7 @@
 
 #include "scissors.h"
 #include "glm/gtc/random.hpp"
+#include "../../Tools/ImageToNumpyConverter/vao_to_numpy.h"
 
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" __declspec(dllexport) const char* getProjDir()
@@ -293,7 +294,10 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         pRenderContext->clearTexture(pInternalRayDepth->asTexture().get());
         //pRenderContext->clearTexture(pInternalInstanceID->asTexture().get());
         //pRenderContext->clearUAV(pInternalInstanceID->asTexture()->getUAV().get(), uint4(0));
-        
+        pRenderContext->clearUAV(pInternalForceRay->asTexture()->getUAV().get(), uint4(0));
+        pRenderContext->clearTexture(pInternalRasterAO->asTexture().get());
+        pRenderContext->clearTexture(pInternalRayAO->asTexture().get());
+
         // Generate AO
         mpAOFbo->attachColorTarget(pAoDst, 0);
         setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims(), mGuardBand);
@@ -309,6 +313,12 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             pInternalForceRay->captureToFile(0, -1, "ML/forceRay.dds", Bitmap::FileFormat::DdsFile);
             pInternalRasterAO->captureToFile(0, -1, "ML/rasterAO.dds", Bitmap::FileFormat::DdsFile);
             pInternalRayAO->captureToFile(0, -1, "ML/rayAO.dds", Bitmap::FileFormat::DdsFile);
+
+            auto sphereHeights = getSphereHeights();
+
+            vao_to_numpy(sphereHeights, "ML/raster.dds", "ML/ray.dds", "ML/forceRay.dds", "ML/rasterAO.dds", "ML/rayAO.dds", mTrainingIndex, mIsTraining);
+            mTrainingIndex++;
+            
             mSaveDepths = false;
         }
     }
@@ -355,6 +365,13 @@ void VAO::renderUI(Gui::Widgets& widget)
     }
 
     if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
+
+    if(widget.checkbox("Training Data", mIsTraining))
+    {
+        mTrainingIndex = 0;
+    }
+
+    widget.text("Training Index: " + std::to_string(mTrainingIndex));
 
     if (widget.button("Save Depths")) mSaveDepths = true;
 }
@@ -468,6 +485,19 @@ void VAO::setKernel()
 
 
     mDirty = true;
+}
+
+std::vector<float> VAO::getSphereHeights() const
+{
+    std::vector<float> heights;
+    heights.reserve(mKernelSize);
+    for (uint32_t i = 0; i < mKernelSize; i++)
+    {
+        auto rand = float2(mData.sampleKernel[i].x, mData.sampleKernel[i].y);
+        float sphereHeight = glm::sqrt(1.0f - dot(rand, rand));
+        heights.push_back(sphereHeight);
+    }
+    return heights;
 }
 
 void VAO::setNoiseTexture()

@@ -1,0 +1,5 @@
+#pragma once
+
+#define FORCE_RAY_OUT_OF_SCREEN 1
+#define FORCE_RAY_DOUBLE_SIDED 2
+#define FORCE_RAY_INVALID 3
