@@ -82,7 +82,7 @@ cbuffer PerFrameCB
 {
     float4x4 invViewMat;
     Camera gCamera;
-    uint frameIndex;
+    bool saveDepths; // save data for ml this iteration
 }
 
 SamplerState gNoiseSampler;
@@ -333,27 +333,37 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         
         // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
         bool isInvalid = (sphereStart - sphereEnd < 0.01);
-        if (isInvalid) curVisibility = 0.0;
-        
-        gRasterDepth[uint3(XY, i)] = objectSpaceZ / gData.radius;
-        gRayDepth[uint3(XY, i)] = objectSpaceZ / gData.radius;
-        gRasterAO[uint3(XY, i)] = curVisibility;
-        gRayAO[uint3(XY, i)] = curVisibility;
-
-        // material info about sample
-        uint4 mtlData = gMaterialData[UVToPixel(rasterSamplePosUV)];
-        MaterialHeader matHeader;
-        matHeader.packedData = mtlData.yz; // x = id, yz = packed data
-        
-        if(isInvalid)
+        if (isInvalid)
         {
+            curVisibility = 0.0;
             gInvalid += 1;
-            gForceRay[uint3(XY, i)] = FORCE_RAY_INVALID;
         }
-        else if (primaryIsOccluded && matHeader.isDoubleSided())
+
+        if(saveDepths)
         {
-            gForceRay[uint3(XY, i)] = FORCE_RAY_DOUBLE_SIDED; // force rays for double sided materials in front of the sphere
+            gRasterDepth[uint3(XY, i)] = objectSpaceZ / gData.radius;
+            gRayDepth[uint3(XY, i)] = objectSpaceZ / gData.radius;
+            gRasterAO[uint3(XY, i)] = curVisibility;
+            gRayAO[uint3(XY, i)] = curVisibility;
         }
+       
+        if(saveDepths)
+        {
+            // material info about sample
+            uint4 mtlData = gMaterialData[UVToPixel(rasterSamplePosUV)];
+            MaterialHeader matHeader;
+            matHeader.packedData = mtlData.yz; // x = id, yz = packed data
+            
+            if (isInvalid)
+            {
+                gForceRay[uint3(XY, i)] = FORCE_RAY_INVALID;
+            }
+            else if (primaryIsOccluded && matHeader.isDoubleSided())
+            {
+                gForceRay[uint3(XY, i)] = FORCE_RAY_DOUBLE_SIDED; // force rays for double sided materials in front of the sphere
+            }
+        }
+        
 
         primaryIsOccluded = true; // force ray
         
@@ -477,13 +487,13 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 float sphereVisibility = calcSphereVisibility(sphereZ, sphereStart, sphereEnd, pdf);
                 float haloVisibility = calcHaloVisibility(haloZ, sphereStart, sphereEnd, pdf);
 
-                if (min(sphereVisibility, haloVisibility) < curVisibility)
+                if (saveDepths && min(sphereVisibility, haloVisibility) < curVisibility)
                 {
                     gRayDepth[uint3(XY, i)] = (sphereVisibility <= haloVisibility ? sphereZ : haloZ) / gData.radius;
                 }
             
                 curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
-                gRayAO[uint3(XY, i)] = curVisibility;
+                if(saveDepths) gRayAO[uint3(XY, i)] = curVisibility;
             }
             else // !PREVENT_DARK_HALOS
             {
@@ -520,7 +530,8 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                             if (isAlphaTested || header.isDoubleSided()) // ignore alpha tested materials (too thin for occlusion at this distance)
                                 continue;
                             occlusionStack += frontFace ? 1 : -1;
-                            if(frontFace) tLastFrontFaceOutside = max(t, tLastFrontFaceOutside);
+                            if (frontFace)
+                                tLastFrontFaceOutside = max(t, tLastFrontFaceOutside);
                         }
                         else // inside the sphere
                         {
@@ -549,25 +560,26 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
                 //float outsideZ = posVLength - tLastFrontFaceOutside * posVLength / initialSamplePosLength;
                 float outsideZ = calcObjectSpaceZ(posV, normal, ray, tLastFrontFaceOutside);
-                
+
                 if (occlusionStack > 0)
-                {
                     curVisibility = 0.0;
-                    gRayDepth[uint3(XY, i)] = outsideZ / gData.radius;
-                }
-                else
-                    gRayDepth[uint3(XY, i)] = sphereZ / gData.radius;
+
+                if (saveDepths)
+                {
+                    if (occlusionStack > 0)
+                        gRayDepth[uint3(XY, i)] = outsideZ / gData.radius;
+                    else
+                        gRayDepth[uint3(XY, i)] = sphereZ / gData.radius;
                 
-                //curVisibility = 0.0;
-                gRayAO[uint3(XY, i)] = curVisibility;
+                    gRayAO[uint3(XY, i)] = curVisibility;
+                }
             }
-            
         }
 
         visibility += curVisibility;
     }
 
-    if (!allSamplesInScreen)
+    if (!allSamplesInScreen && saveDepths)
     {
         // exlude all samples from ml by setting the forced ray flag for all samples
         for (uint sampleIndex = 0; sampleIndex < KERNEL_SIZE; ++sampleIndex)

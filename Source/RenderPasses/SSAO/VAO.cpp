@@ -257,6 +257,9 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
             mpSSAOPass["gRasterDepth"] = pInternalRasterDepth;
             mpSSAOPass["gRayDepth"] = pInternalRayDepth;
+            mpSSAOPass["gRasterAO"] = pInternalRasterAO;
+            mpSSAOPass["gRayAO"] = pInternalRayAO;
+            mpSSAOPass["gForceRay"] = pInternalForceRay;
             //mpSSAOPass["gInstanceIDOut"] = pInternalInstanceID;
         }
 
@@ -273,7 +276,7 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpScene->setRaytracingShaderData(pRenderContext, var);
 
         pCamera->setShaderData(mpSSAOPass["PerFrameCB"]["gCamera"]);
-        mpSSAOPass["PerFrameCB"]["frameIndex"] = mFrameIndex++;
+        mpSSAOPass["PerFrameCB"]["saveDepths"] = mSaveDepths;
         mpSSAOPass["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
 
         // Update state/vars
@@ -285,19 +288,19 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
         mpSSAOPass["gNormalTex"] = pNormals;
         //mpSSAOPass["gInstanceID"] = pInstanceID;
-        mpSSAOPass["gRasterAO"] = pInternalRasterAO;
-        mpSSAOPass["gRayAO"] = pInternalRayAO;
-        mpSSAOPass["gForceRay"] = pInternalForceRay;
-        mpSSAOPass["gMaterialData"] = pMaterial;
-        
-        // clear uav targets
-        pRenderContext->clearTexture(pInternalRasterDepth.get());
-        pRenderContext->clearTexture(pInternalRayDepth->asTexture().get());
-        //pRenderContext->clearTexture(pInternalInstanceID->asTexture().get());
-        //pRenderContext->clearUAV(pInternalInstanceID->asTexture()->getUAV().get(), uint4(0));
-        pRenderContext->clearUAV(pInternalForceRay->asTexture()->getUAV().get(), uint4(0));
-        pRenderContext->clearTexture(pInternalRasterAO->asTexture().get());
-        pRenderContext->clearTexture(pInternalRayAO->asTexture().get());
+        if(mSaveDepths)
+        {
+            mpSSAOPass["gMaterialData"] = pMaterial;
+
+            // clear uav targets
+            pRenderContext->clearTexture(pInternalRasterDepth.get());
+            pRenderContext->clearTexture(pInternalRayDepth->asTexture().get());
+            //pRenderContext->clearTexture(pInternalInstanceID->asTexture().get());
+            //pRenderContext->clearUAV(pInternalInstanceID->asTexture()->getUAV().get(), uint4(0));
+            pRenderContext->clearUAV(pInternalForceRay->asTexture()->getUAV().get(), uint4(0));
+            pRenderContext->clearTexture(pInternalRasterAO->asTexture().get());
+            pRenderContext->clearTexture(pInternalRayAO->asTexture().get());
+        }
 
         // Generate AO
         mpAOFbo->attachColorTarget(pAoDst, 0);
