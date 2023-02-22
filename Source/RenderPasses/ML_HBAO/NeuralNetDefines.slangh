@@ -11,3 +11,31 @@ static const float bias1[4] = {-2.09162, -1.48497, -1.20907, -0.772243};
 #define BIAS1(col) bias1[col]
 #define KERNEL1_ROWS 8
 #define KERNEL1_COLUMNS 4
+
+uint evalNeuralNet(float inputs[5]){
+	float layer0Output[8];
+	[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+		layer0Output[outIdx] = BIAS0(outIdx);
+
+	[unroll] for(uint inIdx = 0; inIdx < 5; ++inIdx)
+		[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+			layer0Output[outIdx] += KERNEL0(inIdx, outIdx) * inputs[inIdx];
+
+	[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+		layer0Output[outIdx] = max(layer0Output[outIdx], 0); // RELU
+
+	float layer1Output[4];
+	[unroll] for(uint outIdx = 0; outIdx < 4; ++outIdx)
+		layer1Output[outIdx] = BIAS1(outIdx);
+
+	[unroll] for(uint inIdx = 0; inIdx < 8; ++inIdx)
+		[unroll] for(uint outIdx = 0; outIdx < 4; ++outIdx)
+			layer1Output[outIdx] += KERNEL1(inIdx, outIdx) * layer0Output[inIdx];
+
+	uint bitmask = 0;
+	[unroll] for(uint outIdx = 0; outIdx < 4; ++outIdx)
+		if(layer1Output[outIdx] > 0.0)
+			bitmask = bitmask | (1u << outIdx);
+
+	return bitmask;
+}

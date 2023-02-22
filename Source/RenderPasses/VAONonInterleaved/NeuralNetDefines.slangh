@@ -1,0 +1,41 @@
+#define NUM_LAYERS 2
+static const float kernel0[64] = {-0.760141, -0.0921126, -1.02831, -0.110667, -0.129475, -0.522208, -0.0857509, -0.102904, 2.01739, -0.0016784, 0.0222749, 0.00225401, -0.0438162, -0.00836306, -0.0221357, 0.00670285, -0.0660023, -0.00994829, -0.0265772, -0.00781228, 1.43848, -0.0524816, 0.00273557, 0.0129843, 0.0165092, 0.0421212, -0.000909711, 0.00209219, -0.0219188, 2.32592, 0.00184494, -0.0730878, 0.0276719, -0.0200241, -0.00109169, 0.00572803, 0.0550233, -0.0125804, -0.029158, 1.5359, 0.00481646, 0.0272618, 0.00218477, -0.0316465, 0.0151923, 0.0147846, 2.07366, -0.0356378, 0.0165901, -0.0369572, 0.00874425, 1.4737, 0.0148833, 0.0116372, -0.00712219, 0.0431759, 0.00519982, 2.64765, 0.0213474, -0.0457195, 0.00407998, 0.0115735, -0.0044684, 0.0138051};
+static const float bias0[8] = {0.0885117, -0.391381, 3.55289, -0.480632, -0.283326, -0.625613, -0.2286, -0.698605};
+#define KERNEL0(row, col) kernel0[row * 8 + col]
+#define BIAS0(col) bias0[col]
+#define KERNEL0_ROWS 8
+#define KERNEL0_COLUMNS 8
+static const float kernel1[64] = {0.0706442, 1.21773, 0.0731688, 0.0642015, -0.0252174, 0.0161446, 0.0321868, 0.00735038, 0.0564928, 0.0506557, 0.00848734, 0.00418117, -0.00387164, 0.0494204, 0.03544, 1.51868, -1.69105, -0.912069, -0.235042, -0.763655, -0.147162, -0.164526, -0.193291, -0.139451, 0.00987148, -0.0213512, -0.012649, 0.0249954, -0.0518653, -0.0626788, 1.21212, -0.0383285, -0.0367049, -0.0427637, 1.06335, -0.0329269, -0.0578855, -0.0263894, -0.033429, 0.0351823, -0.0093241, 0.0355852, 0.0809695, 1.40934, 0.10656, 0.0600731, -0.00806781, -0.0739379, -0.00362773, -0.0172323, 0.0079846, 0.0180071, 0.0333546, 1.31326, 0.0696736, -0.00396942, -0.0165582, -0.0392343, -0.0572108, -0.0724273, 0.93088, -0.0657009, -0.0721025, 0.00421466};
+static const float bias1[8] = {3.5199, -0.902271, -1.67103, -1.47383, -1.24963, -3.58165, -1.91841, -4.50592};
+#define KERNEL1(row, col) kernel1[row * 8 + col]
+#define BIAS1(col) bias1[col]
+#define KERNEL1_ROWS 8
+#define KERNEL1_COLUMNS 8
+
+uint evalNeuralNet(float inputs[8]){
+	float layer0Output[8];
+	[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+		layer0Output[outIdx] = BIAS0(outIdx);
+
+	[unroll] for(uint inIdx = 0; inIdx < 8; ++inIdx)
+		[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+			layer0Output[outIdx] += KERNEL0(inIdx, outIdx) * inputs[inIdx];
+
+	[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+		layer0Output[outIdx] = max(layer0Output[outIdx], 0); // RELU
+
+	float layer1Output[8];
+	[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+		layer1Output[outIdx] = BIAS1(outIdx);
+
+	[unroll] for(uint inIdx = 0; inIdx < 8; ++inIdx)
+		[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+			layer1Output[outIdx] += KERNEL1(inIdx, outIdx) * layer0Output[inIdx];
+
+	uint bitmask = 0;
+	[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+		if(layer1Output[outIdx] > 0.0)
+			bitmask = bitmask | (1u << outIdx);
+
+	return bitmask;
+}

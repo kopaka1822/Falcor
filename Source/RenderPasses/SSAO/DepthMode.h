@@ -7,6 +7,8 @@ namespace Falcor
         SingleDepth,
         DualDepth,
         StochasticDepth,
-        Raytraced
+        Raytraced,
+        MachineClassify,
+        MachinePredict
     };
 }

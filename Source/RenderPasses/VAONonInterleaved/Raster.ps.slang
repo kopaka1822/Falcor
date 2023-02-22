@@ -1,4 +1,5 @@
 #include "Common.slang"
+#include "NeuralNetDefines.slangh"
 
 struct PSOut
 {
@@ -47,6 +48,11 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     
     float visibility = 0.0f;
 
+    #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY
+    float rasterHeights[8];
+    float tmpAoValues[8];
+    #endif
+    
     [unroll] for (uint i = 0; i < NUM_DIRECTIONS; i++)
     {
         // random angle on view space disc
@@ -67,13 +73,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
             float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
             sphereEnd = zIntersectClamped;
         }
-
-        // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
-        if (sphereStart - sphereEnd < 0.01)
-        {
-            continue; // skip sample (no visibility)
-        }
-
+        
         // sample position calculate uv position of sample
         float2 samplePosUV = ViewSpaceToUV(posV + tangent * dir.x + bitangent * dir.y);
 
@@ -87,27 +87,34 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         float2 rasterSamplePosUV = screenUv;
         rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
 
-      
-        if (isSamePixel(rasterSamplePosUV, texC))
-        {
-            curVisibility = calcSphereVisibility(0.0, sphereStart, sphereEnd, pdf); // saves a texture fetch (but does not make a measuarbale diff on my device)
-        }
-        else
-        {
-            float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
-            curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
-            // require hybrid ray if intersection is outside of sphere radius
-            if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
-                hybridRay = true;
+        float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
+        curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
 
-            if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
-            {
-                float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
-                curVisibility = COMBINE_VIS(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf));
-                if (objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
-                    hybridRay = true;
-            }
+        #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY
+        rasterHeights[i] = objectSpaceZ / gData.radius;
+        tmpAoValues[i] = 0.0;
+        #endif
+
+        if (sphereStart - sphereEnd < 0.01)
+        {
+            continue; // skip sample (no visibility)
         }
+        
+        // require hybrid ray if intersection is outside of sphere radius
+        if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
+            hybridRay = true;
+
+        if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
+        {
+            float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
+            curVisibility = COMBINE_VIS(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf));
+            if (objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
+                hybridRay = true;
+        }
+
+        #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY
+        tmpAoValues[i] = curVisibility;
+        #endif
         
         if(hybridRay)
         {
@@ -123,6 +130,22 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
             output.ao1 += curVisibility;
         }
     }
+
+    #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY
+    if (output.stencil != 0)
+    {
+        uint machineMask = evalNeuralNet(rasterHeights);
+        output.stencil = output.stencil & machineMask;
+    }
+
+    output.ao1 = 0.0;
+    [unroll]
+    for (uint i = 0; i < NUM_DIRECTIONS; ++i)
+    {
+        if (!(output.stencil & (1u << i)))
+             output.ao1 += tmpAoValues[i];
+    }
+    #endif
 
     output.ao1 *= 2.0 / float(NUM_DIRECTIONS);
 

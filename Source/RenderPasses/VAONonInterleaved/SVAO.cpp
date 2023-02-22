@@ -84,7 +84,8 @@ SVAO::SharedPtr SVAO::create(RenderContext* pRenderContext, const Dictionary& di
 
 SVAO::SVAO(const Dictionary& dict)
     :
-    RenderPass(kInfo)
+    RenderPass(kInfo),
+    mNeuralNet(1, 2)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
@@ -121,6 +122,8 @@ SVAO::SVAO(const Dictionary& dict)
     stencil.setStencilWriteMask(1);
     mpStencilPass->getState()->setDepthStencilState(DepthStencilState::create(stencil));
     mpStencilFbo = Fbo::create();
+
+    mNeuralNet.load("../../NeuralNetVAO/net_relu");
 }
 
 void SVAO::parseDictionary(const Dictionary& dict)
@@ -235,6 +238,8 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     if(!mpRasterPass || !mpRasterPass2 || !mpRayProgram) // this needs to be deferred because it needs the scene defines to compile
     {
+        mNeuralNet.writeDefinesToFile("../RenderPasses/VAONonInterleaved/NeuralNetDefines.slangh");
+
         Program::DefineList defines;
         defines.add("PRIMARY_DEPTH_MODE", std::to_string(uint32_t(mPrimaryDepthMode)));
         defines.add("SECONDARY_DEPTH_MODE", std::to_string(uint32_t(mSecondaryDepthMode)));
@@ -395,6 +400,7 @@ const Gui::DropdownList kPrimaryDepthModeDropdown =
 {
     { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
     { (uint32_t)DepthMode::DualDepth, "DualDepth" },
+    { (uint32_t)DepthMode::MachineClassify, "MachineClassify" },
 };
 
 const Gui::DropdownList kSecondaryDepthModeDropdown =

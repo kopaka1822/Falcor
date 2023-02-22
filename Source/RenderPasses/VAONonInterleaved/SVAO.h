@@ -29,6 +29,7 @@
 #include "Falcor.h"
 #include "../SSAO/DepthMode.h"
 #include "VAOData.slang"
+#include "../ML_HBAO/NeuralNet.h"
 
 using namespace Falcor;
 
@@ -96,4 +97,6 @@ private:
     bool mUseRayPipeline = false;
 
     bool mPreventDarkHalos = false;
+
+    NeuralNetCollection mNeuralNet;
 };
