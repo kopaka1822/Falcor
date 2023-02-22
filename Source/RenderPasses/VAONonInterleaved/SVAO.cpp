@@ -30,7 +30,6 @@
 #include <glm/gtc/random.hpp>
 
 #include "../SSAO/scissors.h"
-#include "VAOSettings.h"
 
 
 namespace
@@ -53,6 +52,15 @@ namespace
     const std::string kStencilShader = "RenderPasses/VAONonInterleaved/CopyStencil.ps.slang";
 
     const uint32_t kMaxPayloadSize = 4 * 4;
+
+    // settings
+    const std::string kRadius = "radius";
+    const std::string kGuardBand = "guardBand";
+    const std::string kPrimaryDepthMode = "primaryDepthMode";
+    const std::string kSecondaryDepthMode = "secondaryDepthMode";
+    const std::string kExponent = "exponent";
+    const std::string kUseRayPipeline = "rayPipeline";
+    const std::string kThickness = "thickness";
 }
 
 const RenderPass::Info SVAO::kInfo = { "SVAO", kDesc };
@@ -88,9 +96,9 @@ SVAO::SVAO(const Dictionary& dict)
     mpFbo = Fbo::create();
     mpFbo2 = Fbo::create();
 
-    mpNoiseTexture = VAOSettings::genNoiseTexture();
+    mpNoiseTexture = genNoiseTexture();
 
-    VAOSettings::get().updateFromDict(dict);
+    parseDictionary(dict);
 
     // set stencil to succeed if not equal to zero
     DepthStencilState::Desc stencil;
@@ -115,9 +123,50 @@ SVAO::SVAO(const Dictionary& dict)
     mpStencilFbo = Fbo::create();
 }
 
+void SVAO::parseDictionary(const Dictionary& dict)
+{
+    for (const auto& [key, value] : dict)
+    {
+        if (key == kRadius) mData.radius = value;
+        else if (key == kPrimaryDepthMode) mPrimaryDepthMode = value;
+        else if (key == kSecondaryDepthMode) mSecondaryDepthMode = value;
+        else if (key == kExponent) mData.exponent = value;
+        else if (key == kUseRayPipeline) mUseRayPipeline = value;
+        else if (key == kGuardBand) mGuardBand = value;
+        else if (key == kThickness) mData.thickness = value;
+        else logWarning("Unknown field '" + key + "' in a VAONonInterleaved dictionary");
+    }
+}
+
+Texture::SharedPtr SVAO::genNoiseTexture()
+{
+    static const int NOISE_SIZE = 4;
+    std::vector<uint8_t> data;
+    data.resize(NOISE_SIZE * NOISE_SIZE);
+
+    // https://en.wikipedia.org/wiki/Ordered_dithering
+    const float ditherValues[] = { 0.0f, 8.0f, 2.0f, 10.0f, 12.0f, 4.0f, 14.0f, 6.0f, 3.0f, 11.0f, 1.0f, 9.0f, 15.0f, 7.0f, 13.0f, 5.0f };
+
+    std::srand(2346); // always use the same seed for the noise texture (linear rand uses std rand)
+    for (uint32_t i = 0; i < data.size(); i++)
+    {
+        data[i] = uint8_t(ditherValues[i] / 16.0f * 255.0f);
+    }
+
+    return Texture::create2D(NOISE_SIZE, NOISE_SIZE, ResourceFormat::R8Unorm, 1, 1, data.data());
+}
+
 Dictionary SVAO::getScriptingDictionary()
 {
-    return VAOSettings::get().getScriptingDictionary();
+    Dictionary d;
+    d[kRadius] = mData.radius;
+    d[kPrimaryDepthMode] = mPrimaryDepthMode;
+    d[kSecondaryDepthMode] = mSecondaryDepthMode;
+    d[kExponent] = mData.exponent;
+    d[kUseRayPipeline] = mUseRayPipeline;
+    d[kGuardBand] = mGuardBand;
+    d[kThickness] = mData.thickness;
+    return d;
 }
 
 RenderPassReflection SVAO::reflect(const CompileData& compileData)
@@ -138,7 +187,10 @@ RenderPassReflection SVAO::reflect(const CompileData& compileData)
 
 void SVAO::compile(RenderContext* pContext, const CompileData& compileData)
 {
-    VAOSettings::get().setResolution(compileData.defaultTexDims.x, compileData.defaultTexDims.y);
+    mData.resolution = float2(compileData.defaultTexDims.x, compileData.defaultTexDims.y);
+    mData.invResolution = float2(1.0f) / mData.resolution;
+    mData.noiseScale = mData.resolution / 4.0f; // noise texture is 4x4 resolution
+    
     mpRasterPass.reset(); // recompile passes
     mpRasterPass2.reset();
     mpRayProgram.reset();
@@ -174,10 +226,8 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pAoMask = renderData[kAoStencil]->asTexture();
     auto pAccessStencil = renderData[kAccessStencil]->asTexture();
     auto pInternalStencil = renderData[kInternalStencil]->asTexture();
-    
-    const auto& s = VAOSettings::get();
 
-    if (!s.getEnabled())
+    if (!mEnabled)
     {
         pRenderContext->clearTexture(pAoDst.get(), float4(1.0f));
         return;
@@ -186,8 +236,8 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     if(!mpRasterPass || !mpRasterPass2 || !mpRayProgram) // this needs to be deferred because it needs the scene defines to compile
     {
         Program::DefineList defines;
-        defines.add("PRIMARY_DEPTH_MODE", std::to_string(uint32_t(s.getPrimaryDepthMode())));
-        defines.add("SECONDARY_DEPTH_MODE", std::to_string(uint32_t(s.getSecondaryDepthMode())));
+        defines.add("PRIMARY_DEPTH_MODE", std::to_string(uint32_t(mPrimaryDepthMode)));
+        defines.add("SECONDARY_DEPTH_MODE", std::to_string(uint32_t(mSecondaryDepthMode)));
         defines.add("MSAA_SAMPLES", std::to_string(msaa_sample)); // TODO update this from gui
         defines.add(mpScene->getSceneDefines());
         // raster pass 1
@@ -214,32 +264,34 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         // TODO add remaining primitives
         mpRayProgram = RtProgram::create(desc, defines);
         mRayVars = RtProgramVars::create(mpRayProgram, sbt);
+        mDirty = true;
     }
 
-    if(s.IsDirty() || s.IsReset())
+    if(mDirty)
     {
         // update data raster
-        mpRasterPass["StaticCB"].setBlob(s.getData());
+        mpRasterPass["StaticCB"].setBlob(mData);
         mpRasterPass["gNoiseSampler"] = mpNoiseSampler;
         mpRasterPass["gTextureSampler"] = mpTextureSampler;
         mpRasterPass["gNoiseTex"] = mpNoiseTexture;
         // update data raster 2
-        mpRasterPass2["StaticCB"].setBlob(s.getData());
+        mpRasterPass2["StaticCB"].setBlob(mData);
         mpRasterPass2["gNoiseSampler"] = mpNoiseSampler;
         mpRasterPass2["gTextureSampler"] = mpTextureSampler;
         mpRasterPass2["gNoiseTex"] = mpNoiseTexture;
         // update data ray
-        mRayVars["StaticCB"].setBlob(s.getData());
+        mRayVars["StaticCB"].setBlob(mData);
         mRayVars["gNoiseSampler"] = mpNoiseSampler;
         mRayVars["gTextureSampler"] = mpTextureSampler;
         mRayVars["gNoiseTex"] = mpNoiseTexture;
 
         // also clear ao texture if guard band changed
         pRenderContext->clearTexture(pAoDst.get(), float4(0.0f));
+        mDirty = false;
     }
 
     auto accessStencilUAV = pAccessStencil->getUAV(0);
-    if(s.getSecondaryDepthMode() == DepthMode::StochasticDepth)
+    if(mSecondaryDepthMode == DepthMode::StochasticDepth)
         pRenderContext->clearUAV(accessStencilUAV.get(), uint4(0u));
 
     mpFbo->attachColorTarget(pAoDst, 0);
@@ -254,7 +306,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     //mpRasterPass["gDepthAccess"] = pAccessStencil;
     mpRasterPass["gDepthAccess"].setUav(accessStencilUAV);
 
-    setGuardBandScissors(*mpRasterPass->getState(), renderData.getDefaultTextureDims(), VAOSettings::get().getGuardBand());
+    setGuardBandScissors(*mpRasterPass->getState(), renderData.getDefaultTextureDims(), mGuardBand);
     {
         FALCOR_PROFILE("AO 1");
         mpRasterPass->execute(pRenderContext, mpFbo, false);
@@ -263,7 +315,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     Texture::SharedPtr pStochasticDepthMap;
     
     //  execute stochastic depth map
-    if (s.getSecondaryDepthMode() == DepthMode::StochasticDepth)
+    if (mSecondaryDepthMode == DepthMode::StochasticDepth)
     {
         FALCOR_PROFILE("Stochastic Depth");
         mpStochasticDepthGraph->setInput("StochasticDepthMap.depthMap", pNonLinearDepth); 
@@ -272,7 +324,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         pStochasticDepthMap = mpStochasticDepthGraph->getOutput("StochasticDepthMap.stochasticDepth")->asTexture();
     }
 
-    if (VAOSettings::get().getRayPipeline()) // RAY PIPELINE
+    if (mUseRayPipeline) // RAY PIPELINE
     {
         // set raytracing data
         //mpScene->setRaytracingShaderData(pRenderContext, mRayVars);
@@ -281,7 +333,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         auto pCamera = mpScene->getCamera().get();
         pCamera->setShaderData(mRayVars["PerFrameCB"]["gCamera"]);
         mRayVars["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
-        mRayVars["PerFrameCB"]["guardBand"] = s.getGuardBand();
+        mRayVars["PerFrameCB"]["guardBand"] = mGuardBand;
 
         // set textures
         mRayVars["gDepthTex"] = pDepth;
@@ -292,7 +344,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         //mRayVars["aoPrev"] = pAoDst; // src view
         mRayVars["output"] = pAoDst; // uav view
 
-        uint3 dims = uint3(pAoDst->getWidth() - 2 * s.getGuardBand(), pAoDst->getHeight() - 2 * s.getGuardBand(), 1);
+        uint3 dims = uint3(pAoDst->getWidth() - 2 * mGuardBand, pAoDst->getHeight() - 2 * mGuardBand, 1);
         mpScene->raytrace(pRenderContext, mpRayProgram.get(), mRayVars, uint3{ pAoDst->getWidth(), pAoDst->getHeight(), 1 });
     }
     else // RASTER PIPELINE
@@ -329,7 +381,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpRasterPass2["aoMask"] = pAoMask;
         mpRasterPass2["aoPrev"] = pAoDst;
 
-        setGuardBandScissors(*mpRasterPass2->getState(), renderData.getDefaultTextureDims(), VAOSettings::get().getGuardBand());
+        setGuardBandScissors(*mpRasterPass2->getState(), renderData.getDefaultTextureDims(), mGuardBand);
 
         {
             FALCOR_PROFILE("AO 2 (raster)");
@@ -338,11 +390,55 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     }
 }
 
+const Gui::DropdownList kPrimaryDepthModeDropdown =
+{
+    { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
+    { (uint32_t)DepthMode::DualDepth, "DualDepth" },
+};
+
+const Gui::DropdownList kSecondaryDepthModeDropdown =
+{
+    { (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
+    { (uint32_t)DepthMode::Raytraced, "Raytraced" },
+};
+
 void SVAO::renderUI(Gui::Widgets& widget)
 {
-    VAOSettings::get().renderUI(widget);
-    if (VAOSettings::get().IsReset())
+    auto reset = false;
+
+    widget.checkbox("Enabled", mEnabled);
+    if (!mEnabled) return;
+
+    if (widget.var("Guard Band", mGuardBand, 0, 256))
+        mDirty = true;
+
+    uint32_t primaryDepthMode = (uint32_t)mPrimaryDepthMode;
+    if (widget.dropdown("Primary Depth Mode", kPrimaryDepthModeDropdown, primaryDepthMode)) {
+        mPrimaryDepthMode = (DepthMode)primaryDepthMode;
+        reset = true;
+    }
+
+    uint32_t secondaryDepthMode = (uint32_t)mSecondaryDepthMode;
+    if (widget.dropdown("Secondary Depth Mode", kSecondaryDepthModeDropdown, secondaryDepthMode)) {
+        mSecondaryDepthMode = (DepthMode)secondaryDepthMode;
+        reset = true;
+    }
+
+    if (widget.checkbox("Ray Pipeline", mUseRayPipeline)) reset = true;
+
+    if (widget.var("Sample Radius", mData.radius, 0.01f, FLT_MAX, 0.01f)) mDirty = true;
+
+    if (widget.var("Thickness", mData.thickness, 0.0f, 1.0f, 0.1f)) {
+        mDirty = true;
+        mData.exponent = glm::mix(1.6f, 1.0f, mData.thickness);
+    }
+
+    if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
+    
+    if(reset)
+    {
         mPassChangedCB();
+    }
 }
 
 void SVAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene)

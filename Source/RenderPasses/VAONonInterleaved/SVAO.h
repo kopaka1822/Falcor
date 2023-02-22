@@ -56,7 +56,9 @@ public:
 
 private:
     SVAO(const Dictionary& dict);
-
+    void parseDictionary(const Dictionary& dict);
+    Texture::SharedPtr genNoiseTexture();
+    
     Fbo::SharedPtr mpFbo;
 
     Sampler::SharedPtr mpNoiseSampler;
@@ -81,4 +83,15 @@ private:
     RtProgramVars::SharedPtr mRayVars;
 
     int msaa_sample = 4; // for stochastic depth map
+
+
+    // general settings
+    bool mEnabled = true;
+
+    VAOData mData;
+    bool mDirty = true;
+    int mGuardBand = 64;
+    DepthMode mPrimaryDepthMode = DepthMode::SingleDepth;
+    DepthMode mSecondaryDepthMode = DepthMode::StochasticDepth;
+    bool mUseRayPipeline = false;
 };

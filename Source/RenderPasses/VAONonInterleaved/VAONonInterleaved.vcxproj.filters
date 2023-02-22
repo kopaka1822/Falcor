@@ -2,11 +2,9 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="SVAO.cpp" />
-    <ClCompile Include="VAOSettings.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SVAO.h" />
-    <ClInclude Include="VAOSettings.h" />
   </ItemGroup>
   <ItemGroup>
     <ShaderSource Include="VAOData.slang" />
