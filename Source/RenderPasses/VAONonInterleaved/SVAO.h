@@ -66,4 +66,19 @@ private:
     FullScreenPass::SharedPtr mpRasterPass;
 
     Scene::SharedPtr mpScene;
+
+    RenderGraph::SharedPtr mpStochasticDepthGraph;
+
+    // 2nd pass
+    Fbo::SharedPtr mpFbo2;
+    FullScreenPass::SharedPtr mpRasterPass2;
+    DepthStencilState::SharedPtr mpDepthStencilState;
+
+    FullScreenPass::SharedPtr mpStencilPass;
+    Fbo::SharedPtr mpStencilFbo;
+    
+    RtProgram::SharedPtr mpRayProgram;
+    RtProgramVars::SharedPtr mRayVars;
+
+    int msaa_sample = 4; // for stochastic depth map
 };

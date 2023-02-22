@@ -26,12 +26,10 @@
   </ImportGroup>
   <ItemGroup>
     <ClCompile Include="SVAO.cpp" />
-    <ClCompile Include="SVAO2.cpp" />
     <ClCompile Include="VAOSettings.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SVAO.h" />
-    <ClInclude Include="SVAO2.h" />
     <ClInclude Include="VAOSettings.h" />
   </ItemGroup>
   <ItemGroup>
