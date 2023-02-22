@@ -66,9 +66,12 @@ import Scene.Raster;
 #if PREVENT_DARK_HALOS
 #define CONST_RADIUS ((1.0 + gData.thickness) * gData.radius - sphereStart)
 #define HALO_RADIUS (sphereStart - sphereEnd)
+#define COMBINE_VIS(a,b) min(a,b)
 #else
 #define CONST_RADIUS 0.0
 #define HALO_RADIUS 0.0
+// as long as one sample is 0 (fully occluded), take the first non-zero sample. If both samples are non-zero, take the darkest (closest) occluder
+#define COMBINE_VIS(a,b) (min(a,b) <= 0 ? max(a,b) : min(a,b))
 #endif
 
 //#define ENABLED(value) (value != 0)
@@ -362,16 +365,16 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             {
                 gForceRay[uint3(XY, i)] = FORCE_RAY_DOUBLE_SIDED; // force rays for double sided materials in front of the sphere
             }
-        }
-        
 
-        primaryIsOccluded = true; // force ray
+            primaryIsOccluded = true; // force ray
+        }
+       
         
         if (!isInvalid && DEPTH_MODE == DEPTH_MODE_DUAL && primaryIsOccluded)
         {
             // obtain secondary sample if primary sample is occluded
             objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
-            curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf));
+            curVisibility = COMBINE_VIS(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf));
         }
         else if (!isInvalid && DEPTH_MODE == DEPTH_MODE_STOCHASTIC && primaryIsOccluded)
         {
@@ -380,7 +383,6 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
             const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
             const float depthOffset = gCamera.data.nearZ;
-            float prevVisibility = curVisibility;
             [unroll] for (uint i = 0; i < MSAA_SAMPLES; ++i)
             {
                 float linearSampleDepth = gsDepthTex.Load(pixelCoord, i);
@@ -390,7 +392,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 float objectSpaceZ = dot(samplePosV - posV, normal);
                 float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
 
-                curVisibility = min(curVisibility, newVisibility);
+                curVisibility = COMBINE_VIS(curVisibility, newVisibility);
             }
         }
         else if (!isInvalid && DEPTH_MODE == DEPTH_MODE_RAYTRACED && (primaryIsOccluded || !isInScreen))

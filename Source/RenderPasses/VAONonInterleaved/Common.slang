@@ -14,12 +14,17 @@ import Scene.Shading;
 // raytraced
 #define DEPTH_MODE_RAYTRACING 3
 
-//#define HALO_RADIUS (gData.radius * 3.0)
-#define HALO_RADIUS (sphereStart - sphereEnd)
-//#define CONST_RADIUS (gData.radius * 0.5)
-//#define CONST_RADIUS (gData.radius)
+// area where the halo effect remains constant at 0.0
+#if PREVENT_DARK_HALOS
 #define CONST_RADIUS ((1.0 + gData.thickness) * gData.radius - sphereStart)
-//#define CONST_RADIUS 0.0
+#define HALO_RADIUS (sphereStart - sphereEnd)
+#define COMBINE_VIS(a,b) min(a,b)
+#else
+#define CONST_RADIUS 0.0
+#define HALO_RADIUS 0.0
+// as long as one sample is 0 (fully occluded), take the first non-zero sample. If both samples are non-zero, take the darkest (closest) occluder
+#define COMBINE_VIS(a,b) (min(a,b) <= 0 ? max(a,b) : min(a,b))
+#endif
 
 #define NUM_DIRECTIONS 8
 // normalized radius for each of the NUM_DIRECTION samples (distributed with radical inverse => see SSAO::setKernel() radius)
@@ -65,22 +70,6 @@ bool isSamePixel(float2 uv1, float2 uv2)
     //return all(abs(uv1 - uv2) < gData.invResolution * 1.1); // this also ignores 1-pixel differences
 }
 
-float2 Rotate2D(float2 vec, float theta)
-{
-    float cosTheta = cos(theta);
-    float sinTheta = sin(theta);
-
-    return float2(
-        vec.x * cosTheta - vec.y * sinTheta,
-        vec.x * sinTheta + vec.y * cosTheta
-    );
-}
-
-float2 Rotate90(float2 vec) // CCW
-{
-    return float2(-vec.y, vec.x);
-}
-
 // uv: uv coordinates [0, 1]
 // viewDepth: linear depth in view space (positive z)
 // return: view space position (negative z)
@@ -110,28 +99,25 @@ float makeNonZero(float value, float epsilon)
 // introduce a linear falloff function that starts with 0.0 when the sample depth intersects the front sphere exactly,
 // and falls of to 1.0 when it gets further away from the sphere but closer to the camera.
 // this also includes the constant radius, where visibility remains 0
-float calcHaloVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
+float calcHaloVisibility(float objectSpaceZ, float sphereStart, float sphereEnd, float pdf)
 {
+    if (!PREVENT_DARK_HALOS)
+        return 0.0;
+    
     return saturate((objectSpaceZ - sphereStart - CONST_RADIUS) / HALO_RADIUS)
-        * (sphereStart - sphereEnd); // this adjust the visibility to the sampling (hemi-)sphere
+        * (sphereStart - sphereEnd) / pdf; // this adjust the visibility to the sampling (hemi-)sphere
 }
 
-float calcSphereVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
+float calcSphereVisibility(float objectSpaceZ, float sphereStart, float sphereEnd, float pdf)
 {
     float sampleRange = max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
-    return sampleRange;
+    return sampleRange / pdf;
 }
 
-float calcVisibility(float objectSpaceZ, float sphereStart, float sphereEnd)
+float calcVisibility(float objectSpaceZ, float sphereStart, float sphereEnd, float pdf)
 {
-    return calcSphereVisibility(objectSpaceZ, sphereStart, sphereEnd)
-         + calcHaloVisibility(objectSpaceZ, sphereStart, sphereEnd);
-}
-
-float getAORadiusInPixels(float viewZ)
-{
-    float uvRadius = (gData.radius * gCamera.data.focalLength) / (viewZ * gCamera.data.frameWidth);
-    return uvRadius * gData.resolution.x;
+    return calcSphereVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf)
+         + calcHaloVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
 }
 
 float calcObjectSpaceZ(float3 posV, float3 normal, float2 uv, Texture2D<float> depthTex)
@@ -139,6 +125,18 @@ float calcObjectSpaceZ(float3 posV, float3 normal, float2 uv, Texture2D<float> d
     float linearSampleDepth = depthTex.SampleLevel(gTextureSampler, uv, 0);
     float3 samplePosV = UVToViewSpace(uv, linearSampleDepth);
             // the object is the sphere centered at posV with the above tangent space (positive values are closer to the camera)
+    float objectSpaceZ = dot(samplePosV - posV, normal);
+    return objectSpaceZ;
+}
+
+float3 RayToViewSpace(RayDesc ray, float t)
+{
+    return mul(float4(ray.Origin + ray.Direction * t, 1.0f), gCamera.data.viewMat).xyz;
+}
+
+float calcObjectSpaceZ(float3 posV, float3 normal, RayDesc ray, float t)
+{
+    float3 samplePosV = RayToViewSpace(ray, t);
     float objectSpaceZ = dot(samplePosV - posV, normal);
     return objectSpaceZ;
 }

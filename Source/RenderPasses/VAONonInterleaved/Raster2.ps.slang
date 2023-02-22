@@ -64,7 +64,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
         float2 dir = radius * float2(sin(alpha), cos(alpha));  // world space direction
 
         const float sphereHeight = sqrt(gData.radius * gData.radius - radius * radius);
-
+        const float pdf = 2.0 * sphereHeight;
+        
         // determine distance within [-sphereHeight, +sphereHeight]
         float sphereStart = sphereHeight; // in object coordinates (bigger is closer to the camera)
         float sphereEnd = -sphereHeight; // in object coordinates (smaller is futher from the camera)
@@ -73,10 +74,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
             //float zIntersect = -dot(rand.xy, normalO.xy) / normalO.z;
             float zIntersect = -dot(dir.xy, normalO.xy) / makeNonZero(normalO.z, 0.0001);
             float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
-            if (normalO.z >= 0.0)
-                sphereEnd = zIntersectClamped;
-            else
-                sphereStart = zIntersectClamped;
+            sphereEnd = zIntersectClamped;
         }
 
         // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
@@ -102,12 +100,12 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
             if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
             {
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
-                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
             }
             else if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
             {
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
-                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
             }
 
             float width, height;
@@ -125,8 +123,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                 linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
                 float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
                 float objectSpaceZ = dot(samplePosV - posV, normal);
-                float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
-                curVisibility = min(curVisibility, newVisibility);
+                float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
+                curVisibility = COMBINE_VIS(curVisibility, newVisibility);
             }       
         }
         else if (SECONDARY_DEPTH_MODE == DEPTH_MODE_RAYTRACING)
@@ -143,86 +141,158 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
             ray.Origin = gCamera.data.posW; // offset a little bit in normal direction
             ray.Direction = mul(sampleDirV, float3x3(invViewMat));
 
-            float tSphereStart = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
-            float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
-            float tHaloStart = (posVLength - sphereHeight - CONST_RADIUS - HALO_RADIUS) * initialSamplePosLength / posVLength;
-            float tConstRadiusStart = (posVLength - sphereHeight - CONST_RADIUS) * initialSamplePosLength / posVLength;
-            ray.TMin = max(tHaloStart, 0.0); // TODO include buffer value?
-            ray.TMax = tSphereEnd;
+            if (PREVENT_DARK_HALOS)
+            {
+                float tSphereStart = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
+                float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
+                float tHaloStart = (posVLength - sphereHeight - CONST_RADIUS - HALO_RADIUS) * initialSamplePosLength / posVLength;
+                float tConstRadiusStart = (posVLength - sphereHeight - CONST_RADIUS) * initialSamplePosLength / posVLength;
+                ray.TMin = max(tHaloStart, 0.0); // TODO include buffer value?
+                ray.TMax = tSphereEnd;
 
             // include the value of the depth buffer when choosing TMin to save some traversal time
-            if (isInScreen)
-            {
-                const float epsilon = gData.radius * 0.01;
+                if (isInScreen)
+                {
+                    const float epsilon = gData.radius * 0.01;
                 //const float epsilon = 0.0;
-                float objectSpaceZ;
-                if(PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
-                    objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
-                else// if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
-                    objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);
-                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
-                ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
-            }
+                    float objectSpaceZ;
+                    if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
+                        objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
+                    else // if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
+                        objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);
+                    curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
+                    ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
+                }
 
                 // skip procedural and force all triangle to be handled by any-hit traversal
-            RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_NON_OPAQUE > rayQuery;
-            rayQuery.TraceRayInline(gScene.rtAccel, RAY_FLAG_NONE, 0xff, ray);
+                RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_NON_OPAQUE > rayQuery;
+                rayQuery.TraceRayInline(gScene.rtAccel, RAY_FLAG_NONE, 0xff, ray);
 
-            float tFirstFrontFaceInside = tSphereEnd;
-            float tLastFrontFaceHalo = tHaloStart;
+                float tFirstFrontFaceInside = tSphereEnd;
+                float tLastFrontFaceHalo = tHaloStart;
 
-            while (rayQuery.Proceed())
-            {
-                if (rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+                while (rayQuery.Proceed())
                 {
+                    if (rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+                    {
                     // extract hit properties
-                    float t = rayQuery.CandidateTriangleRayT();
-                    if (t < tLastFrontFaceHalo)
-                        continue; // we can skip this since it would not contribute anyways (unfortunately there is no option to set the ray.min afterwards)
+                        float t = rayQuery.CandidateTriangleRayT();
+                        if (t < tLastFrontFaceHalo)
+                            continue; // we can skip this since it would not contribute anyways (unfortunately there is no option to set the ray.min afterwards)
 
-                    bool frontFace = rayQuery.CandidateTriangleFrontFace();
-                    const TriangleHit hit = getCandidateTriangleHit(rayQuery);
-                    const uint materialID = gScene.getMaterialID(hit.instanceID);
-                    const MaterialHeader header = gScene.materials.materialData[materialID].header;
+                        bool frontFace = rayQuery.CandidateTriangleFrontFace();
+                        const TriangleHit hit = getCandidateTriangleHit(rayQuery);
+                        const uint materialID = gScene.getMaterialID(hit.instanceID);
+                        const MaterialHeader header = gScene.materials.materialData[materialID].header;
 
-                    bool isAlphaTested = header.getAlphaMode() == AlphaMode::Mask;
+                        bool isAlphaTested = header.getAlphaMode() == AlphaMode::Mask;
 
                     // needs alpha testing?
-                    if (isAlphaTested)
-                    {
-                        const VertexData v = gScene.getVertexData(hit);
-                        if (gScene.materials.alphaTest(v, materialID, 0.0)) // TODO correct lod?   
-                            continue; // alpha test failed => ignore this triangle
-                    }
+                        if (isAlphaTested)
+                        {
+                            const VertexData v = gScene.getVertexData(hit);
+                            if (gScene.materials.alphaTest(v, materialID, 0.0)) // TODO correct lod?   
+                                continue; // alpha test failed => ignore this triangle
+                        }
 
-                    frontFace = frontFace || isAlphaTested || header.isDoubleSided();
-                    if (!frontFace)
-                        continue; // this is just for rasterizer compability
+                        frontFace = frontFace || isAlphaTested || header.isDoubleSided();
+                        if (!frontFace)
+                            continue; // this is just for rasterizer compability
 
-                    if (t <= tSphereStart)
-                    {
-                        tLastFrontFaceHalo = max(tLastFrontFaceHalo, t);
-                        if (t >= tConstRadiusStart)
-                            break; // we can stop the query, because this will set the visibility to zero
-                    }
-                    else // inside sphere
-                    {
-                        tFirstFrontFaceInside = min(tFirstFrontFaceInside, t);
-                        rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
-                    }
+                        if (t <= tSphereStart)
+                        {
+                            tLastFrontFaceHalo = max(tLastFrontFaceHalo, t);
+                            if (t >= tConstRadiusStart)
+                                break; // we can stop the query, because this will set the visibility to zero
+                        }
+                        else // inside sphere
+                        {
+                            tFirstFrontFaceInside = min(tFirstFrontFaceInside, t);
+                            rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
+                        }
                         
+                    }
                 }
+
+                // calculate visibility inside and outside of sphere
+                float sphereVisibility = calcSphereVisibility(posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd, pdf);
+                float haloVisibility = calcHaloVisibility(posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd, pdf);
+
+                curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
             }
+            else // !PREVENT_DARK_HALOS
+            {
+                // trace ray for the full range
+                float tSphereStart = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
+                float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
+                ray.TMin = 0.0f;
+                ray.TMax = gCamera.data.farZ; // include whole range for ML learning
 
-            // calculate visibility inside and outside of sphere
-            float sphereVisibility = calcSphereVisibility(posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
-            float haloVisibility = calcHaloVisibility(posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
+                // skip procedural and force all triangle to be handled by any-hit traversal
+                RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_NON_OPAQUE > rayQuery;
+                rayQuery.TraceRayInline(gScene.rtAccel, RAY_FLAG_NONE, 0xff, ray);
 
-            curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
+                float tLastFrontFaceOutside = ray.TMin;
+                float tFirstFrontFaceInside = ray.TMax;
+                int occlusionStack = 0; // > 1 means occluded (counted for outside front faces)
+
+                while (rayQuery.Proceed())
+                {
+                    if (rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+                    {
+                        // extract hit properties
+                        float t = rayQuery.CandidateTriangleRayT();
+                        
+                        bool frontFace = rayQuery.CandidateTriangleFrontFace();
+                        const TriangleHit hit = getCandidateTriangleHit(rayQuery);
+                        const uint materialID = gScene.getMaterialID(hit.instanceID);
+                        const MaterialHeader header = gScene.materials.materialData[materialID].header;
+
+                        bool isAlphaTested = header.getAlphaMode() == AlphaMode::Mask;
+
+                        if (t < tSphereStart) // in front of sphere
+                        {
+                            if (isAlphaTested || header.isDoubleSided()) // ignore alpha tested materials (too thin for occlusion at this distance)
+                                continue;
+                            occlusionStack += frontFace ? 1 : -1;
+                            if (frontFace)
+                                tLastFrontFaceOutside = max(t, tLastFrontFaceOutside);
+                        }
+                        else // inside the sphere
+                        {
+                            // needs alpha testing?
+                            if (isAlphaTested)
+                            {
+                                const VertexData v = gScene.getVertexData(hit);
+                                if (gScene.materials.alphaTest(v, materialID, 0.0)) // TODO correct lod?   
+                                    continue; // alpha test failed => ignore this triangle
+                            }
+
+                            frontFace = frontFace || isAlphaTested || header.isDoubleSided();
+                            if (!frontFace)
+                                continue; // this is just for rasterizer compability
+
+                            tFirstFrontFaceInside = min(tFirstFrontFaceInside, t);
+                            rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
+                        }
+                    }
+                }
+                
+                // calculate visibility inside and outside of sphere
+                //float sphereZ = posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength;
+                float sphereZ = calcObjectSpaceZ(posV, normal, ray, tFirstFrontFaceInside);
+                curVisibility = calcSphereVisibility(sphereZ, sphereStart, sphereEnd, pdf);
+
+                //float outsideZ = posVLength - tLastFrontFaceOutside * posVLength / initialSamplePosLength;
+                float outsideZ = calcObjectSpaceZ(posV, normal, ray, tLastFrontFaceOutside);
+
+                if (occlusionStack > 0)
+                    curVisibility = 0.0;
+            }
+            
         }
 
-        const float pdf = 2.0 * sphereHeight;
-        visibility += curVisibility / pdf;
+        visibility += curVisibility;
         
         // advance mask for next iteration
         mask = mask >> 1;

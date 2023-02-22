@@ -239,6 +239,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         defines.add("PRIMARY_DEPTH_MODE", std::to_string(uint32_t(mPrimaryDepthMode)));
         defines.add("SECONDARY_DEPTH_MODE", std::to_string(uint32_t(mSecondaryDepthMode)));
         defines.add("MSAA_SAMPLES", std::to_string(msaa_sample)); // TODO update this from gui
+        defines.add("PREVENT_DARK_HALOS", mPreventDarkHalos ? "1" : "0");
         defines.add(mpScene->getSceneDefines());
         // raster pass 1
         mpRasterPass = FullScreenPass::create(kRasterShader, defines);
@@ -408,6 +409,9 @@ void SVAO::renderUI(Gui::Widgets& widget)
 
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
+
+    if (widget.checkbox("Prevent Dark Halos", mPreventDarkHalos))
+        reset = true;
 
     if (widget.var("Guard Band", mGuardBand, 0, 256))
         mDirty = true;

@@ -142,7 +142,8 @@ void rayGen()
         float2 dir = radius * float2(sin(alpha), cos(alpha)); // world space direction
 
         const float sphereHeight = sqrt(gData.radius * gData.radius - radius * radius);
-
+        const float pdf = 2.0 * sphereHeight;
+        
         // determine distance within [-sphereHeight, +sphereHeight]
         float sphereStart = sphereHeight; // in object coordinates (bigger is closer to the camera)
         float sphereEnd = -sphereHeight; // in object coordinates (smaller is futher from the camera)
@@ -151,10 +152,7 @@ void rayGen()
             //float zIntersect = -dot(rand.xy, normalO.xy) / normalO.z;
             float zIntersect = -dot(dir.xy, normalO.xy) / makeNonZero(normalO.z, 0.0001);
             float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
-            if (normalO.z >= 0.0)
-                sphereEnd = zIntersectClamped;
-            else
-                sphereStart = zIntersectClamped;
+            sphereEnd = zIntersectClamped;
         }
 
         // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
@@ -180,12 +178,12 @@ void rayGen()
             if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
             {
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
-                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
             }
             else if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
             {
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
-                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
             }
 
             float width, height;
@@ -203,8 +201,8 @@ void rayGen()
                 linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
                 float3 samplePosV = UVToViewSpace(rasterSamplePosUV, linearSampleDepth);
                 float objectSpaceZ = dot(samplePosV - posV, normal);
-                float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
-                curVisibility = min(curVisibility, newVisibility);
+                float newVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
+                curVisibility = COMBINE_VIS(curVisibility, newVisibility);
             }
         }
         else if (SECONDARY_DEPTH_MODE == DEPTH_MODE_RAYTRACING)
@@ -238,7 +236,7 @@ void rayGen()
                     objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
                 else // if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
                     objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);
-                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
                 ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
             }
 
@@ -255,14 +253,13 @@ void rayGen()
             );
 
             // calculate visibility inside and outside of sphere
-            float sphereVisibility = calcSphereVisibility(posVLength - rayData.tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
-            float haloVisibility = calcHaloVisibility(posVLength - rayData.tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd);
+            float sphereVisibility = calcSphereVisibility(posVLength - rayData.tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd, pdf);
+            float haloVisibility = calcHaloVisibility(posVLength - rayData.tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd, pdf);
 
             curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
         }
 
-        const float pdf = 2.0 * sphereHeight;
-        visibility += curVisibility / pdf;
+        visibility += curVisibility;
         
         // advance mask for next iteration
         mask = mask >> 1;

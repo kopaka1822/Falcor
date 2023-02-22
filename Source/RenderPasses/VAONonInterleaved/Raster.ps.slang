@@ -55,7 +55,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         float2 dir = radius * float2(sin(alpha), cos(alpha));  // world space direction
 
         const float sphereHeight = sqrt(gData.radius * gData.radius - radius * radius);
-
+        const float pdf = 2.0 * sphereHeight;
+        
         // determine distance within [-sphereHeight, +sphereHeight]
         float sphereStart = sphereHeight; // in object coordinates (bigger is closer to the camera)
         float sphereEnd = -sphereHeight; // in object coordinates (smaller is futher from the camera)
@@ -64,10 +65,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
             //float zIntersect = -dot(rand.xy, normalO.xy) / normalO.z;
             float zIntersect = -dot(dir.xy, normalO.xy) / makeNonZero(normalO.z, 0.0001);
             float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
-            if (normalO.z >= 0.0)
-                sphereEnd = zIntersectClamped;
-            else
-                sphereStart = zIntersectClamped;
+            sphereEnd = zIntersectClamped;
         }
 
         // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
@@ -92,12 +90,12 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
       
         if (isSamePixel(rasterSamplePosUV, texC))
         {
-            curVisibility = calcSphereVisibility(0.0, sphereStart, sphereEnd); // saves a texture fetch (but does not make a measuarbale diff on my device)
+            curVisibility = calcSphereVisibility(0.0, sphereStart, sphereEnd, pdf); // saves a texture fetch (but does not make a measuarbale diff on my device)
         }
         else
         {
             float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
-            curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd);
+            curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
             // require hybrid ray if intersection is outside of sphere radius
             if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
                 hybridRay = true;
@@ -105,14 +103,12 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
             if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
             {
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
-                curVisibility = min(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd));
+                curVisibility = COMBINE_VIS(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf));
                 if (objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
                     hybridRay = true;
             }
         }
-
-
-        const float pdf = 2.0 * sphereHeight;
+        
         if(hybridRay)
         {
             // remember that this was a hybrid ray
@@ -124,7 +120,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         }
         else
         {
-            output.ao1 += curVisibility / pdf;
+            output.ao1 += curVisibility;
         }
     }
 

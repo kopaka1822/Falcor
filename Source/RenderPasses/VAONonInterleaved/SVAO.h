@@ -94,4 +94,6 @@ private:
     DepthMode mPrimaryDepthMode = DepthMode::SingleDepth;
     DepthMode mSecondaryDepthMode = DepthMode::StochasticDepth;
     bool mUseRayPipeline = false;
+
+    bool mPreventDarkHalos = false;
 };
