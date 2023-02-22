@@ -454,7 +454,7 @@ def render_graph_SVAO():
     g.addPass(CrossBilateralBlur, 'CrossBilateralBlur')
     ConvertFormat__ = createPass('ConvertFormat', {'formula': 'float4(I0[xy].x + I0[xy].y + I0[xy].z,0,0,0)', 'format': ResourceFormat.R8Unorm})
     g.addPass(ConvertFormat__, 'ConvertFormat__')
-    SVAO = createPass('SVAO', {'radius': 0.5, 'primaryDepthMode': DepthMode.SingleDepth, 'secondaryDepthMode': DepthMode.StochasticDepth, 'exponent': 1.2999999523162842, 'rayPipeline': False, 'guardBand': 64, 'thickness': 0.5})
+    SVAO = createPass('SVAO', {'radius': 0.5, 'primaryDepthMode': DepthMode.SingleDepth, 'secondaryDepthMode': DepthMode.StochasticDepth, 'exponent': 1.0, 'rayPipeline': False, 'guardBand': 64, 'thickness': 0.0})
     g.addPass(SVAO, 'SVAO')
     DepthPass = createPass('DepthPass', {'depthFormat': ResourceFormat.D32Float, 'useAlphaTest': True, 'cullMode': CullMode.CullBack})
     g.addPass(DepthPass, 'DepthPass')

@@ -154,7 +154,8 @@ void SVAO::compile(RenderContext* pContext, const CompileData& compileData)
     auto pStochasticDepthPass = RenderPassLibrary::instance().createPass(pContext, "StochasticDepthMap", sdDict);
     mpStochasticDepthGraph->addPass(pStochasticDepthPass, "StochasticDepthMap");
     mpStochasticDepthGraph->markOutput("StochasticDepthMap.stochasticDepth");
-
+    mpStochasticDepthGraph->setScene(mpScene);
+    
     // obtain SampleCount Variable from StochasticDepthMap pass
     //mpSampleCountVar = pStochasticDepthPass->getVars()->getConstantBuffer("PerFrameCB")->getVariable("SampleCount");
     //pStochasticDepthPass->getScriptingDictionary()["Alpha"] = 
@@ -350,4 +351,6 @@ void SVAO::setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScen
     mpRasterPass.reset(); // new scene defines => recompile
     mpRasterPass2.reset();
     mpRayProgram.reset();
+    if(mpStochasticDepthGraph)
+        mpStochasticDepthGraph->setScene(pScene);
 }

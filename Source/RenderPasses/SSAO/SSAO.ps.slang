@@ -59,7 +59,6 @@ import Scene.Raster;
 
 #define COMPENSATE_STOCHASTIC_SAMPLES true
 
-#define PREVENT_DARK_HALOS 0
 // full radius of the halo
 //#define HALO_RADIUS (gData.radius * 3.0)
 

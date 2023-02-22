@@ -95,7 +95,7 @@ private:
     uint32_t mKernelSize = 8;
 
     bool mSaveDepths = false;
-
+    bool mPreventDarkHalos = false;
     bool mIsTraining = true;
     int mTrainingIndex = 0;
 };

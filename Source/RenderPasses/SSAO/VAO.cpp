@@ -247,6 +247,7 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             defines.add(mpScene->getSceneDefines());
             defines.add("DEPTH_MODE", std::to_string(uint32_t(mDepthMode)));
             defines.add("KERNEL_SIZE", std::to_string(mKernelSize));
+            defines.add("PREVENT_DARK_HALOS", mPreventDarkHalos ? "1" : "0");
             if(mColorMap) defines.add("COLOR_MAP", "true");
             if (psDepth) defines.add("MSAA_SAMPLES", std::to_string(psDepth->getSampleCount()));
 
@@ -338,6 +339,11 @@ void VAO::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
+
+    if (widget.checkbox("Prevent Dark Halos", mPreventDarkHalos))
+    {
+        mpSSAOPass.reset();
+    }
 
     if (widget.var("Guard Band", mGuardBand, 0, 256)) mClearTexture = true;
 
