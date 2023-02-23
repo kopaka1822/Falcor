@@ -43,6 +43,7 @@ namespace
     const std::string kDepth = "depth";
     const std::string kDepth2 = "depth2";
     const std::string kNormals = "normals";
+    const std::string kMatDoubleSided = "doubleSided";
     const std::string kInternalStencil = "internalStencil";
     
     const std::string kRasterShader = "RenderPasses/VAONonInterleaved/Raster.ps.slang";
@@ -181,6 +182,7 @@ RenderPassReflection SVAO::reflect(const CompileData& compileData)
     reflector.addInput(kDepth, "Linear Depth-buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepth2, "Linear Depth-buffer of second layer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kNormals, "World space normals, [0, 1] range").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kMatDoubleSided, "Material double sided flag").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion (primary)").bindFlags(ResourceBindFlags::UnorderedAccess |  ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
     reflector.addOutput(kAoStencil, "Stencil Bitmask for primary / secondary ao").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint);
     reflector.addOutput(kAccessStencil, "Stencil Bitmask for secondary depth map accesses").bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint);
@@ -225,6 +227,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pNormal = renderData[kNormals]->asTexture();
     auto pAoDst = renderData[kAmbientMap]->asTexture();
     auto pDepth2 = renderData[kDepth2]->asTexture();
+    auto pMatDoubleSided = renderData[kMatDoubleSided]->asTexture();
 
     auto pAoMask = renderData[kAoStencil]->asTexture();
     auto pAccessStencil = renderData[kAccessStencil]->asTexture();
@@ -309,6 +312,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     mpRasterPass["gDepthTex"] = pDepth;
     mpRasterPass["gDepthTex2"] = pDepth2;
     mpRasterPass["gNormalTex"] = pNormal;
+    mpRasterPass["gMatDoubleSided"] = pMatDoubleSided;
     //mpRasterPass["gDepthAccess"] = pAccessStencil;
     mpRasterPass["gDepthAccess"].setUav(accessStencilUAV);
 

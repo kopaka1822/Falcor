@@ -107,11 +107,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
             }
-
-            float width, height;
-            gDepthTex.GetDimensions(width, height);
             
-            int2 pixelCoord = int2(floor(rasterSamplePosUV * float2(width, height)));
+            int2 pixelCoord = UVToPixel(rasterSamplePosUV);
 
             const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
             const float depthOffset = gCamera.data.nearZ;

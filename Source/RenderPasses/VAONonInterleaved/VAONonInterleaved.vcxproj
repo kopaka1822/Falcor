@@ -38,6 +38,7 @@
   <ItemGroup>
     <ShaderSource Include="Common.slang" />
     <ShaderSource Include="CopyStencil.ps.slang" />
+    <ShaderSource Include="NeuralNetDefines.slangh" />
     <ShaderSource Include="Raster.ps.slang" />
     <ShaderSource Include="Raster2.ps.slang" />
     <ShaderSource Include="Ray.rt.slang" />

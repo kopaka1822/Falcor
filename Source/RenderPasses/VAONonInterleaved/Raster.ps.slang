@@ -9,6 +9,8 @@ struct PSOut
 };
 
 RWTexture2D<uint> gDepthAccess; // indicates depth accesses for the secondary pass
+#define MTL_DOUBLE_SIDED 1
+Texture2D<uint> gMatDoubleSided; // double sided flag
 
 PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 {
@@ -52,6 +54,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     float rasterHeights[8];
     float tmpAoValues[8];
     #endif
+
+    uint forceRayMask = 0; // forces rays due to double sided materials
     
     [unroll] for (uint i = 0; i < NUM_DIRECTIONS; i++)
     {
@@ -78,11 +82,14 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         float2 samplePosUV = ViewSpaceToUV(posV + tangent * dir.x + bitangent * dir.y);
 
         float curVisibility = 0.0f;
-        bool hybridRay = false;
+        bool requireRay = false;
+        bool forceRay = false;
 
         float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
         if (any(samplePosUV != screenUv) && SECONDARY_DEPTH_MODE == DEPTH_MODE_RAYTRACING)
-            hybridRay = true; // always shoot rays for screen border
+        {
+            forceRay = true; // always shoot rays for screen border   
+        }
             
         float2 rasterSamplePosUV = screenUv;
         rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
@@ -102,21 +109,32 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         
         // require hybrid ray if intersection is outside of sphere radius
         if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
-            hybridRay = true;
+        {
+            requireRay = true;
+            #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY
+            // fetch material data to check for double sided flag
+            if (gMatDoubleSided[UVToPixel(rasterSamplePosUV)] & MTL_DOUBLE_SIDED)
+                forceRay = true;
+            #endif
+        }
 
         if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
         {
             float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
             curVisibility = COMBINE_VIS(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf));
             if (objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
-                hybridRay = true;
+                requireRay = true;
         }
 
         #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY
         tmpAoValues[i] = curVisibility;
         #endif
-        
-        if(hybridRay)
+
+        if (forceRay && (PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY)) 
+        {
+            forceRayMask |= (1u << i); 
+        }
+        else if(requireRay || forceRay)
         {
             // remember that this was a hybrid ray
             output.stencil |= 1u << i;
@@ -137,6 +155,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         uint machineMask = evalNeuralNet(rasterHeights);
         output.stencil = output.stencil & machineMask;
     }
+    output.stencil |= forceRayMask; // always trace the forced rays
 
     output.ao1 = 0.0;
     [unroll]

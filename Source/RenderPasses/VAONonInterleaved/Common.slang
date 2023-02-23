@@ -91,6 +91,13 @@ float2 ViewSpaceToUV(float3 posV)
     return ndc * float2(-0.5, 0.5) + 0.5; // since posV.z is negative, the sign order is inversed
 }
 
+int2 UVToPixel(float2 uv)
+{
+    float width, height;
+    gDepthTex.GetDimensions(width, height);
+    return int2(floor(uv * float2(width, height)));
+}
+
 float makeNonZero(float value, float epsilon)
 {
     float absValue = max(abs(value), epsilon);
