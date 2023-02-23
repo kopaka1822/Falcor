@@ -230,6 +230,63 @@ private:
 
             ss << "\treturn bitmask;\n}\n";
         }
+
+        // manually unrolled version
+        if (mNumNets == 1)
+        {
+            const auto& net = mNets[0];
+            // generate function
+            ss << "\nuint evalNeuralNetUnrolled" << "(float inputs[" << net.kernels[0].rows << "]){\n";
+            std::string prevInput = "inputs";
+            int skippedWeights = 0;
+            for (size_t l = 0; l < mLayers; ++l)
+            {
+                auto kernel = net.kernels[l];
+                auto bias = net.biases[l];
+
+                float weightThreshold = 0.01f;
+
+                // load bias
+                ss << "\tfloat layer" << l << "Output[" << bias.columns << "];\n";
+                //ss << "\t[unroll] for(uint outIdx = 0; outIdx < " << bias.columns << "; ++outIdx)\n";
+                for(int outIdx = 0; outIdx < bias.columns; ++outIdx)
+                    ss << "\tlayer" << l << "Output[" << outIdx << "] = " << bias.data[outIdx] << ";\n";
+
+                // multiply with kernel
+                for (int inIdx = 0; inIdx < kernel.rows; ++inIdx)
+                    for (int outIdx = 0; outIdx < kernel.columns; ++outIdx)
+                    {
+                        auto k = kernel.data[inIdx * kernel.columns + outIdx];
+                        if(abs(k) > weightThreshold)
+                            ss << "\tlayer" << l << "Output[" << outIdx << "] += " << k << " * " << prevInput << "[" << inIdx << "];\n";
+                        else skippedWeights++;
+                    }
+                        
+
+                // apply activation function
+                if (l == mLayers - 1ull)
+                {
+                    // last layer => sigmoid mask
+                    ss << "\n\tuint bitmask = 0;\n";
+                    ss << "\t[unroll] for(uint outIdx = 0; outIdx < " << bias.columns << "; ++outIdx)\n";
+                    ss << "\t\tif(layer" << l << "Output[outIdx] > 0.0)\n";
+                    ss << "\t\t\tbitmask = bitmask | (1u << outIdx);\n\n";
+                }
+                else
+                {
+                    // relu activation
+                    ss << "\n\t[unroll] for(uint outIdx = 0; outIdx < " << bias.columns << "; ++outIdx)\n";
+                    ss << "\t\tlayer" << l << "Output[outIdx] = max(layer" << l << "Output[outIdx], 0); // RELU\n\n";
+
+                    prevInput = "layer" + std::to_string(l) + "Output";
+                }
+
+            }
+
+            ss << "\treturn bitmask;\n}\n";
+
+            std::cout << "Skipped " << skippedWeights << " weights" << std::endl;
+        }
         
 
         return ss.str();

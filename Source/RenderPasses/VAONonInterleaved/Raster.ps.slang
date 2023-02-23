@@ -98,7 +98,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
 
         #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY
-        rasterHeights[i] = objectSpaceZ / gData.radius;
+        rasterHeights[i] = clamp(objectSpaceZ / gData.radius, -16.0, 16.0);
         tmpAoValues[i] = 0.0;
         #endif
 
