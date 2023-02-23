@@ -219,19 +219,30 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
             }
             else // !PREVENT_DARK_HALOS
             {
-                // trace ray for the full range
                 float tSphereStart = (posVLength - sphereStart) * initialSamplePosLength / posVLength;
                 float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
                 ray.TMin = 0.0f;
-                ray.TMax = gCamera.data.farZ; // include whole range for ML learning
+                ray.TMax = tSphereEnd;
+                int occlusionStack = 0; // > 1 means occluded (counted for outside front faces)
+                
+                if (isInScreen) // start slighlty before the first detected object from the raster pass (start before the object to include it in occlusion mask)
+                {
+                    const float epsilon = gData.radius * 0.01;
+                    //const float epsilon = 0.0;
+                    float objectSpaceZ;
+                    if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL) // single or classify
+                        objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
+                    else if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
+                        objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);
+                    ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength - epsilon);
+                }
 
                 // skip procedural and force all triangle to be handled by any-hit traversal
                 RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_NON_OPAQUE > rayQuery;
                 rayQuery.TraceRayInline(gScene.rtAccel, RAY_FLAG_NONE, 0xff, ray);
 
-                float tLastFrontFaceOutside = ray.TMin;
                 float tFirstFrontFaceInside = ray.TMax;
-                int occlusionStack = 0; // > 1 means occluded (counted for outside front faces)
+
 
                 while (rayQuery.Proceed())
                 {
@@ -252,8 +263,6 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                             if (isAlphaTested || header.isDoubleSided()) // ignore alpha tested materials (too thin for occlusion at this distance)
                                 continue;
                             occlusionStack += frontFace ? 1 : -1;
-                            if (frontFace)
-                                tLastFrontFaceOutside = max(t, tLastFrontFaceOutside);
                         }
                         else // inside the sphere
                         {
@@ -265,10 +274,6 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                                     continue; // alpha test failed => ignore this triangle
                             }
 
-                            frontFace = frontFace || isAlphaTested || header.isDoubleSided();
-                            if (!frontFace)
-                                continue; // this is just for rasterizer compability
-
                             tFirstFrontFaceInside = min(tFirstFrontFaceInside, t);
                             rayQuery.CommitNonOpaqueTriangleHit(); // since we save the min, we can commit here
                         }
@@ -276,12 +281,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                 }
                 
                 // calculate visibility inside and outside of sphere
-                //float sphereZ = posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength;
-                float sphereZ = calcObjectSpaceZ(posV, normal, ray, tFirstFrontFaceInside);
+                float sphereZ = posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength;
                 curVisibility = calcSphereVisibility(sphereZ, sphereStart, sphereEnd, pdf);
-
-                //float outsideZ = posVLength - tLastFrontFaceOutside * posVLength / initialSamplePosLength;
-                float outsideZ = calcObjectSpaceZ(posV, normal, ray, tLastFrontFaceOutside);
 
                 if (occlusionStack > 0)
                     curVisibility = 0.0;

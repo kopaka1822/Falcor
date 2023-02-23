@@ -52,7 +52,8 @@ namespace
     const std::string kRayShader = "RenderPasses/VAONonInterleaved/Ray.rt.slang";
     const std::string kStencilShader = "RenderPasses/VAONonInterleaved/CopyStencil.ps.slang";
 
-    const uint32_t kMaxPayloadSize = 4 * 4;
+    const uint32_t kMaxPayloadSizePreventDarkHalos = 4 * 4;
+    const uint32_t kMaxPayloadSizeDarkHalos = 4 * 3;
 
     // settings
     const std::string kRadius = "radius";
@@ -261,7 +262,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         // ray pass
         RtProgram::Desc desc;
         desc.addShaderLibrary(kRayShader);
-        desc.setMaxPayloadSize(kMaxPayloadSize);
+        desc.setMaxPayloadSize(mPreventDarkHalos ? kMaxPayloadSizePreventDarkHalos : kMaxPayloadSizeDarkHalos);
         desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
         desc.setMaxTraceRecursionDepth(1);
         desc.addTypeConformances(mpScene->getTypeConformances());
