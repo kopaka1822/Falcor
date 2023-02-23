@@ -93,8 +93,8 @@ private:
     bool mDirty = true;
     int mGuardBand = 64;
     DepthMode mPrimaryDepthMode = DepthMode::SingleDepth;
-    DepthMode mSecondaryDepthMode = DepthMode::StochasticDepth;
-    bool mUseRayPipeline = false;
+    DepthMode mSecondaryDepthMode = DepthMode::Raytraced;
+    bool mUseRayPipeline = true;
 
     bool mPreventDarkHalos = false;
 
