@@ -82,7 +82,10 @@ uint evalNeuralNetUnrolled(float inputs[5]){
 	layer0Output[5] += -2.19631 * inputs[3];
 	layer0Output[6] += -0.0648179 * inputs[3];
 	layer0Output[7] += -0.0143303 * inputs[3];
+	layer0Output[0] += 0.00603693 * inputs[4];
 	layer0Output[1] += 0.0455784 * inputs[4];
+	layer0Output[2] += -0.00076563 * inputs[4];
+	layer0Output[3] += -0.00926673 * inputs[4];
 	layer0Output[4] += 0.0120518 * inputs[4];
 	layer0Output[5] += 0.0283136 * inputs[4];
 	layer0Output[6] += -0.0154564 * inputs[4];

@@ -447,6 +447,9 @@ void SVAO::renderUI(Gui::Widgets& widget)
         mDirty = true;
         mData.exponent = glm::mix(1.6f, 1.0f, mData.thickness);
     }
+    
+    if (mNeuralNet.renderUI(widget))
+        reset = true;
 
     if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
     

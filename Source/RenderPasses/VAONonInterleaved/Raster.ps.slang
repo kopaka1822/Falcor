@@ -152,7 +152,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY
     if (output.stencil != 0)
     {
-        uint machineMask = evalNeuralNet(rasterHeights);
+        uint machineMask = evalNeuralNetUnrolled(rasterHeights);
         output.stencil = output.stencil & machineMask;
     }
     output.stencil |= forceRayMask; // always trace the forced rays

@@ -11,3 +11,128 @@ static const float bias1[4] = {-2.09162, -1.48497, -1.20907, -0.772243};
 #define BIAS1(col) bias1[col]
 #define KERNEL1_ROWS 8
 #define KERNEL1_COLUMNS 4
+
+uint evalNeuralNet(float inputs[5]){
+	float layer0Output[8];
+	[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+		layer0Output[outIdx] = BIAS0(outIdx);
+
+	[unroll] for(uint inIdx = 0; inIdx < 5; ++inIdx)
+		[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+			layer0Output[outIdx] += KERNEL0(inIdx, outIdx) * inputs[inIdx];
+
+	[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+		layer0Output[outIdx] = max(layer0Output[outIdx], 0); // RELU
+
+	float layer1Output[4];
+	[unroll] for(uint outIdx = 0; outIdx < 4; ++outIdx)
+		layer1Output[outIdx] = BIAS1(outIdx);
+
+	[unroll] for(uint inIdx = 0; inIdx < 8; ++inIdx)
+		[unroll] for(uint outIdx = 0; outIdx < 4; ++outIdx)
+			layer1Output[outIdx] += KERNEL1(inIdx, outIdx) * layer0Output[inIdx];
+
+	uint bitmask = 0;
+	[unroll] for(uint outIdx = 0; outIdx < 4; ++outIdx)
+		if(layer1Output[outIdx] > 0.0)
+			bitmask = bitmask | (1u << outIdx);
+
+	return bitmask;
+}
+
+uint evalNeuralNetUnrolled(float inputs[5]){
+	float layer0Output[8];
+	layer0Output[0] = 0.129775;
+	layer0Output[1] = -1.04381;
+	layer0Output[2] = 0.00279814;
+	layer0Output[3] = 0.117494;
+	layer0Output[4] = 1.63232;
+	layer0Output[5] = 0.903054;
+	layer0Output[6] = -0.0184243;
+	layer0Output[7] = 1.8841;
+	layer0Output[0] += 0.949967 * inputs[0];
+	layer0Output[1] += 3.72361 * inputs[0];
+	layer0Output[2] += 2.12932 * inputs[0];
+	layer0Output[3] += -1.39726 * inputs[0];
+	layer0Output[4] += -0.460227 * inputs[0];
+	layer0Output[5] += 1.91163 * inputs[0];
+	layer0Output[6] += -1.30321 * inputs[0];
+	layer0Output[7] += -0.519918 * inputs[0];
+	layer0Output[0] += -1.76039 * inputs[1];
+	layer0Output[1] += -0.703349 * inputs[1];
+	layer0Output[2] += -2.61961 * inputs[1];
+	layer0Output[3] += 3.95555 * inputs[1];
+	layer0Output[4] += 1.52057 * inputs[1];
+	layer0Output[5] += -2.4464 * inputs[1];
+	layer0Output[6] += 3.77215 * inputs[1];
+	layer0Output[7] += -2.62215 * inputs[1];
+	layer0Output[0] += 2.67029 * inputs[2];
+	layer0Output[1] += -0.037715 * inputs[2];
+	layer0Output[2] += -0.0685297 * inputs[2];
+	layer0Output[3] += -2.95296 * inputs[2];
+	layer0Output[4] += -3.32393 * inputs[2];
+	layer0Output[5] += 1.5704 * inputs[2];
+	layer0Output[6] += -2.42174 * inputs[2];
+	layer0Output[7] += 0.08204 * inputs[2];
+	layer0Output[0] += -1.38208 * inputs[3];
+	layer0Output[1] += -0.0842401 * inputs[3];
+	layer0Output[2] += 0.262584 * inputs[3];
+	layer0Output[3] += 0.535452 * inputs[3];
+	layer0Output[4] += 0.470068 * inputs[3];
+	layer0Output[5] += -2.19631 * inputs[3];
+	layer0Output[6] += -0.0648179 * inputs[3];
+	layer0Output[7] += -0.0143303 * inputs[3];
+	layer0Output[1] += 0.0455784 * inputs[4];
+	layer0Output[4] += 0.0120518 * inputs[4];
+	layer0Output[5] += 0.0283136 * inputs[4];
+	layer0Output[6] += -0.0154564 * inputs[4];
+	layer0Output[7] += -0.0262521 * inputs[4];
+
+	[unroll] for(uint outIdx = 0; outIdx < 8; ++outIdx)
+		layer0Output[outIdx] = max(layer0Output[outIdx], 0); // RELU
+
+	float layer1Output[4];
+	layer1Output[0] = -2.09162;
+	layer1Output[1] = -1.48497;
+	layer1Output[2] = -1.20907;
+	layer1Output[3] = -0.772243;
+	layer1Output[0] += 0.0592008 * layer0Output[0];
+	layer1Output[1] += 0.22854 * layer0Output[0];
+	layer1Output[2] += 2.15279 * layer0Output[0];
+	layer1Output[3] += 1.61254 * layer0Output[0];
+	layer1Output[0] += 1.37476 * layer0Output[1];
+	layer1Output[1] += 0.682661 * layer0Output[1];
+	layer1Output[2] += 0.0864416 * layer0Output[1];
+	layer1Output[3] += 0.0172988 * layer0Output[1];
+	layer1Output[0] += 0.207769 * layer0Output[2];
+	layer1Output[1] += -1.15791 * layer0Output[2];
+	layer1Output[2] += 0.131993 * layer0Output[2];
+	layer1Output[3] += 1.66779 * layer0Output[2];
+	layer1Output[0] += 0.131314 * layer0Output[3];
+	layer1Output[1] += 1.16632 * layer0Output[3];
+	layer1Output[2] += 2.36683 * layer0Output[3];
+	layer1Output[3] += 4.37432 * layer0Output[3];
+	layer1Output[0] += -0.17795 * layer0Output[4];
+	layer1Output[1] += -1.30701 * layer0Output[4];
+	layer1Output[2] += -2.57954 * layer0Output[4];
+	layer1Output[3] += -0.773062 * layer0Output[4];
+	layer1Output[0] += -0.0957847 * layer0Output[5];
+	layer1Output[1] += -0.159341 * layer0Output[5];
+	layer1Output[2] += -1.32996 * layer0Output[5];
+	layer1Output[3] += -2.68634 * layer0Output[5];
+	layer1Output[0] += 0.0231862 * layer0Output[6];
+	layer1Output[1] += 0.383687 * layer0Output[6];
+	layer1Output[2] += -1.44198 * layer0Output[6];
+	layer1Output[3] += -4.27922 * layer0Output[6];
+	layer1Output[0] += -0.46191 * layer0Output[7];
+	layer1Output[1] += -2.7521 * layer0Output[7];
+	layer1Output[2] += -0.310985 * layer0Output[7];
+	layer1Output[3] += -0.229353 * layer0Output[7];
+
+	uint bitmask = 0;
+	[unroll] for(uint outIdx = 0; outIdx < 4; ++outIdx)
+		if(layer1Output[outIdx] > 0.0)
+			bitmask = bitmask | (1u << outIdx);
+
+	return bitmask;
+}

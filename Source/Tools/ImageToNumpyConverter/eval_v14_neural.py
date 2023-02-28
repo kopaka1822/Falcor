@@ -13,13 +13,14 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 import pickle
 from shared import preprocess_inputs_vao
+import tensorflow_model_optimization as tfmot
 
 import tensorflow as tf
 from tensorflow import keras
 
 NUM_SAMPLES = 8
 EVAL_ID = 0
-ML_NAME = "net_relu"
+ML_NAME = "net_relu_pruned"
 
 IMG_WIDTH = 1900
 IMG_HEIGHT = 1000

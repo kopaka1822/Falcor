@@ -244,7 +244,7 @@ private:
                 auto kernel = net.kernels[l];
                 auto bias = net.biases[l];
 
-                float weightThreshold = 0.01f;
+                float weightThreshold = 0.0001f;
 
                 // load bias
                 ss << "\tfloat layer" << l << "Output[" << bias.columns << "];\n";
