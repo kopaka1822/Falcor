@@ -42,7 +42,8 @@ public:
     {
         Random,
         VanDerCorput,
-        Poisson
+        Poisson,
+        Triangle
     };
 
     static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});

@@ -74,6 +74,7 @@ namespace
         { (uint32_t)VAO::SampleDistribution::Random, "Random" },
         { (uint32_t)VAO::SampleDistribution::VanDerCorput, "Uniform VanDerCorput" },
         { (uint32_t)VAO::SampleDistribution::Poisson, "Poisson" },
+        { (uint32_t)VAO::SampleDistribution::Triangle, "Triangle" },
     };
 
     const Gui::DropdownList kDepthModeDropdown =
@@ -461,6 +462,34 @@ void VAO::setKernel()
 
         // succesfully found points
 
+    }
+    else if (mHemisphereDistribution == SampleDistribution::Triangle)
+    {
+        float2 p0 = float2(0.0f, 0.8f);
+        float2 p1 = float2(0.6f, -0.6f);
+        float2 p2 = float2(-0.6f, -0.6f);
+        
+        for (uint32_t i = 0; i < mKernelSize; i++)
+        {
+            float2 rand;
+            // select two points
+            if((float)i / (float)mKernelSize * 8.0f < 3.0f)
+            {
+                rand = glm::mix(p0, p1, (float)i / (float)mKernelSize * 8.0f / 3.0f);
+            }
+            else if ((float)i / (float)mKernelSize * 8.0f < 5.0f)
+            {
+                rand = glm::mix(p1, p2, ((float)i / (float)mKernelSize * 8.0f - 3.0f) / 2.0f);
+            }
+            else
+            {
+                rand = glm::mix(p2, p0, ((float)i / (float)mKernelSize * 8.0f - 5.0f) / 3.0f);
+            }
+            mData.sampleKernel[i].x = rand.x;
+            mData.sampleKernel[i].y = rand.y;
+            mData.sampleKernel[i].z = glm::linearRand(0.0f, 1.0f);
+            mData.sampleKernel[i].w = glm::linearRand(0.0f, 1.0f);
+        }
     }
     else // random or hammersly
     {
