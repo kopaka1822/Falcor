@@ -72,8 +72,7 @@ namespace
 
 ML_HBAO::ML_HBAO()
     :
-    RenderPass(kInfo),
-    mNeuralNets(1 /*nets*/, 2 /*layers*/)
+    RenderPass(kInfo)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
@@ -211,8 +210,6 @@ void ML_HBAO::execute(RenderContext* pRenderContext, const RenderData& renderDat
     mpSSAOPass["gNoiseTex"] = mpNoiseTexture;
     mpSSAOPass["gNormalTex"] = pNormals;
     mpSSAOPass["gMaterialData"] = pMaterialData;
-
-    mNeuralNets.bindData(mpSSAOPass->getVars().get());
 
     // Generate AO
     mpAOFbo->attachColorTarget(pAoDst, 0);

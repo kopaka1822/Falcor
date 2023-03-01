@@ -70,8 +70,7 @@ namespace
 
 ML_HBAOInterleaved::ML_HBAOInterleaved()
     :
-RenderPass(kInfo),
-mNeuralNets(1 /*nets*/, 2 /*layers*/)
+RenderPass(kInfo)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
@@ -230,7 +229,6 @@ void ML_HBAOInterleaved::execute(RenderContext* pRenderContext, const RenderData
     // Update state/vars
     mpSSAOPass["gTextureSampler"] = mpTextureSampler;
     mpSSAOPass["gNormalTex"] = pNormals;
-    mNeuralNets.bindData(mpSSAOPass->getVars().get());
 
     setGuardBandScissors(*mpSSAOPass->getState(), renderData.getDefaultTextureDims() / 4u, mGuardBand / 4);
 

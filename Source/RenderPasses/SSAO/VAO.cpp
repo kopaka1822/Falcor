@@ -44,6 +44,7 @@ static void regSSAO(pybind11::module& m)
     pass.def_property("kernelRadius", &VAO::getKernelSize, &VAO::setKernelSize);
     pass.def_property("distribution", &VAO::getDistribution, &VAO::setDistribution);
     pass.def_property("sampleRadius", &VAO::getSampleRadius, &VAO::setSampleRadius);
+    pass.def("saveDepths", &VAO::saveDepths);
 
     pybind11::enum_<VAO::SampleDistribution> sampleDistribution(m, "SampleDistribution");
     sampleDistribution.value("Random", VAO::SampleDistribution::Random);
@@ -113,6 +114,11 @@ namespace
     const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
 
     static const int NOISE_SIZE = 4; // in each dimension: 4x4
+}
+
+void VAO::saveDepths()
+{
+    mSaveDepths = true;
 }
 
 VAO::VAO()
@@ -513,8 +519,10 @@ void VAO::setKernel()
             default: throw std::runtime_error("unknown kernel distribution");
             }
 
+            const float max_radius = 1.0f;
+
             float theta = rand.x * 2.0f * glm::pi<float>();
-            float r = glm::sqrt(1.0f - glm::pow(rand.y, 2.0f / 3.0f));
+            float r = glm::sqrt(1.0f - glm::pow(rand.y, 2.0f / 3.0f)) * max_radius;
             nums += std::to_string(r) + ", ";
             s.x = r * sin(theta);
             s.y = r * cos(theta);

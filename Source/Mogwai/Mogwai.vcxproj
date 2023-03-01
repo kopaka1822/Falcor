@@ -133,6 +133,9 @@
     <ProjectReference Include="..\RenderPasses\OptixDenoiser\OptixDenoiser.vcxproj">
       <Project>{05555565-706c-4633-bf8a-b99f96f2b301}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\PathRecorder\PathRecorder.vcxproj">
+      <Project>{a5e1f640-14d9-4f6f-a23b-33b173a26711}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\PathTracer\PathTracer.vcxproj">
       <Project>{99799ba5-6503-425c-bfcc-8b94e6a40d1d}</Project>
     </ProjectReference>

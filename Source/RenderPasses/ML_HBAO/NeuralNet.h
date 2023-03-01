@@ -13,26 +13,39 @@ struct NeuralNet
         std::vector<float> data;
     };
 
-    void load(const std::string& baseFilename, int layers, int index)
+    void load(const std::string& baseFilename, int index)
     {
-        kernels.resize(layers);
-        biases.resize(layers);
+        kernels.resize(0);
+        biases.resize(0);
 
         std::vector<unsigned long> shape;
-        for(int l = 0; l < layers; ++l)
+        int l = 0; // layer
+        while(true)
         {
             std::stringstream ss;
             // load weights
             ss << baseFilename << "_weights" << index << "_kernel" << l << ".npy";
-            npy::LoadArrayFromNumpy<float>(ss.str(), shape, kernels[l].data);
+            auto kernelFilename = ss.str();
+            ss = std::stringstream(); // clear 
+            ss << baseFilename << "_weights" << index << "_bias" << l << ".npy";
+            auto biasFilename = ss.str();
+
+            if (!std::filesystem::exists(kernelFilename) || !std::filesystem::exists(biasFilename))
+                break;
+
+            kernels.resize(l + 1);
+            biases.resize(l + 1);
+
+            npy::LoadArrayFromNumpy<float>(kernelFilename, shape, kernels[l].data);
             kernels[l].rows = shape[0];
             kernels[l].columns = shape[1];
             // load biases
-            ss = std::stringstream(); // clear 
-            ss << baseFilename << "_weights" << index << "_bias" << l << ".npy";
-            npy::LoadArrayFromNumpy<float>(ss.str(), shape, biases[l].data);
+
+            npy::LoadArrayFromNumpy<float>(biasFilename, shape, biases[l].data);
             biases[l].rows = 1;
             biases[l].columns = shape[0];
+
+            ++l;
         }
     }
     
@@ -44,18 +57,17 @@ class NeuralNetCollection
 {
     using Texture = Falcor::Texture;
 public:
-    enum class Binding
+    enum class Type
     {
-        TextureFloat,
-        TextureHalf,
-        StaticFloat,
+        Classifier, // last activation function is sigmoid and function returns a bitmask
+        Regressor, // last activation function is linear and inputs will be mutable
     };
 
-    NeuralNetCollection(int numNets, int numLayers)
+    NeuralNetCollection(Type type = Type::Classifier)
         :
-    mNumNets(numNets),
-    mLayers(numLayers),
-    mGuiLayers(numLayers)
+    mNumNets(1),
+    mLayers(0),
+    mType(type)
     {}
 
     void load(const std::string& baseFilename)
@@ -64,16 +76,10 @@ public:
         mNets.resize(mNumNets);
         for (int i = 0; i < mNumNets; ++i)
         {
-            mNets[i].load(baseFilename, mLayers, i);
+            mNets[i].load(baseFilename, i);
         }
-
-        createTextures();
+        mLayers = (int)mNets[0].kernels.size();
     }
-
-    int layers() const { return mLayers; }
-    int nets() const { return mNumNets; }
-
-
 
     void writeDefinesToFile(const char* filename) const
     {
@@ -82,49 +88,18 @@ public:
         file.close();
     }
 
-    void bindData(Falcor::ProgramVars* pVars) const
-    {
-        assert(pVars);
-        for (size_t l = 0; l < mLayers; ++l)
-        {
-            switch (mBinding)
-            {
-            case Binding::TextureFloat:
-                pVars->setTexture("kernel" + std::to_string(l), mTextures[2 * l]);
-                pVars->setTexture("bias" + std::to_string(l), mTextures[2 * l + 1]);
-                break;
-            case Binding::TextureHalf:
-                pVars->setTexture("kernel" + std::to_string(l), mTextureHalfs[2 * l]);
-                pVars->setTexture("bias" + std::to_string(l), mTextureHalfs[2 * l + 1]);
-                break;
-            }
-
-        }
-    }
-
     bool renderUI(Falcor::Gui::Widgets& widget)
     {
         widget.separator();
 
         bool changed = false;
-        const Falcor::Gui::DropdownList kBindingValues =
-        {
-            { (uint32_t)Binding::TextureFloat, "Texture Float" },
-            { (uint32_t)Binding::TextureHalf, "Texture Half" },
-            { (uint32_t)Binding::StaticFloat, "Static Float" },
-        };
 
-        uint32_t binding = (uint32_t)mBinding;
-        changed = widget.dropdown("Neural Net Binding", kBindingValues, binding) || changed;
-        mBinding = (Binding)binding;
-
-        widget.var("Layers", mGuiLayers, 1, 8, 1);
         widget.textbox("File: ", mFilename);
         if(widget.button("Load From File"))
         {
             try
             {
-                NeuralNetCollection tmp(mNumNets, mGuiLayers);
+                NeuralNetCollection tmp;
                 tmp.load(mFilename);
                 *this = tmp;
             }
@@ -145,99 +120,25 @@ private:
     std::string getShaderDefine() const
     {
         std::stringstream ss;
-        ss << "#define NUM_LAYERS " << mLayers << '\n';
-
-        for (size_t l = 0; l < mLayers; ++l)
-        {
-            auto kernel = mNets[0].kernels[l];
-            auto bias = mNets[0].biases[l];
-            
-            switch (mBinding)
-            {
-            case Binding::TextureFloat:
-                ss << "Texture1D<float> kernel" << l << ";\n";
-                ss << "Texture1D<float> bias" << l << ";\n";
-                break;
-            case Binding::TextureHalf:
-                ss << "Texture1D<float> kernel" << l << ";\n";
-                ss << "Texture1D<float> bias" << l << ";\n";
-                break;
-            case Binding::StaticFloat:
-                ss << mDataStrings[2 * l];
-                ss << mDataStrings[2 * l + 1];
-                break;
-            }
-
-            if(mNumNets == 1) // combined multi-label classifier
-            {
-                ss << "#define KERNEL" << l << "(row, col) kernel" << l << "[row * " << kernel.columns << " + col]\n";
-
-                ss << "#define BIAS" << l << "(col) bias" << l << "[col]\n";
-            }
-            else // 1 classifier for each step
-            {
-                ss << "#define KERNEL" << l << "(step, row, col) kernel" << l << "[step * " << (kernel.rows * kernel.columns) << " + row * " << kernel.columns << " + col]\n";
-
-                ss << "#define BIAS" << l << "(step, col) bias" << l << "[step * " << (bias.columns) << " + col]\n";
-            }
-            
-
-            ss << "#define KERNEL" << l << "_ROWS " << kernel.rows << "\n";
-            ss << "#define KERNEL" << l << "_COLUMNS " << kernel.columns << "\n";
-        }
-
-
-        if(mNumNets == 1)
-        {
-            const auto& net = mNets[0];
-            // generate function
-            ss << "\nuint evalNeuralNet" << "(float inputs[" << net.kernels[0].rows << "]){\n";
-            std::string prevInput = "inputs";
-            for (size_t l = 0; l < mLayers; ++l)
-            {
-                auto kernel = net.kernels[l];
-                auto bias = net.biases[l];
-
-                // load bias
-                ss << "\tfloat layer" << l << "Output[" << bias.columns << "];\n";
-                ss << "\t[unroll] for(uint outIdx = 0; outIdx < " << bias.columns << "; ++outIdx)\n";
-                ss << "\t\tlayer" << l << "Output[outIdx] = BIAS" << l << "(outIdx);\n\n";
-
-                // multiply with kernel
-                ss << "\t[unroll] for(uint inIdx = 0; inIdx < " << kernel.rows << "; ++inIdx)\n";
-                ss << "\t\t[unroll] for(uint outIdx = 0; outIdx < " << kernel.columns << "; ++outIdx)\n";
-                ss << "\t\t\tlayer" << l << "Output[outIdx] += KERNEL" << l << "(inIdx, outIdx) * " << prevInput << "[inIdx];\n\n";
-
-                // apply activation function
-                if(l == mLayers - 1ull)
-                {
-                    // last layer => sigmoid mask
-                    ss << "\tuint bitmask = 0;\n";
-                    ss << "\t[unroll] for(uint outIdx = 0; outIdx < " << bias.columns << "; ++outIdx)\n";
-                    ss << "\t\tif(layer" << l << "Output[outIdx] > 0.0)\n";
-                    ss << "\t\t\tbitmask = bitmask | (1u << outIdx);\n\n";
-                }
-                else
-                {
-                    // relu activation
-                    ss << "\t[unroll] for(uint outIdx = 0; outIdx < " << bias.columns << "; ++outIdx)\n";
-                    ss << "\t\tlayer" << l << "Output[outIdx] = max(layer" << l << "Output[outIdx], 0); // RELU\n\n";
-
-                    prevInput = "layer" + std::to_string(l) + "Output";
-                }
-
-            }
-
-            ss << "\treturn bitmask;\n}\n";
-        }
 
         // manually unrolled version
         if (mNumNets == 1)
         {
             const auto& net = mNets[0];
+            
             // generate function
-            ss << "\nuint evalNeuralNetUnrolled" << "(float inputs[" << net.kernels[0].rows << "]){\n";
-            std::string prevInput = "inputs";
+            if (mType == Type::Classifier)
+            {
+                ss << "uint evalClassifier";
+            }
+            else
+            {
+                ss << "void evalRegressor";
+            }
+            
+            ss << "(inout float inputs[" << net.kernels[0].rows << "]){\n";
+            std::string prevInput = "inputs[";
+            std::string prevInputEnd = "]";
             int skippedWeights = 0;
             for (size_t l = 0; l < mLayers; ++l)
             {
@@ -247,43 +148,61 @@ private:
                 float weightThreshold = 0.0001f;
 
                 // load bias
-                ss << "\tfloat layer" << l << "Output[" << bias.columns << "];\n";
+                //ss << "\tfloat layer" << l << "Output[" << bias.columns << "];\n";
                 //ss << "\t[unroll] for(uint outIdx = 0; outIdx < " << bias.columns << "; ++outIdx)\n";
                 for(int outIdx = 0; outIdx < bias.columns; ++outIdx)
-                    ss << "\tlayer" << l << "Output[" << outIdx << "] = " << bias.data[outIdx] << ";\n";
+                    ss << "\tfloat layer" << l << "Output" << outIdx << " = " << bias.data[outIdx] << ";\n";
 
                 // multiply with kernel
-                for (int inIdx = 0; inIdx < kernel.rows; ++inIdx)
-                    for (int outIdx = 0; outIdx < kernel.columns; ++outIdx)
+                for (int outIdx = 0; outIdx < kernel.columns; ++outIdx)
+                    for (int inIdx = 0; inIdx < kernel.rows; ++inIdx)
                     {
                         auto k = kernel.data[inIdx * kernel.columns + outIdx];
                         if(abs(k) > weightThreshold)
-                            ss << "\tlayer" << l << "Output[" << outIdx << "] += " << k << " * " << prevInput << "[" << inIdx << "];\n";
+                            ss << "\tlayer" << l << "Output" << outIdx << " += " << k << " * " << prevInput << inIdx << prevInputEnd << ";\n";
                         else skippedWeights++;
                     }
                         
+                ss << '\n';
 
                 // apply activation function
                 if (l == mLayers - 1ull)
                 {
-                    // last layer => sigmoid mask
-                    ss << "\n\tuint bitmask = 0;\n";
-                    ss << "\t[unroll] for(uint outIdx = 0; outIdx < " << bias.columns << "; ++outIdx)\n";
-                    ss << "\t\tif(layer" << l << "Output[outIdx] > 0.0)\n";
-                    ss << "\t\t\tbitmask = bitmask | (1u << outIdx);\n\n";
+                    if(mType == Type::Classifier)
+                    {
+                        // last layer => sigmoid mask
+                        ss << "\n\tuint bitmask = 0;\n";
+                        for (int outIdx = 0; outIdx < bias.columns; ++outIdx)
+                        {
+                            ss << "\tif(layer" << l << "Output" << outIdx << " > 0.0)";
+                            ss << " bitmask = bitmask | " << (1u << outIdx) << ";\n";
+                        }
+                    }
+                    else if (mType == Type::Regressor)
+                    {
+                        // last layer => linear
+                        for (int outIdx = 0; outIdx < bias.columns; ++outIdx)
+                            ss << "\tinputs[outIdx] = layer" << l << "Output" << outIdx << ";\n";
+                    }
                 }
                 else
                 {
                     // relu activation
-                    ss << "\n\t[unroll] for(uint outIdx = 0; outIdx < " << bias.columns << "; ++outIdx)\n";
-                    ss << "\t\tlayer" << l << "Output[outIdx] = max(layer" << l << "Output[outIdx], 0); // RELU\n\n";
+                    //ss << "\n\t[unroll] for(uint outIdx = 0; outIdx < " << bias.columns << "; ++outIdx)\n";
+                    for (int outIdx = 0; outIdx < bias.columns; ++outIdx)
+                        ss << "\tlayer" << l << "Output" << outIdx << " = max(layer" << l << "Output" << outIdx << ", 0.0);\n";
 
                     prevInput = "layer" + std::to_string(l) + "Output";
+                    prevInputEnd = "";
                 }
 
+                ss << '\n';
             }
-
-            ss << "\treturn bitmask;\n}\n";
+            
+            if (mType == Type::Classifier)
+                ss << "\treturn bitmask;\n}\n";
+            else
+                ss << "\n}\n";
 
             std::cout << "Skipped " << skippedWeights << " weights" << std::endl;
         }
@@ -291,86 +210,11 @@ private:
 
         return ss.str();
     }
-    
-    void createTextures()
-    {
-        mTextures.resize(mLayers * 2); // for each layer: kernel and bias
-        mDataStrings.resize(mLayers * 2);
-        mTextureHalfs.resize(mLayers * 2);
 
-        for (size_t l = 0; l < mLayers; ++l)
-        {
-            auto kernel = mNets[0].kernels[l];
-
-            std::vector<float> kernelData;
-            kernelData.resize(kernel.rows * kernel.columns * mNumNets);
-            auto kernelBegin = kernelData.begin();
-            for(auto& net : mNets)
-            {
-                kernelBegin = std::copy(net.kernels[l].data.begin(), net.kernels[l].data.end(), kernelBegin);
-            }
-            
-            // kernel
-            mTextures[2 * l] = Texture::create1D(kernel.rows * kernel.columns * mNumNets, Falcor::ResourceFormat::R32Float,
-                1, 1, kernelData.data(), Falcor::Resource::BindFlags::ShaderResource);
-            auto kernelHalf = convertToHalfs(kernelData);
-            mTextureHalfs[2 * l] = Texture::create1D(kernel.rows * kernel.columns * mNumNets, Falcor::ResourceFormat::R16Float,
-                1, 1, kernelHalf.data(), Falcor::Resource::BindFlags::ShaderResource);
-            mDataStrings[2 * l] = getDataString("kernel" + std::to_string(l), kernelData);
-
-            auto bias = mNets[0].biases[l];
-            std::vector<float> biasData;
-            biasData.resize(bias.rows * bias.columns * mNumNets);
-            auto biasBegin = biasData.begin();
-            for (auto& net : mNets)
-            {
-                biasBegin = std::copy(net.biases[l].data.begin(), net.biases[l].data.end(), biasBegin);
-            }
-
-            // bias
-            mTextures[2 * l + 1] = Texture::create1D(bias.rows * bias.columns * mNumNets, Falcor::ResourceFormat::R32Float,
-                1, 1, biasData.data(), Falcor::Resource::BindFlags::ShaderResource);
-            auto biasHalf = convertToHalfs(biasData);
-            mTextureHalfs[2 * l + 1] = Texture::create1D(bias.rows * bias.columns * mNumNets, Falcor::ResourceFormat::R16Float,
-                1, 1, biasHalf.data(), Falcor::Resource::BindFlags::ShaderResource);
-            mDataStrings[2 * l + 1] = getDataString("bias" + std::to_string(l), biasData);
-        }
-    }
-
-    std::string getDataString(std::string name, const std::vector<float>& data) const
-    {
-        std::stringstream ss;
-        ss << "static const float " << name << "[" << data.size() << "] = {";
-        for (size_t i = 0; i < data.size(); ++i)
-        {
-            ss << data[i];
-            if (i < data.size() - 1)
-            {
-                ss << ", ";
-            }
-        }
-        ss << "};\n";
-        return ss.str();
-    }
-
-    std::vector<int16_t> convertToHalfs(const std::vector<float>& data) const
-    {
-        std::vector<int16_t> halfs;
-        halfs.resize(data.size());
-        for (size_t i = 0; i < data.size(); ++i)
-        {
-            halfs[i] = glm::detail::toFloat16(data[i]);
-        }
-        return halfs;
-    }
 private:
-    Binding mBinding = Binding::StaticFloat;
     std::vector<NeuralNet> mNets;
-    std::vector<Texture::SharedPtr> mTextures;
-    std::vector<Texture::SharedPtr> mTextureHalfs;
-    std::vector<std::string> mDataStrings;
     int mNumNets = 0;
     int mLayers = 0;
     std::string mFilename;
-    int mGuiLayers = 0;
+    Type mType;
 };

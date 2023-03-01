@@ -89,7 +89,7 @@ def render_graph_ML_HBAO():
     g.markOutput('Diffuse.out')
     return g
 
-m.addGraph(render_graph_ML_HBAO())
+#m.addGraph(render_graph_ML_HBAO())
 
 def render_graph_ML_HBAOInterleaved():
     g = RenderGraph('ML_HBAOInterleaved')
@@ -177,7 +177,7 @@ def render_graph_ML_HBAOInterleaved():
     g.markOutput('Diffuse.out')
     return g
 
-m.addGraph(render_graph_ML_HBAOInterleaved())
+#m.addGraph(render_graph_ML_HBAOInterleaved())
 
 def render_graph_RTHBAO():
     g = RenderGraph('RTHBAO')
@@ -280,7 +280,7 @@ def render_graph_RTHBAO():
     g.markOutput('Diffuse.out')
     g.markOutput('RTHBAO.ambientMap')
     return g
-m.addGraph(render_graph_RTHBAO())
+#m.addGraph(render_graph_RTHBAO())
 
 def render_graph_VAO():
     g = RenderGraph('VAO')
@@ -334,6 +334,7 @@ def render_graph_VAO():
     loadRenderPassLibrary('PathTracer.dll')
     loadRenderPassLibrary('RTAODenoiser.dll')
     loadRenderPassLibrary('RTVAO.dll')
+    loadRenderPassLibrary('PathRecorder.dll')
     DepthPeelPass = createPass('DepthPeelPass')
     g.addPass(DepthPeelPass, 'DepthPeelPass')
     GBufferRaster = createPass('GBufferRaster', {'outputSize': IOSize.Default, 'samplePattern': SamplePattern.Center, 'sampleCount': 16, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': CullMode.CullBack})
@@ -356,6 +357,8 @@ def render_graph_VAO():
     g.addPass(ConvertFormat__, 'ConvertFormat__')
     DepthPass = createPass('DepthPass', {'depthFormat': ResourceFormat.D32Float, 'useAlphaTest': True, 'cullMode': CullMode.CullBack})
     g.addPass(DepthPass, 'DepthPass')
+    PathRecorder = createPass('PathRecorder')
+    g.addPass(PathRecorder, 'PathRecorder')
     g.addEdge('GBufferRaster.depth', 'DepthPeelPass.depth')
     g.addEdge('GBufferRaster.depth', 'LinearizeDepth.depth')
     g.addEdge('DepthPeelPass.depth2', 'LinearizeDepth_.depth')
@@ -378,13 +381,13 @@ def render_graph_VAO():
     g.addEdge('DepthPass.depth', 'GBufferRaster.depth')
     g.addEdge('GBufferRaster.faceNormalW', 'VAO.normals')
     g.addEdge('GBufferRaster.mtlData', 'VAO.materialData')
+    g.addEdge('GBufferRaster', 'PathRecorder')
     #g.addEdge('GBufferRaster.instanceID', 'VAO.instanceID')
     g.markOutput('Ambient.out')
     g.markOutput('Diffuse.out')
     g.markOutput('VAO.ambientMap')
     return g
 m.addGraph(render_graph_VAO())
-from falcor import *
 
 def render_graph_SVAO():
     g = RenderGraph('SVAO')
@@ -486,7 +489,6 @@ def render_graph_SVAO():
     g.markOutput('Diffuse.out')
     return g
 m.addGraph(render_graph_SVAO())
-from falcor import *
 
 def render_graph_RTVAO():
     g = RenderGraph('RTVAO')
@@ -566,8 +568,7 @@ def render_graph_RTVAO():
     g.markOutput('Ambient.out')
     g.markOutput('Diffuse.out')
     return g
-m.addGraph(render_graph_RTVAO())
-from falcor import *
+#m.addGraph(render_graph_RTVAO())
 
 def render_graph_HBAOPlus():
     g = RenderGraph('HBAOPlus')

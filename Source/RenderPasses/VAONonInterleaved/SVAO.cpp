@@ -86,8 +86,7 @@ SVAO::SharedPtr SVAO::create(RenderContext* pRenderContext, const Dictionary& di
 
 SVAO::SVAO(const Dictionary& dict)
     :
-    RenderPass(kInfo),
-    mNeuralNet(1, 2)
+    RenderPass(kInfo)
 {
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);

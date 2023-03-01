@@ -3,7 +3,7 @@ import os
 
 # combines from 0 to (NUM_FILES - 1)
 FIRST_FILE = 0
-LAST_FILE = 7
+LAST_FILE = 31
 
 # set current directory as working directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))

@@ -72,12 +72,12 @@ def inspectSample():
 	weights = net.get_weights()
 	#print_weights(weights)
 
-	np.save(f'{ML_NAME}_weights_kernel0.npy', weights[0])
-	np.save(f'{ML_NAME}_weights_bias0.npy', weights[1])
-	np.save(f'{ML_NAME}_weights_kernel1.npy', weights[2])
-	np.save(f'{ML_NAME}_weights_bias1.npy', weights[3])
-	#np.save(f'{ML_NAME}_weights_kernel2.npy', weights[4])
-	#np.save(f'{ML_NAME}_weights_bias2.npy', weights[5])
+	np.save(f'{ML_NAME}_weights0_kernel0.npy', weights[0])
+	np.save(f'{ML_NAME}_weights0_bias0.npy', weights[1])
+	np.save(f'{ML_NAME}_weights0_kernel1.npy', weights[2])
+	np.save(f'{ML_NAME}_weights0_bias1.npy', weights[3])
+	#np.save(f'{ML_NAME}_weights0_kernel2.npy', weights[4])
+	#np.save(f'{ML_NAME}_weights0_bias2.npy', weights[5])
 	print("Weights:\n", weights)
 
 	print("writing y_asked")

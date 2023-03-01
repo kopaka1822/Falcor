@@ -27,79 +27,42 @@
  **************************************************************************/
 #pragma once
 #include "Falcor.h"
-#include "SSAOData.slang"
-#include "../Utils/GaussianBlur/GaussianBlur.h"
-#include "DepthMode.h"
 
 using namespace Falcor;
 
-class VAO : public RenderPass
+class PathRecorder : public RenderPass
 {
 public:
-    using SharedPtr = std::shared_ptr<VAO>;
-
-    enum class SampleDistribution : uint32_t
+    struct CameraData
     {
-        Random,
-        VanDerCorput,
-        Poisson,
-        Triangle
+        float3 pos;
+        float3 target;
+        float3 up;
     };
 
-    static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
+    using SharedPtr = std::shared_ptr<PathRecorder>;
 
     static const Info kInfo;
+
+    /** Create a new render pass object.
+        \param[in] pRenderContext The render context.
+        \param[in] dict Dictionary of serialized parameters.
+        \return A new object, or an exception is thrown if creation failed.
+    */
+    static SharedPtr create(RenderContext* pRenderContext = nullptr, const Dictionary& dict = {});
+
     virtual Dictionary getScriptingDictionary() override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
+    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
-    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-
-    void setEnabled(bool enabled) {mEnabled = enabled;}
-    void setSampleRadius(float radius);
-    void setKernelSize(uint32_t kernelSize);
-    void setDistribution(uint32_t distribution);
-    void setShaderVariant(uint32_t variant);
-    bool getEnabled() {return mEnabled;}
-    float getSampleRadius() { return mData.radius; }
-    uint32_t getKernelSize() { return mKernelSize; }
-    uint32_t getDistribution() { return (uint32_t)mHemisphereDistribution; }
-
-    // indicates that ML depths will be saved in the next render iteration
-    void saveDepths();
+    virtual void setScene(RenderContext* pRenderContext, const Scene::SharedPtr& pScene) override;
+    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
+    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    VAO();
-    ResourceFormat getAmbientMapFormat() const;
-    void setNoiseTexture();
-    void setKernel();
-    std::vector<float> getSphereHeights() const;
-
-    SSAOData mData;
-    bool mDirty = true;
-
-    bool mEnabled = true;
-    DepthMode mDepthMode = DepthMode::Raytraced;
-    Fbo::SharedPtr mpAOFbo;
-    uint mFrameIndex = 0;
-    bool mColorMap = false;
-
-    Sampler::SharedPtr mpNoiseSampler;
-    Texture::SharedPtr mpNoiseTexture;
-
-    Sampler::SharedPtr mpTextureSampler;
-    SampleDistribution mHemisphereDistribution = SampleDistribution::VanDerCorput;
-
-    FullScreenPass::SharedPtr mpSSAOPass;
+    PathRecorder() : RenderPass(kInfo) {}
 
     Scene::SharedPtr mpScene;
-    int mGuardBand = 64;
-    bool mClearTexture = true;
-    uint32_t mKernelSize = 8;
-
-    bool mSaveDepths = false;
-    bool mPreventDarkHalos = false;
-    bool mIsTraining = true;
-    int mTrainingIndex = 0;
+    std::vector<CameraData> mPath;
 };
