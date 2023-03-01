@@ -92,6 +92,11 @@ public:
     {
         widget.separator();
 
+        if (mType == Type::Classifier)
+            widget.text("Classifier");
+        else
+            widget.text("Regressor");
+
         bool changed = false;
 
         widget.textbox("File: ", mFilename);
@@ -182,7 +187,7 @@ private:
                     {
                         // last layer => linear
                         for (int outIdx = 0; outIdx < bias.columns; ++outIdx)
-                            ss << "\tinputs[outIdx] = layer" << l << "Output" << outIdx << ";\n";
+                            ss << "\tinputs[" << outIdx << "] = layer" << l << "Output" << outIdx << ";\n";
                     }
                 }
                 else

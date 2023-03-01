@@ -99,4 +99,5 @@ private:
     bool mPreventDarkHalos = false;
 
     NeuralNetCollection mNeuralNet;
+    NeuralNetCollection mNeuralNet2 = NeuralNetCollection(NeuralNetCollection::Type::Regressor);
 };

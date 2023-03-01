@@ -125,6 +125,7 @@ SVAO::SVAO(const Dictionary& dict)
     mpStencilFbo = Fbo::create();
 
     mNeuralNet.load("../../NeuralNetVAO/net_relu");
+    mNeuralNet2.load("../../NeuralNetVAO/net_relu_reg");
 }
 
 void SVAO::parseDictionary(const Dictionary& dict)
@@ -242,6 +243,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     if(!mpRasterPass || !mpRasterPass2 || !mpRayProgram) // this needs to be deferred because it needs the scene defines to compile
     {
         mNeuralNet.writeDefinesToFile("../RenderPasses/VAONonInterleaved/NeuralNetDefines.slangh");
+        mNeuralNet2.writeDefinesToFile("../RenderPasses/VAONonInterleaved/NeuralNetDefines2.slangh");
 
         Program::DefineList defines;
         defines.add("PRIMARY_DEPTH_MODE", std::to_string(uint32_t(mPrimaryDepthMode)));
@@ -405,6 +407,7 @@ const Gui::DropdownList kPrimaryDepthModeDropdown =
     { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
     { (uint32_t)DepthMode::DualDepth, "DualDepth" },
     { (uint32_t)DepthMode::MachineClassify, "MachineClassify" },
+    { (uint32_t)DepthMode::MachinePredict, "MachinePredict" },
 };
 
 const Gui::DropdownList kSecondaryDepthModeDropdown =
@@ -448,6 +451,9 @@ void SVAO::renderUI(Gui::Widgets& widget)
     }
     
     if (mNeuralNet.renderUI(widget))
+        reset = true;
+
+    if (mNeuralNet2.renderUI(widget))
         reset = true;
 
     if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;

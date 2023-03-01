@@ -1,5 +1,6 @@
 #include "Common.slang"
 #include "NeuralNetDefines.slangh"
+#include "NeuralNetDefines2.slangh"
 
 struct PSOut
 {
@@ -50,7 +51,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     
     float visibility = 0.0f;
 
-    #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY
+    #if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
     float rasterHeights[8];
     float tmpAoValues[8];
     #endif
@@ -97,7 +98,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
         curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
 
-        #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY
+        #if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
         rasterHeights[i] = clamp(objectSpaceZ / gData.radius, -16.0, 16.0);
         tmpAoValues[i] = 0.0;
         #endif
@@ -126,11 +127,11 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
                 requireRay = true;
         }
 
-        #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY
+        #if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
         tmpAoValues[i] = curVisibility;
         #endif
 
-        if (forceRay && (PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_CLASSIFY)) 
+        if (forceRay && (PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY)) 
         {
             forceRayMask |= (1u << i); 
         }
@@ -164,6 +165,41 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         if (!(output.stencil & (1u << i)))
              output.ao1 += tmpAoValues[i];
     }
+    #endif
+    #if PRIMARY_DEPTH_MODE == DEPTH_MODE_MACHINE_PREDICT
+    if(output.stencil != 0)
+    {
+        //output.stencil |= forceRayMask;
+        evalRegressor(rasterHeights);
+
+        [unroll]
+        for (uint i = 0; i < NUM_DIRECTIONS; ++i)
+        {
+            if ((output.stencil & (1u << i)))
+            {
+                // calc new ao value from new height
+                float alpha = (float(i) / NUM_DIRECTIONS) * 2.0 * 3.141;
+                float radius = sampleRadius[i] * gData.radius; // radius on sampling unit sphere * world space radius
+                float2 dir = radius * float2(sin(alpha), cos(alpha)); // world space direction
+
+                const float sphereHeight = sqrt(gData.radius * gData.radius - radius * radius);
+                const float pdf = 2.0 * sphereHeight;
+        
+                // determine distance within [-sphereHeight, +sphereHeight]
+                float sphereStart = sphereHeight; // in object coordinates (bigger is closer to the camera)
+                float sphereEnd = -sphereHeight; // in object coordinates (smaller is futher from the camera)
+
+                float zIntersect = -dot(dir.xy, normalO.xy) / makeNonZero(normalO.z, 0.0001);
+                float zIntersectClamped = clamp(zIntersect, -sphereHeight, sphereHeight);
+                sphereEnd = zIntersectClamped;
+
+                float objectSpaceZ = rasterHeights[i];
+                float curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
+                output.ao1 += curVisibility;
+            }
+        }
+    }
+    output.stencil = forceRayMask; // replace with forceRayMask
     #endif
 
     output.ao1 *= 2.0 / float(NUM_DIRECTIONS);
