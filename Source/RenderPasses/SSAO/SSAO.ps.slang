@@ -106,6 +106,7 @@ RWTexture2DArray<float> gRasterAO;
 RWTexture2DArray<float> gRayAO;
 RWTexture2DArray<uint> gForceRay;
 Texture2D<uint4> gMaterialData;
+RWTexture2DArray<float> gSphereEnd;
 
 #define FORCE_RAY_OUT_OF_SCREEN 1
 #define FORCE_RAY_DOUBLE_SIDED 2
@@ -348,6 +349,8 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             gRayDepth[uint3(XY, i)] = objectSpaceZ / gData.radius;
             gRasterAO[uint3(XY, i)] = curVisibility;
             gRayAO[uint3(XY, i)] = curVisibility;
+            gSphereEnd[uint3(XY, i)] = sphereEnd / gData.radius;
+
         }
        
         if(saveDepths)

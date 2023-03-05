@@ -5,11 +5,12 @@
 #include <numeric>
 #include "force_ray.h"
 
-void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image, std::string ray_image, std::string force_ray, std::string raster_ao, std::string ray_ao, int index, bool IsTraining)
+void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image, std::string ray_image, std::string force_ray, std::string raster_ao, std::string ray_ao, std::string sphere_end, int index, bool IsTraining)
 {
     static constexpr size_t NUM_SAMPLES = 8;
     
     const bool useDubiousSamples = !IsTraining; // false for training, true for evaluation
+    const bool forceDoubleSided = false; // can probably improve the classify accuracy
 
     gli::texture2d_array texRaster(gli::load(raster_image));
     gli::texture2d_array texRay(gli::load(ray_image));
@@ -19,6 +20,7 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
 
     gli::texture2d_array texRasterAO(gli::load(raster_ao));
     gli::texture2d_array texRayAO(gli::load(ray_ao));
+    gli::texture2d_array texSphereEnd(gli::load(sphere_end));
 
     auto width = texRaster.extent().x;
     auto height = texRaster.extent().y;
@@ -31,6 +33,8 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
     std::vector<uint8_t> required; // 1 if ray tracing is required, 0 if not (x8)
     std::vector<uint8_t> requiredForced;
     std::vector<uint8_t> asked; // 1 if we want to ask the neural net for a prediction
+    std::vector<float> sphereEndSamples;
+    std::vector<float> sphereStartSamples;
 
     //std::vector<int> forcedPixels; // XYi coordinates of the pixel that was forced to be ray traced (or is invalid, in which case the saved ao is 1.0)
     //std::vector<int> numInvalid; // number of invalid samples
@@ -42,6 +46,8 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
     pixelXY.reserve(width * height * 2);
     required.reserve(width * height * NUM_SAMPLES);
     asked.reserve(width * height * NUM_SAMPLES);
+    sphereEndSamples.reserve(width * height * NUM_SAMPLES);
+    sphereStartSamples.reserve(width * height * NUM_SAMPLES);
 
     //forcedPixels.reserve(width * height * 3 * NUM_SAMPLES);
 
@@ -50,6 +56,7 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
     std::array<float, NUM_SAMPLES> ray;
     std::array<float, NUM_SAMPLES> aoDiff; // difference in AO values
     std::array<uint8_t, NUM_SAMPLES> forceRay;
+    std::array<float, NUM_SAMPLES> sphereEnd;
     //std::vector<uint32_t> instances;
     //instances.resize(nSamples);
 
@@ -71,17 +78,27 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
         {
             raster[i] = fetch(texRaster, gli::extent2d(x, y), i, 0, 0).r;
             ray[i] = fetch(texRay, gli::extent2d(x, y), i, 0, 0).r;
+            sphereEnd[i] = fetch(texSphereEnd, gli::extent2d(x, y), i, 0, 0).r;
             //instances[i] = (uint32_t)fetchInt(texInstances, gli::extent2d(x, y), i, 0, 0).r;
             aoDiff[i] = abs(fetchAO(texRasterAO, gli::extent2d(x, y), i, 0, 0).r - fetchAO(texRayAO, gli::extent2d(x, y), i, 0, 0).r);
             assert(aoDiff[i] <= 1.0f);
             auto forceRayId = int8_t(fetchBool(texForceRay, gli::extent2d(x, y), i, 0, 0).r);
-            forceRay[i] = forceRayId != 0;
-            if (forceRayId == FORCE_RAY_INVALID) numInvalid++;
-            else if (forceRayId == FORCE_RAY_DOUBLE_SIDED) numDoubleSided++;
+            forceRay[i] = 0;
+            if (forceRayId == FORCE_RAY_INVALID)
+            {
+                numInvalid++;
+                forceRay[i] = 1;
+            }
+            else if (forceRayId == FORCE_RAY_DOUBLE_SIDED && forceDoubleSided)
+            {
+                numDoubleSided++;
+                forceRay[i] = 1;
+            }
             else if (forceRayId == FORCE_RAY_OUT_OF_SCREEN)
             {
                 numOutOfScreen++;
                 outOfScreen = true;
+                forceRay[i] = 1;
             }
         }
 
@@ -112,9 +129,6 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
 
         if (isDubious && !useDubiousSamples) continue; // less noise in training data
 
-        if (std::all_of(forceRay.begin(), forceRay.end(), [](bool force) {return force; }) && IsTraining)
-            continue; // skip this for the training
-
         // fill require mask
         std::array<uint8_t, NUM_SAMPLES>  requireMask;
         std::array<uint8_t, NUM_SAMPLES> askMask;
@@ -143,6 +157,8 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
         asked.insert(asked.end(), askMask.begin(), askMask.end());
         required.insert(required.end(), requireMask.begin(), requireMask.end());
         requiredForced.insert(requiredForced.end(), forceRay.begin(), forceRay.end());
+        sphereEndSamples.insert(sphereEndSamples.end(), sphereEnd.begin(), sphereEnd.end());
+        sphereStartSamples.insert(sphereStartSamples.end(), sphereStart.begin(), sphereStart.end());
     }
 
     const auto strIndex = std::to_string(index);
@@ -171,6 +187,9 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
     {
         npy::SaveArrayAsNumpy("raster_train_" + strIndex + ".npy", false, 2, shapeSamples, rasterSamples);
         npy::SaveArrayAsNumpy("ray_train_" + strIndex + ".npy", false, 2, shapeSamples, raySamples);
+        npy::SaveArrayAsNumpy("sphere_start_train_" + strIndex + ".npy", false, 2, shapeSamples, sphereStartSamples);
+        npy::SaveArrayAsNumpy("sphere_end_train_" + strIndex + ".npy", false, 2, shapeSamples, sphereEndSamples);
+        
         npy::SaveArrayAsNumpy("required_train_" + strIndex + ".npy", false, 2, shapeRequired, required);
         npy::SaveArrayAsNumpy("asked_train_" + strIndex + ".npy", false, 2, shapeRequired, asked);
         npy::SaveArrayAsNumpy("required_forced_train_" + strIndex + ".npy", false, 2, shapeRequired, requiredForced);
@@ -179,6 +198,9 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
     {
         npy::SaveArrayAsNumpy("raster_eval_" + strIndex + ".npy", false, 2, shapeSamples, rasterSamples);
         npy::SaveArrayAsNumpy("ray_eval_" + strIndex + ".npy", false, 2, shapeSamples, raySamples);
+        npy::SaveArrayAsNumpy("sphere_start_eval_" + strIndex + ".npy", false, 2, shapeSamples, sphereStartSamples);
+        npy::SaveArrayAsNumpy("sphere_end_eval_" + strIndex + ".npy", false, 2, shapeSamples, sphereEndSamples);
+
         npy::SaveArrayAsNumpy("required_eval_" + strIndex + ".npy", false, 2, shapeRequired, required);
         npy::SaveArrayAsNumpy("asked_eval_" + strIndex + ".npy", false, 2, shapeRequired, asked);
         npy::SaveArrayAsNumpy("required_forced_eval_" + strIndex + ".npy", false, 2, shapeRequired, requiredForced);

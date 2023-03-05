@@ -110,6 +110,7 @@ namespace
     //const std::string kInternalInstanceID = "iInstanceID";
     const std::string kInternalRasterAO = "iRasterAO";
     const std::string kInternalRayAO = "iRayAO";
+    const std::string kInternalSphereEnd = "iSphereEnd";
 
     const std::string kSSAOShader = "RenderPasses/SSAO/SSAO.ps.slang";
 
@@ -197,6 +198,8 @@ RenderPassReflection VAO::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Unorm);
     reflector.addInternal(kInternalRayAO, "internal ray AO").texture2D(0, 0, 1, 1, mKernelSize)
         .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R8Unorm);
+    reflector.addInternal(kInternalSphereEnd, "internal sphere end").texture2D(0, 0, 1, 1, mKernelSize)
+        .bindFlags(ResourceBindFlags::UnorderedAccess).format(ResourceFormat::R32Float);
 
     return reflector;
 }
@@ -236,6 +239,7 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pInternalForceRay = renderData[kInternalForceRay]->asTexture();
     auto pInternalRasterAO = renderData[kInternalRasterAO]->asTexture();
     auto pInternalRayAO = renderData[kInternalRayAO]->asTexture();
+    auto pInternalSphereEnd = renderData[kInternalSphereEnd]->asTexture();
 
     auto pCamera = mpScene->getCamera().get();
     //renderData["k"]->asBuffer();
@@ -268,6 +272,7 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             mpSSAOPass["gRayDepth"] = pInternalRayDepth;
             mpSSAOPass["gRasterAO"] = pInternalRasterAO;
             mpSSAOPass["gRayAO"] = pInternalRayAO;
+            mpSSAOPass["gSphereEnd"] = pInternalSphereEnd;
             mpSSAOPass["gForceRay"] = pInternalForceRay;
             //mpSSAOPass["gInstanceIDOut"] = pInternalInstanceID;
         }
@@ -309,6 +314,7 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             pRenderContext->clearUAV(pInternalForceRay->asTexture()->getUAV().get(), uint4(0));
             pRenderContext->clearTexture(pInternalRasterAO->asTexture().get());
             pRenderContext->clearTexture(pInternalRayAO->asTexture().get());
+            pRenderContext->clearTexture(pInternalSphereEnd->asTexture().get());
         }
 
         // Generate AO
@@ -326,10 +332,11 @@ void VAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             pInternalForceRay->captureToFile(0, -1, "ML/forceRay.dds", Bitmap::FileFormat::DdsFile);
             pInternalRasterAO->captureToFile(0, -1, "ML/rasterAO.dds", Bitmap::FileFormat::DdsFile);
             pInternalRayAO->captureToFile(0, -1, "ML/rayAO.dds", Bitmap::FileFormat::DdsFile);
+            pInternalSphereEnd->captureToFile(0, -1, "ML/sphereEnd.dds", Bitmap::FileFormat::DdsFile);
 
             auto sphereHeights = getSphereHeights();
 
-            vao_to_numpy(sphereHeights, "ML/raster.dds", "ML/ray.dds", "ML/forceRay.dds", "ML/rasterAO.dds", "ML/rayAO.dds", mTrainingIndex, mIsTraining);
+            vao_to_numpy(sphereHeights, "ML/raster.dds", "ML/ray.dds", "ML/forceRay.dds", "ML/rasterAO.dds", "ML/rayAO.dds", "ML/sphereEnd.dds", mTrainingIndex, mIsTraining);
             mTrainingIndex++;
             
             mSaveDepths = false;

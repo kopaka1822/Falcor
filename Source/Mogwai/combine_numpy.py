@@ -31,6 +31,8 @@ combineFiles('ray_train_')
 combineFiles('required_train_')
 combineFiles('required_forced_train_')
 combineFiles('asked_train_')
+combineFiles('sphere_start_train_')
+combineFiles('sphere_end_train_')
 
 # cleanup the old files
 for filename in cleanupFiles:

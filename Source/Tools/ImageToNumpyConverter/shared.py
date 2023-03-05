@@ -31,13 +31,13 @@ def preprocess_inputs(raster, asked):
 	return final
 
 def preprocess_inputs_vao(raster, asked):
-	final = np.clip(raster, -16, 16) # clip
+	final = np.clip(raster, -2, 2) # clip
 	#final = np.concatenate((final, asked), axis=1)
 	final = [final, asked]
 	return final
 
 def preprocess_ray_labels(ray, asked):
-	ray = np.clip(ray, -16, 16) # clip
+	ray = np.clip(ray, -1, 1) # clip
 	# zero entries where asked is zero
 	ray[asked == 0] = 0
 	return ray
