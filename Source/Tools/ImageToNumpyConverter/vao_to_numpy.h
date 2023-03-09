@@ -124,6 +124,12 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
                 dubiousSamples++;
                 //std::cout << "doubious sample at: " << x << ", " << y << " id: " << i << " diff: " << ray[i] - raster[i] << '\n';
                 isDubious = true;
+                ray[i] = raster[i]; // set ray to raster
+            }
+
+            if ((raster[i] > sphereEnd[i]) && (ray[i] - equalityThreshold < sphereEnd[i]))
+            {
+                ray[i] = raster[i]; // set ray to raster because ray is behind sphere end => no further intersection
             }
         }
 
@@ -137,7 +143,8 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
             uint8_t askRay = 1 - forceRay[step]; // ask for ray if we don't force it
 
             // check if trivial
-            if (raster[step] <= sphereStart[step]) askRay = 0; // raster is in sphere
+            //if (raster[step] <= sphereStart[step]) askRay = 0; // raster is in sphere
+            if (raster[step] <= 1.0) askRay = 0; // raster is in const area or sphere
 
             askMask[step] = askRay;
 
@@ -192,7 +199,7 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
         
         npy::SaveArrayAsNumpy("required_train_" + strIndex + ".npy", false, 2, shapeRequired, required);
         npy::SaveArrayAsNumpy("asked_train_" + strIndex + ".npy", false, 2, shapeRequired, asked);
-        npy::SaveArrayAsNumpy("required_forced_train_" + strIndex + ".npy", false, 2, shapeRequired, requiredForced);
+        //npy::SaveArrayAsNumpy("required_forced_train_" + strIndex + ".npy", false, 2, shapeRequired, requiredForced);
     }
     else
     {

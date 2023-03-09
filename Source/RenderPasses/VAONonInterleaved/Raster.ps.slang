@@ -103,7 +103,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         tmpAoValues[i] = 0.0;
         #endif
 
-        if (sphereStart - sphereEnd < 0.01)
+        if ((sphereStart - sphereEnd) / pdf <= 0.1)
         {
             continue; // skip sample (no visibility)
         }

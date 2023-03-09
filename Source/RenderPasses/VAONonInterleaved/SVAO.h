@@ -96,7 +96,7 @@ private:
     DepthMode mSecondaryDepthMode = DepthMode::Raytraced;
     bool mUseRayPipeline = true;
 
-    bool mPreventDarkHalos = false;
+    bool mPreventDarkHalos = true;
 
     NeuralNetCollection mNeuralNet;
     NeuralNetCollection mNeuralNet2 = NeuralNetCollection(NeuralNetCollection::Type::Regressor);

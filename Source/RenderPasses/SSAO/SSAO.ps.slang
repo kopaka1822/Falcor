@@ -65,7 +65,9 @@ import Scene.Raster;
 // area where the halo effect remains constant at 0.0
 #if PREVENT_DARK_HALOS
 #define CONST_RADIUS ((1.0 + gData.thickness) * gData.radius - sphereStart)
-#define HALO_RADIUS (sphereStart - sphereEnd)
+//#define HALO_RADIUS (sphereStart - sphereEnd)
+#define HALO_RADIUS sphereStart
+//#define HALO_RADIUS (0.01 * gData.radius)
 #define COMBINE_VIS(a,b) min(a,b)
 #else
 #define CONST_RADIUS 0.0
@@ -336,7 +338,7 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         bool primaryIsOccluded = (objectSpaceZ > sphereStart + CONST_RADIUS);
         
         // if the sample range is too small, skip calculation (sample could be entirely below the surface hemisphere when looking from grazing angles)
-        bool isInvalid = (sphereStart - sphereEnd < 0.01);
+        bool isInvalid = (sphereStart - sphereEnd) / pdf <= 0.1;
         if (isInvalid)
         {
             curVisibility = 0.0;
@@ -371,8 +373,11 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
             primaryIsOccluded = true; // force ray
         }
+
+        //primaryIsOccluded = true;
+        //isInvalid = false;
        
-        
+        //primaryIsOccluded = true;
         if (!isInvalid && DEPTH_MODE == DEPTH_MODE_DUAL && primaryIsOccluded)
         {
             // obtain secondary sample if primary sample is occluded
@@ -488,13 +493,20 @@ main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
                 // calculate visibility inside and outside of sphere
                 float sphereZ = posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength;
+                if (tFirstFrontFaceInside == tSphereEnd)
+                    sphereZ = sphereEnd; // precision issues
                 float haloZ = posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength;
+                if (tLastFrontFaceHalo == tHaloStart)
+                    haloZ = sphereHeight + CONST_RADIUS + HALO_RADIUS; // precision issues
+                
                 float sphereVisibility = calcSphereVisibility(sphereZ, sphereStart, sphereEnd, pdf);
                 float haloVisibility = calcHaloVisibility(haloZ, sphereStart, sphereEnd, pdf);
 
-                if (saveDepths && min(sphereVisibility, haloVisibility) < curVisibility)
+                if (saveDepths && min(sphereVisibility, haloVisibility) <= curVisibility)
                 {
-                    gRayDepth[uint3(XY, i)] = (sphereVisibility <= haloVisibility ? sphereZ : haloZ) / gData.radius;
+                    float rayZ = (sphereVisibility-0.01 <= haloVisibility ? sphereZ : haloZ) / gData.radius;
+                    //if (rayZ > sphereEnd + 0.05 * gData.radius) // treat very close to sphereEnd as sphereEnd (visibility = 1)
+                    gRayDepth[uint3(XY, i)] = min(rayZ, objectSpaceZ / gData.radius); // objectSpaceZ can be smaller than rayZ when recording, because rayZ is clipped to sphereEnd
                 }
             
                 curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));

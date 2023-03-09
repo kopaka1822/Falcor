@@ -13,7 +13,7 @@ from sklearn import tree
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 import pickle
-from shared import preprocess_inputs_vao
+from shared import *
 import tensorflow_model_optimization as tfmot
 
 import tensorflow as tf
@@ -53,7 +53,20 @@ def print_stats(clf, rasterf, requiredf, askedf):
 	f1 = f1_score(requiredf_flat, y_pred)
 	print("F1 score: ", f1)
 	print("Recall: ", cm[1][1] / (cm[1][1] + cm[1][0]))
-	return acc
+	
+	# stats for weighted loss
+	numAsked = np.count_nonzero(asked_flat)
+	numRequired = np.count_nonzero(requiredf_flat)
+	numClass1 = numRequired
+	numClass0 = numAsked - numRequired
+	w0 = numAsked / numClass0*0.5
+	w1 = numAsked / numClass1*0.5
+	weighted_loss = (cm[0][1] * w0 + cm[1][0] * w1) / numAsked
+	weighted_acc = 1.0 - weighted_loss
+	#print class weights and weighted loss
+	#print("class weights: ", w0, w1)
+	print("weighted accuracy: ", weighted_acc)
+	return weighted_acc
 
 def prunemodel():
 	tf.keras.utils.set_random_seed(1) # use same random seed for training
@@ -73,9 +86,14 @@ def prunemodel():
 	raster_validationf = preprocess_inputs_vao(raster_validationf, asked_validationf)
 
 	clf = pickle.load(open(filename, 'rb'))
-	clf.summary()
-	print(clf.get_weights())
-	original_acc = print_stats(clf, raster_validationf, required_validationf, asked_validationf)
+	#clf.summary()
+	#print(clf.get_weights())
+	original_acc = print_stats(clf, rasterf, requiredf, askedf)
+	#original_acc = print_stats(clf, raster_validationf, required_validationf, asked_validationf)
+
+
+	class_weight = vao_class_weights(askedf, requiredf)
+	loss = AoLoss(class_weight[0], class_weight[1])
 
 	# try different target sparsity
 	# do binary search to find optimal sparsity
@@ -97,11 +115,12 @@ def prunemodel():
 		}
 
 		prune_clf = tfmot.sparsity.keras.prune_low_magnitude(clf, **pruning_params)
-		prune_clf.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
+		prune_clf.compile(optimizer='adam', loss=loss, metrics=[tf.keras.metrics.BinaryAccuracy()])
 
 		prune_clf.fit(rasterf, requiredf, epochs=epochs, batch_size=BATCH_SIZE, validation_data=(raster_validationf, required_validationf), callbacks=[tfmot.sparsity.keras.UpdatePruningStep()])
 		export_model = tfmot.sparsity.keras.strip_pruning(prune_clf)
-		new_acc = print_stats(export_model, raster_validationf, 	required_validationf, asked_validationf)
+		new_acc = print_stats(export_model, rasterf, requiredf, askedf)
+		#new_acc = print_stats(export_model, raster_validationf, 	required_validationf, asked_validationf)
 		results[sparsity] = new_acc
 		models[sparsity] = export_model
 

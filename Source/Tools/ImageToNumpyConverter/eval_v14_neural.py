@@ -32,20 +32,6 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)) + "/eval")
 output_correct = np.zeros((NUM_SAMPLES, IMG_HEIGHT, IMG_WIDTH), dtype=np.uint8)
 output_asked = np.zeros((NUM_SAMPLES, IMG_HEIGHT, IMG_WIDTH), dtype=np.uint8)
 output_probability = np.zeros((NUM_SAMPLES, IMG_HEIGHT, IMG_WIDTH), dtype=np.float32)
-
-def print_weights(weights):
-	kernel0 = weights[0]
-	bias0 = weights[1]
-	kernel1 = weights[2]
-	bias1 = weights[3]
-	kernel2 = weights[4]
-	bias2 = weights[5]
-	print("kernel0", ','.join(map(str, kernel0.flatten())))
-	print("bias0", ','.join(map(str, bias0.flatten())))
-	print("kernel1", ','.join(map(str, kernel1.flatten())))
-	print("bias1", ','.join(map(str, bias1.flatten())))
-	print("kernel2", ','.join(map(str, kernel2.flatten())))
-	print("bias2", ','.join(map(str, bias2.flatten())))
 		
 # filter data
 rasterf = np.load(f'raster_eval_{EVAL_ID}.npy')
@@ -72,12 +58,10 @@ def inspectSample():
 	weights = net.get_weights()
 	#print_weights(weights)
 
-	np.save(f'{ML_NAME}_weights0_kernel0.npy', weights[0])
-	np.save(f'{ML_NAME}_weights0_bias0.npy', weights[1])
-	np.save(f'{ML_NAME}_weights0_kernel1.npy', weights[2])
-	np.save(f'{ML_NAME}_weights0_bias1.npy', weights[3])
-	#np.save(f'{ML_NAME}_weights0_kernel2.npy', weights[4])
-	#np.save(f'{ML_NAME}_weights0_bias2.npy', weights[5])
+	layers = len(weights) // 2
+	for l in range(layers):
+		np.save(f'{ML_NAME}_weights0_kernel{l}.npy', weights[2 * l + 0])
+		np.save(f'{ML_NAME}_weights0_bias{l}.npy', weights[2 * l + 1])
 	print("Weights:\n", weights)
 
 	print("writing y_asked")

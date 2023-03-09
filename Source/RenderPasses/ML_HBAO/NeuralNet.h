@@ -92,14 +92,16 @@ public:
     {
         widget.separator();
 
+        std::string prefix;
         if (mType == Type::Classifier)
-            widget.text("Classifier");
+            prefix = "Classifier";
         else
-            widget.text("Regressor");
+            prefix = "Regressor";
+        widget.text(prefix);
 
         bool changed = false;
 
-        widget.textbox("File: ", mFilename);
+        widget.textbox("File " + prefix, mFilename);
         if(widget.button("Load From File"))
         {
             try

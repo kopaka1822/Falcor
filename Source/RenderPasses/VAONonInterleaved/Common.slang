@@ -19,7 +19,8 @@ import Scene.Shading;
 // area where the halo effect remains constant at 0.0
 #if PREVENT_DARK_HALOS
 #define CONST_RADIUS ((1.0 + gData.thickness) * gData.radius - sphereStart)
-#define HALO_RADIUS (sphereStart - sphereEnd)
+//#define HALO_RADIUS (sphereStart - sphereEnd)
+#define HALO_RADIUS sphereStart
 #define COMBINE_VIS(a,b) min(a,b)
 #else
 #define CONST_RADIUS 0.0

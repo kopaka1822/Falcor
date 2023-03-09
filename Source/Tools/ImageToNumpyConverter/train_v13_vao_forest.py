@@ -20,6 +20,7 @@ from sklearn.ensemble import AdaBoostClassifier
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.decomposition import PCA
 from sklearn.svm import SVC
+from shared import *
 
 import pickle
 
@@ -35,6 +36,8 @@ raster = np.load(f'train/raster_train_.npy')
 required = np.load(f'train/required_train_.npy')
 asked = np.load(f'train/asked_train_.npy')
 
+class_weight = vao_class_weights(asked, required)
+
 raster_validation = np.load(f'eval/raster_eval_0.npy')
 required_validation = np.load(f'eval/required_eval_0.npy')
 asked_validation = np.load(f'eval/asked_eval_0.npy')
@@ -43,7 +46,7 @@ asked_validation = np.load(f'eval/asked_eval_0.npy')
 raster = np.clip(raster, -16, 16)
 raster_validation = np.clip(raster_validation, -16, 16)
 
-def inspectSample(stepIndex):
+def inspectSample(stepIndex, results):
 
 	filename = f"{ML_NAME}{stepIndex}.pkl"
 
@@ -77,7 +80,9 @@ def inspectSample(stepIndex):
 			n_estimators=96, 
 			random_state=0,
 			bootstrap=True,
-			max_samples=min(1000000, len(rasterf)),
+			max_samples=min(500000, len(rasterf)),
+			class_weight=class_weight,
+			max_depth=10,
 			n_jobs=-1
 		)
 
@@ -88,17 +93,32 @@ def inspectSample(stepIndex):
 	# predict test data
 	y_pred = clf.predict(rasterf)
 	# print test set stats
-	print("accuracy training: ", np.count_nonzero(y_pred == requiredf) / len(y_pred))
+	acc = np.count_nonzero(y_pred == requiredf) / len(y_pred)
+	print("accuracy training: ", acc)
 	print("confusion matrix training:")
-	print(confusion_matrix(requiredf, y_pred))
+	cm = confusion_matrix(requiredf, y_pred)
+	print(cm)
+	results['accuracy_training'] += acc * len(y_pred)
+	results['n_training'] += len(y_pred)
+	results['cm_training'][0][0] += cm[0][0]
+	results['cm_training'][0][1] += cm[0][1]
+	results['cm_training'][1][0] += cm[1][0]
+	results['cm_training'][1][1] += cm[1][1]
 
 	# print validation set stats
 	y_pred = clf.predict(raster_validationf)
-	print("accuracy validation: ", np.count_nonzero(y_pred == required_validationf) / len(y_pred))
+	acc = np.count_nonzero(y_pred == required_validationf) / len(y_pred)
+	print("accuracy validation: ", acc)
 	print("confusion matrix validation:")
 	cm = confusion_matrix(required_validationf, y_pred)
 	print(cm)
 	print("Recall: ", cm[1][1] / (cm[1][1] + cm[1][0]))
+	results['accuracy_validation'] += acc * len(y_pred)
+	results['n_validation'] += len(y_pred)
+	results['cm_validation'][0][0] += cm[0][0]
+	results['cm_validation'][0][1] += cm[0][1]
+	results['cm_validation'][1][0] += cm[1][0]
+	results['cm_validation'][1][1] += cm[1][1]
 
 	#grid = clf.named_steps['estimator']
 	#print(grid.cv_results_['params'][grid.best_index_])
@@ -118,5 +138,23 @@ def inspectSample(stepIndex):
 
 #inspectSample(3)
 
+results = {
+	'accuracy_training': 0.0,
+	'n_training': 0,
+	'accuracy_validation': 0.0,
+	'n_validation': 0,
+	'cm_training': [[0, 0], [0, 0]],
+	'cm_validation': [[0, 0], [0, 0]]
+}
 for i in range(NUM_SAMPLES):
-	inspectSample(i)
+	inspectSample(i, results)
+
+print("----------------------------------------------------------------")
+acc_training = results['accuracy_training'] / results['n_training']
+acc_validation = results['accuracy_validation'] / results['n_validation']
+print(f"accuracy training: {acc_training}")
+print(results['cm_training'][0])
+print(results['cm_training'][1])
+print(f"accuracy validation: {acc_validation}")
+print(results['cm_validation'][0])
+print(results['cm_validation'][1])

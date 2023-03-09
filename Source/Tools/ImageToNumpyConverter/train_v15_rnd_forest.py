@@ -31,9 +31,6 @@ from keras.layers import LeakyReLU
 NUM_SAMPLES = 8
 CLEAR_FILE = True # clears cached files
 
-BATCH_SIZE = 1024
-
-LAYERS = [16, 16]
 #ML_NAME = f"net_{LAYERS}_{NEURONS}_"
 ML_NAME = f"rnd_forest_reg"
 
