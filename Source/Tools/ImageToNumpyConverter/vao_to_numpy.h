@@ -126,11 +126,6 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
                 isDubious = true;
                 ray[i] = raster[i]; // set ray to raster
             }
-
-            if ((raster[i] > sphereEnd[i]) && (ray[i] - equalityThreshold < sphereEnd[i]))
-            {
-                ray[i] = raster[i]; // set ray to raster because ray is behind sphere end => no further intersection
-            }
         }
 
         if (isDubious && !useDubiousSamples) continue; // less noise in training data

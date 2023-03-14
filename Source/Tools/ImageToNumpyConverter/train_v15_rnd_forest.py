@@ -31,7 +31,6 @@ from keras.layers import LeakyReLU
 NUM_SAMPLES = 8
 CLEAR_FILE = True # clears cached files
 
-#ML_NAME = f"net_{LAYERS}_{NEURONS}_"
 ML_NAME = f"rnd_forest_reg"
 
 # set current directory as working directory
@@ -47,10 +46,12 @@ def print_stats(clf, rasterf, rayf, sphereStart, sphereEnd):
 	#  max(sphereStart - max(sphereEnd, objectSpaceZ), 0.0);
 	ao_pred = np.maximum(sphereStart - np.maximum(sphereEnd, y_pred), 0.0) / (2.0 * sphereStart)
 	ao_true = np.maximum(sphereStart - np.maximum(sphereEnd, rayf), 0.0) / (2.0 * sphereStart)
-	print("Mean AO Error: ", np.mean(np.abs(ao_pred - ao_true)))
+	avg_err = np.mean(np.abs(ao_pred - ao_true))
+	print("Mean AO Error: ", avg_err)
+	return avg_err
 
 
-def inspectSample(i):
+def inspectSample(i, results):
 	tf.keras.utils.set_random_seed(1) # use same random seed for training
 	filename = f"{ML_NAME}{i}.pkl"
 
@@ -86,8 +87,8 @@ def inspectSample(i):
 	#ray_validationf = np.clip(ray_validationf, -1.0, 1.0)
 	sphere_height = sphere_startf[0]
 	# clip to sphere height
-	rayf = np.clip(rayf, -sphere_height, sphere_height)
-	ray_validationf = np.clip(ray_validationf, -sphere_height, sphere_height)
+	rayf = np.clip(rayf, -1.0, 1.0)
+	ray_validationf = np.clip(ray_validationf, -1.0, 1.0)
 
 	print("length of data: ", len(rasterf))
 
@@ -114,11 +115,23 @@ def inspectSample(i):
 
 	# evaluate model
 	print("test")
-	print_stats(clf, rasterf, rayf, sphere_startf, sphere_endf)
+	results['error_sum_test'] += print_stats(clf, rasterf, rayf, sphere_startf, sphere_endf) * len(rasterf)
+	results['n_test'] += len(rasterf)
 	print("validation")
 	print_stats(clf, raster_validationf, ray_validationf, sphere_start_validationf, sphere_end_validationf)
+	results['error_sum_valid'] += print_stats(clf, raster_validationf, ray_validationf, sphere_start_validationf, sphere_end_validationf) * len(raster_validationf)
+	results['n_valid'] += len(raster_validationf)
 	print("----------------------------------------------------------------")
 
-
+results = {
+	'error_sum_test': 0,
+	'error_sum_valid': 0,
+	'n_test': 0,
+	'n_valid': 0
+}
 for i in range(NUM_SAMPLES):
-	inspectSample(i)
+	inspectSample(i, results)
+
+print("----------------------------------------------------------------")
+print("final test error: ", results['error_sum_test'] / results['n_test'])
+print("final validation error: ", results['error_sum_valid'] / results['n_valid'])

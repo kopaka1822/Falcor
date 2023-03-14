@@ -25,7 +25,6 @@ from shared import *
 import pickle
 from keras.callbacks import EarlyStopping
 from keras.layers import LeakyReLU
-import pandas as pd
 
 NUM_SAMPLES = 8
 CLEAR_FILE = True # clears cached files
