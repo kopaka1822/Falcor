@@ -80,9 +80,9 @@ def inspectSample(stepIndex, results):
 			n_estimators=96, 
 			random_state=0,
 			bootstrap=True,
-			max_samples=min(500000, len(rasterf)),
+			max_samples=min(1000000, len(rasterf)),
 			class_weight=class_weight,
-			max_depth=10,
+			#max_depth=10,
 			n_jobs=-1
 		)
 

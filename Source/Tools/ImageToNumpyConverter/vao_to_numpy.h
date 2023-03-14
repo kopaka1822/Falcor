@@ -10,7 +10,7 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
     static constexpr size_t NUM_SAMPLES = 8;
     
     const bool useDubiousSamples = !IsTraining; // false for training, true for evaluation
-    const bool forceDoubleSided = false; // can probably improve the classify accuracy
+    const bool forceDoubleSided = true; // can probably improve the classify accuracy
 
     gli::texture2d_array texRaster(gli::load(raster_image));
     gli::texture2d_array texRay(gli::load(ray_image));
