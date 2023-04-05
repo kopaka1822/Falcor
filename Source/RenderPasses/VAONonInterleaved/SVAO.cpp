@@ -311,6 +311,12 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pCamera = mpScene->getCamera().get();
     pCamera->setShaderData(mpRasterPass["PerFrameCB"]["gCamera"]);
     mpRasterPass["PerFrameCB"]["invViewMat"] = glm::inverse(pCamera->getViewMatrix());
+    if(mPrimaryDepthMode == DepthMode::PerfectClassify)
+    {
+        // set raytracing data
+        auto var = mpRasterPass->getRootVar();
+        mpScene->setRaytracingShaderData(pRenderContext, var);
+    }
     mpRasterPass["gDepthTex"] = pDepth;
     mpRasterPass["gDepthTex2"] = pDepth2;
     mpRasterPass["gNormalTex"] = pNormal;
@@ -408,6 +414,7 @@ const Gui::DropdownList kPrimaryDepthModeDropdown =
     { (uint32_t)DepthMode::DualDepth, "DualDepth" },
     { (uint32_t)DepthMode::MachineClassify, "MachineClassify" },
     { (uint32_t)DepthMode::MachinePredict, "MachinePredict" },
+    { (uint32_t)DepthMode::PerfectClassify, "PerfectClassify" },
 };
 
 const Gui::DropdownList kSecondaryDepthModeDropdown =

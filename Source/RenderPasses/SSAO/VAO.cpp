@@ -58,6 +58,7 @@ static void regSSAO(pybind11::module& m)
     depthMode.value("Raytraced", Falcor::DepthMode::Raytraced);
     depthMode.value("MachineClassify", Falcor::DepthMode::MachineClassify);
     depthMode.value("MachinePredict", Falcor::DepthMode::MachinePredict);
+    depthMode.value("PerfectClassify", Falcor::DepthMode::PerfectClassify);
 }
 
 extern "C" __declspec(dllexport) void getPasses(Falcor::RenderPassLibrary& lib)

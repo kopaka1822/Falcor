@@ -15,6 +15,7 @@ import Scene.Shading;
 #define DEPTH_MODE_RAYTRACING 3
 #define DEPTH_MODE_MACHINE_CLASSIFY 4
 #define DEPTH_MODE_MACHINE_PREDICT 5
+#define DEPTH_MODE_PERFECT_CLASSIFY 6
 
 // area where the halo effect remains constant at 0.0
 #if PREVENT_DARK_HALOS

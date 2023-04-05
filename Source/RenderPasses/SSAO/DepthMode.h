@@ -9,6 +9,7 @@ namespace Falcor
         StochasticDepth,
         Raytraced,
         MachineClassify,
-        MachinePredict
+        MachinePredict,
+        PerfectClassify, // for performance analysis (will be expensive)
     };
 }
