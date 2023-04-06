@@ -217,8 +217,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
                         if (t <= tSphereStart)
                         {
                             tLastFrontFaceHalo = max(tLastFrontFaceHalo, t);
-                            if (t >= tConstRadiusStart)
-                                break; // we can stop the query, because this will set the visibility to zero
+                            //if (t >= tConstRadiusStart)
+                            //    break; // we can stop the query, because this will set the visibility to zero
                         }
                         else // inside sphere
                         {
@@ -230,36 +230,25 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
                     }
                 }
 
+                //objectSpaceZ = (posVLength - tFirstFrontFace * posVLength / initialSamplePosLength);
                 float rayDepth = objectSpaceZ;
-                    
-                if (tFirstFrontFace < tHaloStart && !firstFrontFaceDoubleSided && tFirstBackface >= tSphereEnd)
-                {
-                    // use the first hit (should be the same as the raster hit)
-                    float rayZ = (posVLength - tFirstFrontFace * posVLength / initialSamplePosLength);
-                    rayDepth = rayZ;
 
-                }
-                else // use either tFirstFrontFaceInside or tLastFrontFaceHalo
+                bool requireRay = true;
+                if (!firstFrontFaceDoubleSided && (tFirstFrontFace >= tConstRadiusStart || tFirstBackface >= tSphereEnd))
                 {
-                    // calculate visibility inside and outside of sphere
-                    float sphereZ = posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength;
-                    float haloZ = posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength;
-                    if (tLastFrontFaceHalo == tHaloStart)
-                        haloZ = sphereHeight + CONST_RADIUS + HALO_RADIUS; // precision issues
-                
-                    float sphereVisibility = calcSphereVisibility(sphereZ, sphereStart, sphereEnd, pdf);
-                    float haloVisibility = calcHaloVisibility(haloZ, sphereStart, sphereEnd, pdf);
-
-                    float rayZ = (sphereVisibility - 0.01 <= haloVisibility ? sphereZ : haloZ);
-                    rayDepth = min(rayZ, objectSpaceZ); // objectSpaceZ can be smaller than rayZ when recording, because rayZ is clipped to sphereEnd
+                    requireRay = false;
                 }
 
                 // determine if ray is required
-                requireRay = rayDepth < objectSpaceZ - 0.05 * gData.radius;
                 if(requireRay)
                     output.stencil |= 1u << i; // still needs a ray
                 else
                     output.ao1 += curVisibility; // no ray needed => include raster visibility
+
+                //float sphereVisibility = calcSphereVisibility(posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd, pdf);
+                //float haloVisibility = calcHaloVisibility(posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd, pdf);
+                //curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
+                //output.ao1 += curVisibility;
             }
 #endif
         }
