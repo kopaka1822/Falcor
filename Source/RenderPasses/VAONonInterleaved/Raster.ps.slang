@@ -234,7 +234,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
                 float rayDepth = objectSpaceZ;
 
                 bool requireRay = true;
-                if (!firstFrontFaceDoubleSided && (tFirstFrontFace >= tConstRadiusStart || tFirstBackface >= tSphereEnd))
+                //if (!firstFrontFaceDoubleSided && (tFirstFrontFace >= tConstRadiusStart || tFirstBackface >= tSphereEnd))
+                if (!firstFrontFaceDoubleSided && (tFirstFrontFace >= tConstRadiusStart || tFirstBackface >= tConstRadiusStart))
                 {
                     requireRay = false;
                 }

@@ -142,6 +142,9 @@
     <ProjectReference Include="..\RenderPasses\PixelInspectorPass\PixelInspectorPass.vcxproj">
       <Project>{80ddde59-a412-4e64-880a-6b52697c967b}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\RayFilter\RayFilter.vcxproj">
+      <Project>{5265d9dd-e9a3-44e8-a999-3987e8a53a8e}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\RTAODenoiser\RTAODenoiser.vcxproj">
       <Project>{12fb9ee5-f061-44cc-885f-a003ac639e0d}</Project>
     </ProjectReference>
