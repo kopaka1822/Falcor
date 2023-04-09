@@ -246,6 +246,9 @@ void rayGen()
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
             }
 
+            // subtract old visibility from raster (will be replaced with new visibility)
+            visibility -= curVisibility;
+
             float width, height;
             gDepthTex.GetDimensions(width, height);
             
@@ -290,19 +293,22 @@ void rayGen()
                 ray.TMin = max(tHaloStart, 0.0);
                 ray.TMax = tSphereEnd;
 
+                const float epsilon = gData.radius * 0.01;
+                float objectSpaceZ;
+                if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
+                    objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
+                else // if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
+                    objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
+
+                // subtract old visibility from raster (will be replaced with new visibility)
+                visibility -= curVisibility;
+
                 // include the value of the depth buffer when choosing TMin to save some traversal time
                 if (isInScreen)
-                {
-                    const float epsilon = gData.radius * 0.01;
-                    //const float epsilon = 0.0;
-                    float objectSpaceZ;
-                    if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
-                        objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
-                    else // if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
-                        objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);
-                    curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
                     ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
-                }
+                else
+                    curVisibility = 1.0;
 
                 RayData rayData;
                 rayData.tLastFrontFaceHalo = tHaloStart; // min

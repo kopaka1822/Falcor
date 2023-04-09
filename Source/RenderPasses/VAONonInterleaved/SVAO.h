@@ -30,6 +30,7 @@
 #include "../SSAO/DepthMode.h"
 #include "VAOData.slang"
 #include "../ML_HBAO/NeuralNet.h"
+#include "../RayFilter/RayFilter.h"
 
 using namespace Falcor;
 
@@ -69,8 +70,10 @@ private:
     FullScreenPass::SharedPtr mpRasterPass;
 
     Scene::SharedPtr mpScene;
+    bool mEnableRayFilter = true;
 
     RenderGraph::SharedPtr mpStochasticDepthGraph;
+    RayFilter::SharedPtr mpRayFilter;
 
     // 2nd pass
     Fbo::SharedPtr mpFbo2;

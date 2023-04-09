@@ -30,7 +30,7 @@
 
 using namespace Falcor;
 
-class RayFilter : public RenderPass
+class FALCOR_API_EXPORT RayFilter : public RenderPass
 {
 public:
     using SharedPtr = std::shared_ptr<RayFilter>;
@@ -53,6 +53,13 @@ public:
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
+    void execute(RenderContext* pRenderContext, const Texture::SharedPtr& pInput, const Texture::SharedPtr& pOutput);
 private:
-    RayFilter() : RenderPass(kInfo) {}
+    RayFilter();
+
+    Fbo::SharedPtr mpFbo;
+    FullScreenPass::SharedPtr mpPass;
+
+    int mKernelRadius = 1;
+    int mMinCount = 1;
 };

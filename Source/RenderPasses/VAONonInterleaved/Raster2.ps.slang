@@ -107,6 +107,9 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
             }
+
+            // subtract old visibility from raster (will be replaced with new visibility)
+            visibility -= curVisibility;
             
             int2 pixelCoord = UVToPixel(rasterSamplePosUV);
 
@@ -147,19 +150,20 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                 ray.TMin = max(tHaloStart, 0.0); // TODO include buffer value?
                 ray.TMax = tSphereEnd;
 
-            // include the value of the depth buffer when choosing TMin to save some traversal time
-                if (isInScreen)
-                {
-                    const float epsilon = gData.radius * 0.01;
-                //const float epsilon = 0.0;
-                    float objectSpaceZ;
-                    if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
-                        objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
-                    else // if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
-                        objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);
-                    curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
-                    ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
-                }
+                const float epsilon = gData.radius * 0.01;
+                float objectSpaceZ;
+                if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
+                    objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
+                else // if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
+                    objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);
+                curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
+
+                // subtract old visibility from raster (will be replaced with new visibility)
+                visibility -= curVisibility;
+
+                // include the value of the depth buffer when choosing TMin to save some traversal time
+                if (isInScreen) ray.TMin = max(ray.TMin, (posVLength - objectSpaceZ) * initialSamplePosLength / posVLength + epsilon);
+                else curVisibility = 1.0;
 
                 // skip procedural and force all triangle to be handled by any-hit traversal
                 RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_NON_OPAQUE > rayQuery;
@@ -300,6 +304,6 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
     visibility *= 2.0 / float(NUM_DIRECTIONS);
     float prevAo = aoPrev.SampleLevel(gTextureSampler, texC, 0);
     visibility += prevAo;
-    visibility = pow(visibility, gData.exponent);
+    //visibility = pow(visibility, gData.exponent);
     return visibility;
 }

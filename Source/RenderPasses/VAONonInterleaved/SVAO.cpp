@@ -38,6 +38,7 @@ namespace
 
     const std::string kAmbientMap = "ao";
     const std::string kAoStencil = "stencil";
+    const std::string kAoStencil2 = "stencil2";
     const std::string kAccessStencil = "accessStencil";
     const std::string kGbufferDepth = "gbufferDepth";
     const std::string kDepth = "depth";
@@ -126,6 +127,8 @@ SVAO::SVAO(const Dictionary& dict)
 
     mNeuralNet.load("../../NeuralNetVAO/net_relu");
     mNeuralNet2.load("../../NeuralNetVAO/net_relu_reg");
+
+    mpRayFilter = RayFilter::create();
 }
 
 void SVAO::parseDictionary(const Dictionary& dict)
@@ -186,6 +189,7 @@ RenderPassReflection SVAO::reflect(const CompileData& compileData)
     reflector.addInput(kMatDoubleSided, "Material double sided flag").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kAmbientMap, "Ambient Occlusion (primary)").bindFlags(ResourceBindFlags::UnorderedAccess |  ResourceBindFlags::RenderTarget).format(ResourceFormat::R8Unorm);
     reflector.addOutput(kAoStencil, "Stencil Bitmask for primary / secondary ao").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint);
+    reflector.addInternal(kAoStencil2, "ping pong for stencil mask").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint);
     reflector.addOutput(kAccessStencil, "Stencil Bitmask for secondary depth map accesses").bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint);
     reflector.addInternal(kInternalStencil, "internal stencil mask").format(ResourceFormat::D24UnormS8);
     return reflector;
@@ -231,6 +235,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pMatDoubleSided = renderData[kMatDoubleSided]->asTexture();
 
     auto pAoMask = renderData[kAoStencil]->asTexture();
+    auto pAoMask2 = renderData[kAoStencil2]->asTexture();
     auto pAccessStencil = renderData[kAccessStencil]->asTexture();
     auto pInternalStencil = renderData[kInternalStencil]->asTexture();
 
@@ -306,7 +311,8 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         pRenderContext->clearUAV(accessStencilUAV.get(), uint4(0u));
 
     mpFbo->attachColorTarget(pAoDst, 0);
-    mpFbo->attachColorTarget(pAoMask, 1);
+    //mpFbo->attachColorTarget(pAoMask, 1);
+    mpFbo->attachColorTarget(mEnableRayFilter ? pAoMask2 : pAoMask, 1);
 
     auto pCamera = mpScene->getCamera().get();
     pCamera->setShaderData(mpRasterPass["PerFrameCB"]["gCamera"]);
@@ -328,6 +334,12 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     {
         FALCOR_PROFILE("AO 1");
         mpRasterPass->execute(pRenderContext, mpFbo, false);
+    }
+
+    if(mEnableRayFilter)
+    {
+        FALCOR_PROFILE("RayFilter");
+        mpRayFilter->execute(pRenderContext, pAoMask2, pAoMask); // result should be in pAoMask finally
     }
 
     Texture::SharedPtr pStochasticDepthMap;
@@ -463,8 +475,16 @@ void SVAO::renderUI(Gui::Widgets& widget)
     if (mNeuralNet2.renderUI(widget))
         reset = true;
 
-    if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
-    
+    // TODO reimplement in shader
+    //if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
+
+    widget.separator();
+    widget.checkbox("Enable Ray Filter", mEnableRayFilter);
+    if(mEnableRayFilter)
+    {
+        mpRayFilter->renderUI(widget);
+    }
+
     if(reset)
     {
         mPassChangedCB();

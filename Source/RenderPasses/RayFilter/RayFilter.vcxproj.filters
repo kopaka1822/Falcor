@@ -6,4 +6,7 @@
   <ItemGroup>
     <ClInclude Include="RayFilter.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ShaderSource Include="Blur.ps.hlsl" />
+  </ItemGroup>
 </Project>

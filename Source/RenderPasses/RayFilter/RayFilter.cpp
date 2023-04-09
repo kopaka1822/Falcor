@@ -29,6 +29,11 @@
 
 const RenderPass::Info RayFilter::kInfo { "RayFilter", "Filters the ray bitmask to improve performance" };
 
+namespace
+{
+    const char kShaderPath[] = "RenderPasses/RayFilter/Blur.ps.hlsl";
+}
+
 // Don't remove this. it's required for hot-reload to function properly
 extern "C" FALCOR_API_EXPORT const char* getProjDir()
 {
@@ -51,6 +56,13 @@ Dictionary RayFilter::getScriptingDictionary()
     return Dictionary();
 }
 
+
+
+RayFilter::RayFilter() : RenderPass(kInfo)
+{
+    mpFbo = Fbo::create();
+}
+
 RenderPassReflection RayFilter::reflect(const CompileData& compileData)
 {
     // Define the required resources here
@@ -64,8 +76,27 @@ void RayFilter::execute(RenderContext* pRenderContext, const RenderData& renderD
 {
     // renderData holds the requested resources
     // auto& pTexture = renderData["src"]->asTexture();
+    throw std::runtime_error("RayFilter::execute() is not implemented");
+}
+
+void RayFilter::execute(RenderContext* pRenderContext, const Texture::SharedPtr& pInput,
+    const Texture::SharedPtr& pOutput)
+{
+    if(!mpPass)
+    {
+        Program::DefineList defines;
+        defines.add("KERNEL_RADIUS", std::to_string(mKernelRadius));
+        defines.add("MIN_COUNT", std::to_string(mMinCount));
+        mpPass = FullScreenPass::create(kShaderPath, defines);
+    }
+
+    mpPass["gInput"] = pInput;
+    mpFbo->attachColorTarget(pOutput, 0);
+    mpPass->execute(pRenderContext, mpFbo);
 }
 
 void RayFilter::renderUI(Gui::Widgets& widget)
 {
+    widget.var("Kernel Radius", mKernelRadius, 1, 10);
+    widget.var("Min Count", mMinCount, 1, 100);
 }

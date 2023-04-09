@@ -54,7 +54,6 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 
     #if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
     float rasterHeights[8];
-    float tmpAoValues[8];
     #endif
 
     uint forceRayMask = 0; // forces rays due to double sided materials
@@ -102,7 +101,6 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 
         #if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
         rasterHeights[i] = clamp(objectSpaceZ / gData.radius, -16.0, 16.0);
-        tmpAoValues[i] = 0.0;
         #endif
 
         if ((sphereStart - sphereEnd) / pdf <= 0.1)
@@ -129,9 +127,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
                 requireRay = true;
         }
 
-        #if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
-        tmpAoValues[i] = curVisibility;
-        #endif
+        // always add computed visibility from raster
+        output.ao1 += curVisibility;
 
         if (forceRay && (PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY)) 
         {
@@ -243,19 +240,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
                 // determine if ray is required
                 if(requireRay)
                     output.stencil |= 1u << i; // still needs a ray
-                else
-                    output.ao1 += curVisibility; // no ray needed => include raster visibility
-
-                //float sphereVisibility = calcSphereVisibility(posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd, pdf);
-                //float haloVisibility = calcHaloVisibility(posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd, pdf);
-                //curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
-                //output.ao1 += curVisibility;
             }
 #endif
-        }
-        else
-        {
-            output.ao1 += curVisibility;
         }
     }
 
@@ -266,14 +252,6 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         output.stencil = output.stencil & machineMask;
     }
     output.stencil |= forceRayMask; // always trace the forced rays
-
-    output.ao1 = 0.0;
-    [unroll]
-    for (uint i = 0; i < NUM_DIRECTIONS; ++i)
-    {
-        if (!(output.stencil & (1u << i)))
-             output.ao1 += tmpAoValues[i];
-    }
     #endif
     
     #if PRIMARY_DEPTH_MODE == DEPTH_MODE_PERFECT_CLASSIFY
@@ -318,8 +296,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 
     output.ao1 *= 2.0 / float(NUM_DIRECTIONS);
 
-    if(output.stencil == 0)
-        output.ao1 = pow(output.ao1, gData.exponent);
+    //if(output.stencil == 0)
+    //    output.ao1 = pow(output.ao1, gData.exponent);
 
     return output;
 }
