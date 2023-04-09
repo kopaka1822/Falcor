@@ -97,12 +97,12 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
         if (SECONDARY_DEPTH_MODE == DEPTH_MODE_STOCHASTIC) 
         {
             // reuse old depth (this does not really cost much)
-            if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
+            if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL) // DEPTH_MODE = SINGLE (or classify)
             {
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
             }
-            else if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
+            else //if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
             {
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
@@ -152,7 +152,7 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
 
                 const float epsilon = gData.radius * 0.01;
                 float objectSpaceZ;
-                if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
+                if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL) // DEPTH_MODE = SINGLE (or classify)
                     objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
                 else // if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
                     objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);

@@ -235,12 +235,12 @@ void rayGen()
         if (SECONDARY_DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
         {
             // reuse old depth (this does not really cost much)
-            if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
+            if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL) // DEPTH_MODE = SINGLE (or classify)
             {
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
             }
-            else if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
+            else // DEPTH_MODE == DUAL
             {
                 float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
                 curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
@@ -295,7 +295,7 @@ void rayGen()
 
                 const float epsilon = gData.radius * 0.01;
                 float objectSpaceZ;
-                if (PRIMARY_DEPTH_MODE == DEPTH_MODE_SINGLE)
+                if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL) // DEPTH_MODE = SINGLE (or classify)
                     objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex);
                 else // if(PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
                     objectSpaceZ = calcObjectSpaceZ(posV, normal, samplePosUV, gDepthTex2);

@@ -70,7 +70,7 @@ private:
     FullScreenPass::SharedPtr mpRasterPass;
 
     Scene::SharedPtr mpScene;
-    bool mEnableRayFilter = true;
+    bool mEnableRayFilter = false;
 
     RenderGraph::SharedPtr mpStochasticDepthGraph;
     RayFilter::SharedPtr mpRayFilter;
