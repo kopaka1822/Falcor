@@ -163,7 +163,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
                 float tSphereEnd = (posVLength - sphereEnd) * initialSamplePosLength / posVLength;
                 float tHaloStart = (posVLength - sphereHeight - CONST_RADIUS - HALO_RADIUS) * initialSamplePosLength / posVLength;
                 float tConstRadiusStart = (posVLength - sphereHeight - CONST_RADIUS) * initialSamplePosLength / posVLength;
-                
+                float tExtendedRadiusStart = (posVLength - 2 * gData.radius) * initialSamplePosLength / posVLength;
+            
                 ray.TMin = 0.0; // include whole range for ML learning
                 ray.TMax = gCamera.data.farZ;
 
@@ -231,10 +232,12 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
                 float rayDepth = objectSpaceZ;
 
                 bool requireRay = true;
-                //if (!firstFrontFaceDoubleSided && (tFirstFrontFace >= tConstRadiusStart || tFirstBackface >= tSphereEnd))
-                if (!firstFrontFaceDoubleSided && (tFirstFrontFace >= tConstRadiusStart || tFirstBackface >= tConstRadiusStart))
+                if(!firstFrontFaceDoubleSided)
                 {
-                    requireRay = false;
+                    if (tFirstFrontFace >= tConstRadiusStart) requireRay = false;
+                    if (tFirstBackface >= tConstRadiusStart) requireRay = false;
+                    // TODO Check AO?
+                    if (tFirstBackface >= tExtendedRadiusStart && ((sphereStart - sphereEnd)/pdf < 0.4)) requireRay = false;
                 }
 
                 // determine if ray is required
@@ -296,8 +299,22 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 
     output.ao1 *= 2.0 / float(NUM_DIRECTIONS);
 
+    //if (countbits(output.stencil) == 1)
+    //    output.stencil = 0;
+    
     //if(output.stencil == 0)
     //    output.ao1 = pow(output.ao1, gData.exponent);
 
+    uint numWaves = WaveActiveSum(1);
+
+    // count of all other threads (not including self)
+    uint otherRayCount = WaveActiveSum(countbits(output.stencil)) - countbits(output.stencil);
+
+    float threshold = 0.4f;
+    
+
+    //if (otherRayCount < uint(threshold * numWaves))
+    //    output.stencil = 0;
+    
     return output;
 }

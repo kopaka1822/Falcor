@@ -13,9 +13,10 @@ uint main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
     // count of all other threads (not including self)
     uint otherRayCount = WaveActiveSum(rayCount) - rayCount;
 
-    float threshold = 0.1f;
+    float threshold = 0.4f;
     
-    if (otherRayCount < uint(threshold * numWaves))
+    //if (otherRayCount < uint(threshold * numWaves))
+    if(rayCount == 1)
         center = 0;
     
     return center;
