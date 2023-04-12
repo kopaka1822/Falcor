@@ -20,7 +20,7 @@ from tensorflow import keras
 
 NUM_SAMPLES = 8
 EVAL_ID = 0
-ML_NAME = "net_relu_pruned"
+ML_NAME = "net_relu"
 
 IMG_WIDTH = 1900
 IMG_HEIGHT = 1000

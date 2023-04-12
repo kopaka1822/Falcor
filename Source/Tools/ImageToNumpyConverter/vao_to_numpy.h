@@ -5,7 +5,16 @@
 #include <numeric>
 #include "force_ray.h"
 
-void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image, std::string ray_image, std::string force_ray, std::string raster_ao, std::string ray_ao, std::string sphere_end, int index, bool IsTraining)
+void vao_to_numpy(const std::vector<float> sphereStart,
+    std::string raster_image,
+    std::string ray_image,
+    std::string ask_ray,
+    std::string require_ray,
+    std::string force_ray,
+    std::string raster_ao,
+    std::string ray_ao,
+    std::string sphere_end,
+    int index, bool IsTraining)
 {
     static constexpr size_t NUM_SAMPLES = 8;
     
@@ -16,6 +25,8 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
     gli::texture2d_array texRay(gli::load(ray_image));
     //gli::texture2d_array texInstances(gli::load(argv[3]));
     //gli::texture2d_array texCurInstance(gli::load(argv[4]));
+    gli::texture2d_array texAskRay(gli::load(ask_ray));
+    gli::texture2d_array texRequireRay(gli::load(require_ray));
     gli::texture2d_array texForceRay(gli::load(force_ray));
 
     gli::texture2d_array texRasterAO(gli::load(raster_ao));
@@ -56,6 +67,8 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
     std::array<float, NUM_SAMPLES> ray;
     std::array<float, NUM_SAMPLES> aoDiff; // difference in AO values
     std::array<uint8_t, NUM_SAMPLES> forceRay;
+    std::array<uint8_t, NUM_SAMPLES>  askRay;
+    std::array<uint8_t, NUM_SAMPLES> requireRay;
     std::array<float, NUM_SAMPLES> sphereEnd;
     //std::vector<uint32_t> instances;
     //instances.resize(nSamples);
@@ -82,6 +95,8 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
             //instances[i] = (uint32_t)fetchInt(texInstances, gli::extent2d(x, y), i, 0, 0).r;
             aoDiff[i] = abs(fetchAO(texRasterAO, gli::extent2d(x, y), i, 0, 0).r - fetchAO(texRayAO, gli::extent2d(x, y), i, 0, 0).r);
             assert(aoDiff[i] <= 1.0f);
+            askRay[i] = (uint8_t)fetchBool(texAskRay, gli::extent2d(x, y), i, 0, 0).r;
+            requireRay[i] = (uint8_t)fetchBool(texRequireRay, gli::extent2d(x, y), i, 0, 0).r;
             auto forceRayId = int8_t(fetchBool(texForceRay, gli::extent2d(x, y), i, 0, 0).r);
             forceRay[i] = 0;
             if (forceRayId == FORCE_RAY_INVALID)
@@ -130,25 +145,14 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
 
         if (isDubious && !useDubiousSamples) continue; // less noise in training data
 
-        // fill require mask
-        std::array<uint8_t, NUM_SAMPLES>  requireMask;
-        std::array<uint8_t, NUM_SAMPLES> askMask;
-        for (size_t step = 0; step < NUM_SAMPLES; ++step)
-        {
-            uint8_t askRay = 1 - forceRay[step]; // ask for ray if we don't force it
-
-            // check if trivial
-            //if (raster[step] <= sphereStart[step]) askRay = 0; // raster is in sphere
-            if (raster[step] <= 1.0) askRay = 0; // raster is in const area or sphere
-
-            askMask[step] = askRay;
-
-            requireMask[step] = (ray[step] < raster[step]) ? 1 : 0;
-            requireMask[step] = requireMask[step] & askRay; // only require if we ask for it
-        }
-
-        if (std::all_of(askMask.begin(), askMask.end(), [](uint8_t ask) {return ask == 0; }) && IsTraining)
+        bool noneAsked = std::all_of(askRay.begin(), askRay.end(), [](uint8_t ask) {return ask == 0; });
+        if (noneAsked && IsTraining)
             continue; // nothing needs to be evaluated by the neural net
+
+        bool noneForced = std::all_of(forceRay.begin(), forceRay.end(), [](uint8_t force) {return force == 0; });
+        if (!IsTraining && noneForced && noneAsked)
+            continue; // nothing needs to be evaluated by the neural net
+        
 
         // use this sample
         rasterSamples.insert(rasterSamples.end(), raster.begin(), raster.end());
@@ -156,8 +160,8 @@ void vao_to_numpy(const std::vector<float> sphereStart, std::string raster_image
 
         pixelXY.push_back(x);
         pixelXY.push_back(y);
-        asked.insert(asked.end(), askMask.begin(), askMask.end());
-        required.insert(required.end(), requireMask.begin(), requireMask.end());
+        asked.insert(asked.end(), askRay.begin(), askRay.end());
+        required.insert(required.end(), requireRay.begin(), requireRay.end());
         requiredForced.insert(requiredForced.end(), forceRay.begin(), forceRay.end());
         sphereEndSamples.insert(sphereEndSamples.end(), sphereEnd.begin(), sphereEnd.end());
         sphereStartSamples.insert(sphereStartSamples.end(), sphereStart.begin(), sphereStart.end());

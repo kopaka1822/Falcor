@@ -236,8 +236,9 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
                 {
                     if (tFirstFrontFace >= tConstRadiusStart) requireRay = false;
                     if (tFirstBackface >= tConstRadiusStart) requireRay = false;
-                    // TODO Check AO?
-                    if (tFirstBackface >= tExtendedRadiusStart && ((sphereStart - sphereEnd)/pdf < 0.4)) requireRay = false;
+                    float tGrazingAngle = 1.0 - (sphereStart - sphereEnd)/pdf;
+                    float tExtended = lerp(tConstRadiusStart, tExtendedRadiusStart, saturate(saturate(tGrazingAngle - 0.5) / 0.2));
+                    if (tFirstBackface >= tExtended)  requireRay = false;
                 }
 
                 // determine if ray is required

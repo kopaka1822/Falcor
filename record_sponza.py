@@ -1,5 +1,6 @@
 # usage: load startup and configure VAO renderer. Then execute this script
 from falcor import *
+import time
 
 vao_graph = m.getGraph("VAO")
 vao = vao_graph.getPass("VAO")
@@ -20,3 +21,5 @@ for i in range(num_cameras):
 	# capture depths
 	vao.saveDepths()
 	renderFrame()
+	# sleep for 5 seconds
+	#time.sleep(5)
