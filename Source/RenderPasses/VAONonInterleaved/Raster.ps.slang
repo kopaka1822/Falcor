@@ -57,6 +57,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     #endif
 
     uint forceRayMask = 0; // forces rays due to double sided materials
+    bool isDoubleSided = (gMatDoubleSided[UVToPixel(texC)] & MTL_DOUBLE_SIDED) != 0;
+    bool ignoreRays = (isDoubleSided && !TRACE_DOUBLE_SIDED_PIXELS);
     
     [unroll] for (uint i = 0; i < NUM_DIRECTIONS; i++)
     {
@@ -90,7 +92,8 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         float2 screenUv = getScreenClampedUV(texC, samplePosUV); // clip to screen border
         if (any(samplePosUV != screenUv) && SECONDARY_DEPTH_MODE == DEPTH_MODE_RAYTRACING)
         {
-            forceRay = true; // always shoot rays for screen border   
+            if (TRACE_OUT_OF_SCREEN)
+                forceRay = true; // always shoot rays for screen border   
         }
             
         float2 rasterSamplePosUV = screenUv;
@@ -109,21 +112,29 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         }
         
         // require hybrid ray if intersection is outside of sphere radius
-        if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
+        if (!ignoreRays && PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
         {
-            requireRay = true;
-            #if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
+            if (!TRACE_DOUBLE_SIDED_SAMPLES && (gMatDoubleSided[UVToPixel(rasterSamplePosUV)] & MTL_DOUBLE_SIDED))
+            {
+                
+            }
+            else
+            {
+                requireRay = true;
+#if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
             // fetch material data to check for double sided flag
             if (gMatDoubleSided[UVToPixel(rasterSamplePosUV)] & MTL_DOUBLE_SIDED)
                 forceRay = true;
-            #endif
+#endif    
+            }
+            
         }
 
         if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
         {
             float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
             curVisibility = COMBINE_VIS(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf));
-            if (objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
+            if (!ignoreRays && objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
                 requireRay = true;
         }
 

@@ -255,6 +255,9 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         defines.add("SECONDARY_DEPTH_MODE", std::to_string(uint32_t(mSecondaryDepthMode)));
         defines.add("MSAA_SAMPLES", std::to_string(msaa_sample)); // TODO update this from gui
         defines.add("PREVENT_DARK_HALOS", mPreventDarkHalos ? "1" : "0");
+        defines.add("TRACE_OUT_OF_SCREEN", mTraceOutOfScreen ? "1" : "0");
+        defines.add("TRACE_DOUBLE_SIDED_PIXELS", mTraceDoubleSidedPixels ? "1" : "0");
+        defines.add("TRACE_DOUBLE_SIDED_SAMPLES", mTraceDoubleSidedSamples ? "1" : "0");
         defines.add(mpScene->getSceneDefines());
         // raster pass 1
         mpRasterPass = FullScreenPass::create(kRasterShader, defines);
@@ -484,6 +487,13 @@ void SVAO::renderUI(Gui::Widgets& widget)
     {
         mpRayFilter->renderUI(widget);
     }
+
+    if (widget.checkbox("Trace Out of Screen", mTraceOutOfScreen)) reset = true;
+    widget.tooltip("If a sample point is outside of the screen, a ray is traced. Otherwise the closest sample from the border is used.");
+    if (widget.checkbox("Trace Double Sided Pixels", mTraceDoubleSidedPixels)) reset = true;
+    widget.tooltip("If disabled then no rays will be traced for double sided materials");
+    if (widget.checkbox("Trace Double Sided Samples", mTraceDoubleSidedSamples)) reset = true;
+    widget.tooltip("if a non double sided material gets a sample of a double sided pixel then a ray is traced. This can be disabled to improve performance.");
 
     if(reset)
     {

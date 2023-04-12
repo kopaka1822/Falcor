@@ -101,6 +101,11 @@ private:
 
     bool mPreventDarkHalos = true;
 
+    // performance knobs
+    bool mTraceOutOfScreen = true;
+    bool mTraceDoubleSidedPixels = false;
+    bool mTraceDoubleSidedSamples = true;
+
     NeuralNetCollection mNeuralNet;
     NeuralNetCollection mNeuralNet2 = NeuralNetCollection(NeuralNetCollection::Type::Regressor);
 };
