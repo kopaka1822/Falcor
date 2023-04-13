@@ -103,8 +103,7 @@ private:
 
     // performance knobs
     bool mTraceOutOfScreen = true;
-    bool mTraceDoubleSidedPixels = false;
-    bool mTraceDoubleSidedSamples = true;
+    bool mTraceDoubleOnDouble = false;
     float mClassifyProbability = 0.5;
 
     NeuralNetCollection mNeuralNet;

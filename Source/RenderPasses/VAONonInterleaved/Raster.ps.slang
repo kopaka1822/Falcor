@@ -58,7 +58,6 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 
     uint forceRayMask = 0; // forces rays due to double sided materials
     bool isDoubleSided = (gMatDoubleSided[UVToPixel(texC)] & MTL_DOUBLE_SIDED) != 0;
-    bool ignoreRays = (isDoubleSided && !TRACE_DOUBLE_SIDED_PIXELS);
     
     [unroll] for (uint i = 0; i < NUM_DIRECTIONS; i++)
     {
@@ -112,18 +111,16 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         }
         
         // require hybrid ray if intersection is outside of sphere radius
-        if (!ignoreRays && PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
+        if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
         {
-            if (!TRACE_DOUBLE_SIDED_SAMPLES && (gMatDoubleSided[UVToPixel(rasterSamplePosUV)] & MTL_DOUBLE_SIDED))
-            {
-                
-            }
-            else
+            bool hitDoubleSided = (gMatDoubleSided[UVToPixel(rasterSamplePosUV)] & MTL_DOUBLE_SIDED) != 0;
+            // require ray unless we dont want double sided hit and both materials are double sided
+            if (TRACE_DOUBLE_ON_DOUBLE || !isDoubleSided || !hitDoubleSided)
             {
                 requireRay = true;
 #if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
             // fetch material data to check for double sided flag
-            if (gMatDoubleSided[UVToPixel(rasterSamplePosUV)] & MTL_DOUBLE_SIDED)
+            if (hitDoubleSided)
                 forceRay = true;
 #endif    
             }
@@ -134,7 +131,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         {
             float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex2);
             curVisibility = COMBINE_VIS(curVisibility, calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf));
-            if (!ignoreRays && objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
+            if (objectSpaceZ > sphereStart + CONST_RADIUS) // both samples were before the sphere starts
                 requireRay = true;
         }
 
