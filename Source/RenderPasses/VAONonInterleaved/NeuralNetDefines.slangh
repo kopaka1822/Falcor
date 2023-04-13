@@ -1,4 +1,4 @@
-uint evalClassifier(inout float inputs[8]){
+uint evalClassifier(inout float inputs[8], float treshold = 0.0){
 	float layer0Output0 = 0.804156;
 	float layer0Output1 = -0.283751;
 	float layer0Output2 = -0.893212;
@@ -589,14 +589,14 @@ uint evalClassifier(inout float inputs[8]){
 
 
 	uint bitmask = 0;
-	if(layer2Output0 > 0.0) bitmask = bitmask | 1;
-	if(layer2Output1 > 0.0) bitmask = bitmask | 2;
-	if(layer2Output2 > 0.0) bitmask = bitmask | 4;
-	if(layer2Output3 > 0.0) bitmask = bitmask | 8;
-	if(layer2Output4 > 0.0) bitmask = bitmask | 16;
-	if(layer2Output5 > 0.0) bitmask = bitmask | 32;
-	if(layer2Output6 > 0.0) bitmask = bitmask | 64;
-	if(layer2Output7 > 0.0) bitmask = bitmask | 128;
+	if(layer2Output0 > treshold) bitmask = bitmask | 1;
+	if(layer2Output1 > treshold) bitmask = bitmask | 2;
+	if(layer2Output2 > treshold) bitmask = bitmask | 4;
+	if(layer2Output3 > treshold) bitmask = bitmask | 8;
+	if(layer2Output4 > treshold) bitmask = bitmask | 16;
+	if(layer2Output5 > treshold) bitmask = bitmask | 32;
+	if(layer2Output6 > treshold) bitmask = bitmask | 64;
+	if(layer2Output7 > treshold) bitmask = bitmask | 128;
 
 	return bitmask;
 }

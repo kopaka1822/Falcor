@@ -458,6 +458,16 @@ void SVAO::renderUI(Gui::Widgets& widget)
         reset = true;
     }
 
+    if(mPrimaryDepthMode == DepthMode::MachineClassify)
+    {
+        if (widget.var("Machine Classify Threshold", mClassifyProbability, 0.01f, 0.99f))
+        {
+            mData.classifyThreshold = -glm::log(1.0f / mClassifyProbability - 1.0f);
+            std::cout << "classify threshold: " << mClassifyProbability << ": " << mData.classifyThreshold << std::endl;
+            mDirty = true;
+        }
+    }
+
     uint32_t secondaryDepthMode = (uint32_t)mSecondaryDepthMode;
     if (widget.dropdown("Secondary Depth Mode", kSecondaryDepthModeDropdown, secondaryDepthMode)) {
         mSecondaryDepthMode = (DepthMode)secondaryDepthMode;

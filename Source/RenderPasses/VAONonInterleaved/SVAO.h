@@ -105,6 +105,7 @@ private:
     bool mTraceOutOfScreen = true;
     bool mTraceDoubleSidedPixels = false;
     bool mTraceDoubleSidedSamples = true;
+    float mClassifyProbability = 0.5;
 
     NeuralNetCollection mNeuralNet;
     NeuralNetCollection mNeuralNet2 = NeuralNetCollection(NeuralNetCollection::Type::Regressor);

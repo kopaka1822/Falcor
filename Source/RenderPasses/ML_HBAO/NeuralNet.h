@@ -137,13 +137,15 @@ private:
             if (mType == Type::Classifier)
             {
                 ss << "uint evalClassifier";
+                ss << "(inout float inputs[" << net.kernels[0].rows << "], float treshold = 0.0){\n";
             }
             else
             {
                 ss << "void evalRegressor";
+                ss << "(inout float inputs[" << net.kernels[0].rows << "]){\n";
             }
             
-            ss << "(inout float inputs[" << net.kernels[0].rows << "]){\n";
+
             std::string prevInput = "inputs[";
             std::string prevInputEnd = "]";
             int skippedWeights = 0;
@@ -181,7 +183,7 @@ private:
                         ss << "\n\tuint bitmask = 0;\n";
                         for (int outIdx = 0; outIdx < bias.columns; ++outIdx)
                         {
-                            ss << "\tif(layer" << l << "Output" << outIdx << " > 0.0)";
+                            ss << "\tif(layer" << l << "Output" << outIdx << " > treshold)";
                             ss << " bitmask = bitmask | " << (1u << outIdx) << ";\n";
                         }
                     }

@@ -38,6 +38,7 @@ struct VAOData
     float radius = 0.5f;
     float exponent = 1.6f;
     float thickness = 0.5f;
+    float classifyThreshold = 0.0f; // sigmoid^-1(probability)
 };
 
 END_NAMESPACE_FALCOR
