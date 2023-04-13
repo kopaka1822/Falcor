@@ -317,16 +317,28 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     //if(output.stencil == 0)
     //    output.ao1 = pow(output.ao1, gData.exponent);
 
-    uint numWaves = WaveActiveSum(1);
+    if (RAY_FILTER)
+    {
+        uint numWaves = WaveActiveCountBits(true);
 
-    // count of all other threads (not including self)
-    uint otherRayCount = WaveActiveSum(countbits(output.stencil)) - countbits(output.stencil);
+        // count of all other threads (not including self)
+        //uint otherRayCount = WaveActiveSum(countbits(output.stencil)) - countbits(output.stencil);
+        uint otherRayCount = WaveActiveSum(output.stencil != 0 ? 1 : 0);
 
-    float threshold = 0.4f;
-    
+        float threshold = 0.2f;
+        //if (otherRayCount < uint(threshold * numWaves))
+        //    output.stencil = 0;
 
-    //if (otherRayCount < uint(threshold * numWaves))
-    //    output.stencil = 0;
+        //if (WaveActiveMax(countbits(output.stencil)) <= 1)
+        //    output.stencil = 0;
+
+        if (countbits(output.stencil) == 1
+            && QuadReadAcrossX(output.stencil) == 0
+            && QuadReadAcrossY(output.stencil) == 0
+            && QuadReadAcrossDiagonal(output.stencil) == 0)
+            output.stencil = 0;
+
+    }
     
     return output;
 }

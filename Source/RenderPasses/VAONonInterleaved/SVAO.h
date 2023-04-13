@@ -73,7 +73,7 @@ private:
     bool mEnableRayFilter = false;
 
     RenderGraph::SharedPtr mpStochasticDepthGraph;
-    RayFilter::SharedPtr mpRayFilter;
+    //RayFilter::SharedPtr mpRayFilter;
 
     // 2nd pass
     Fbo::SharedPtr mpFbo2;
