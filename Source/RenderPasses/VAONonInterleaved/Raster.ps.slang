@@ -313,9 +313,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 
     //if (countbits(output.stencil) == 1)
     //    output.stencil = 0;
-    
-    //if(output.stencil == 0)
-    //    output.ao1 = pow(output.ao1, gData.exponent);
+   
 
     if (RAY_FILTER)
     {
@@ -339,6 +337,10 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
             output.stencil = 0;
 
     }
+
+    // apply exponent
+    if(output.stencil == 0)
+        output.ao1 = pow(output.ao1, gData.exponent);
     
     return output;
 }

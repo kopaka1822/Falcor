@@ -376,5 +376,8 @@ void rayGen()
     }
 
     visibility *= 2.0 / float(NUM_DIRECTIONS);
-    output[svPos] += visibility;
+    visibility += output[svPos];
+    visibility = pow(visibility, gData.exponent);
+    output[svPos] = visibility;
+    //output[svPos] += visibility;
 }

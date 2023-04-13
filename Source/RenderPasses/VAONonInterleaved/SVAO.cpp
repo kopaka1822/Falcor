@@ -470,8 +470,10 @@ void SVAO::renderUI(Gui::Widgets& widget)
 
     if (widget.var("Thickness", mData.thickness, 0.0f, 1.0f, 0.1f)) {
         mDirty = true;
-        mData.exponent = glm::mix(1.6f, 1.0f, mData.thickness);
+        //mData.exponent = glm::mix(1.6f, 1.0f, mData.thickness);
     }
+
+    if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
     
     if (mNeuralNet.renderUI(widget))
         reset = true;
@@ -479,8 +481,6 @@ void SVAO::renderUI(Gui::Widgets& widget)
     if (mNeuralNet2.renderUI(widget))
         reset = true;
 
-    // TODO reimplement in shader
-    //if (widget.var("Power Exponent", mData.exponent, 1.0f, 4.0f, 0.1f)) mDirty = true;
 
     widget.separator();
     if (widget.checkbox("Enable Ray Filter", mEnableRayFilter)) reset = true;

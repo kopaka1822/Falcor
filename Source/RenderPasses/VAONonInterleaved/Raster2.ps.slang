@@ -304,6 +304,6 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
     visibility *= 2.0 / float(NUM_DIRECTIONS);
     float prevAo = aoPrev.SampleLevel(gTextureSampler, texC, 0);
     visibility += prevAo;
-    //visibility = pow(visibility, gData.exponent);
+    visibility = pow(visibility, gData.exponent);
     return visibility;
 }
