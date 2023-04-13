@@ -151,3 +151,20 @@ float calcObjectSpaceZ(float3 posV, float3 normal, RayDesc ray, float t)
     float objectSpaceZ = dot(samplePosV - posV, normal);
     return objectSpaceZ;
 }
+
+// z: positive linear depth in view space
+// r: radius in view/world space
+float2 ViewSpaceRadiusToUVRadius(float z, float r)
+{
+    const float2 imageScale = 0.5 * float2(gCamera.data.frameWidth / gCamera.data.focalLength, gCamera.data.frameHeight / gCamera.data.focalLength);
+    float2 ndc = float2(r) / (imageScale * z); // radius in normalized device coordinates
+    return ndc * 0.5; // scale to uv radius
+}
+
+float GetAORadiusInPixels(float ViewDepth)
+{
+    // convert radius to screen pixels
+    float2 radiusUV = ViewSpaceRadiusToUVRadius(ViewDepth, gData.radius);
+    // convert uv radius to pixel radius
+    return lerp(radiusUV.x * gData.resolution.x, radiusUV.y * gData.resolution.y, 0.5); // take mean between width and height radii TODO  test
+}

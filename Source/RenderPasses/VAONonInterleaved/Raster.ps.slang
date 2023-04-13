@@ -21,7 +21,9 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     output.stencil = 0;
 
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0);
-    if (linearDepth >= gCamera.data.farZ)
+    float radiusInPixels = GetAORadiusInPixels(linearDepth);
+    //if (linearDepth >= gCamera.data.farZ)
+    if(radiusInPixels < 0.5)
     {
         output.ao1 = 1.0;
         return output;
@@ -53,7 +55,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     float visibility = 0.0f;
 
     #if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
-    float rasterHeights[8];
+    float rasterHeights[8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     #endif
 
     uint forceRayMask = 0; // forces rays due to double sided materials
@@ -98,12 +100,20 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         float2 rasterSamplePosUV = screenUv;
         rasterSamplePosUV = getSnappedUV(rasterSamplePosUV); // snap to pixel center
 
+        if (isSamePixel(texC, rasterSamplePosUV))
+        {
+            output.ao1 += (sphereStart - sphereEnd) / pdf;
+            continue;
+        }
+        
         float objectSpaceZ = calcObjectSpaceZ(posV, normal, rasterSamplePosUV, gDepthTex);
         curVisibility = calcVisibility(objectSpaceZ, sphereStart, sphereEnd, pdf);
 
         #if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
         rasterHeights[i] = clamp(objectSpaceZ / gData.radius, -16.0, 16.0);
         #endif
+
+
 
         if ((sphereStart - sphereEnd) / pdf <= 0.1)
         {
@@ -114,14 +124,14 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
         {
             bool hitDoubleSided = (gMatDoubleSided[UVToPixel(rasterSamplePosUV)] & MTL_DOUBLE_SIDED) != 0;
-            // require ray unless we dont want double sided hit and both materials are double sided
+        // require ray unless we dont want double sided hit and both materials are double sided
             if (TRACE_DOUBLE_ON_DOUBLE || !isDoubleSided || !hitDoubleSided)
             {
                 requireRay = true;
 #if PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY
-            // fetch material data to check for double sided flag
-            if (hitDoubleSided)
-                forceRay = true;
+        // fetch material data to check for double sided flag
+        if (hitDoubleSided)
+            forceRay = true;
 #endif    
             }
             
@@ -138,13 +148,13 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         // always add computed visibility from raster
         output.ao1 += curVisibility;
 
-        if (forceRay && (PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY)) 
+        if (forceRay && (PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY))
         {
-            forceRayMask |= (1u << i); 
+            forceRayMask |= (1u << i);
         }
-        else if(requireRay || forceRay)
+        else if (requireRay || forceRay)
         {
-            // remember that this was a hybrid ray
+        // remember that this was a hybrid ray
             if (PRIMARY_DEPTH_MODE != DEPTH_MODE_PERFECT_CLASSIFY)
                 output.stencil |= 1u << i;
             
