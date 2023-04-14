@@ -22,6 +22,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0);
     float radiusInPixels = GetAORadiusInPixels(linearDepth);
+
     //if (linearDepth >= gCamera.data.farZ)
     if(radiusInPixels < 0.5)
     {
@@ -29,6 +30,10 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         return output;
     }
 
+    //float rayRasterBlend = saturate((radiusInPixels - gData.ssRadiusFadeEnd) / max(gData.ssRadiusFaceStart - gData.ssRadiusFaceEnd, 0.01));
+    bool denyRays = radiusInPixels <= gData.ssRadiusFadeEnd;
+    //bool denyRays = false;
+    
     // view space position of current pixel
     const float3 posV = UVToViewSpace(texC, linearDepth);
     const float posVLength = length(posV);
@@ -121,7 +126,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
         }
         
         // require hybrid ray if intersection is outside of sphere radius
-        if (PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
+        if (!denyRays && PRIMARY_DEPTH_MODE != DEPTH_MODE_DUAL && objectSpaceZ > sphereStart + CONST_RADIUS)
         {
             bool hitDoubleSided = (gMatDoubleSided[UVToPixel(rasterSamplePosUV)] & MTL_DOUBLE_SIDED) != 0;
         // require ray unless we dont want double sided hit and both materials are double sided
@@ -147,7 +152,9 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 
         // always add computed visibility from raster
         output.ao1 += curVisibility;
-
+        if (denyRays)
+            continue;
+        
         if (forceRay && (PRIMARY_DEPTH_MODE >= DEPTH_MODE_MACHINE_CLASSIFY))
         {
             forceRayMask |= (1u << i);

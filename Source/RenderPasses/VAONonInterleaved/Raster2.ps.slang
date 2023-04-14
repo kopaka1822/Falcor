@@ -15,7 +15,9 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
 
     // fetch linear depth a second time
     float linearDepth = gDepthTex.SampleLevel(gTextureSampler, texC, 0);
-
+    float radiusInPixels = GetAORadiusInPixels(linearDepth);
+    float rayRasterBlend = saturate((radiusInPixels - gData.ssRadiusFadeEnd) / gData.ssRadiusFadeSize);
+    
     // view space position of current pixel
     const float3 posV = UVToViewSpace(texC, linearDepth);
     const float posVLength = length(posV);
@@ -219,7 +221,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                 float sphereVisibility = calcSphereVisibility(posVLength - tFirstFrontFaceInside * posVLength / initialSamplePosLength, sphereStart, sphereEnd, pdf);
                 float haloVisibility = calcHaloVisibility(posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd, pdf);
 
-                curVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
+                float rayVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
+                curVisibility = lerp(curVisibility, rayVisibility, rayRasterBlend);
             }
             else // !PREVENT_DARK_HALOS
             {
