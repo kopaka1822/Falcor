@@ -40,6 +40,8 @@ SamplerState gSampler;
 Texture2D visibilityBuffer;
 static VSOut vsData;
 
+Texture2D<float> gAmbient;
+
 VSOut vs(VSIn vIn)
 {
     VSOut vsOut;
@@ -91,12 +93,16 @@ PsOut ps(VSOut vsOut, uint triangleIndex : SV_PrimitiveID)
     }
 
     // Add the emissive component
-    finalColor.rgb += bsdf.getProperties(sd).emission;
+    finalColor.rgb += bsdfProperties.emission;
     finalColor.a = sd.opacity;
 
+    // TODO with ambient factor?
+    float ao = gAmbient[int2(vsOut.posH.xy)];
+    finalColor.rgb += 5.0 * ao * bsdfProperties.diffuseReflectionAlbedo;
+    //finalColor.rgb *= ao;
 #ifdef _USE_ENV_MAP
     // Add lighting from environment map
-    finalColor.rgb += gEnvMapLighting.evalDiffuse(sd, bsdfProperties);
+    //finalColor.rgb += gEnvMapLighting.evalDiffuse(sd, bsdfProperties);
     finalColor.rgb += gEnvMapLighting.evalSpecular(sd, bsdfProperties, reflect(-sd.V, sd.N));
 #endif
 

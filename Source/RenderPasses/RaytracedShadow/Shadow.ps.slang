@@ -2,40 +2,26 @@ import Scene.RaytracingInline;
 import Scene.Raster;
 import Rendering.Lights.LightHelpers;
 
-Texture2D<float> gDepth; // indicates depth accesses for the secondary pass
-
-float3 loadPosition(float2 UV, float depth)
-{
-    float2 resolution;
-    gDepth.GetDimensions(resolution.x, resolution.y);
-    float2 invSize = 1.0f / resolution;
-    // Recompute position by unprojecting the depth stored in the z-buffer
-    float2 ndc = 2 * UV + invSize - 1;
-#ifndef FALCOR_FLIP_Y
-    // NDC Y is bottom-to-top
-    ndc.y = -ndc.y;
-#endif
-    float4 wsPos = mul(float4(ndc.x, ndc.y, depth, 1.f), gScene.camera.data.invViewProj);
-    return wsPos.xyz / wsPos.w;
-}
+Texture2D<float4> gPos; // indicates depth accesses for the secondary pass
 
 float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_Target
 {
-    float nonlinearDepth = gDepth[int2(svPos.xy)];
-    float3 posW = loadPosition(texC, nonlinearDepth);
-
+    float4 posW = gPos[int2(svPos.xy)];
+    if (posW.w == 0.0)
+        return 1.0; // background
+    
     if (gScene.getLightCount() == 0)
         return 1.0;
     
     LightData light = gScene.getLight(0);
     RayDesc ray;
-    ray.Origin = posW;
+    ray.Origin = posW.xyz;
     ray.TMin = gScene.camera.data.nearZ;
     
     if (light.type == uint(LightType::Point))
     {
-        ray.Direction = normalize(light.posW - posW);
-        ray.TMax = distance(light.posW, posW);
+        ray.Direction = normalize(light.posW - posW.xyz);
+        ray.TMax = distance(light.posW, posW.xyz);
     }
     else if (light.type == uint(LightType::Directional))
     {

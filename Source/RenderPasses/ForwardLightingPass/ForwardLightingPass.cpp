@@ -52,6 +52,7 @@ namespace
 
     const std::string kDepth = "depth";
     const std::string kColor = "color";
+    const std::string kAmbient = "ao";
     const std::string kMotionVecs = "motionVecs";
     const std::string kNormals = "normals";
     const std::string kVisBuffer = "visibilityBuffer";
@@ -102,6 +103,7 @@ RenderPassReflection ForwardLightingPass::reflect(const CompileData& compileData
     RenderPassReflection reflector;
 
     reflector.addInput(kVisBuffer, "Visibility buffer used for shadowing. Range is [0,1] where 0 means the pixel is fully-shadowed and 1 means the pixel is not shadowed at all").flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addInput(kAmbient, "Ambient Occlusion").bindFlags(Resource::BindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addInputOutput(kColor, "Color texture").format(mColorFormat).texture2D(0, 0, mSampleCount);
 
     auto& depthField = mUsePreGenDepth ? reflector.addInputOutput(kDepth, "Pre-initialized depth-buffer") : reflector.addOutput(kDepth, "Depth buffer");
@@ -197,6 +199,8 @@ void ForwardLightingPass::execute(RenderContext* pRenderContext, const RenderDat
 
     mpVars["PerFrameCB"]["gRenderTargetDim"] = float2(mpFbo->getWidth(), mpFbo->getHeight());
     mpVars->setTexture(kVisBuffer, renderData[kVisBuffer]->asTexture());
+    if(renderData[kAmbient])
+        mpVars["gAmbient"] = renderData[kAmbient]->asTexture();
 
     mpState->setFbo(mpFbo);
     mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get());

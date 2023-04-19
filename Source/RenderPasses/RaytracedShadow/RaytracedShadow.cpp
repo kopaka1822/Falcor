@@ -31,7 +31,7 @@ const RenderPass::Info RaytracedShadow::kInfo { "RaytracedShadow", "Calculates a
 
 namespace 
 {
-    const std::string kDepth = "depth";
+    const std::string kPos = "posW";
     const std::string kVisibility = "visibility";
 
     const std::string kRasterShader = "RenderPasses/RaytracedShadow/Shadow.ps.slang";
@@ -68,7 +68,7 @@ RenderPassReflection RaytracedShadow::reflect(const CompileData& compileData)
 {
     // Define the required resources here
     RenderPassReflection reflector;
-    reflector.addInput(kDepth, "Pre-initialized scene depth buffer").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kPos, "Pre-initialized scene depth buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kVisibility, "Visibility map. Values are [0,1] where 0 means the pixel is completely shadowed and 1 means it's not shadowed at all")
         .format(ResourceFormat::R8Unorm)
         .texture2D(0, 0).
@@ -78,7 +78,7 @@ RenderPassReflection RaytracedShadow::reflect(const CompileData& compileData)
 
 void RaytracedShadow::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    auto pDepth = renderData[kDepth]->asTexture();
+    auto pPos = renderData[kPos]->asTexture();
     auto pVisibility = renderData[kVisibility]->asTexture();
 
     // clear visibility texture
@@ -93,7 +93,7 @@ void RaytracedShadow::execute(RenderContext* pRenderContext, const RenderData& r
         mpPass->getProgram()->setTypeConformances(mpScene->getTypeConformances());
     }
 
-    mpPass["gDepth"] = pDepth;
+    mpPass["gPos"] = pPos;
 
     // raytracing data
     auto var = mpPass->getRootVar();
