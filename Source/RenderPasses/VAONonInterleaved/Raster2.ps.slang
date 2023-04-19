@@ -43,6 +43,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
     
     float visibility = 0.0f;
 
+    bool isDoubleSided = (gMatDoubleSided[UVToPixel(texC)] & MTL_DOUBLE_SIDED) != 0;
+    
     uint i = 0;
     //[loop] while(mask != 0u)
     [unroll] for (uint j = 0; j < NUM_DIRECTIONS; j++)
@@ -202,6 +204,9 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                         if (!frontFace)
                             continue; // this is just for rasterizer compability
 
+                        if (isDoubleSided && !TRACE_DOUBLE_ON_DOUBLE)
+                            rayQuery.CommitNonOpaqueTriangleHit(); // always commit in this case
+                        
                         if (t <= tSphereStart)
                         {
                             tLastFrontFaceHalo = max(tLastFrontFaceHalo, t);
@@ -222,6 +227,8 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET
                 float haloVisibility = calcHaloVisibility(posVLength - tLastFrontFaceHalo * posVLength / initialSamplePosLength, sphereStart, sphereEnd, pdf);
 
                 float rayVisibility = min(curVisibility, min(sphereVisibility, haloVisibility));
+                if (isDoubleSided && !TRACE_DOUBLE_ON_DOUBLE)
+                    rayVisibility = min(curVisibility, haloVisibility < 1.0 ? haloVisibility : rayVisibility);
                 curVisibility = lerp(curVisibility, rayVisibility, rayRasterBlend);
             }
             else // !PREVENT_DARK_HALOS

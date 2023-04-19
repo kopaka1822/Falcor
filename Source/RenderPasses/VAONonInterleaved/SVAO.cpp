@@ -374,8 +374,10 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mRayVars["gNormalTex"] = pNormal;
         mRayVars["gsDepthTex"] = pStochasticDepthMap;
         mRayVars["aoMask"] = pAoMask;
+        mRayVars["gMatDoubleSided"] = pMatDoubleSided;
         //mRayVars["aoPrev"] = pAoDst; // src view
         mRayVars["output"] = pAoDst; // uav view
+        
 
         uint3 dims = uint3(pAoDst->getWidth() - 2 * mGuardBand, pAoDst->getHeight() - 2 * mGuardBand, 1);
         mpScene->raytrace(pRenderContext, mpRayProgram.get(), mRayVars, uint3{ pAoDst->getWidth(), pAoDst->getHeight(), 1 });
@@ -411,6 +413,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpRasterPass2["gDepthTex2"] = pDepth2;
         mpRasterPass2["gNormalTex"] = pNormal;
         mpRasterPass2["gsDepthTex"] = pStochasticDepthMap;
+        mpRasterPass2["gMatDoubleSided"] = pMatDoubleSided;
         mpRasterPass2["aoMask"] = pAoMask;
         mpRasterPass2["aoPrev"] = pAoDst;
 

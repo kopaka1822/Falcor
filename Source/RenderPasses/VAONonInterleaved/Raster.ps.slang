@@ -11,8 +11,7 @@ struct PSOut
 };
 
 RWTexture2D<uint> gDepthAccess; // indicates depth accesses for the secondary pass
-#define MTL_DOUBLE_SIDED 1
-Texture2D<uint> gMatDoubleSided; // double sided flag
+
 
 PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 {

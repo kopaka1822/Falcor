@@ -24,7 +24,9 @@ struct RayData2
     float tSphereStart;
 };
 
-
+#ifndef PREVENT_DARK_HALOS
+#define PREVENT_DARK_HALOS 1
+#endif
 
 #if PREVENT_DARK_HALOS
 [shader("anyhit")]
