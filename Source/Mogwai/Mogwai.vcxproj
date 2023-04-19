@@ -145,6 +145,9 @@
     <ProjectReference Include="..\RenderPasses\RayFilter\RayFilter.vcxproj">
       <Project>{5265d9dd-e9a3-44e8-a999-3987e8a53a8e}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\RenderPasses\RaytracedShadow\RaytracedShadow.vcxproj">
+      <Project>{85907c7a-157d-4803-86c2-38ec3b7543c7}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\RenderPasses\RTAODenoiser\RTAODenoiser.vcxproj">
       <Project>{12fb9ee5-f061-44cc-885f-a003ac639e0d}</Project>
     </ProjectReference>
