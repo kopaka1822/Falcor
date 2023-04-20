@@ -77,6 +77,8 @@ public:
     */
     ForwardLightingPass& setSampler(const Sampler::SharedPtr& pSampler);
 
+    void setEnvScale(float value);
+    void setAmbientIntensity(float value);
 private:
     ForwardLightingPass();
     void initDepth(const RenderData& renderData);
@@ -95,4 +97,12 @@ private:
     uint32_t mSampleCount = 0;
     bool mEnableSuperSampling = false;
     bool mUsePreGenDepth = false;
+    
+    float mEnvMapIntensity = 1.0f;
+    float mAmbientIntensity = 1.0f;
 };
+
+inline void ForwardLightingPass::setAmbientIntensity(float value)
+{
+    mAmbientIntensity = value;
+}

@@ -52,10 +52,12 @@ namespace
 
     const std::string kDepth = "depth";
     const std::string kColor = "color";
-    const std::string kAmbient = "ao";
     const std::string kMotionVecs = "motionVecs";
     const std::string kNormals = "normals";
     const std::string kVisBuffer = "visibilityBuffer";
+
+    const std::string kAmbientIntensity = "ambientScale";
+    const std::string kEnvIntensity = "envScale";
 
     const std::string kSampleCount = "sampleCount";
     const std::string kSuperSampling = "enableSuperSampling";
@@ -70,6 +72,8 @@ ForwardLightingPass::SharedPtr ForwardLightingPass::create(RenderContext* pRende
     {
         if (key == kSampleCount) pThis->setSampleCount(value);
         else if (key == kSuperSampling) pThis->setSuperSampling(value);
+        else if (key == kEnvIntensity) pThis->setEnvScale(value);
+        else if (key == kAmbientIntensity) pThis->setAmbientIntensity(value);
         else logWarning("Unknown field '{}' in a ForwardLightingPass dictionary.", key);
     }
 
@@ -81,7 +85,14 @@ Dictionary ForwardLightingPass::getScriptingDictionary()
     Dictionary d;
     d[kSampleCount] = mSampleCount;
     d[kSuperSampling] = mEnableSuperSampling;
+    d[kEnvIntensity] = mEnvMapIntensity;
+    d[kAmbientIntensity] = mAmbientIntensity;
     return d;
+}
+
+void ForwardLightingPass::setEnvScale(float value)
+{
+    mEnvMapIntensity = value;
 }
 
 ForwardLightingPass::ForwardLightingPass()
@@ -103,7 +114,6 @@ RenderPassReflection ForwardLightingPass::reflect(const CompileData& compileData
     RenderPassReflection reflector;
 
     reflector.addInput(kVisBuffer, "Visibility buffer used for shadowing. Range is [0,1] where 0 means the pixel is fully-shadowed and 1 means the pixel is not shadowed at all").flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addInput(kAmbient, "Ambient Occlusion").bindFlags(Resource::BindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addInputOutput(kColor, "Color texture").format(mColorFormat).texture2D(0, 0, mSampleCount);
 
     auto& depthField = mUsePreGenDepth ? reflector.addInputOutput(kDepth, "Pre-initialized depth-buffer") : reflector.addOutput(kDepth, "Depth buffer");
@@ -198,9 +208,9 @@ void ForwardLightingPass::execute(RenderContext* pRenderContext, const RenderDat
     }
 
     mpVars["PerFrameCB"]["gRenderTargetDim"] = float2(mpFbo->getWidth(), mpFbo->getHeight());
+    mpVars["PerFrameCB"]["envMapIntensity"] = mEnvMapIntensity;
+    mpVars["PerFrameCB"]["ambientIntensity"] = mAmbientIntensity;
     mpVars->setTexture(kVisBuffer, renderData[kVisBuffer]->asTexture());
-    if(renderData[kAmbient])
-        mpVars["gAmbient"] = renderData[kAmbient]->asTexture();
 
     mpState->setFbo(mpFbo);
     mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get());
@@ -216,8 +226,12 @@ void ForwardLightingPass::renderUI(Gui::Widgets& widget)
         { 8, "8" },
     };
 
-    if (widget.dropdown("Sample Count", kSampleCountList, mSampleCount))              setSampleCount(mSampleCount);
-    if (mSampleCount > 1 && widget.checkbox("Super Sampling", mEnableSuperSampling))  setSuperSampling(mEnableSuperSampling);
+    //if (widget.dropdown("Sample Count", kSampleCountList, mSampleCount))              setSampleCount(mSampleCount);
+    //if (mSampleCount > 1 && widget.checkbox("Super Sampling", mEnableSuperSampling))  setSuperSampling(mEnableSuperSampling);
+
+    widget.var("Ambient Scale", mAmbientIntensity, 0.f, 100.f, 0.01f);
+    widget.var("Env Scale", mEnvMapIntensity, 0.f, 100.f, 0.01f);
+    
 }
 
 ForwardLightingPass& ForwardLightingPass::setColorFormat(ResourceFormat format)
