@@ -69,7 +69,7 @@ public:
 private:
     void parseDictionary(const Dictionary& dict);
 
-    void prepareSurfaceData(RenderContext* pRenderContext, const ref<Texture>& pVBuffer);
+    void prepareSurfaceData(RenderContext* pRenderContext, const ref<Texture>& pVBuffer, const RenderData& renderData);
     void finalShading(RenderContext* pRenderContext, const ref<Texture>& pVBuffer, const RenderData& renderData);
 
     ref<Scene>              mpScene;
@@ -79,6 +79,8 @@ private:
 
     ref<ComputePass>        mpPrepareSurfaceDataPass;
     ref<ComputePass>        mpFinalShadingPass;
+
+    ref<Texture>            mpViewDirPrev;
 
     uint2                   mFrameDim = { 0, 0 };
     bool                    mOptionsChanged = false;

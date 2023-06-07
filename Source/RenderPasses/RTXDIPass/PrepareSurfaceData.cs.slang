@@ -29,6 +29,11 @@ import LoadShadingData;
 import Utils.Color.ColorHelpers;
 import Rendering.RTXDI.RTXDI;
 
+Texture2D<float> gPathLength;
+Texture2D<float4> gViewDir;
+
+#define is_valid(name) (is_valid_##name != 0)
+
 /** Prepares RTXDI surface data.
 */
 struct PrepareSurfaceData
@@ -44,7 +49,16 @@ struct PrepareSurfaceData
 
         ShadingData sd;
         let lod = ExplicitLodTextureSampler(0.f); // TODO: Implement texture level-of-detail.
-        bool isValidSurface = loadShadingData(pixel, frameDim, gScene.camera, vbuffer, lod, sd);
+        bool isValidSurface;
+        if (is_valid(gViewDir))
+        {
+            float3 viewDir = normalize(gViewDir[pixel].xyz);
+            isValidSurface = loadShadingData(pixel, frameDim, -viewDir, vbuffer, lod, sd);
+        }
+        else
+        {
+            isValidSurface = loadShadingData(pixel, frameDim, gScene.camera, vbuffer, lod, sd);
+        }
 
         if (isValidSurface)
         {
@@ -53,10 +67,15 @@ struct PrepareSurfaceData
             let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
             let bsdfProperties = mi.getProperties(sd);
 
+             //Set view depth via texture if the texture is valid
+            float viewDepth = -1;
+            if (is_valid(gPathLength))
+                viewDepth = gPathLength[pixel];
+            
             // RTXDI uses a simple material model with only diffuse and specular reflection lobes.
             // We query the BSDF for the diffuse albedo and specular reflectance, and use their luminances as weights.
             // Note: Final shading uses the full material model, the simplified model is only used for resampling purposes.
-            gRTXDI.setSurfaceData(pixel, sd.computeNewRayOrigin(), bsdfProperties.guideNormal, bsdfProperties.diffuseReflectionAlbedo, bsdfProperties.specularReflectance, bsdfProperties.roughness);
+            gRTXDI.setSurfaceData(pixel, sd.computeNewRayOrigin(), bsdfProperties.guideNormal, bsdfProperties.diffuseReflectionAlbedo, bsdfProperties.specularReflectance, bsdfProperties.roughness, viewDepth);
         }
         else
         {

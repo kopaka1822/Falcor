@@ -141,7 +141,7 @@ private:
     bool mReservoirValid = false;
     uint2 mScreenRes = uint2(0, 0);                                 //Store screen res to react to changes
     uint mRenderMode = RenderMode::ReSTIRFG;
-    uint mResamplingMode = ResamplingMode::Temporal;
+    uint mResamplingMode = ResamplingMode::SpartioTemporal;
 
     //Reservoir
     bool mUseReducedReservoirFormat = false;                        //Use a reduced reservoir format TODO: Add

@@ -91,6 +91,8 @@ struct RTXDI
     // Parameters only valid during shading (i.e., after calling RTXDI::update() in your C++ code).
     uint    finalShadingReservoir;                      ///< Reservoir where the final samples are stored (needed to extract them for the user).
 
+    bool    validViewTextures;                          ///< Stores if the view Textures are set and should be used. Custom Modification
+
     // Texture and buffer resources used in the RTXDI bridge.
     StructuredBuffer<PackedPolymorphicLight> lightInfo;             ///< Buffer storing information about all the lights in the scene.
     RWBuffer<uint2> risBuffer;                                      ///< Buffer storing presampled light tiles.
@@ -99,6 +101,8 @@ struct RTXDI
     Buffer<float2> neighborOffsets;                                 ///< Buffer storing a poisson(-ish) distribution of offsets for sampling randomized neighbors.
     RWStructuredBuffer<RTXDI_PackedReservoir> reservoirs;           ///< Buffer storing reservoirs.
     Texture2D<float2> motionVectors;                                ///< Texture storing screen-space motion vectors.
+    Texture2D<float4> viewDir;                                      ///< Texture storing the current viewDirection. Custom Modification 
+    Texture2D<float4> viewDirPrev;                                  ///< Texture storeing the previous viewDirection. Custom Modification 
 
     Texture2D localLightPdfTexture;                     ///< PDF texture for sampling local lights (emissive triangles, local analytical lights).
     Texture2D envLightLuminanceTexture;                 ///< Luminance texture for evaluating the environment light.
@@ -149,7 +153,7 @@ extension RTXDI
         \param[in] specular Specular albedo.
         \param[in] specularRoughness Specular roughness (linear).
     */
-    void setSurfaceData(const uint2 pixel, const float3 position, const float3 normal, const float3 diffuse, const float3 specular, const float specularRoughness)
+    void setSurfaceData(const uint2 pixel, const float3 position, const float3 normal, const float3 diffuse, const float3 specular, const float specularRoughness, const float viewDepth = -1.f)
     {
 #if RTXDI_INSTALLED
         if (any(pixel >= gRTXDI.frameDim)) return;
@@ -160,7 +164,11 @@ extension RTXDI
         SurfaceData sd = {};
         sd.position = position;
         sd.normal = normal;
-        sd.viewDepth = distance(gScene.camera.getPosition(), position);
+        //Modified. If view depth is not set externally, fall back to the standard way
+        if(viewDepth < 0)
+            sd.viewDepth = distance(gScene.camera.getPosition(), position);
+        else
+            sd.viewDepth = viewDepth;
 
         float diffuseWeight = luminance(diffuse);
         float specularWeight = luminance(specular);
@@ -175,7 +183,7 @@ extension RTXDI
         // Store surface data.
         gRTXDI.surfaceData[bufferIdx] = sd.pack();
 #endif
-    }
+}
 
     /** Mark pixel as containing no valid surface data.
        \param[in] pixel Pixel coordinate.
