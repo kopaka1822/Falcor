@@ -48,7 +48,7 @@ namespace
     const Falcor::ChannelList kInputChannels{
         {kInputVBuffer, "gVBuffer", "Visibility buffer in packed format"},
         {kInputMotionVectors, "gMotionVectors", "Motion vector buffer (float format)", true /* optional */},
-        {kInputViewDir, "gViewW", "World-space view direction (xyz float format)", true /* optional */},
+        {kInputViewDir, "gViewDir", "World-space view direction (xyz float format)", true /* optional */},
         {kInputRayDistance, "gRayDist", "The ray distance from camera to hit point", true /* optional */},
     };
 
@@ -712,14 +712,17 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
         defines.add(mpSampleGenerator->getDefines());
         if (mUseReducedReservoirFormat)
             defines.add("USE_REDUCED_RESERVOIR_FORMAT");
+        defines.add("MODE_SPATIOTEMPORAL", mResamplingMode == ResamplingMode::SpartioTemporal ? "1" : "0");
+        defines.add("MODE_TEMPORAL", mResamplingMode == ResamplingMode::Temporal ? "1" : "0");
+        defines.add("MODE_SPATIAL", mResamplingMode == ResamplingMode::Spartial ? "1" : "0");
+        defines.add("BIAS_CORRECTION_MODE", std::to_string(mBiasCorrectionMode));
 
         mpResamplingPass = ComputePass::create(mpDevice, desc, defines, true);
      }
 
      FALCOR_ASSERT(mpResamplingPass);
 
-     //Set defines for the resampling modes
-     //TODO add bias correction mode
+     //If defines change, refresh the program
      mpResamplingPass->getProgram()->addDefine("MODE_SPATIOTEMPORAL", mResamplingMode == ResamplingMode::SpartioTemporal ? "1" : "0");
      mpResamplingPass->getProgram()->addDefine("MODE_TEMPORAL", mResamplingMode == ResamplingMode::Temporal ? "1" : "0");
      mpResamplingPass->getProgram()->addDefine("MODE_SPATIAL", mResamplingMode == ResamplingMode::Spartial ? "1" : "0");

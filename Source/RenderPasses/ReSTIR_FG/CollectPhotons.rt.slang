@@ -112,14 +112,18 @@ void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_In
     {
         return;
     }
+
+    
+        
     
     //Photon contribution
     uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
     let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
+    let bsdfProperties = bsdf.getProperties(sd);
     float3 f_r = bsdf.eval(sd, pd.dir, rayData.sg); //right sign?
-    float NdotL = saturate(dot(sd.frame.N, pd.dir));
+    float NdotL = saturate(dot(bsdfProperties.guideNormal, pd.dir));
     if(NdotL > 0)
-        rayData.radiance += (f_r * pd.flux)/NdotL;
+        rayData.radiance += max(0.f, (f_r * pd.flux) / NdotL);
 }
 
 //Checks if the ray start point is inside the sphere.
@@ -221,6 +225,9 @@ void rayGen()
         
     uint materialID = gScene.getMaterialID(triangleHit.instanceID);
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.Direction, lod);
+    uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
+    let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
+    let bsdfProperties = bsdf.getProperties(sd);
     
     float3 fgRadiance = float3(0);
     float jacoDeter = -1.f;
@@ -229,7 +236,7 @@ void rayGen()
     {
         //Jacobian Determinant (only needed for resampling)
 #if !MODE_FINAL_GATHER
-        jacoDeter = vplAttenuation(distToFG, gAttenuationRadius) * saturate(dot(sd.frame.N, sd.V));
+        jacoDeter = vplAttenuation(distToFG, gAttenuationRadius) * saturate(dot(bsdfProperties.guideNormal,sd.V));
 #endif
         
         TraceRay(gPhotonAS, rayFlags, 1 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
@@ -240,14 +247,15 @@ void rayGen()
 #if MODE_FINAL_GATHER
     
     //Final gather
-    uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
-    let bsdf = gScene.materials.getMaterialInstance(fgSD, lod, hints);
+    let bsdfFG = gScene.materials.getMaterialInstance(fgSD, lod, hints);
     float3 color = max(0.f, fgRadiance * r.weightSum);
-    color *= bsdf.eval(fgSD, ray.Direction, rayData.sg);
+    color *= bsdfFG.eval(fgSD, ray.Direction, rayData.sg);
     
     gColor[launchIndex] = float4(color + causticRadiance, 1.f);
 
 #else
+   
+    
     //ReSTIR Candidate
     uint lightIdx = index2Dto1D(launchIndex, launchDim.x);
     float Li = luminance(fgRadiance);
@@ -260,7 +268,7 @@ void rayGen()
     if (isnan(Li) || isinf(Li))
         fgValid = false;
     fgData.posW = sd.computeNewRayOrigin();
-    fgData.normal = sd.frame.N;
+    fgData.normal = bsdfProperties.guideNormal;
     fgData.flux = fgRadiance;
     fgData.jacobianDeterminant = fgValid ? jacoDeter : -1.f;    //Negative jacobian determinant is an invalid sample
 

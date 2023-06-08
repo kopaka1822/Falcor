@@ -259,9 +259,9 @@ void closestHit(inout TraceData rayData : SV_RayPayload, BuiltInTriangleIntersec
     
     if(diffuseHit){
         rayData.distance = RayTCurrent();
-        rayData.packedNormal = encodeNormal2x16(sd.frame.N);
+        rayData.packedNormal = encodeNormal2x16(bsdfProperties.guideNormal);
         rayData.packedHitInfo = HitInfo(triangleHit).getData();
-        rayData.NdotL = saturate(dot(sd.frame.N, incomingRayDir));
+        rayData.NdotL = saturate(dot(bsdfProperties.guideNormal, incomingRayDir));
     }else{
         rayData.distance = -1.f;
     }
