@@ -111,7 +111,7 @@ void RTXDIPass::execute(RenderContext* pRenderContext, const RenderData& renderD
 
     const auto& pVBuffer = renderData.getTexture(kInputVBuffer);
     const auto& pMotionVectors = renderData.getTexture(kInputMotionVectors);
-    const auto& pViewDir = renderData[kInputViewDir]->asTexture();
+    const auto& pViewDir = renderData[kInputViewDir] ? renderData[kInputViewDir]->asTexture(): nullptr;
     // Create a previous view direction texture if the view dir texture is set
     if (pViewDir != nullptr && !mpViewDirPrev)
     {
@@ -196,6 +196,9 @@ void RTXDIPass::prepareSurfaceData(RenderContext* pRenderContext, const ref<Text
 
     FALCOR_PROFILE(pRenderContext, "prepareSurfaceData");
 
+    const auto& pViewDir = renderData[kInputViewDir] ? renderData[kInputViewDir]->asTexture() : nullptr;
+    const auto& pPathLength = renderData[kInputPathLength] ? renderData[kInputPathLength]->asTexture() : nullptr;
+
     if (!mpPrepareSurfaceDataPass)
     {
         Program::Desc desc;
@@ -216,8 +219,8 @@ void RTXDIPass::prepareSurfaceData(RenderContext* pRenderContext, const ref<Text
     auto rootVar = mpPrepareSurfaceDataPass->getRootVar();
     rootVar["gScene"] = mpScene->getParameterBlock();
     mpRTXDI->setShaderData(rootVar);
-    rootVar["gPathLength"] = renderData[kInputPathLength]->asTexture();
-    rootVar["gViewDir"] = renderData[kInputViewDir]->asTexture();
+    rootVar["gPathLength"] = pPathLength;
+    rootVar["gViewDir"] = pViewDir;
 
     auto var = rootVar["gPrepareSurfaceData"];
     var["vbuffer"] = pVBuffer;
@@ -232,6 +235,8 @@ void RTXDIPass::finalShading(RenderContext* pRenderContext, const ref<Texture>& 
     FALCOR_ASSERT(pVBuffer);
 
     FALCOR_PROFILE(pRenderContext, "finalShading");
+
+    const auto& pViewDir = renderData[kInputViewDir] ? renderData[kInputViewDir]->asTexture() : nullptr;
 
     if (!mpFinalShadingPass)
     {
@@ -261,7 +266,7 @@ void RTXDIPass::finalShading(RenderContext* pRenderContext, const ref<Texture>& 
     rootVar["gScene"] = mpScene->getParameterBlock();
     mpRTXDI->setShaderData(rootVar);
 
-    rootVar["gViewDir"] = renderData[kInputViewDir]->asTexture();
+    rootVar["gViewDir"] = pViewDir;
     rootVar["gViewDirPrev"] = mpViewDirPrev;
 
     auto var = rootVar["gFinalShading"];
