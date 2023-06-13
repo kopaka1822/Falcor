@@ -142,6 +142,14 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
 
     prepareAccelerationStructure();
 
+    //Clear the reservoir
+    if (mClearReservoir)
+    {
+        for (uint i = 0; i < 2; i++)
+            pRenderContext->clearUAV(mpReservoirBuffer[i]->getUAV().get(), uint4(0));
+        mClearReservoir = false;
+    }
+
     if (mpRTXDI) mpRTXDI->beginFrame(pRenderContext, mScreenRes);
 
     //RenderPasses
@@ -260,11 +268,10 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         }
             
     }
-    //TODO
 
     if (mRenderMode == RenderMode::ReSTIRFG)
     {
-        if (auto group = widget.group("Resampling"))
+        if (auto group = widget.group("ReSTIR_FG"))
         {
             changed |= widget.dropdown("ResamplingMode", kResamplingModeList, (uint&)mResamplingMode);
 
@@ -307,9 +314,11 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                 "normal 1/d^2"
             );
 
-            // TODO add
-            // mReset |= widget.checkbox("Use reduced Reservoir format", mUseReducedReservoirFormat);
-            // widget.tooltip("If enabled uses RG32_UINT instead of RGBA32_UINT. In reduced format the targetPDF and M only have 16 bits while the weight still has full precision");
+            mRebuildReservoirBuffer |= widget.checkbox("Use reduced Reservoir format", mUseReducedReservoirFormat);
+            widget.tooltip("If enabled uses RG32_UINT instead of RGBA32_UINT. In reduced format the targetPDF and M only have 16 bits while the weight still has full precision");
+
+            mClearReservoir = widget.button("Clear Reservoirs");
+            widget.tooltip("Clears the reservoirs");
         }
     }
 
@@ -401,11 +410,19 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         mpViewDirPrev.reset();
     }
 
+    //If reservoir format changed reset buffer
+    if (mRebuildReservoirBuffer){
+        mpReservoirBuffer[0].reset();
+        mpReservoirBuffer[1].reset();
+        mRebuildReservoirBuffer = false;
+    }
+
+
     //Per pixel Buffers/Textures
     for (uint i = 0; i < 2; i++){
         if (!mpReservoirBuffer[i]){
-            mpReservoirBuffer[i] = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA32Uint, 1, 1, nullptr,
-                                                     ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+            mpReservoirBuffer[i] = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, mUseReducedReservoirFormat ? ResourceFormat::RG32Uint : ResourceFormat::RGBA32Uint, 
+                                                     1u, 1u, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
             mpReservoirBuffer[i]->setName("ReSTIR_FG::Reservoir" + std::to_string(i));
         }
 
@@ -749,8 +766,7 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
         Program::DefineList defines;
         defines.add(mpScene->getSceneDefines());
         defines.add(mpSampleGenerator->getDefines());
-        if (mUseReducedReservoirFormat)
-            defines.add("USE_REDUCED_RESERVOIR_FORMAT");
+        defines.add("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
         defines.add("MODE_SPATIOTEMPORAL", mResamplingMode == ResamplingMode::SpartioTemporal ? "1" : "0");
         defines.add("MODE_TEMPORAL", mResamplingMode == ResamplingMode::Temporal ? "1" : "0");
         defines.add("MODE_SPATIAL", mResamplingMode == ResamplingMode::Spartial ? "1" : "0");
@@ -766,6 +782,7 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
      mpResamplingPass->getProgram()->addDefine("MODE_TEMPORAL", mResamplingMode == ResamplingMode::Temporal ? "1" : "0");
      mpResamplingPass->getProgram()->addDefine("MODE_SPATIAL", mResamplingMode == ResamplingMode::Spartial ? "1" : "0");
      mpResamplingPass->getProgram()->addDefine("BIAS_CORRECTION_MODE", std::to_string((uint)mBiasCorrectionMode));
+     mpResamplingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT" ,mUseReducedReservoirFormat ? "1" : "0");
 
      
     // Set variables
@@ -836,7 +853,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         defines.add(mpSampleGenerator->getDefines());
         defines.add(getValidResourceDefines(kOutputChannels, renderData));
         defines.add(getValidResourceDefines(kInputChannels, renderData));
-        if (mUseReducedReservoirFormat) defines.add("USE_REDUCED_RESERVOIR_FORMAT");
+        defines.add("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
         if (mpRTXDI) defines.add(mpRTXDI->getDefines());
         defines.add("USE_RTXDI", mpRTXDI ? "1" : "0");
         defines.add("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
@@ -848,6 +865,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      if (mpRTXDI) mpFinalShadingPass->getProgram()->addDefines(mpRTXDI->getDefines());  //TODO only set once?
      mpFinalShadingPass->getProgram()->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
+     mpFinalShadingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
      // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
      mpFinalShadingPass->getProgram()->addDefines(getValidResourceDefines(kOutputChannels, renderData));
 

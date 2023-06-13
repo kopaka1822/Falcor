@@ -157,6 +157,8 @@ private:
 
     //Reservoir
     bool mUseReducedReservoirFormat = false;                        //Use a reduced reservoir format TODO: Add
+    bool mRebuildReservoirBuffer = false;                            //Rebuild the reservoir buffer
+    bool mClearReservoir = false;                                   //Clears both reservoirs
     float mSampleRadiusAttenuation = 0.05f;                         //Radius for the better defined attenuation
     uint mTemporalMaxAge = 20;                                      // Max age of an temporal reservoir
     uint mSpartialSamples = 1;                                      // Number of spartial samples

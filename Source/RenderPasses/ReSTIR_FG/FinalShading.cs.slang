@@ -23,7 +23,7 @@ import FinalGatherData;
 
 
 
-#ifdef USE_REDUCED_RESERVOIR_FORMAT
+#if USE_REDUCED_RESERVOIR_FORMAT
     Texture2D<uint2> gReservoir;
 #else
     Texture2D<uint4> gReservoir;
