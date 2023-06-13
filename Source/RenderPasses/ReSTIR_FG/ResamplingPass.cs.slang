@@ -11,7 +11,7 @@ import Utils.Math.MathHelpers;
 import Utils.Color.ColorHelpers;
 
 import Reservoir;
-import SurfaceData;
+import SurfaceDataFG;
 import FinalGatherData;
 
 #ifdef USE_REDUCED_RESERVOIR_FORMAT
@@ -24,8 +24,8 @@ import FinalGatherData;
 
 RWStructuredBuffer<FGData> gFGSampleData;
 StructuredBuffer<FGData> gFGSampleDataPrev;
-StructuredBuffer<PackedSurfaceData> gSurface;
-StructuredBuffer<PackedSurfaceData>gSurfacePrev;
+StructuredBuffer<PackedSurfaceDataFG> gSurface;
+StructuredBuffer<PackedSurfaceDataFG>gSurfacePrev;
 Texture2D<float2> gMVec;
 Texture2D<float4> gView;
 Texture2D<float4> gPrevView;
@@ -72,7 +72,7 @@ uint index2Dto1D(uint2 idx, uint width){
     return idx.x + width * idx.y;
 }
 
-Surface getSurface(uint2 idx, bool prev)
+SurfaceFG getSurface(uint2 idx, bool prev)
 {
     float3 viewDir;
     if (prev)
@@ -80,13 +80,13 @@ Surface getSurface(uint2 idx, bool prev)
     else
         viewDir = gView[idx].xyz;
 
-    PackedSurfaceData surfaceData;
+    PackedSurfaceDataFG surfaceData;
     if (prev)
         surfaceData = gSurfacePrev[index2Dto1D(idx, gFrameDim.x)];
     else
         surfaceData = gSurface[index2Dto1D(idx, gFrameDim.x)];
     
-    return Surface(surfaceData, viewDir);
+    return SurfaceFG(surfaceData, viewDir);
 }
 
 bool getLightSample(in FGData fgData, in float3 worldPos, out LightSample ls, out float sampleDistance)
@@ -104,7 +104,7 @@ bool getLightSample(in FGData fgData, in float3 worldPos, out LightSample ls, ou
     return ls.Li > 0; //true if sample is valid
 }
 
-void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in Surface surface)
+void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
 {
     SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
 
@@ -120,7 +120,7 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
 
     //Check if a neighbor surface matches up
     //Try to find a matching surface in the neighborhood of the reprojected pixel
-    Surface temporalSurface;
+    SurfaceFG temporalSurface;
     bool selectPrevSample = false;
     uint previousM = 0;
     bool foundTemporalSurface = false;
@@ -222,7 +222,7 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
 #endif //BIAS_MODE_BASIC
 }
 
-void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in Surface surface)
+void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
 {
     SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
     
@@ -248,7 +248,7 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
         min(max(uint2(0), idx), gFrameDim - 1);
 
         //Get surface and check if valid
-        Surface neighSurface = getSurface(idx, false);   //Get surface
+        SurfaceFG neighSurface = getSurface(idx, false); //Get surface
         if (!neighSurface.valid)
             continue;
         
@@ -306,7 +306,7 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
             //Get Index
             uint2 idx = uint2(cachedIndices[i] >> 16, (cachedIndices[i] & 0xFFFF));
             //Get Surface
-            Surface biasSurface = getSurface(idx, false);
+            SurfaceFG biasSurface = getSurface(idx, false);
             if (!biasSurface.valid)
                 continue;
         
@@ -348,7 +348,7 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
     #endif //BIAS MODE BASIC    
 }
 
-void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in Surface surface)
+void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
 {
     SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
 
@@ -382,7 +382,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
         min(max(uint2(0), idx), gFrameDim - 1);
         
         //Get Hit sample from last frame
-        Surface temporalSurface = getSurface(idx, true);
+        SurfaceFG temporalSurface = getSurface(idx, true);
         if (!temporalSurface.valid)
             continue;
 
@@ -432,7 +432,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
             min(max(uint2(0), idx), gFrameDim - 1);
             
              //Get surface and check if valid
-            Surface neighSurface = getSurface(idx, true);
+            SurfaceFG neighSurface = getSurface(idx, true);
             if (!neighSurface.valid)
                 continue;
         
@@ -494,7 +494,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
             //Get Index
             uint2 idx = uint2(cachedIndices[i] >> 16, (cachedIndices[i] & 0xFFFF));
             //Get Surface
-            Surface biasSurface = getSurface(idx, true);
+            SurfaceFG biasSurface = getSurface(idx, true);
             if (!biasSurface.valid)
                 continue;
         
@@ -539,7 +539,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
 void main(uint2 dTid : SV_DispatchThreadID)
 {    
     //Check if surface is valid
-    Surface surface = getSurface(dTid, false);
+    SurfaceFG surface = getSurface(dTid, false);
     if (!surface.valid)
         return;
         

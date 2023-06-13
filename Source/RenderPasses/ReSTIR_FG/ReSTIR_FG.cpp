@@ -59,20 +59,25 @@ namespace
     };
 
     const Gui::DropdownList kResamplingModeList{
-        {ReSTIR_FG::ResamplingMode::Temporal, "Temporal"},
-        {ReSTIR_FG::ResamplingMode::Spartial, "Spartial"},
-        {ReSTIR_FG::ResamplingMode::SpartioTemporal, "SpartioTemporal"},
+        {(uint)ReSTIR_FG::ResamplingMode::Temporal, "Temporal"},
+        {(uint)ReSTIR_FG::ResamplingMode::Spartial, "Spartial"},
+        {(uint)ReSTIR_FG::ResamplingMode::SpartioTemporal, "SpartioTemporal"},
     };
 
     const Gui::DropdownList kBiasCorrectionModeList{
-        {ReSTIR_FG::BiasCorrectionMode::Off, "Off"},
-        {ReSTIR_FG::BiasCorrectionMode::Basic, "Basic"},
-        {ReSTIR_FG::BiasCorrectionMode::RayTraced, "RayTraced"},
+        {(uint)ReSTIR_FG::BiasCorrectionMode::Off, "Off"},
+        {(uint)ReSTIR_FG::BiasCorrectionMode::Basic, "Basic"},
+        {(uint)ReSTIR_FG::BiasCorrectionMode::RayTraced, "RayTraced"},
     };
 
     const Gui::DropdownList kRenderModeList{
-        {ReSTIR_FG::RenderMode::FinalGather, "Final Gather"},
-        {ReSTIR_FG::RenderMode::ReSTIRFG, "ReSTIR_FG"},
+        {(uint)ReSTIR_FG::RenderMode::FinalGather, "Final Gather"},
+        {(uint)ReSTIR_FG::RenderMode::ReSTIRFG, "ReSTIR_FG"},
+    };
+
+    const Gui::DropdownList kDirectLightRenderModeList{
+        {(uint)ReSTIR_FG::DirectLightingMode::None, "None"},
+        {(uint)ReSTIR_FG::DirectLightingMode::RTXDI, "RTXDI"}
     };
 }
 
@@ -118,12 +123,26 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     if(!mpScene)    //Return on empty scene
         return;
 
+    const auto& pMotionVectors = renderData[kInputMotionVectors]->asTexture();
+    const auto& pViewDir = renderData[kInputViewDir]->asTexture();
+
+    //Init RTXDI if it is enabled
+    if (mDirectLightMode == DirectLightingMode::RTXDI && !mpRTXDI)
+    {
+        mpRTXDI = std::make_unique<RTXDI>(mpScene, mRTXDIOptions);
+    }
+    //Delete RTXDI if it is set and the mode changed
+    if (mDirectLightMode != DirectLightingMode::RTXDI && mpRTXDI)
+        mpRTXDI = nullptr;
+
     //Prepare used Datas and Buffers
     prepareLighting(pRenderContext);
 
     prepareBuffers(pRenderContext, renderData);
 
     prepareAccelerationStructure();
+
+    if (mpRTXDI) mpRTXDI->beginFrame(pRenderContext, mScreenRes);
 
     //RenderPasses
     handlePhotonCounter(pRenderContext);
@@ -132,18 +151,24 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
 
     generatePhotonsPass(pRenderContext, renderData);
 
+    //Direct light resampling
+    if (mpRTXDI) mpRTXDI->update(pRenderContext, pMotionVectors, pViewDir, mpViewDirPrev);
+
     collectPhotons(pRenderContext, renderData);
 
     //Do resampling
-    if ((mRenderMode == (uint)RenderMode::ReSTIRFG))
-    {
-        if (mReservoirValid)
-            resamplingPass(pRenderContext, renderData);
+    if (mReservoirValid && (mRenderMode == RenderMode::ReSTIRFG))
+        resamplingPass(pRenderContext, renderData);
 
+    if ((mRenderMode == RenderMode::ReSTIRFG) || mDirectLightMode == DirectLightingMode::RTXDI)
+    {
         finalShadingPass(pRenderContext, renderData);
 
         copyViewTexture(pRenderContext, renderData);
     }
+        
+
+    if (mpRTXDI) mpRTXDI->endFrame(pRenderContext);
 
     mReservoirValid = true;
     mFrameCount++;
@@ -153,7 +178,9 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
 {
     bool changed = false;
 
-    widget.dropdown("Render Moder", kRenderModeList, mRenderMode);
+    widget.dropdown("Direct Light Mode", kDirectLightRenderModeList, (uint&)mDirectLightMode);
+
+    widget.dropdown("(Indirect) Render Mode", kRenderModeList, (uint&)mRenderMode);
 
     if (auto group = widget.group("PhotonMapper")) {
         changed |= widget.checkbox("Enable dynamic photon dispatch", mUseDynamicePhotonDispatchCount);
@@ -235,13 +262,13 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
     }
     //TODO
 
-    if (mRenderMode == (uint)RenderMode::ReSTIRFG)
+    if (mRenderMode == RenderMode::ReSTIRFG)
     {
         if (auto group = widget.group("Resampling"))
         {
-            changed |= widget.dropdown("ResamplingMode", kResamplingModeList, mResamplingMode);
+            changed |= widget.dropdown("ResamplingMode", kResamplingModeList, (uint&)mResamplingMode);
 
-            changed |= widget.dropdown("BiasCorrection", kBiasCorrectionModeList, mBiasCorrectionMode);
+            changed |= widget.dropdown("BiasCorrection", kBiasCorrectionModeList, (uint&)mBiasCorrectionMode);
 
             changed |= widget.var("Depth Threshold", mRelativeDepthThreshold, 0.0f, 1.0f, 0.0001f);
             widget.tooltip("Relative depth threshold. 0.1 = within 10% of current depth (linZ)");
@@ -261,10 +288,10 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
             if (auto group2 = widget.group("Spartial Options"))
             {
                 changed |=
-                    widget.var("Spartial Samples", mSpartialSamples, 0u, mResamplingMode & ResamplingMode::SpartioTemporal ? 8u : 32u);
+                    widget.var("Spartial Samples", mSpartialSamples, 0u, 8u);
                 widget.tooltip("Number of spartial samples");
 
-                changed |= widget.var("Disocclusion Sample Boost", mDisocclusionBoostSamples, 0u, 32u);
+                changed |= widget.var("Disocclusion Sample Boost", mDisocclusionBoostSamples, 0u, 8u);
                 widget.tooltip(
                     "Number of spartial samples if no temporal surface was found. Needs to be bigger than \"Spartial Samples\" + 1 to have "
                     "an effect"
@@ -286,6 +313,16 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         }
     }
 
+    if (mpRTXDI)
+    {
+        if (auto group = widget.group("RTXDI"))
+        {
+            bool rtxdiChanged = mpRTXDI->renderUI(widget);
+            if (rtxdiChanged)
+                mRTXDIOptions = mpRTXDI->getOptions();
+            changed |= rtxdiChanged;
+        }
+    }
 }
 
 void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) {
@@ -473,8 +510,9 @@ void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const Rende
     mFinalGatherSamplePass.pProgram->addDefine("USE_PHOTON_CULLING", mUsePhotonCulling ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("CULLING_ALT_VERSION", mUseAlternativeCulling ? "1" : "0");
-    
-
+    mFinalGatherSamplePass.pProgram->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
+    if (mpRTXDI) mFinalGatherSamplePass.pProgram->addDefines(mpRTXDI->getDefines());
+        
     if (!mFinalGatherSamplePass.pVars)
         mFinalGatherSamplePass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
 
@@ -496,6 +534,7 @@ void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const Rende
     var[nameBuf]["gUseAlphaTest"] = mPhotonUseAlphaTest;
     var[nameBuf]["gDeltaRejection"] = mGenerationDeltaRejection;
 
+    if (mpRTXDI) mpRTXDI->setShaderData(var);
     var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
     var["gView"] = renderData[kInputViewDir]->asTexture();
     var["gLinZ"] = renderData[kInputRayDistance]->asTexture();
@@ -644,7 +683,7 @@ void ReSTIR_FG::handlePhotonCounter(RenderContext* pRenderContext)
 void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData) {
      FALCOR_PROFILE(pRenderContext, "CollectPhotons");
 
-     bool finalGatherRenderMode = mRenderMode == (uint)RenderMode::FinalGather;
+     bool finalGatherRenderMode = mRenderMode == RenderMode::FinalGather;
 
      //Defines TODO add
      mCollectPhotonPass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
@@ -715,7 +754,7 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
         defines.add("MODE_SPATIOTEMPORAL", mResamplingMode == ResamplingMode::SpartioTemporal ? "1" : "0");
         defines.add("MODE_TEMPORAL", mResamplingMode == ResamplingMode::Temporal ? "1" : "0");
         defines.add("MODE_SPATIAL", mResamplingMode == ResamplingMode::Spartial ? "1" : "0");
-        defines.add("BIAS_CORRECTION_MODE", std::to_string(mBiasCorrectionMode));
+        defines.add("BIAS_CORRECTION_MODE", std::to_string((uint)mBiasCorrectionMode));
 
         mpResamplingPass = ComputePass::create(mpDevice, desc, defines, true);
      }
@@ -726,7 +765,7 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
      mpResamplingPass->getProgram()->addDefine("MODE_SPATIOTEMPORAL", mResamplingMode == ResamplingMode::SpartioTemporal ? "1" : "0");
      mpResamplingPass->getProgram()->addDefine("MODE_TEMPORAL", mResamplingMode == ResamplingMode::Temporal ? "1" : "0");
      mpResamplingPass->getProgram()->addDefine("MODE_SPATIAL", mResamplingMode == ResamplingMode::Spartial ? "1" : "0");
-     mpResamplingPass->getProgram()->addDefine("BIAS_CORRECTION_MODE", std::to_string(mBiasCorrectionMode));
+     mpResamplingPass->getProgram()->addDefine("BIAS_CORRECTION_MODE", std::to_string((uint)mBiasCorrectionMode));
 
      
     // Set variables
@@ -798,11 +837,17 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         defines.add(getValidResourceDefines(kOutputChannels, renderData));
         defines.add(getValidResourceDefines(kInputChannels, renderData));
         if (mUseReducedReservoirFormat) defines.add("USE_REDUCED_RESERVOIR_FORMAT");
+        if (mpRTXDI) defines.add(mpRTXDI->getDefines());
+        defines.add("USE_RTXDI", mpRTXDI ? "1" : "0");
+        defines.add("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
 
         mpFinalShadingPass = ComputePass::create(mpDevice, desc, defines, true);
      }
      FALCOR_ASSERT(mpFinalShadingPass);
 
+     if (mpRTXDI) mpFinalShadingPass->getProgram()->addDefines(mpRTXDI->getDefines());  //TODO only set once?
+     mpFinalShadingPass->getProgram()->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
+     mpFinalShadingPass->getProgram()->addDefine("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
      // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
      mpFinalShadingPass->getProgram()->addDefines(getValidResourceDefines(kOutputChannels, renderData));
 
@@ -811,6 +856,8 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
 
      mpScene->setRaytracingShaderData(pRenderContext, var, 1); // Set scene data
      mpSampleGenerator->setShaderData(var);                    // Sample generator
+
+     if (mpRTXDI) mpRTXDI->setShaderData(var);
 
      uint reservoirIndex = mResamplingMode == ResamplingMode::Spartial ? (mFrameCount + 1) % 2 : mFrameCount % 2;
 

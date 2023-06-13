@@ -12,10 +12,11 @@ import Rendering.Lights.LightHelpers;
 import Utils.Math.PackedFormats;
 import Utils.Math.FormatConversion;
 import Utils.Color.ColorHelpers;
+import Rendering.RTXDI.RTXDI;
 
 import Reservoir;
 import FinalGatherData;
-import SurfaceData;
+import SurfaceDataFG;
 import Hash;
 
 cbuffer PerFrame
@@ -41,7 +42,7 @@ Texture2D<float4> gView;
 Texture2D <float>gLinZ;
 
 //Outputs
-RWStructuredBuffer<PackedSurfaceData> gSurfaceData;
+RWStructuredBuffer<PackedSurfaceDataFG> gSurfaceData;
 RWTexture2D<PackedHitInfo> gFinalGatherHit;
 RWTexture2D<uint> gPhotonCullingMask;
 
@@ -274,14 +275,14 @@ void rayGen()
     uint2 launchDim = DispatchRaysDimensions().xy;
     
     HitInfo hitInfo = HitInfo(gVBuffer[launchIndex]);
-    Surface surface = Surface();
+    SurfaceFG surface = SurfaceFG();
     Reservoir reservoir = Reservoir();
     TraceData traceData = TraceData::create();
     
     if (hitInfo.isValid())
     {
         float3 view = -gView[launchIndex].xyz;
-        float linZ = gLinZ[launchIndex];
+        float viewDepth = gLinZ[launchIndex];
         let lod = ExplicitLodTextureSampler(0.f);
         ShadingData sd = loadShadingData(hitInfo, view, lod);
         
@@ -297,8 +298,13 @@ void rayGen()
         BSDFSample bsdfSample;
         bool validSample = bsdf.sample(sd, traceData.sg, bsdfSample);
 
+        //Fill the RTXDI surface if it is enabled
+    #if USE_RTXDI
+        gRTXDI.setSurfaceData(launchIndex, sd.computeNewRayOrigin(), bsdfProperties.guideNormal, bsdfProperties.diffuseReflectionAlbedo, bsdfProperties.specularReflectance, bsdfProperties.roughness, viewDepth);
+    #endif
+        
         //Fill Surface Buffer used for calculating the target PDF
-        surface = Surface::create(sd.computeNewRayOrigin(), bsdfProperties.guideNormal, sd.V, linZ, bsdfProperties.roughness,
+        surface = SurfaceFG::create(sd.computeNewRayOrigin(), bsdfProperties.guideNormal, sd.V, viewDepth, bsdfProperties.roughness,
                                       luminance(bsdfProperties.diffuseReflectionAlbedo), luminance(bsdfProperties.specularReflectance));
         
         reservoir.targetPdf = surface.getPdf(bsdfSample.wo);
@@ -335,7 +341,13 @@ void rayGen()
             reservoir.weightSum = 0.f; //invalidate reseroir
         }
     }
-        
+#if USE_RTXDI
+    else
+    {
+        gRTXDI.setInvalidSurfaceData(launchIndex);
+    }
+#endif //USE_RTXDI
+    
     //Store data in buffers
     //gLightFactor[launchIndex] = lightFactor;
     gFinalGatherHit[launchIndex] = traceData.packedHitInfo;

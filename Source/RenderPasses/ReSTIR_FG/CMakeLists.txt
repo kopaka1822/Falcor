@@ -13,7 +13,7 @@ target_sources(ReSTIR_FG PRIVATE
 	Reservoir.slang
     ReSTIR_FG.cpp
     ReSTIR_FG.h
-	SurfaceData.slang
+	SurfaceDataFG.slang
 	
 )
 

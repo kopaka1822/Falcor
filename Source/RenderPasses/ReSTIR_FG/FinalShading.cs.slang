@@ -8,9 +8,20 @@ import Scene.RaytracingInline;
 import Utils.Sampling.SampleGenerator;
 import Utils.Math.MathHelpers;
 import Utils.Color.ColorHelpers;
+import Rendering.RTXDI.RTXDI;
 
 import Reservoir;
 import FinalGatherData;
+
+//For Syntax highlighting
+#ifndef USE_RTXDI
+    #define USE_RTXDI 1
+#endif
+#ifndef USE_RESTIRFG
+    #define USE_RESTIRFG 1
+#endif
+
+
 
 #ifdef USE_REDUCED_RESERVOIR_FORMAT
     Texture2D<uint2> gReservoir;
@@ -74,73 +85,89 @@ void getEmissiveLight(uint idx,in float3 worldPos, out float distance ,out float
 }
 
 [numthreads(16, 16, 1)]
-void main(uint2 dTid : SV_DispatchThreadID)
+void main(uint2 pixel : SV_DispatchThreadID)
 {
     bool valid = true;
-    //Get reservoir
-    Reservoir r = Reservoir(gReservoir[dTid]);
-    SampleGenerator sg = SampleGenerator(dTid, gFrameCount + 8 * 13);    //TODO add seed offset
+    
+    SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 8 * 13); //TODO add seed offset
 
     //Get shading data
-    PackedHitInfo packedHitInfo = gVBuffer[dTid];
+    PackedHitInfo packedHitInfo = gVBuffer[pixel];
     HitInfo hitInfo = HitInfo(packedHitInfo);
-    if(!hitInfo.isValid())
+    if(!hitInfo.isValid())      //TODO: write zero for invalid surfaces
         return;
     
     let lod = ExplicitLodTextureSampler(0.f);
     //Get view buffer
     float3 viewDir;
-    viewDir = -gView[dTid].xyz;
-    /*
-    if (is_valid(gView))
-    {
-        viewDir = -gView[dTid].xyz;
-    }
-    else
-    {
-        viewDir = gScene.camera.computeRayPinhole(dTid, gFrameDim).dir;
-    }
-    */
+    viewDir = -gView[pixel].xyz;
+    
     //Get Material properties
     uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
     ShadingData sd = loadShadingData(hitInfo, viewDir, lod);
     let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
     let bsdfProperties = bsdf.getProperties(sd);
 
-    if (luminance(bsdfProperties.emission) > 0) //Emissive surfaces are not handled here
-        return;
+   
+
+    // Variables for RTXDI and ReSTIRFG
+    float3 outColor = { };
+    float distance = 0;
+    float3 dir = { };
+    float3 Li = { };
+
+#if USE_RTXDI
+    //Get Final Sample from RTXDI
+    bool rtxdiValid = gRTXDI.getFinalSample(pixel, dir, distance, Li);
+    // Check light visibility.
+    if (rtxdiValid)
+    {
+        // Create a DXR 1.1 query object to trace a ray (the <1> means use alpha testing)
+        SceneRayQuery<1> rayQuery;
+        const Ray ray = Ray(sd.computeNewRayOrigin(), dir, 0.f, distance);
+        if (!rayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
+            rtxdiValid = false;
+    }
+
+    if(rtxdiValid){
+        outColor += bsdf.eval(sd, dir, sg) * Li;
+    }
+    
+#endif
+
+#if USE_RESTIRFG
+    //Get reservoir
+    bool validIndirectReservoir = true;
+    Reservoir r = Reservoir(gReservoir[pixel]);
+    
     
     if (r.weightSum < 0 || r.M == 0)
     {
-        valid = false;
+        validIndirectReservoir = false;
     }
     
-    //Get to light direction
-    float distance = 0;
-    float3 toLight = { };
-    float3 Li = { };
-    getEmissiveLight(index2Dto1D(dTid, gFrameDim.x),sd.posW  ,distance , toLight, Li);
+    getEmissiveLight(index2Dto1D(pixel, gFrameDim.x), sd.posW, distance, dir, Li);
     Li = max(0.f, Li * r.weightSum);
 
     //Check light visibility with a shadow ray
-    if (valid)
+    if (validIndirectReservoir)
     {
         distance *= kRayEpsilon;
         // Ray Query for shadow test; <1> means enabled alpha testing; TODO: Add static const for alpha test
         SceneRayQuery<1> rayQuery;
-        const Ray ray = Ray(sd.computeNewRayOrigin(), toLight, 0.f, distance);
+        const Ray ray = Ray(sd.computeNewRayOrigin(), dir, 0.f, distance);
         if (!rayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
-        {
-            valid = false;           
-        }
+            validIndirectReservoir = false;
     }
     
-    float3 outColor = { };
-    if(valid){
-        outColor += bsdf.eval(sd, toLight, sg) * Li;
-    }
+    
+    if (validIndirectReservoir)
+        outColor += bsdf.eval(sd, dir, sg) * Li;
 
-    outColor += gCausticRadiance[dTid].xyz;     //Add caustic radiance
+    outColor += gCausticRadiance[pixel].xyz; //Add caustic radiance
+ #endif
+    
+    outColor += bsdfProperties.emission;    //TODO demodulate this
     
     if (any(isnan(outColor)) || any(isinf(outColor)))
         return;
@@ -159,15 +186,18 @@ void main(uint2 dTid : SV_DispatchThreadID)
 
     //DEBUG
     //float4 debugReservoir = float4(float(r.lightIdx), float(r.M), r.weightSum, r.targetPdf);
-    //gDiffuseReflectance[dTid] = debugReservoir;
+    //gDiffuseReflectance[pixel] = debugReservoir;
     
-    if (is_valid(gDiffuseReflectance)) gDiffuseReflectance[dTid] = float4(diffuseReflectance, 1.f);
-    if (is_valid(gDiffuseIllumination)) gDiffuseIllumination[dTid] = float4(diffuseIllumination, distance);
-    if (is_valid(gSpecularReflectance)) gSpecularReflectance[dTid] = float4(specularReflectance, 1.f);
-    if (is_valid(gSpecularIllumination)) gSpecularIllumination[dTid] = float4(specularIllumination, distance);
+    if (is_valid(gDiffuseReflectance)) gDiffuseReflectance[pixel] = float4(diffuseReflectance, 1.f);
+    if (is_valid(gDiffuseIllumination)) gDiffuseIllumination[pixel] = float4(diffuseIllumination, distance);
+    if (is_valid(gSpecularReflectance)) gSpecularReflectance[pixel] = float4(specularReflectance, 1.f);
+    if (is_valid(gSpecularIllumination)) gSpecularIllumination[pixel] = float4(specularIllumination, distance);
     */
-    
-    gColorOut[dTid] = float4(outColor, 1.0f);
 
-   
+    //If only RTXDI is used, add the previous calculated light color
+#if USE_RTXDI && !USE_RESTIRFG
+    outColor += gColorOut[pixel].xyz;
+#endif
+    
+    gColorOut[pixel] = float4(outColor, 1.0f);
 }

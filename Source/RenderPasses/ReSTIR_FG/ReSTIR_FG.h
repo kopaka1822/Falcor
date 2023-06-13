@@ -34,6 +34,8 @@
 #include "Rendering/Lights/EmissivePowerSampler.h"
 #include "Rendering/Lights/EmissiveUniformSampler.h"
 
+#include "Rendering/RTXDI/RTXDI.h"
+
 #include "CustomAccelerationStructure.h"
 
 using namespace Falcor;
@@ -57,24 +59,31 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
     //GUI Structs and enum
-    enum ResamplingMode
+    enum class ResamplingMode : uint
     {
         Temporal = 0u,
         Spartial = 1u,
         SpartioTemporal = 2u
     };
 
-    enum BiasCorrectionMode
+    enum class BiasCorrectionMode : uint
     {
         Off = 0,
         Basic = 1u,
         RayTraced = 2u
     };
 
-    enum RenderMode
+    enum class RenderMode : uint
     {
         FinalGather = 0,
         ReSTIRFG = 1u,
+    };
+
+    //TODO add analytic/ random mode
+    enum class DirectLightingMode : uint
+    {
+        None = 0u,
+        RTXDI = 1u
     };
 
 private:
@@ -130,6 +139,8 @@ private:
     //
     ref<Scene> mpScene;                                                 //Scene Pointer
     ref<SampleGenerator> mpSampleGenerator;                             //GPU Sample Gen
+    std::unique_ptr<RTXDI> mpRTXDI;                                     //Ptr to RTXDI for direct use
+    RTXDI::Options mRTXDIOptions;                                      //Options for RTXDI
 
     std::unique_ptr<EmissiveLightSampler> mpEmissiveLightSampler;       //Light Sampler
     std::unique_ptr<CustomAccelerationStructure> mpPhotonAS;            //Accel Pointer
@@ -140,8 +151,9 @@ private:
     uint mFrameCount = 0;
     bool mReservoirValid = false;
     uint2 mScreenRes = uint2(0, 0);                                 //Store screen res to react to changes
-    uint mRenderMode = RenderMode::ReSTIRFG;
-    uint mResamplingMode = ResamplingMode::SpartioTemporal;
+    RenderMode mRenderMode = RenderMode::ReSTIRFG;
+    ResamplingMode mResamplingMode = ResamplingMode::SpartioTemporal;
+    DirectLightingMode mDirectLightMode = DirectLightingMode::RTXDI;
 
     //Reservoir
     bool mUseReducedReservoirFormat = false;                        //Use a reduced reservoir format TODO: Add
@@ -153,7 +165,7 @@ private:
     float mRelativeDepthThreshold = 0.15f;                          // Realtive Depth threshold (is neighbor 0.1 = 10% as near as the current depth)
     float mMaterialThreshold = 0.2f;                                // Maximum absolute difference in diffuse material probability
     float mNormalThreshold = 0.6f;                                  // Cosine of maximum angle between both normals allowed
-    uint mBiasCorrectionMode = BiasCorrectionMode::Basic;           // Bias Correction Mode
+    BiasCorrectionMode mBiasCorrectionMode = BiasCorrectionMode::Basic; // Bias Correction Mode
 
 
     //Photon
