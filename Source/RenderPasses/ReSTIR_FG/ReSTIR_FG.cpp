@@ -48,14 +48,26 @@ namespace
     const Falcor::ChannelList kInputChannels{
         {kInputVBuffer, "gVBuffer", "Visibility buffer in packed format"},
         {kInputMotionVectors, "gMotionVectors", "Motion vector buffer (float format)", true /* optional */},
-        {kInputViewDir, "gViewDir", "World-space view direction (xyz float format)", true /* optional */},
+        {kInputViewDir, "gView", "World-space view direction (xyz float format)", true /* optional */},
         {kInputRayDistance, "gRayDist", "The ray distance from camera to hit point", true /* optional */},
     };
 
     const std::string kOutputColor = "color";
+    const std::string kOutputEmission = "emission";
+    const std::string kOutputDiffuseRadiance = "diffuseRadiance";
+    const std::string kOutputSpecularRadiance = "specularRadiance";
+    const std::string kOutputDiffuseReflectance = "diffuseReflectance";
+    const std::string kOutputSpecularReflectance = "specularReflectance";
+    const std::string kOutputResidualRadiance = "residualRadiance";     //The rest (transmission, delta)
 
     const Falcor::ChannelList kOutputChannels{
-        {kOutputColor, "gOutColor", "Output Color (linear)", true /*optional*/, ResourceFormat::RGBA32Float},
+        {kOutputColor,                  "gOutColor",                "Output Color (linear)", true /*optional*/, ResourceFormat::RGBA32Float},
+        {kOutputEmission,               "gOutEmission",             "Output Emission", true /*optional*/, ResourceFormat::RGBA32Float},
+        {kOutputDiffuseRadiance,        "gOutDiffuseRadiance",      "Output demodulated diffuse color (linear)", true /*optional*/, ResourceFormat::RGBA32Float},
+        {kOutputSpecularRadiance,       "gOutSpecularRadiance",     "Output demodulated specular color (linear)", true /*optional*/, ResourceFormat::RGBA32Float},
+        {kOutputDiffuseReflectance,     "gOutDiffuseReflectance",   "Output primary surface diffuse reflectance", true /*optional*/, ResourceFormat::RGBA16Float},
+        {kOutputSpecularReflectance,    "gOutSpecularReflectance",  "Output primary surface specular reflectance", true /*optional*/, ResourceFormat::RGBA16Float},
+        {kOutputResidualRadiance,       "gOutResidualRadiance",     "Output residual color (transmission/delta)", true /*optional*/, ResourceFormat::RGBA32Float},
     };
 
     const Gui::DropdownList kResamplingModeList{
@@ -341,7 +353,11 @@ void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
     mFinalGatherSamplePass = RayTraceProgramHelper::create();
     mGeneratePhotonPass = RayTraceProgramHelper::create();
     mCollectPhotonPass = RayTraceProgramHelper::create();
-    //TODO Reset Rest
+    mpFinalShadingPass.reset();
+    mpResamplingPass.reset();
+    mpEmissiveLightSampler.reset();
+    mpRTXDI.reset();
+    mClearReservoir = true;
 
     if (mpScene)
     {
@@ -362,8 +378,6 @@ bool ReSTIR_FG::prepareLighting(RenderContext* pRenderContext)
 
     if (mpScene->useEmissiveLights())
     {
-        
-
         // Init light sampler if not set
         if (!mpEmissiveLightSampler)
         {
@@ -854,6 +868,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         defines.add(getValidResourceDefines(kOutputChannels, renderData));
         defines.add(getValidResourceDefines(kInputChannels, renderData));
         defines.add("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
+        defines.add("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
         if (mpRTXDI) defines.add(mpRTXDI->getDefines());
         defines.add("USE_RTXDI", mpRTXDI ? "1" : "0");
         defines.add("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
@@ -866,6 +881,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      mpFinalShadingPass->getProgram()->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
+     mpFinalShadingPass->getProgram()->addDefine("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
      // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
      mpFinalShadingPass->getProgram()->addDefines(getValidResourceDefines(kOutputChannels, renderData));
 
@@ -887,7 +903,14 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
 
      var["gCausticRadiance"] = mpCausticRadiance;
-     var["gColorOut"] = renderData[kOutputColor]->asTexture();
+
+     //Bind all Output Channels
+     for (uint i = 0; i < kOutputChannels.size(); i++)
+     {
+        if (!kOutputChannels[i].texname.empty())
+            var[kOutputChannels[i].texname] = renderData[kOutputChannels[i].name]->asTexture();
+     }
+
 
      // Uniform
      std::string uniformName = "PerFrame";
