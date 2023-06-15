@@ -102,6 +102,10 @@ private:
     */
     void prepareRayTracingShaders(RenderContext* pRenderContext);
 
+    /** Trace Tranmissive and delta materials
+    */
+    void traceTransmissiveDelta(RenderContext* pRenderContext, const RenderData& renderData);
+
      /** Trace Scene for final gather hit
      */
     void getFinalGatherHitPass(RenderContext* pRenderContext, const RenderData& renderData);
@@ -135,6 +139,11 @@ private:
     void computeQuadTexSize(uint maxItems, uint& outWidth, uint& outHeight);
 
     //
+    //Constants
+    //
+    const ResourceFormat kViewDirFormat = ResourceFormat::RGBA32Float;  //View Dir format
+
+    //
     //Pointers
     //
     ref<Scene> mpScene;                                                 //Scene Pointer
@@ -154,6 +163,10 @@ private:
     RenderMode mRenderMode = RenderMode::ReSTIRFG;
     ResamplingMode mResamplingMode = ResamplingMode::SpartioTemporal;
     DirectLightingMode mDirectLightMode = DirectLightingMode::RTXDI;
+
+    //Specular Trace Options
+    uint mTraceMaxBounces = 10;                                          //Number of Specular/Transmissive bounces allowed
+    bool mTraceRequireDiffuseMat = true;                            //Requires a diffuse part in addition to delta lobes
 
     //Reservoir
     bool mUseReducedReservoirFormat = false;                        //Use a reduced reservoir format TODO: Add
@@ -214,7 +227,11 @@ private:
     ref<Buffer> mpPhotonCounterCPU;     // For showing the current number of photons in the UI
     ref<Texture> mpPhotonCullingMask; // Mask for photon culling
     ref<Texture> mpCausticRadiance;     // Caustic Radiance from the Collection pass
+    ref<Texture> mpVBuffer;             //Work copy for VBuffer
+    ref<Texture> mpViewDir;             //View dir tex (needed for highly specular and transparent materials)
     ref<Texture> mpViewDirPrev;         //Previous View dir
+    ref<Texture> mpRayDist;             //Ray distance (needed for highly specular and transparent materials)
+    ref<Texture> mpThp;                 //Throughput
 
     //
     //Render Passes/Programms
@@ -242,6 +259,7 @@ private:
         void initProgramVars(ref<Device> pDevice, ref<Scene> pScene, ref<SampleGenerator> pSampleGenerator);
     };
 
+    RayTraceProgramHelper mTraceTransmissionDelta;
     RayTraceProgramHelper mFinalGatherSamplePass;
     RayTraceProgramHelper mGeneratePhotonPass;
     RayTraceProgramHelper mCollectPhotonPass;

@@ -29,12 +29,13 @@
 
 namespace
 {
-    const std::string kFinalGatherSamplesShader = "RenderPasses/ReSTIR_FG/GenerateFinalGatherSamples.rt.slang";
-    const std::string kGeneratePhotonsShader = "RenderPasses/ReSTIR_FG/GeneratePhotons.rt.slang";
-    const std::string kCollectPhotonsFGShader = "RenderPasses/ReSTIR_FG/CollectPhotonsFinalGather.rt.slang";
-    const std::string kCollectPhotonsShader = "RenderPasses/ReSTIR_FG/CollectPhotons.rt.slang";
-    const std::string kResamplingPassShader = "RenderPasses/ReSTIR_FG/ResamplingPass.cs.slang";
-    const std::string kFinalShadingPassShader = "RenderPasses/ReSTIR_FG/FinalShading.cs.slang";
+    const std::string kTraceTransmissionDeltaShader = "RenderPasses/ReSTIR_FG/Shader/TraceTransmissionDelta.rt.slang";
+    const std::string kFinalGatherSamplesShader = "RenderPasses/ReSTIR_FG/Shader/GenerateFinalGatherSamples.rt.slang";
+    const std::string kGeneratePhotonsShader = "RenderPasses/ReSTIR_FG/Shader/GeneratePhotons.rt.slang";
+    const std::string kCollectPhotonsFGShader = "RenderPasses/ReSTIR_FG/Shader/CollectPhotonsFinalGather.rt.slang";
+    const std::string kCollectPhotonsShader = "RenderPasses/ReSTIR_FG/Shader/CollectPhotons.rt.slang";
+    const std::string kResamplingPassShader = "RenderPasses/ReSTIR_FG/Shader/ResamplingPass.cs.slang";
+    const std::string kFinalShadingPassShader = "RenderPasses/ReSTIR_FG/Shader/FinalShading.cs.slang";
 
     const std::string kShaderModel = "6_5";
     const uint kMaxPayloadBytes = 96u;
@@ -42,14 +43,12 @@ namespace
     //Render Pass inputs and outputs
     const std::string kInputVBuffer = "vbuffer";
     const std::string kInputMotionVectors = "mvec";
-    const std::string kInputViewDir = "viewW";
-    const std::string kInputRayDistance = "rayDist";
+    //const std::string kInputViewDir = "viewW";
+    //const std::string kInputRayDistance = "rayDist";
 
     const Falcor::ChannelList kInputChannels{
         {kInputVBuffer, "gVBuffer", "Visibility buffer in packed format"},
         {kInputMotionVectors, "gMotionVectors", "Motion vector buffer (float format)", true /* optional */},
-        {kInputViewDir, "gView", "World-space view direction (xyz float format)", true /* optional */},
-        {kInputRayDistance, "gRayDist", "The ray distance from camera to hit point", true /* optional */},
     };
 
     const std::string kOutputColor = "color";
@@ -136,7 +135,6 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
         return;
 
     const auto& pMotionVectors = renderData[kInputMotionVectors]->asTexture();
-    const auto& pViewDir = renderData[kInputViewDir]->asTexture();
 
     //Init RTXDI if it is enabled
     if (mDirectLightMode == DirectLightingMode::RTXDI && !mpRTXDI)
@@ -167,12 +165,14 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     //RenderPasses
     handlePhotonCounter(pRenderContext);
 
+    traceTransmissiveDelta(pRenderContext, renderData);
+
     getFinalGatherHitPass(pRenderContext, renderData);
 
     generatePhotonsPass(pRenderContext, renderData);
 
     //Direct light resampling
-    if (mpRTXDI) mpRTXDI->update(pRenderContext, pMotionVectors, pViewDir, mpViewDirPrev);
+    if (mpRTXDI) mpRTXDI->update(pRenderContext, pMotionVectors, mpViewDir, mpViewDirPrev);
 
     collectPhotons(pRenderContext, renderData);
 
@@ -201,6 +201,14 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
     widget.dropdown("Direct Light Mode", kDirectLightRenderModeList, (uint&)mDirectLightMode);
 
     widget.dropdown("(Indirect) Render Mode", kRenderModeList, (uint&)mRenderMode);
+
+    if (auto group = widget.group("Specular Trace Options"))
+    {
+        widget.var("Specular/Transmissive Bounces", mTraceMaxBounces, 0u, 32u, 1u);
+        widget.tooltip("Number of specular/transmissive bounces. 0 -> direct hit only");
+        widget.checkbox("Require Diffuse Part", mTraceRequireDiffuseMat);
+        widget.tooltip("Requires a diffuse part in addition to delta lobes");
+    }
 
     if (auto group = widget.group("PhotonMapper")) {
         changed |= widget.checkbox("Enable dynamic photon dispatch", mUseDynamicePhotonDispatchCount);
@@ -421,7 +429,9 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         }
         mpFinalGatherSampleHitData.reset();
         mpCausticRadiance.reset();
+        mpViewDir.reset();
         mpViewDirPrev.reset();
+        mpRayDist.reset();
     }
 
     //If reservoir format changed reset buffer
@@ -468,12 +478,39 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         mpCausticRadiance->setName("ReSTIR_FG::CausticRadiance");
     }
 
-    if (renderData[kInputViewDir] != nullptr && !mpViewDirPrev)
+    if (!mpVBuffer)
     {
-        auto viewTex = renderData[kInputViewDir]->asTexture();
-        mpViewDirPrev = Texture::create2D(mpDevice, viewTex->getWidth(), viewTex->getHeight(), viewTex->getFormat(), 1u, 1u, nullptr,
+        mpVBuffer = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, HitInfo::kDefaultFormat, 1u, 1u, nullptr,
+                                      ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess );
+        mpVBuffer->setName("ReSTIR_FG::VBufferWorkCopy");
+    }
+
+    if (!mpViewDir)
+    {
+        mpViewDir = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, kViewDirFormat, 1u, 1u, nullptr,
+                                      ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mpViewDir->setName("ReSTIR_FG::ViewDir");
+    }
+
+    if (!mpViewDirPrev)
+    {
+        mpViewDirPrev = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, kViewDirFormat, 1u, 1u, nullptr,
                                           ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
-        mpViewDirPrev->setName("ReSTIR_FG::PrevView");
+        mpViewDirPrev->setName("ReSTIR_FG::ViewDirPrev");
+    }
+
+    if (!mpRayDist)
+    {
+        mpRayDist = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::R32Float, 1u, 1u, nullptr,
+                                      ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mpRayDist->setName("ReSTIR_FG::RayDist");
+    }
+
+    if (!mpThp)
+    {
+        mpThp = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
+                                  ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mpThp->setName("ReSTIR_FG::Throughput");
     }
 
     //Photon
@@ -525,9 +562,45 @@ void ReSTIR_FG::prepareRayTracingShaders(RenderContext* pRenderContext) {
     //TODO specify the payload bytes for each pass
     mFinalGatherSamplePass.initRTProgram(mpDevice, mpScene, kFinalGatherSamplesShader, kMaxPayloadBytes, globalTypeConformances);
     mGeneratePhotonPass.initRTProgram(mpDevice, mpScene, kGeneratePhotonsShader, kMaxPayloadBytes, globalTypeConformances);
+    mTraceTransmissionDelta.initRTProgram(mpDevice, mpScene, kTraceTransmissionDeltaShader, kMaxPayloadBytes, globalTypeConformances);
 
     //Special Program for the Photon Collection as the photon acceleration structure is used
     mCollectPhotonPass.initRTCollectionProgram(mpDevice, mpScene, kCollectPhotonsShader, kMaxPayloadBytes, globalTypeConformances);
+}
+
+void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "TraceDeltaTransmissive");
+
+    mTraceTransmissionDelta.pProgram->addDefines(getValidResourceDefines(kOutputChannels, renderData));
+
+    if (!mTraceTransmissionDelta.pVars)
+        mTraceTransmissionDelta.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
+
+    FALCOR_ASSERT(mTraceTransmissionDelta.pVars);
+
+    auto var = mTraceTransmissionDelta.pVars->getRootVar();
+
+    std::string nameBuf = "PerFrame";
+    var[nameBuf]["gFrameCount"] = mFrameCount;
+    var[nameBuf]["gMaxBounces"] = mTraceMaxBounces;
+    var[nameBuf]["gRequDiffParts"] = mTraceRequireDiffuseMat; 
+
+    var["gInVBuffer"] = renderData[kInputVBuffer]->asTexture();
+
+    var["gOutThp"] = mpThp;
+    var["gOutViewDir"] = mpViewDir;
+    var["gOutRayDist"] = mpRayDist;
+    var["gOutVBuffer"] = mpVBuffer;
+    if (renderData[kOutputDiffuseReflectance])
+        var["gOutDiffuseReflectance"] = renderData[kOutputDiffuseReflectance]->asTexture();
+    if (renderData[kOutputSpecularReflectance])
+        var["gOutSpecularReflectance"] = renderData[kOutputSpecularReflectance]->asTexture();
+
+    // Create dimensions based on the number of VPLs
+    FALCOR_ASSERT(mScreenRes.x > 0 && mScreenRes.y > 0);
+
+    // Trace the photons
+    mpScene->raytrace(pRenderContext, mTraceTransmissionDelta.pProgram.get(), mTraceTransmissionDelta.pVars, uint3(mScreenRes, 1));
 }
 
 void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -566,21 +639,19 @@ void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const Rende
     var[nameBuf]["gDeltaRejection"] = mGenerationDeltaRejection;
 
     if (mpRTXDI) mpRTXDI->setShaderData(var);
-    var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
-    var["gView"] = renderData[kInputViewDir]->asTexture();
-    var["gLinZ"] = renderData[kInputRayDistance]->asTexture();
+    var["gVBuffer"] = mpVBuffer;
+    var["gView"] = mpViewDir;
+    var["gLinZ"] = mpRayDist;
 
     var["gReservoir"] = mpReservoirBuffer[mFrameCount % 2];
     var["gSurfaceData"] = mpSurfaceBuffer[mFrameCount % 2];
     var["gFinalGatherHit"] = mpFinalGatherSampleHitData;
     var["gPhotonCullingMask"] = mpPhotonCullingMask;
 
-    // Create dimensions based on the number of VPLs
-    uint2 targetDim = renderData.getDefaultTextureDims();
-    FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+    FALCOR_ASSERT(mScreenRes.x > 0 && mScreenRes.y > 0);
 
     // Trace the photons
-    mpScene->raytrace(pRenderContext, mFinalGatherSamplePass.pProgram.get(), mFinalGatherSamplePass.pVars, uint3(targetDim, 1));
+    mpScene->raytrace(pRenderContext, mFinalGatherSamplePass.pProgram.get(), mFinalGatherSamplePass.pVars, uint3(mScreenRes, 1));
 
     if (mpPhotonCullingMask)
         pRenderContext->uavBarrier(mpPhotonCullingMask.get());
@@ -743,8 +814,8 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      }
      var["gFinalGatherHit"] = mpFinalGatherSampleHitData;
 
-     var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
-     var["gView"] = renderData[kInputViewDir]->asTexture();
+     var["gVBuffer"] = mpVBuffer;
+     var["gView"] = mpViewDir;
 
      if (finalGatherRenderMode)
         var["gColor"] = renderData[kOutputColor]->asTexture();
@@ -823,7 +894,7 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
     
 
      //View
-     var["gView"] = renderData[kInputViewDir]->asTexture();
+     var["gView"] = mpViewDir;
      var["gPrevView"] = mpViewDirPrev;
      var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
 
@@ -898,8 +969,9 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      var["gReservoir"] = mpReservoirBuffer[reservoirIndex];
      var["gFGSampleData"] = mpFGSampelDataBuffer[reservoirIndex];
 
-     var["gView"] = renderData[kInputViewDir]->asTexture();
-     var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
+     var["gThp"] = mpThp;
+     var["gView"] = mpViewDir;
+     var["gVBuffer"] = mpVBuffer;
      var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
 
      var["gCausticRadiance"] = mpCausticRadiance;
@@ -926,9 +998,9 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
 }
 
 void ReSTIR_FG::copyViewTexture(RenderContext* pRenderContext, const RenderData& renderData) {
-     if (renderData[kInputViewDir] != nullptr)
+     if (mpViewDir != nullptr)
      {
-        pRenderContext->copyResource(mpViewDirPrev.get(), renderData[kInputViewDir]->asTexture().get());
+        pRenderContext->copyResource(mpViewDirPrev.get(), mpViewDir.get());
      }
 }
 

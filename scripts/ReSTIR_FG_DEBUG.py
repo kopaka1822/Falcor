@@ -8,8 +8,6 @@ def render_graph_DefaultRenderGraph():
     g.create_pass('AccumulatePass', 'AccumulatePass', {'enabled': False, 'outputSize': IOSize.Default, 'autoReset': True, 'precisionMode': AccumulatePrecision.Single, 'maxFrameCount': 0, 'overflowMode': AccumulateOverflowMode.Stop})
     g.add_edge('VBufferRT.vbuffer', 'ReSTIR_FG.vbuffer')
     g.add_edge('VBufferRT.mvec', 'ReSTIR_FG.mvec')
-    g.add_edge('VBufferRT.viewW', 'ReSTIR_FG.viewW')
-    g.add_edge('VBufferRT.depth', 'ReSTIR_FG.rayDist')
     g.add_edge('AccumulatePass.output', 'ToneMapper.src')
     g.add_edge('ReSTIR_FG.color', 'AccumulatePass.input')
     g.mark_output('ToneMapper.dst')

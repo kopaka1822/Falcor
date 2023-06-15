@@ -11,8 +11,6 @@ def render_graph_ReSTIRFG_NRD_DEBUG():
     g.create_pass('ModulateIllumination', 'ModulateIllumination', {'useEmission': True, 'useDiffuseReflectance': True, 'useDiffuseRadiance': True, 'useSpecularReflectance': True, 'useSpecularRadiance': True, 'useDeltaReflectionEmission': False, 'useDeltaReflectionReflectance': False, 'useDeltaReflectionRadiance': False, 'useDeltaTransmissionEmission': False, 'useDeltaTransmissionReflectance': False, 'useDeltaTransmissionRadiance': False, 'useResidualRadiance': False, 'outputSize': IOSize.Default})
     g.add_edge('ReSTIR_FG.specularRadiance', 'NRD.specularRadianceHitDist')
     g.add_edge('GBufferRT.vbuffer', 'ReSTIR_FG.vbuffer')
-    g.add_edge('GBufferRT.linearZ', 'ReSTIR_FG.rayDist')
-    g.add_edge('GBufferRT.viewW', 'ReSTIR_FG.viewW')
     g.add_edge('GBufferRT.normWRoughnessMaterialID', 'NRD.normWRoughnessMaterialID')
     g.add_edge('ReSTIR_FG.emission', 'ModulateIllumination.emission')
     g.add_edge('ReSTIR_FG.diffuseRadiance', 'NRD.diffuseRadianceHitDist')
