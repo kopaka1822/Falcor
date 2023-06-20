@@ -16,7 +16,7 @@ cbuffer PerFrame
     uint gFrameCount;       // Frame count since scene was loaded.
     uint gMaxBounces;       // Max number of bounces
     bool gRequDiffParts;
-    uint _pad;
+    bool gAlphaTest;
 }
 
 // Inputs
@@ -76,7 +76,7 @@ void miss(inout TraceData rayData : SV_RayPayload)
 [shader("anyhit")]
 void anyHit(inout TraceData rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    if (true)
+    if (gAlphaTest)
     {
         // Alpha test for non-opaque geometry.
         GeometryInstanceID instanceID = getGeometryInstanceID();

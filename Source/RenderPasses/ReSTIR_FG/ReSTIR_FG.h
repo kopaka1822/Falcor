@@ -28,7 +28,6 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
-#include "RenderGraph/RenderPassHelpers.h"
  //Light samplers
 #include "Rendering/Lights/LightBVHSampler.h"
 #include "Rendering/Lights/EmissivePowerSampler.h"

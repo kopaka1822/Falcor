@@ -26,6 +26,7 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "ReSTIR_FG.h"
+#include "RenderGraph/RenderPassHelpers.h"
 
 namespace
 {
@@ -102,11 +103,11 @@ ReSTIR_FG::ReSTIR_FG(ref<Device> pDevice, const Dictionary& dict)
 {
     if (!mpDevice->isShaderModelSupported(Device::ShaderModel::SM6_5))
     {
-        throw RuntimeError("PathTracer: Shader Model 6.5 is not supported by the current device");
+        throw RuntimeError("ReSTIR_FG: Shader Model 6.5 is not supported by the current device");
     }
     if (!mpDevice->isFeatureSupported(Device::SupportedFeatures::RaytracingTier1_1))
     {
-        throw RuntimeError("PathTracer: Raytracing Tier 1.1 is not supported by the current device");
+        throw RuntimeError("ReSTIR_FG: Raytracing Tier 1.1 is not supported by the current device");
     }
 
     //TODO Handle Dict
@@ -242,8 +243,6 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         widget.var("Photon Buffer Size", mNumMaxPhotonsUI, 100u, 100000000u, 100);
         widget.tooltip("First -> Global, Second -> Caustic");
         mChangePhotonLightBufferSize = widget.button("Apply", true);
-        if (mChangePhotonLightBufferSize)
-            mNumMaxPhotons = mNumMaxPhotonsUI;
 
         changed |= widget.var("Light Store Probability", mPhotonRejection, 0.f, 1.f, 0.0001f);
         widget.tooltip("Probability a photon light is stored on diffuse hit. Flux is scaled up appropriately");
@@ -429,9 +428,11 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         }
         mpFinalGatherSampleHitData.reset();
         mpCausticRadiance.reset();
+        mpVBuffer.reset();
         mpViewDir.reset();
         mpViewDirPrev.reset();
         mpRayDist.reset();
+        mpThp.reset();
     }
 
     //If reservoir format changed reset buffer
@@ -545,7 +546,14 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
 }
 
 void ReSTIR_FG::prepareAccelerationStructure() {
-    //TODO Delete the Photon AS if max Buffer size changes
+    //Delete the Photon AS if max Buffer size changes
+    if (mChangePhotonLightBufferSize)
+    {
+        mNumMaxPhotons = mNumMaxPhotonsUI;
+        mpPhotonAS.reset();
+        mChangePhotonLightBufferSize = false;
+    }
+       
 
     //Create the Photon AS
     if (!mpPhotonAS)
@@ -583,7 +591,8 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     std::string nameBuf = "PerFrame";
     var[nameBuf]["gFrameCount"] = mFrameCount;
     var[nameBuf]["gMaxBounces"] = mTraceMaxBounces;
-    var[nameBuf]["gRequDiffParts"] = mTraceRequireDiffuseMat; 
+    var[nameBuf]["gRequDiffParts"] = mTraceRequireDiffuseMat;
+    var[nameBuf]["gAlphaTest"] = mPhotonUseAlphaTest; 
 
     var["gInVBuffer"] = renderData[kInputVBuffer]->asTexture();
 
