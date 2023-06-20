@@ -180,6 +180,9 @@ target_sources(Falcor PRIVATE
     RenderGraph/ResourceCache.cpp
     RenderGraph/ResourceCache.h
 
+	Rendering/AccelerationStructure/CustomAccelerationStructure.cpp
+    Rendering/AccelerationStructure/CustomAccelerationStructure.h
+
     Rendering/Lights/EmissiveLightSampler.cpp
     Rendering/Lights/EmissiveLightSampler.h
     Rendering/Lights/EmissiveLightSampler.slang
@@ -310,7 +313,7 @@ target_sources(Falcor PRIVATE
     RenderPasses/Shared/Denoising/NRDConstants.slang
     RenderPasses/Shared/Denoising/NRDData.slang
     RenderPasses/Shared/Denoising/NRDHelpers.slang
-
+    
     Scene/HitInfo.cpp
     Scene/HitInfo.h
     Scene/HitInfo.slang

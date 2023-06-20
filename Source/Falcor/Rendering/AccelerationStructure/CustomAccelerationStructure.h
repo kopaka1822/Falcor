@@ -26,11 +26,17 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #pragma once
-#include "Falcor.h"
+#include "Core/Macros.h"
+#include "Core/API/Buffer.h"
+#include "Core/API/Texture.h"
+#include "Core/API/RtAccelerationStructure.h"
+#include <memory>
+#include <type_traits>
+#include <vector>
 
-using namespace Falcor;
-
-class CustomAccelerationStructure
+namespace Falcor
+{
+class FALCOR_API CustomAccelerationStructure
 {
 public:
     CustomAccelerationStructure(ref<Device> pDevice, const uint64_t aabbCount, const uint64_t aabbGpuAddress);
@@ -49,10 +55,10 @@ private:
      * Has to be called at least once to create the AS. buildAccelerationStructure(...) needs to be called after that to build/update the AS
      * Calling it with an existing AS rebuilds it
      */
-    void createAccelerationStructure(const std::vector<uint64_t>& aabbCount,const std::vector<uint64_t>& aabbGpuAddress);
+    void createAccelerationStructure(const std::vector<uint64_t>& aabbCount, const std::vector<uint64_t>& aabbGpuAddress);
 
     /** Clears and resets all Data
-    */
+     */
     void clearData();
 
     /** Creates the TLAS
@@ -89,23 +95,25 @@ private:
     struct TLASData
     {
         ref<Buffer> pTlas;
-        ref<RtAccelerationStructure> pTlasObject;   //<API Object
-        ref<Buffer> pInstanceDescs;   ///< Buffer holding instance descs for the TLAS.
+        ref<RtAccelerationStructure> pTlasObject; //<API Object
+        ref<Buffer> pInstanceDescs;               ///< Buffer holding instance descs for the TLAS.
     };
 
-    ref<Device> mpDevice;   //Pointer to the Device
+    ref<Device> mpDevice; // Pointer to the Device
 
-    bool mFastBuild = false; //TODO add functions to set these parameters
+    bool mFastBuild = false; // TODO add functions to set these parameters
     bool mUpdate = false;
     size_t mNumberBlas = 0;
     size_t mBlasScratchMaxSize = 0;
 
     std::vector<BLASData> mBlasData;
     std::vector<ref<Buffer>> mBlas;
-    std::vector<ref<RtAccelerationStructure>> mBlasObjects; //API AS object
+    std::vector<ref<RtAccelerationStructure>> mBlasObjects; // API AS object
     std::vector<RtInstanceDesc> mInstanceDesc;
     ref<Buffer> mBlasScratch;
     RtAccelerationStructurePrebuildInfo mTlasPrebuildInfo = {};
     ref<Buffer> mTlasScratch;
     TLASData mTlas;
 };
+
+}

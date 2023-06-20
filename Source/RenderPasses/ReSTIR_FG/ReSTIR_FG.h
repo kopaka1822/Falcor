@@ -36,7 +36,7 @@
 
 #include "Rendering/RTXDI/RTXDI.h"
 
-#include "CustomAccelerationStructure.h"
+#include "Rendering/AccelerationStructure/CustomAccelerationStructure.h"
 
 using namespace Falcor;
 

@@ -1,8 +1,6 @@
 add_plugin(ReSTIR_FG)
 
 target_sources(ReSTIR_FG PRIVATE
-    CustomAccelerationStructure.cpp
-    CustomAccelerationStructure.h
 	ReSTIR_FG.cpp
     ReSTIR_FG.h
 	Shader/CollectPhotons.rt.slang
