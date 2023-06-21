@@ -205,6 +205,7 @@ void PhotonMapper::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
     // Reset Scene
     mpScene = pScene;
 
+    mTraceTransmissionDelta = RayTraceProgramHelper::create();
     mGeneratePhotonPass = RayTraceProgramHelper::create();
     mCollectPhotonPass = RayTraceProgramHelper::create();
     mpEmissiveLightSampler.reset();
@@ -266,6 +267,16 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
         mpVBuffer.reset();
         mpViewDir.reset();
         mpThp.reset();
+    }
+
+    if (mChangePhotonLightBufferSize)
+    {
+        mNumMaxPhotons = mNumMaxPhotonsUI;
+        for (uint i = 0; i < 2; i++)
+        {
+            mpPhotonAABB[i].reset();
+            mpPhotonData[i].reset();
+        }
     }
 
     // Per pixel Buffers/Textures
@@ -339,7 +350,6 @@ void PhotonMapper::prepareAccelerationStructure()
     // Delete the Photon AS if max Buffer size changes
     if (mChangePhotonLightBufferSize)
     {
-        mNumMaxPhotons = mNumMaxPhotonsUI;
         mpPhotonAS.reset();
         mChangePhotonLightBufferSize = false;
     }
