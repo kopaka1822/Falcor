@@ -92,6 +92,10 @@ private:
      */
     void computeQuadTexSize(uint maxItems, uint& outWidth, uint& outHeight);
 
+    /** Calcs the near plane for camera glints
+    */
+    void glintsCalcNearPlane();
+
     //
     // Constants
     //
@@ -144,6 +148,14 @@ private:
     uint mPhotonDynamicDispatchMax = 2000000;            // Max value for dynamically dispatched photons
     float mPhotonDynamicGuardPercentage = 0.08f;  // Determines how much space of the buffer is used to guard against buffer overflows
     float mPhotonDynamicChangePercentage = 0.05f; // The percentage the buffer is increased/decreased per frame
+
+    //Glints
+    
+    float3x3 mCameraNearPlane;
+    float3x3 mCameraNearPlaneDebug;
+    float mCameraGlintNear = 0.1f;     //User defined near plane for the glints
+    bool mCreateCamNearPlaneDebug = true;
+    bool mShowDebugGlint = true;
 
     //
     // Buffer and Textures

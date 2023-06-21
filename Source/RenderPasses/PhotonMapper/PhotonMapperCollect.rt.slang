@@ -20,6 +20,15 @@ cbuffer PerFrame
     uint _pad;
 }
 
+cbuffer Test
+{
+    float4 S0;
+    float4 S1;
+    float4 S3;
+    bool gGlintDebug;
+    uint3 _pad2;
+};
+
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gView;
@@ -67,6 +76,35 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
 uint index2Dto1D(uint2 idx, uint width)
 {
     return idx.x + width * idx.y;
+}
+
+float intersectNearPlane(float3 rayOrigin, float3 rayDir, out float debugDist)
+{
+    debugDist = 0.f;
+    float3 dTop = S1.xyz - S0.xyz;
+    float3 dLeft = S3.xyz - S0.xyz;
+    float3 planeNormal = normalize(cross(dTop, dLeft));
+    //float3 middlePoint = (gNearPlane[0].xyz + gNearPlane[1].xyz + gNearPlane[2].xyz + gNearPlane[3].xyz) / 4.f;
+    float NdotV = dot(rayDir, planeNormal);
+    if (NdotV < 1e-10f)
+        return 0.f;
+
+    float3 originToTopLeft = S0.xyz - rayOrigin;
+    float t = dot(originToTopLeft, planeNormal) / NdotV;
+    if(t <= 0.f)
+        return 0.f;
+
+    float3 M = rayOrigin + rayDir * t;
+    float3 dTopLeftM = M - S0.xyz;
+    
+    float u = dot(dTopLeftM, normalize(dTop)) / length(dTop);
+    float v = dot(dTopLeftM, normalize(dLeft)) / length(dLeft);
+    debugDist = v;
+    
+    if (u >= 0.f && u <= 1.f && v >= 0.f && v <= 1.f)
+        return t;
+    
+    return 0.f;    
 }
 
 [shader("miss")]
@@ -187,7 +225,22 @@ void rayGen()
         w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
         radiance += w * rayData.radiance;
     }
-        
+
+    //Check for test near plane
+    if (gGlintDebug)
+    {
+        float3 camPos = gScene.camera.getPosition();
+        float debugDist = 0.f;
+        float quadDist = intersectNearPlane(camPos, gScene.camera.computeRayPinhole(launchIndex, launchDim).dir, debugDist);
+        float currDist = valid ? distance(camPos, v.posW) : 1000000.f;
+        if (quadDist > 0.f && quadDist < currDist)
+        {
+            radiance = float3(1, debugDist, 0);
+        }
+    }
+    
+
+    
     gColor[launchIndex] = float4(radiance, 1.f);
 
 

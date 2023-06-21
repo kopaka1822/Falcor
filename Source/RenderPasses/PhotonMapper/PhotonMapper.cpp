@@ -27,6 +27,7 @@
  **************************************************************************/
 #include "PhotonMapper.h"
 #include "RenderGraph/RenderPassHelpers.h"
+#include "Utils/Math/FalcorMath.h"
 
 namespace
 {
@@ -99,6 +100,8 @@ void PhotonMapper::execute(RenderContext* pRenderContext, const RenderData& rend
     prepareBuffers(pRenderContext, renderData);
 
     prepareAccelerationStructure();
+
+    glintsCalcNearPlane();
 
     // RenderPasses
     handlePhotonCounter(pRenderContext);
@@ -198,6 +201,15 @@ void PhotonMapper::renderUI(Gui::Widgets& widget)
             }
         }
     }
+
+    if (auto group = widget.group("Glint", true))
+    {
+        widget.var("Glint Near", mCameraGlintNear, 0.0f, FLT_MAX, 0.001f);
+        widget.checkbox("DebugCamera", mShowDebugGlint);
+        if (mShowDebugGlint)
+            mCreateCamNearPlaneDebug = widget.button("Reset Debug Plane");
+    }
+   
 }
 
 void PhotonMapper::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
@@ -561,6 +573,13 @@ void PhotonMapper::collectPhotons(RenderContext* pRenderContext, const RenderDat
     var[nameBuf]["gFrameCount"] = mFrameCount;
     var[nameBuf]["gPhotonRadius"] = mPhotonCollectRadius;
 
+    nameBuf = "Test";
+    var[nameBuf]["S0"] = mCameraNearPlaneDebug[0];
+    var[nameBuf]["S1"] = mCameraNearPlaneDebug[1];
+    var[nameBuf]["S3"] = mCameraNearPlaneDebug[2];
+    var[nameBuf]["gGlintDebug"] = mShowDebugGlint;
+
+
     for (uint32_t i = 0; i < 2; i++)
     {
         var["gPhotonAABB"][i] = mpPhotonAABB[i];
@@ -592,6 +611,37 @@ void PhotonMapper::computeQuadTexSize(uint maxItems, uint& outWidth, uint& outHe
 
     outWidth = uint(textureWidth);
     outHeight = uint(textureHeight);
+}
+
+void PhotonMapper::glintsCalcNearPlane() {
+    auto& camera = mpScene->getCamera();
+    const auto focalLength = camera->getFocalLength();
+    const float frameHeight = camera->getFrameHeight();
+    const float fovY = focalLength == 0. ? 0.f : focalLengthToFovY(focalLength, frameHeight);
+    const float near = mCameraGlintNear;
+
+    float height = std::tan(fovY) * near;
+    float width = camera->getAspectRatio() * height;
+
+    //Basically the view
+    float3 target = normalize(camera->getTarget() - camera->getPosition());
+    float3 widthVec = normalize(-cross(camera->getUpVector(), target));
+    float3 heightVec = -cross(target, widthVec);
+
+    float3 middlePoint = camera->getPosition() + target * near;
+    widthVec *= width / 2.0f;
+    heightVec *= height / 2.0f;
+
+    mCameraNearPlane[0] = middlePoint + (-widthVec + heightVec); //TopLeft
+    mCameraNearPlane[1] = middlePoint + (widthVec + heightVec); // TopRight
+    mCameraNearPlane[2] = middlePoint + (-widthVec - heightVec); // DownLeft
+
+    //Copy for debug
+    if (mCreateCamNearPlaneDebug)
+    {
+        mCameraNearPlaneDebug = mCameraNearPlane;
+        mCreateCamNearPlaneDebug = false;
+    }
 }
 
 void PhotonMapper::RayTraceProgramHelper::initRTProgram(
@@ -665,3 +715,5 @@ void PhotonMapper::RayTraceProgramHelper::initProgramVars(ref<Device> pDevice, r
     auto var = pVars->getRootVar();
     pSampleGenerator->setShaderData(var);
 }
+
+
