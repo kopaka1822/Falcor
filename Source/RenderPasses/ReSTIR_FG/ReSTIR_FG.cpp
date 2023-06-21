@@ -360,6 +360,7 @@ void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
     mFinalGatherSamplePass = RayTraceProgramHelper::create();
     mGeneratePhotonPass = RayTraceProgramHelper::create();
     mCollectPhotonPass = RayTraceProgramHelper::create();
+    mTraceTransmissionDelta = RayTraceProgramHelper::create();
     mpFinalShadingPass.reset();
     mpResamplingPass.reset();
     mpEmissiveLightSampler.reset();
@@ -440,6 +441,16 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         mpReservoirBuffer[0].reset();
         mpReservoirBuffer[1].reset();
         mRebuildReservoirBuffer = false;
+    }
+
+    if (mChangePhotonLightBufferSize)
+    {
+        mNumMaxPhotons = mNumMaxPhotonsUI;
+        for (uint i = 0; i < 2; i++)
+        {
+            mpPhotonAABB[i].reset();
+            mpPhotonData[i].reset();
+        }
     }
 
 
@@ -549,7 +560,6 @@ void ReSTIR_FG::prepareAccelerationStructure() {
     //Delete the Photon AS if max Buffer size changes
     if (mChangePhotonLightBufferSize)
     {
-        mNumMaxPhotons = mNumMaxPhotonsUI;
         mpPhotonAS.reset();
         mChangePhotonLightBufferSize = false;
     }
@@ -988,7 +998,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      //Bind all Output Channels
      for (uint i = 0; i < kOutputChannels.size(); i++)
      {
-        if (!kOutputChannels[i].texname.empty())
+        if (renderData[kOutputChannels[i].name])
             var[kOutputChannels[i].texname] = renderData[kOutputChannels[i].name]->asTexture();
      }
 
