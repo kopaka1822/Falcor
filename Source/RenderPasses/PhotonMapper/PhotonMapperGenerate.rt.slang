@@ -55,7 +55,7 @@ RWStructuredBuffer<uint4> gPackedPhotonData[2];
 RWBuffer<uint> gPhotonCounter;
 Texture2D<uint> gPhotonCullingMask;
 RWTexture2D<float4> gGlints;
-RWStructuredBuffer<uint> gGlintsNumber;
+RWBuffer<uint> gGlintsNumber;
 
 enum class GenerationFlags // : uint32_t
 {
@@ -68,7 +68,7 @@ enum class GenerationFlags // : uint32_t
     AnalyticLight       = 0x20,     //Use analytic light photons
 };
 
-static const bool kUseGlints = false;
+static const bool kUseGlints = true;
 static const uint2 kPhotonBufferSize = uint2(PHOTON_BUFFER_SIZE_GLOBAL, PHOTON_BUFFER_SIZE_CAUSTIC);
 static const uint kUsePhotonCulling = USE_PHOTON_CULLING;
 static const uint kRayFlagTerminatedMiss = 1;
@@ -442,19 +442,19 @@ void rayGen()
         TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
         //Check glints
-        if (kUseGlints && i==0)
+        if (kUseGlints)
         {
             if (all(rayData.glintUV >= 0.f))
             {
                 uint2 glintIdx = uint2(floor(uint2(64, 36) * rayData.glintUV));
                 uint numberHits = 0;
-                InterlockedAdd(gPhotonCounter[glintIdx.x + gScreenDim.x * glintIdx.y], 1u, numberHits);
+                InterlockedAdd(gGlintsNumber[glintIdx.x + gScreenDim.x * glintIdx.y], 1u, numberHits);
                 float2 glintOut = rayData.glintMiss ? float2(1, 0) : float2(0, 1);
                 glintOut *= 10000.f;
                 uint rndIdx = uint(numberHits * sampleNext1D(rayData.sg));
 
-                //if (rndIdx == 0)
-                gGlints[glintIdx] = float4(glintOut,0, 0);
+                if (rndIdx == 0)
+                gGlints[glintIdx] = float4(photon.flux, 0);
             }
         }
         

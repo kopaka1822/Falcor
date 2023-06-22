@@ -322,7 +322,7 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
     if (!mpGlintTex)
     {
         mpGlintTex = Texture::create2D(
-            mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
+            mpDevice, 64, 36, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
             ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
         );
         mpGlintTex->setName("PM::Glint");
@@ -330,7 +330,8 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
 
     if (!mpGlintNumber)
     {
-        mpGlintNumber = Buffer::createStructured(mpDevice, sizeof(uint), mScreenRes.x * mScreenRes.y);
+        uint bufferSize = sizeof(uint) * 64 * 36;
+        mpGlintNumber = Buffer::create(mpDevice, bufferSize);
         mpGlintNumber -> setName("PM::GlintCount");
     }
 
@@ -503,7 +504,7 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     var[nameBuf]["gFlags"] = flags;
     var[nameBuf]["gHashSize"] = 1 << mCullingHashBufferSizeBits; // Size of the Photon Culling buffer. 2^x
     var[nameBuf]["gCausticsBounces"] = mMaxCausticBounces;
-    var[nameBuf]["gScreenDim"] = mScreenRes;
+    var[nameBuf]["gScreenDim"] = uint2(64,36);
     
 
     nameBuf = "Glints";

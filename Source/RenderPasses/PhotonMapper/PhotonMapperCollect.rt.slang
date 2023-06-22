@@ -35,7 +35,7 @@ Texture2D<float4> gView;
 StructuredBuffer<AABB> gPhotonAABB[2];
 StructuredBuffer<uint4> gPackedPhotonData[2];
 Texture2D<float4> gGlints;
-StructuredBuffer<uint> gGlintsNumber;
+Buffer<uint> gGlintsNumber;
 
 // Outputs
 RWTexture2D<float4> gColor;
@@ -240,9 +240,9 @@ void rayGen()
         if (uvt.x >= 0 && uvt.y >= 0 && uvt.z < currDist)
         {
             uint2 glintIdx = uint2(floor(uint2(64, 36) * uvt.xy));
-            uint glintWeight = gGlintsNumber[glintIdx.x + launchDim.x * glintIdx.y];
+            uint glintWeight = gGlintsNumber[glintIdx.x + 64 * glintIdx.y];
             //gGlints[glintIdx].xyz;
-            radiance = gGlints[glintIdx].xyz;
+            radiance = gGlints[glintIdx].xyz * glintWeight;
         }
     }
     
