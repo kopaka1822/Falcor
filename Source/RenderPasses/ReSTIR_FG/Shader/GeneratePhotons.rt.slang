@@ -55,6 +55,7 @@ enum class GenerationFlags // : uint32_t
     AnalyticLight       = 0x20,     //Use analytic light photons
 };
 
+
 static const uint2 kPhotonBufferSize = uint2(PHOTON_BUFFER_SIZE_GLOBAL, PHOTON_BUFFER_SIZE_CAUSTIC);
 static const uint kUsePhotonCulling = USE_PHOTON_CULLING;
 static const uint kRayFlagTerminatedMiss = 1;

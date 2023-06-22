@@ -153,9 +153,10 @@ private:
     
     float3x3 mCameraNearPlane;
     float3x3 mCameraNearPlaneDebug;
+    float3 mGlintNormal = float3(0,1,0);
     float mCameraGlintNear = 0.1f;     //User defined near plane for the glints
     bool mCreateCamNearPlaneDebug = true;
-    bool mShowDebugGlint = true;
+    bool mShowDebugGlint = false;
 
     //
     // Buffer and Textures
@@ -169,6 +170,8 @@ private:
     ref<Texture> mpVBuffer;           // Work copy for VBuffer
     ref<Texture> mpViewDir;           // View dir tex (needed for highly specular and transparent materials)
     ref<Texture> mpThp;               // Throughput
+    ref<Texture> mpGlintTex;          // Shows the glints
+    ref<Buffer> mpGlintNumber;        //Number of glint hits
 
      //
     // Render Passes/Programms

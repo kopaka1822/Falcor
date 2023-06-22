@@ -30,8 +30,19 @@ cbuffer CB
     uint gFlags; //Flags for the pass. See GenerationFlags enum
     uint gHashSize; //Size is always 2^x
     int gCausticsBounces; //Number of diffuse bounces allowed for caustic photons
-    uint3 _pad;
+    uint2 gScreenDim;   //Screen dim for glint reprojection
+    uint _pad;
 };
+
+cbuffer Glints
+{
+    float4 S0;
+    float4 S1;
+    float4 S3;
+    float3 gGlintNormal;
+    uint _pad2;
+};
+
 
 #if USE_EMISSIVE_LIGHT  //Buffer is only valid if emissive light is enabled
 cbuffer Light{
@@ -43,7 +54,8 @@ RWStructuredBuffer<AABB> gPhotonAABB[2];
 RWStructuredBuffer<uint4> gPackedPhotonData[2];
 RWBuffer<uint> gPhotonCounter;
 Texture2D<uint> gPhotonCullingMask;
-
+RWTexture2D<float4> gGlints;
+RWStructuredBuffer<uint> gGlintsNumber;
 
 enum class GenerationFlags // : uint32_t
 {
@@ -56,6 +68,7 @@ enum class GenerationFlags // : uint32_t
     AnalyticLight       = 0x20,     //Use analytic light photons
 };
 
+static const bool kUseGlints = false;
 static const uint2 kPhotonBufferSize = uint2(PHOTON_BUFFER_SIZE_GLOBAL, PHOTON_BUFFER_SIZE_CAUSTIC);
 static const uint kUsePhotonCulling = USE_PHOTON_CULLING;
 static const uint kRayFlagTerminatedMiss = 1;
@@ -73,8 +86,9 @@ struct RayData
     uint terminated; ///< Set to true when path is terminated.
     float3 direction; ///< Next path segment direction.
     bool diffuseHit; ///< saves if the his is diffuse
-    float3 diffuseScalar;
+    float2 glintUV;
     bool isEmissive; ///<If the hit is emissive
+    bool glintMiss;
 
     SampleGenerator sg; ///< Per-ray state for the sample generator (up to 16B).
 
@@ -89,6 +103,7 @@ struct RayData
         d.origin = float3(0);
         d.direction = float3(0);
         d.isEmissive = false;
+        d.glintUV = float2(-1);
         return d;
     }
 };
@@ -231,10 +246,50 @@ bool cullingTest(float3 origin)
     return mask >= 1 ? true : false;
 }
 
+float3 intersectNearPlane(float3 rayOrigin, float3 rayDir)
+{
+    float3 dS0S1 = S1.xyz - S0.xyz;
+    float3 dS0S3 = S3.xyz - S0.xyz;
+    //float3 planeNormal = normalize(cross(dS0S1, dS0S3));
+    float3 planeNormal = normalize(cross(dS0S3, dS0S1));
+    float NdotV = dot(rayDir, planeNormal);
+    if (NdotV < 0.95f)
+        return float3(-1, -1, 0);
+
+    float3 originToTopLeft = S0.xyz - rayOrigin;
+    float t = dot(originToTopLeft, planeNormal) / NdotV;
+    if (t <= 0.f)
+        return float3(-1, -1, 0);
+
+    float3 M = rayOrigin + rayDir * t;
+    float3 dS0M = M - S0.xyz;
+    
+    float u = dot(dS0M, normalize(dS0S1)) / length(dS0S1);
+    float v = dot(dS0M, normalize(dS0S3)) / length(dS0S3);
+    
+    if (u >= 0.f && u <= 1.f && v >= 0.f && v <= 1.f)
+        return float3(u, v, t);
+    
+    return float3(-1, -1, 0);
+}
+
+
 [shader("miss")]
 void miss(inout RayData rayData : SV_RayPayload)
 {
     rayData.terminated |= kRayFlagTerminatedMiss;
+    //Check intersection
+    if (kUseGlints)
+    {
+        const float3 rayOrigin = WorldRayOrigin();
+        const float3 rayDir = WorldRayDirection();
+        if (true)//Angle
+        {
+            rayData.glintUV = intersectNearPlane(rayOrigin, rayDir).xy;
+            rayData.glintMiss = true;
+
+        }
+    }
 }
 
 [shader("closesthit")]
@@ -278,6 +333,21 @@ void closestHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersecti
     else
         rayData.diffuseHit = bsdfSample.isLobe(LobeType::Diffuse) && !transmission;
 
+    if (kUseGlints)
+    {
+        float tPhoton = distance(rayOrigin, WorldRayOrigin());
+        const float3 glintDir = -incomingRayDir;
+        //if (dot(glintDir, gGlintNormal) > 0.2f)   //Angle
+        if(true)
+        {
+            float3 uvt = intersectNearPlane(WorldRayOrigin(), glintDir);
+            if (all(uvt.xy >= 0.f))
+            {
+                rayData.glintUV = uvt.xy;
+                rayData.terminated |= kRayFlagTerminatedMiss;
+            }
+        }
+    }
     
     //if throughput is 0, return
     if (!valid || any(rayData.thp <= 0))
@@ -366,9 +436,28 @@ void rayGen()
     //recursion where the photons are shot
     for (uint i = 0; i < gMaxRecursion && !rayData.terminated; i++)
     {
+        rayData.glintMiss = false;
+        rayData.glintUV = float2(-1);
         photon.flux = pls.flux * rayData.thp;
         TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
+        //Check glints
+        if (kUseGlints && i==0)
+        {
+            if (all(rayData.glintUV >= 0.f))
+            {
+                uint2 glintIdx = uint2(floor(uint2(64, 36) * rayData.glintUV));
+                uint numberHits = 0;
+                InterlockedAdd(gPhotonCounter[glintIdx.x + gScreenDim.x * glintIdx.y], 1u, numberHits);
+                float2 glintOut = rayData.glintMiss ? float2(1, 0) : float2(0, 1);
+                glintOut *= 10000.f;
+                uint rndIdx = uint(numberHits * sampleNext1D(rayData.sg));
+
+                //if (rndIdx == 0)
+                gGlints[glintIdx] = float4(glintOut,0, 0);
+            }
+        }
+        
         //Stop if a light source was hit
         if (rayData.isEmissive || (rayData.terminated & kRayFlagTerminatedMiss > 0))
             break;

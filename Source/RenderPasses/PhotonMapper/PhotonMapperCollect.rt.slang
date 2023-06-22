@@ -34,6 +34,8 @@ Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gView;
 StructuredBuffer<AABB> gPhotonAABB[2];
 StructuredBuffer<uint4> gPackedPhotonData[2];
+Texture2D<float4> gGlints;
+StructuredBuffer<uint> gGlintsNumber;
 
 // Outputs
 RWTexture2D<float4> gColor;
@@ -78,33 +80,31 @@ uint index2Dto1D(uint2 idx, uint width)
     return idx.x + width * idx.y;
 }
 
-float intersectNearPlane(float3 rayOrigin, float3 rayDir, out float debugDist)
+float3 intersectNearPlane(float3 rayOrigin, float3 rayDir)
 {
-    debugDist = 0.f;
-    float3 dTop = S1.xyz - S0.xyz;
-    float3 dLeft = S3.xyz - S0.xyz;
-    float3 planeNormal = normalize(cross(dTop, dLeft));
-    //float3 middlePoint = (gNearPlane[0].xyz + gNearPlane[1].xyz + gNearPlane[2].xyz + gNearPlane[3].xyz) / 4.f;
+    float3 dS0S1 = S1.xyz - S0.xyz;
+    float3 dS0S3 = S3.xyz - S0.xyz;
+    float3 planeNormal = normalize(cross(dS0S1, dS0S3));
+    //float3 planeNormal = normalize(cross(dS0S3, dS0S1));
     float NdotV = dot(rayDir, planeNormal);
     if (NdotV < 1e-10f)
-        return 0.f;
+        return float3(-1, -1, 0);
 
     float3 originToTopLeft = S0.xyz - rayOrigin;
     float t = dot(originToTopLeft, planeNormal) / NdotV;
     if(t <= 0.f)
-        return 0.f;
+        return float3(-1, -1, 0);
 
     float3 M = rayOrigin + rayDir * t;
-    float3 dTopLeftM = M - S0.xyz;
+    float3 dS0M = M - S0.xyz;
     
-    float u = dot(dTopLeftM, normalize(dTop)) / length(dTop);
-    float v = dot(dTopLeftM, normalize(dLeft)) / length(dLeft);
-    debugDist = v;
+    float u = dot(dS0M, normalize(dS0S1)) / length(dS0S1);
+    float v = dot(dS0M, normalize(dS0S3)) / length(dS0S3);
     
     if (u >= 0.f && u <= 1.f && v >= 0.f && v <= 1.f)
-        return t;
+        return float3(u, v, t);
     
-    return 0.f;    
+    return float3(-1, -1, 0);
 }
 
 [shader("miss")]
@@ -225,21 +225,29 @@ void rayGen()
         w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
         radiance += w * rayData.radiance;
     }
+    //Read Glint text
+    
+    //radiance += gGlints[launchIndex].xyz;
 
+    
     //Check for test near plane
     if (gGlintDebug)
     {
         float3 camPos = gScene.camera.getPosition();
         float debugDist = 0.f;
-        float quadDist = intersectNearPlane(camPos, gScene.camera.computeRayPinhole(launchIndex, launchDim).dir, debugDist);
+        float3 uvt = intersectNearPlane(camPos, gScene.camera.computeRayPinhole(launchIndex, launchDim).dir);
         float currDist = valid ? distance(camPos, v.posW) : 1000000.f;
-        if (quadDist > 0.f && quadDist < currDist)
+        if (uvt.x >= 0 && uvt.y >= 0 && uvt.z < currDist)
         {
-            radiance = float3(1, debugDist, 0);
+            uint2 glintIdx = uint2(floor(uint2(64, 36) * uvt.xy));
+            uint glintWeight = gGlintsNumber[glintIdx.x + launchDim.x * glintIdx.y];
+            //gGlints[glintIdx].xyz;
+            radiance = gGlints[glintIdx].xyz;
         }
     }
     
-
+    
+    
     
     gColor[launchIndex] = float4(radiance, 1.f);
 

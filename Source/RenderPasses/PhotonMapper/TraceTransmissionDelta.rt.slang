@@ -174,6 +174,7 @@ void rayGen()
         bool hasDiffuseParts = gRequDiffParts ?  luminance(bsdfProperties.diffuseReflectionAlbedo) > 0 : true;
         //bool isDiffuse = bsdfSample.isLobe(LobeType::Diffuse) && !isTransmission;
         bool isDiffuse = bsdfSample.isLobe(LobeType::NonDeltaReflection) && hasDiffuseParts;
+        isDiffuse |= luminance(bsdfProperties.emission) > 0.f;
 
         if(isDiffuse)
             break;

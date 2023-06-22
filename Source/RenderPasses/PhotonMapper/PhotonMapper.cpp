@@ -298,7 +298,7 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
             mpDevice, mScreenRes.x, mScreenRes.y, HitInfo::kDefaultFormat, 1u, 1u, nullptr,
             ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
         );
-        mpVBuffer->setName("ReSTIR_FG::VBufferWorkCopy");
+        mpVBuffer->setName("PM::VBufferWorkCopy");
     }
 
     if (!mpViewDir)
@@ -307,7 +307,7 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
             mpDevice, mScreenRes.x, mScreenRes.y, kViewDirFormat, 1u, 1u, nullptr,
             ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
         );
-        mpViewDir->setName("ReSTIR_FG::ViewDir");
+        mpViewDir->setName("PM::ViewDir");
     }
 
     if (!mpThp)
@@ -316,31 +316,46 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
             mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
             ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
         );
-        mpThp->setName("ReSTIR_FG::Throughput");
+        mpThp->setName("PM::Throughput");
+    }
+
+    if (!mpGlintTex)
+    {
+        mpGlintTex = Texture::create2D(
+            mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
+            ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+        );
+        mpGlintTex->setName("PM::Glint");
+    }
+
+    if (!mpGlintNumber)
+    {
+        mpGlintNumber = Buffer::createStructured(mpDevice, sizeof(uint), mScreenRes.x * mScreenRes.y);
+        mpGlintNumber -> setName("PM::GlintCount");
     }
 
     // Photon
     if (!mpPhotonCounter)
     {
         mpPhotonCounter = Buffer::create(mpDevice, sizeof(uint) * 2);
-        mpPhotonCounter->setName("ReSTIR_FG::PhotonCounterGPU");
+        mpPhotonCounter->setName("PM::PhotonCounterGPU");
     }
     if (!mpPhotonCounterCPU)
     {
         mpPhotonCounterCPU = Buffer::create(mpDevice, sizeof(uint) * 2, ResourceBindFlags::None, Buffer::CpuAccess::Read);
-        mpPhotonCounterCPU->setName("ReSTIR_FG::PhotonCounterCPU");
+        mpPhotonCounterCPU->setName("PM::PhotonCounterCPU");
     }
     for (uint i = 0; i < 2; i++)
     {
         if (!mpPhotonAABB[i])
         {
             mpPhotonAABB[i] = Buffer::createStructured(mpDevice, sizeof(AABB), mNumMaxPhotons[i]);
-            mpPhotonAABB[i]->setName("ReSTIR_FG::PhotonAABB" + (i + 1));
+            mpPhotonAABB[i]->setName("PM::PhotonAABB" + (i + 1));
         }
         if (!mpPhotonData[i])
         {
             mpPhotonData[i] = Buffer::createStructured(mpDevice, sizeof(uint) * 4, mNumMaxPhotons[i]);
-            mpPhotonData[i]->setName("ReSTIR_FG::PhotonData" + (i + 1));
+            mpPhotonData[i]->setName("PM::PhotonData" + (i + 1));
         }
     }
 
@@ -353,7 +368,7 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
             mpDevice, width, height, ResourceFormat::R8Uint, 1, 1, nullptr,
             ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
         );
-        mpPhotonCullingMask->setName("ReSTIR_FG::PhotonCullingMask");
+        mpPhotonCullingMask->setName("PM::PhotonCullingMask");
     }
 }
 
@@ -433,6 +448,8 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     pRenderContext->clearUAV(mpPhotonCounter->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(mpPhotonAABB[0]->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(mpPhotonAABB[1]->getUAV().get(), uint4(0));
+    pRenderContext->clearUAV(mpGlintNumber->getUAV().get(), uint4(0));
+    pRenderContext->clearTexture(mpGlintTex.get());
 
     // Defines
     mGeneratePhotonPass.pProgram->addDefine("USE_EMISSIVE_LIGHT", mpScene->useEmissiveLights() ? "1" : "0");
@@ -486,6 +503,14 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     var[nameBuf]["gFlags"] = flags;
     var[nameBuf]["gHashSize"] = 1 << mCullingHashBufferSizeBits; // Size of the Photon Culling buffer. 2^x
     var[nameBuf]["gCausticsBounces"] = mMaxCausticBounces;
+    var[nameBuf]["gScreenDim"] = mScreenRes;
+    
+
+    nameBuf = "Glints";
+    var[nameBuf]["S0"] = mCameraNearPlaneDebug[0];
+    var[nameBuf]["S1"] = mCameraNearPlaneDebug[1];
+    var[nameBuf]["S3"] = mCameraNearPlaneDebug[2];
+    var[nameBuf]["gGlintNormal"] = mGlintNormal;
 
     if (mpEmissiveLightSampler)
         mpEmissiveLightSampler->setShaderData(var["Light"]["gEmissiveSampler"]);
@@ -498,6 +523,8 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     }
     var["gPhotonCounter"] = mpPhotonCounter;
     var["gPhotonCullingMask"] = mpPhotonCullingMask;
+    var["gGlints"] = mpGlintTex;
+    var["gGlintsNumber"] = mpGlintNumber;
 
     // Get dimensions of ray dispatch.
     uint dispatchedPhotons = mNumDispatchedPhotons;
@@ -588,6 +615,8 @@ void PhotonMapper::collectPhotons(RenderContext* pRenderContext, const RenderDat
     
     var["gVBuffer"] = mpVBuffer;
     var["gView"] = mpViewDir;
+    var["gGlints"] = mpGlintTex;
+    var["gGlintsNumber"] = mpGlintNumber;
 
     var["gColor"] = renderData[kOutputColor]->asTexture();
 
@@ -627,6 +656,8 @@ void PhotonMapper::glintsCalcNearPlane() {
     float3 target = normalize(camera->getTarget() - camera->getPosition());
     float3 widthVec = normalize(-cross(camera->getUpVector(), target));
     float3 heightVec = -cross(target, widthVec);
+
+    mGlintNormal = -target;
 
     float3 middlePoint = camera->getPosition() + target * near;
     widthVec *= width / 2.0f;
