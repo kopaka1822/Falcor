@@ -164,6 +164,7 @@ float perlinImproved(float x, float y, float z, uint2 pixel)
 float dotGridGradient(int ix, int iy, float x, float y)
 {
     // Get gradient from integer coordinates
+    uint2 gridCoords = uint2(ix % gGridSize.x, iy % gGridSize.y);
     float2 gradient = normalize(gGrid[uint2(ix, iy)]);
 
     // Compute the distance vector

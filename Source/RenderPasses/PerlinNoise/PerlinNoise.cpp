@@ -146,12 +146,13 @@ void PerlinNoise::createGrid(RenderContext* pRenderContext) {
     //Init random number gen
     std::random_device rd;
     std::mt19937 mt(rd());
-    std::uniform_real_distribution<float> dist(-1.0f, std::nextafter(1.0f, FLT_MAX));
+    std::uniform_real_distribution<float> dist(0.0f, std::nextafter(M_2PI, FLT_MAX));
 
     //Create N random vectors
     for (uint i = 0; i < size; i++)
     {
-        float2 data = normalize(float2(dist(mt), dist(mt)));
+        float rndAngle = dist(mt);
+        float2 data = float2(cos(rndAngle), sin(rndAngle)); //Radius = 1, so it is already normalized
         randomGradient[i] = data;
     }
 
