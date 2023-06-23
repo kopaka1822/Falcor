@@ -114,6 +114,7 @@ private:
     //
     uint mFrameCount = 0;
     uint2 mScreenRes = uint2(0, 0); // Store screen res to react to changes
+    
 
     // Specular Trace Options
     uint mTraceMaxBounces = 10;          // Number of Specular/Transmissive bounces allowed
@@ -150,11 +151,12 @@ private:
     float mPhotonDynamicChangePercentage = 0.05f; // The percentage the buffer is increased/decreased per frame
 
     //Glints
-    
+    int2 mGlintTexRes = uint2(480, 270);
+    int2 mGlintTexResUI = mGlintTexRes;
     float3x3 mCameraNearPlane;
     float3x3 mCameraNearPlaneDebug;
     float3 mGlintNormal = float3(0,1,0);
-    float mCameraGlintNear = 0.1f;     //User defined near plane for the glints
+    float mCameraGlintNear = 0.8f;     //User defined near plane for the glints
     bool mCreateCamNearPlaneDebug = true;
     bool mShowDebugGlint = false;
 

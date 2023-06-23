@@ -204,6 +204,23 @@ void PhotonMapper::renderUI(Gui::Widgets& widget)
 
     if (auto group = widget.group("Glint", true))
     {
+        widget.text("Current Glint Tex Res: (" + std::to_string(mGlintTexRes.x) + "," + std::to_string(mGlintTexRes.y) + ")");
+        widget.var("TextureRes", mGlintTexResUI, 32, 7680, 1);
+        bool resChanged = widget.button("Apply Res Change");
+        //Reset the texture. It is forced in an 16:9 ratio
+        if (resChanged)
+        {
+            int2 diff = int2(std::abs(mGlintTexRes.x - mGlintTexResUI.x), std::abs(mGlintTexRes.y - mGlintTexResUI.y));
+            int factor = 1; 
+            if (diff.x > diff.y)
+                factor = int(mGlintTexResUI.x / 16.f);
+            else
+                factor = int(mGlintTexResUI.y / 9.f);
+
+            mGlintTexRes = int2(16, 9) * factor;
+            mGlintTexResUI = mGlintTexRes;
+        }
+
         widget.var("Glint Near", mCameraGlintNear, 0.0f, FLT_MAX, 0.001f);
         widget.checkbox("DebugCamera", mShowDebugGlint);
         if (mShowDebugGlint)
@@ -291,6 +308,16 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
         }
     }
 
+    //Check if glint tex res changed and reset if it changed
+    if (mpGlintTex)
+    {
+        if (mpGlintTex->getWidth() != mGlintTexRes.x || mpGlintTex->getHeight() != mGlintTexRes.y)
+        {
+            mpGlintTex.reset();
+            mpGlintNumber.reset();
+        }
+    }
+
     // Per pixel Buffers/Textures
     if (!mpVBuffer)
     {
@@ -322,7 +349,7 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
     if (!mpGlintTex)
     {
         mpGlintTex = Texture::create2D(
-            mpDevice, 64, 36, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
+            mpDevice, mGlintTexRes.x, mGlintTexRes.y, ResourceFormat::RGBA32Float, 1u, 1u, nullptr,
             ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
         );
         mpGlintTex->setName("PM::Glint");
@@ -330,7 +357,7 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
 
     if (!mpGlintNumber)
     {
-        uint bufferSize = sizeof(uint) * 64 * 36;
+        uint bufferSize = sizeof(uint) * mGlintTexRes.x * mGlintTexRes.y;
         mpGlintNumber = Buffer::create(mpDevice, bufferSize);
         mpGlintNumber -> setName("PM::GlintCount");
     }
@@ -450,7 +477,7 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     pRenderContext->clearUAV(mpPhotonAABB[0]->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(mpPhotonAABB[1]->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(mpGlintNumber->getUAV().get(), uint4(0));
-    pRenderContext->clearTexture(mpGlintTex.get());
+    //pRenderContext->clearTexture(mpGlintTex.get());   //Not Necessary as the counter is cleared
 
     // Defines
     mGeneratePhotonPass.pProgram->addDefine("USE_EMISSIVE_LIGHT", mpScene->useEmissiveLights() ? "1" : "0");
@@ -504,14 +531,15 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     var[nameBuf]["gFlags"] = flags;
     var[nameBuf]["gHashSize"] = 1 << mCullingHashBufferSizeBits; // Size of the Photon Culling buffer. 2^x
     var[nameBuf]["gCausticsBounces"] = mMaxCausticBounces;
-    var[nameBuf]["gScreenDim"] = uint2(64,36);
+    var[nameBuf]["gGlintTexDim"] = mGlintTexRes;
     
 
+    auto& glintMatrix = mShowDebugGlint ? mCameraNearPlaneDebug : mCameraNearPlane;
     nameBuf = "Glints";
-    var[nameBuf]["S0"] = mCameraNearPlaneDebug[0];
-    var[nameBuf]["S1"] = mCameraNearPlaneDebug[1];
-    var[nameBuf]["S3"] = mCameraNearPlaneDebug[2];
-    var[nameBuf]["gGlintNormal"] = mGlintNormal;
+    var[nameBuf]["S0"] = glintMatrix[0];
+    var[nameBuf]["S1"] = glintMatrix[1];
+    var[nameBuf]["S3"] = glintMatrix[2];
+    var[nameBuf]["gGlintNormal"] = mGlintNormal;    //TODO not used currently
 
     if (mpEmissiveLightSampler)
         mpEmissiveLightSampler->setShaderData(var["Light"]["gEmissiveSampler"]);
@@ -606,6 +634,7 @@ void PhotonMapper::collectPhotons(RenderContext* pRenderContext, const RenderDat
     var[nameBuf]["S1"] = mCameraNearPlaneDebug[1];
     var[nameBuf]["S3"] = mCameraNearPlaneDebug[2];
     var[nameBuf]["gGlintDebug"] = mShowDebugGlint;
+    var[nameBuf]["gGlintTexRes"] = mGlintTexRes;
 
 
     for (uint32_t i = 0; i < 2; i++)

@@ -30,7 +30,7 @@ cbuffer CB
     uint gFlags; //Flags for the pass. See GenerationFlags enum
     uint gHashSize; //Size is always 2^x
     int gCausticsBounces; //Number of diffuse bounces allowed for caustic photons
-    uint2 gScreenDim;   //Screen dim for glint reprojection
+    uint2 gGlintTexDim; //Screen dim for glint reprojection
     uint _pad;
 };
 
@@ -248,12 +248,19 @@ bool cullingTest(float3 origin)
 
 float3 intersectNearPlane(float3 rayOrigin, float3 rayDir)
 {
+    //Check if origin is visible in camera view
+    float4 originInCamCoord = mul(gScene.camera.getViewProj(), float4(rayOrigin, 1));
+    originInCamCoord.xyz /= originInCamCoord.w; //Divide by 4th coordinate
+
+    if (any(originInCamCoord.xy < -1) || any(originInCamCoord.xy > 1))
+        return float3(-1, -1, 0);
+    
     float3 dS0S1 = S1.xyz - S0.xyz;
     float3 dS0S3 = S3.xyz - S0.xyz;
     //float3 planeNormal = normalize(cross(dS0S1, dS0S3));
     float3 planeNormal = normalize(cross(dS0S3, dS0S1));
     float NdotV = dot(rayDir, planeNormal);
-    if (NdotV < 0.95f)
+    if (NdotV < 1e-10f)
         return float3(-1, -1, 0);
 
     float3 originToTopLeft = S0.xyz - rayOrigin;
@@ -411,7 +418,7 @@ void rayGen()
         pls.flux *= M_PI;   //Lambert Emitter
     }
 #endif    
-    
+    float3 glintFlux = pls.flux;
     pls.flux /= launchDim.x * launchDim.y; //Division through all dipatched photons
 
     ray.Origin = pls.posW;
@@ -436,8 +443,13 @@ void rayGen()
     //recursion where the photons are shot
     for (uint i = 0; i < gMaxRecursion && !rayData.terminated; i++)
     {
-        rayData.glintMiss = false;
-        rayData.glintUV = float2(-1);
+        if (kUseGlints)
+        {
+            rayData.glintMiss = false;
+            rayData.glintUV = float2(-1);
+            glintFlux *= rayData.thp;
+        }
+        
         photon.flux = pls.flux * rayData.thp;
         TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
@@ -446,15 +458,15 @@ void rayGen()
         {
             if (all(rayData.glintUV >= 0.f))
             {
-                uint2 glintIdx = uint2(floor(uint2(64, 36) * rayData.glintUV));
+                uint2 glintIdx = uint2(floor(gGlintTexDim * rayData.glintUV));
                 uint numberHits = 0;
-                InterlockedAdd(gGlintsNumber[glintIdx.x + gScreenDim.x * glintIdx.y], 1u, numberHits);
+                InterlockedAdd(gGlintsNumber[glintIdx.x + gGlintTexDim.x * glintIdx.y], 1u, numberHits);
                 float2 glintOut = rayData.glintMiss ? float2(1, 0) : float2(0, 1);
                 glintOut *= 10000.f;
                 uint rndIdx = uint(numberHits * sampleNext1D(rayData.sg));
 
                 if (rndIdx == 0)
-                gGlints[glintIdx] = float4(photon.flux, 0);
+                    gGlints[glintIdx] = float4(photon.flux, 0);
             }
         }
         

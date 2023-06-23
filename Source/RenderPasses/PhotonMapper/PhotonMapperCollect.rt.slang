@@ -26,7 +26,8 @@ cbuffer Test
     float4 S1;
     float4 S3;
     bool gGlintDebug;
-    uint3 _pad2;
+    uint2 gGlintTexRes;
+    uint _pad2;
 };
 
 // Inputs
@@ -82,6 +83,7 @@ uint index2Dto1D(uint2 idx, uint width)
 
 float3 intersectNearPlane(float3 rayOrigin, float3 rayDir)
 {
+    
     float3 dS0S1 = S1.xyz - S0.xyz;
     float3 dS0S3 = S3.xyz - S0.xyz;
     float3 planeNormal = normalize(cross(dS0S1, dS0S3));
@@ -201,7 +203,7 @@ void rayGen()
     //Get vertex data for the world position
     TriangleHit triangleHit = hit.getTriangleHit();
     VertexData v = gScene.getVertexData(triangleHit);
-    
+        
     //Ray description 
     RayDesc ray;
     ray.Origin = v.posW;
@@ -239,15 +241,20 @@ void rayGen()
         float currDist = valid ? distance(camPos, v.posW) : 1000000.f;
         if (uvt.x >= 0 && uvt.y >= 0 && uvt.z < currDist)
         {
-            uint2 glintIdx = uint2(floor(uint2(64, 36) * uvt.xy));
-            uint glintWeight = gGlintsNumber[glintIdx.x + 64 * glintIdx.y];
+            uint2 glintIdx = uint2(floor(gGlintTexRes * uvt.xy));
+            uint glintWeight = gGlintsNumber[glintIdx.x + gGlintTexRes.x * glintIdx.y];
             //gGlints[glintIdx].xyz;
             radiance = gGlints[glintIdx].xyz * glintWeight;
         }
     }
-    
-    
-    
+    else
+    {
+        float2 uv = launchIndex / float2(launchDim);
+        uint2 glintIdx = uint2(floor(gGlintTexRes * uv));
+        //TODO filter? 
+        uint glintWeight = gGlintsNumber[glintIdx.x + gGlintTexRes.x * glintIdx.y];
+        radiance = gGlints[glintIdx].xyz * glintWeight;
+    }
     
     gColor[launchIndex] = float4(radiance, 1.f);
 
