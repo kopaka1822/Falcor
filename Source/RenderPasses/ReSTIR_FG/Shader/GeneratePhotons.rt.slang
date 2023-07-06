@@ -226,7 +226,7 @@ bool cullingTest(float3 origin)
     uint h = hash(cell) & hashSize;
 
     bool mask = gPhotonCullingMask[ReSTIR_LinearIndexToZCurve(h)];
-    return mask >= 1 ? true : false;
+    return mask >= 1.f ? true : false;
 }
 
 [shader("miss")]

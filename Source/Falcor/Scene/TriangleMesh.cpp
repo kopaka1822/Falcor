@@ -260,16 +260,12 @@ namespace Falcor
             for (size_t faceIdx = 0; faceIdx < mesh->mNumFaces; ++faceIdx)
             {
                 const auto& face = mesh->mFaces[faceIdx];
-                if (face.mNumIndices != 3u)
+                if (face.mNumIndices != 3)
                 {
-                    logWarning("The mesh from '{}' has a broken face, ignored", fullPath);
+                    logWarning("Failed to load triangle mesh from '{}': Broken face data", fullPath);
                     return nullptr;
                 }
-                for (size_t i = 0; i < 3; ++i)
-                {
-                    FALCOR_ASSERT(face.mIndices[i] <= vertices.size());
-                    indices.emplace_back((uint32_t)(indexBase + face.mIndices[i]));
-                }
+                for (size_t i = 0; i < 3; ++i) indices.emplace_back((uint32_t)(indexBase + face.mIndices[i]));
             }
         }
 

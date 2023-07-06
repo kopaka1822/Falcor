@@ -151,15 +151,13 @@ void main(uint2 pixel : SV_DispatchThreadID)
         if (rtxdiValid)
         {
             sd.mtl.setActiveLobes((uint) LobeType::DiffuseReflection);
-            diffuse = bsdf.eval(sd, dir, sg) * Li;
+            diffuse += bsdf.eval(sd, dir, sg) * Li;
 
             sd.mtl.setActiveLobes((uint) LobeType::SpecularReflection);
-            specular = bsdf.eval(sd, dir, sg) * Li;
+            specular += bsdf.eval(sd, dir, sg) * Li;
 
             hitTSamples++;
             hitT = distance;
-
-            color += diffuse + specular;
         }
     
     #endif
@@ -192,31 +190,31 @@ void main(uint2 pixel : SV_DispatchThreadID)
         if (validIndirectReservoir)
         {
             sd.mtl.setActiveLobes((uint) LobeType::Diffuse);
-            diffuse = bsdf.eval(sd, dir, sg) * Li;
+            diffuse += bsdf.eval(sd, dir, sg) * Li;
             
             sd.mtl.setActiveLobes((uint) LobeType::SpecularReflection);
-            specular = bsdf.eval(sd, dir, sg) * Li;
+            specular += bsdf.eval(sd, dir, sg) * Li;
 
             hitTSamples++;
             hitT += distance;
             hitT *= 1.f / hitTSamples;
         }
-        diffuse += gCausticRadiance[pixel].xyz;
-        color += diffuse + specular;
-        
+        diffuse += gCausticRadiance[pixel].xyz;        
     #endif
-    
+        
+        color += diffuse + specular;    //Add diffuse and specular parts together
+        color *= thp;                   //Use the throughput
         emission += bsdfProperties.emission; //Emission
         color += emission;  //Do this or demodulate it?
 
         //If only RTXDI is used, add the previous calculated light color
     #if USE_RTXDI && !USE_RESTIRFG
             float3 fgRadiance = gOutColor[pixel].xyz;
-            color += fgRadiance;
-            diffuse += fgRadiance;  //TODO do this properly
+            color += fgRadiance * thp;
+            diffuse += fgRadiance * thp;  //TODO do this properly
     #endif
 
-        color *= thp;
+       
         
         
 

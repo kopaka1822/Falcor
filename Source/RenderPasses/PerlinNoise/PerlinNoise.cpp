@@ -52,14 +52,14 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, PerlinNoise>();
 }
 
-PerlinNoise::PerlinNoise(ref<Device> pDevice, const Dictionary& dict)
+PerlinNoise::PerlinNoise(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
 {
 }
 
-Dictionary PerlinNoise::getScriptingDictionary()
+Properties PerlinNoise::getProperties() const
 {
-    return Dictionary();
+    return Properties();
 }
 
 RenderPassReflection PerlinNoise::reflect(const CompileData& compileData)
@@ -92,7 +92,7 @@ void PerlinNoise::execute(RenderContext* pRenderContext, const RenderData& rende
         Program::Desc desc;
         desc.addShaderLibrary(kShaderName).csEntry("main").setShaderModel(kShaderModel);
 
-        Program::DefineList defines;
+        DefineList defines;
         defines.add(mpSampleGenerator->getDefines());
        
         mpPerlinNoisePass = ComputePass::create(mpDevice, desc, defines, true);

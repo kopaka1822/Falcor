@@ -57,7 +57,7 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, PhotonMapper>();
 }
 
-PhotonMapper::PhotonMapper(ref<Device> pDevice, const Dictionary& dict)
+PhotonMapper::PhotonMapper(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
 {
     if (!mpDevice->isShaderModelSupported(Device::ShaderModel::SM6_5))
@@ -69,15 +69,15 @@ PhotonMapper::PhotonMapper(ref<Device> pDevice, const Dictionary& dict)
         throw RuntimeError("ReSTIR_FG: Raytracing Tier 1.1 is not supported by the current device");
     }
 
-    // TODO Handle Dict
+    // TODO Handle Properties
 
     // Create sample generator.
     mpSampleGenerator = SampleGenerator::create(mpDevice, mpSampleGenerator);
 }
 
-Dictionary PhotonMapper::getScriptingDictionary()
+Properties PhotonMapper::getProperties() const
 {
-    return Dictionary();
+    return Properties();
 }
 
 RenderPassReflection PhotonMapper::reflect(const CompileData& compileData)

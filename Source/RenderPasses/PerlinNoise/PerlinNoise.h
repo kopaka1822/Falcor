@@ -36,11 +36,11 @@ class PerlinNoise : public RenderPass
 public:
     FALCOR_PLUGIN_CLASS(PerlinNoise, "PerlinNoise", "Insert pass description here.");
 
-    static ref<PerlinNoise> create(ref<Device> pDevice, const Dictionary& dict) { return make_ref<PerlinNoise>(pDevice, dict); }
+    static ref<PerlinNoise> create(ref<Device> pDevice, const Properties& props) { return make_ref<PerlinNoise>(pDevice, props); }
 
-    PerlinNoise(ref<Device> pDevice, const Dictionary& dict);
+    PerlinNoise(ref<Device> pDevice, const Properties& props);
 
-    virtual Dictionary getScriptingDictionary() override;
+    virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;

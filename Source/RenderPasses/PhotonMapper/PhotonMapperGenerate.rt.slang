@@ -243,7 +243,7 @@ bool cullingTest(float3 origin)
     uint h = hash(cell) & hashSize;
 
     bool mask = gPhotonCullingMask[PM_LinearIndexToZCurve(h)];
-    return mask >= 1 ? true : false;
+    return mask >= 1.f ? true : false;
 }
 
 float3 intersectNearPlane(float3 rayOrigin, float3 rayDir)

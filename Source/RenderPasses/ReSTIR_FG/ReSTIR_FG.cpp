@@ -98,7 +98,7 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, ReSTIR_FG>();
 }
 
-ReSTIR_FG::ReSTIR_FG(ref<Device> pDevice, const Dictionary& dict)
+ReSTIR_FG::ReSTIR_FG(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
 {
     if (!mpDevice->isShaderModelSupported(Device::ShaderModel::SM6_5))
@@ -110,15 +110,15 @@ ReSTIR_FG::ReSTIR_FG(ref<Device> pDevice, const Dictionary& dict)
         throw RuntimeError("ReSTIR_FG: Raytracing Tier 1.1 is not supported by the current device");
     }
 
-    //TODO Handle Dict
+    //TODO Handle Properties
 
     // Create sample generator.
     mpSampleGenerator = SampleGenerator::create(mpDevice, mpSampleGenerator);
 }
 
-Dictionary ReSTIR_FG::getScriptingDictionary()
+Properties ReSTIR_FG::getProperties() const
 {
-    return Dictionary();
+    return Properties();
 }
 
 RenderPassReflection ReSTIR_FG::reflect(const CompileData& compileData)
@@ -867,7 +867,7 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
         desc.addShaderLibrary(kResamplingPassShader).csEntry("main").setShaderModel(kShaderModel);
         desc.addTypeConformances(mpScene->getTypeConformances());
 
-        Program::DefineList defines;
+        DefineList defines;
         defines.add(mpScene->getSceneDefines());
         defines.add(mpSampleGenerator->getDefines());
         defines.add("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
@@ -952,7 +952,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         desc.addShaderLibrary(kFinalShadingPassShader).csEntry("main").setShaderModel(kShaderModel);
         desc.addTypeConformances(mpScene->getTypeConformances());
 
-        Program::DefineList defines;
+        DefineList defines;
         defines.add(mpScene->getSceneDefines());
         defines.add(mpSampleGenerator->getDefines());
         defines.add(getValidResourceDefines(kOutputChannels, renderData));

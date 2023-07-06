@@ -44,11 +44,11 @@ class ReSTIR_FG : public RenderPass
 public:
     FALCOR_PLUGIN_CLASS(ReSTIR_FG, "ReSTIR_FG", "Indirect light with Resampled Final Gathering");
 
-    static ref<ReSTIR_FG> create(ref<Device> pDevice, const Dictionary& dict) { return make_ref<ReSTIR_FG>(pDevice, dict); }
+    static ref<ReSTIR_FG> create(ref<Device> pDevice, const Properties& props) { return make_ref<ReSTIR_FG>(pDevice, props); }
 
-    ReSTIR_FG(ref<Device> pDevice, const Dictionary& dict);
+    ReSTIR_FG(ref<Device> pDevice, const Properties& props);
 
-    virtual Dictionary getScriptingDictionary() override;
+    virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
