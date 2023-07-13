@@ -157,6 +157,7 @@ void PhotonMapper::renderUI(Gui::Widgets& widget)
         // Buffer size
         widget.text("Photons: " + std::to_string(mCurrentPhotonCount[0]) + " / " + std::to_string(mNumMaxPhotons[0]));
         widget.text("Caustic photons: " + std::to_string(mCurrentPhotonCount[1]) + " / " + std::to_string(mNumMaxPhotons[1]));
+        widget.text("Glint Photons:" + std::to_string(mCurrentPhotonCount[2]) + " / " + std::to_string(mNumMaxPhotons[2]));
         widget.var("Photon Buffer Size", mNumMaxPhotonsUI, 100u, 100000000u, 100);
         widget.tooltip("First -> Global, Second -> Caustic");
         mChangePhotonLightBufferSize = widget.button("Apply", true);
@@ -301,7 +302,7 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
     if (mChangePhotonLightBufferSize)
     {
         mNumMaxPhotons = mNumMaxPhotonsUI;
-        for (uint i = 0; i < 2; i++)
+        for (uint i = 0; i < 3; i++)
         {
             mpPhotonAABB[i].reset();
             mpPhotonData[i].reset();
@@ -365,15 +366,15 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
     // Photon
     if (!mpPhotonCounter)
     {
-        mpPhotonCounter = Buffer::create(mpDevice, sizeof(uint) * 2);
+        mpPhotonCounter = Buffer::create(mpDevice, sizeof(uint) * 4);
         mpPhotonCounter->setName("PM::PhotonCounterGPU");
     }
     if (!mpPhotonCounterCPU)
     {
-        mpPhotonCounterCPU = Buffer::create(mpDevice, sizeof(uint) * 2, ResourceBindFlags::None, Buffer::CpuAccess::Read);
+        mpPhotonCounterCPU = Buffer::create(mpDevice, sizeof(uint) * 4, ResourceBindFlags::None, Buffer::CpuAccess::Read);
         mpPhotonCounterCPU->setName("PM::PhotonCounterCPU");
     }
-    for (uint i = 0; i < 2; i++)
+    for (uint i = 0; i < 3; i++)
     {
         if (!mpPhotonAABB[i])
         {
@@ -412,8 +413,9 @@ void PhotonMapper::prepareAccelerationStructure()
     // Create the Photon AS
     if (!mpPhotonAS)
     {
-        std::vector<uint64_t> aabbCount = {mNumMaxPhotons[0], mNumMaxPhotons[1]};
-        std::vector<uint64_t> aabbGPUAddress = {mpPhotonAABB[0]->getGpuAddress(), mpPhotonAABB[1]->getGpuAddress()};
+        std::vector<uint64_t> aabbCount = {mNumMaxPhotons[0], mNumMaxPhotons[1], mNumMaxPhotons[2]};
+        std::vector<uint64_t> aabbGPUAddress = {
+            mpPhotonAABB[0]->getGpuAddress(), mpPhotonAABB[1]->getGpuAddress(), mpPhotonAABB[2]->getGpuAddress()};
         mpPhotonAS = std::make_unique<CustomAccelerationStructure>(mpDevice, aabbCount, aabbGPUAddress);
     }
 }
@@ -483,6 +485,7 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     mGeneratePhotonPass.pProgram->addDefine("USE_EMISSIVE_LIGHT", mpScene->useEmissiveLights() ? "1" : "0");
     mGeneratePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE_GLOBAL", std::to_string(mNumMaxPhotons[0]));
     mGeneratePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE_CAUSTIC", std::to_string(mNumMaxPhotons[1]));
+    mGeneratePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE_GLINT", std::to_string(mNumMaxPhotons[2]));
     mGeneratePhotonPass.pProgram->addDefine("USE_PHOTON_CULLING", mUsePhotonCulling ? "1" : "0");
 
     if (!mGeneratePhotonPass.pVars)
@@ -545,7 +548,7 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
         mpEmissiveLightSampler->setShaderData(var["Light"]["gEmissiveSampler"]);
 
     // Set the photon buffers
-    for (uint32_t i = 0; i < 2; i++)
+    for (uint32_t i = 0; i < 3; i++)
     {
         var["gPhotonAABB"][i] = mpPhotonAABB[i];
         var["gPackedPhotonData"][i] = mpPhotonData[i];
@@ -564,25 +567,26 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     mpScene->raytrace(pRenderContext, mGeneratePhotonPass.pProgram.get(), mGeneratePhotonPass.pVars, uint3(targetDim, 1));
 
     pRenderContext->uavBarrier(mpPhotonCounter.get());
-    pRenderContext->uavBarrier(mpPhotonAABB[0].get());
-    pRenderContext->uavBarrier(mpPhotonData[0].get());
-    pRenderContext->uavBarrier(mpPhotonAABB[1].get());
-    pRenderContext->uavBarrier(mpPhotonData[1].get());
+    for (uint i = 0; i < 3; i++)
+    {
+        pRenderContext->uavBarrier(mpPhotonAABB[i].get());
+        pRenderContext->uavBarrier(mpPhotonData[i].get());
+    }
 
     // Build/Update Acceleration Structure
-    uint2 currentPhotons = mFrameCount > 0 ? uint2(float2(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
+    uint3 currentPhotons = mFrameCount > 0 ? uint3(float3(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
     std::vector<uint64_t> photonBuildSize = {
-        std::min(mNumMaxPhotons[0], currentPhotons[0]), std::min(mNumMaxPhotons[1], currentPhotons[1])};
+        std::min(mNumMaxPhotons[0], currentPhotons[0]), std::min(mNumMaxPhotons[1], currentPhotons[1]), std::min(mNumMaxPhotons[2], currentPhotons[2])};
     mpPhotonAS->update(pRenderContext, photonBuildSize);
 }
 
 void PhotonMapper::handlePhotonCounter(RenderContext* pRenderContext)
 {
     // Copy the photonCounter to a CPU Buffer
-    pRenderContext->copyBufferRegion(mpPhotonCounterCPU.get(), 0, mpPhotonCounter.get(), 0, sizeof(uint32_t) * 2);
+    pRenderContext->copyBufferRegion(mpPhotonCounterCPU.get(), 0, mpPhotonCounter.get(), 0, sizeof(uint32_t) * 4);
 
     void* data = mpPhotonCounterCPU->map(Buffer::MapType::Read);
-    std::memcpy(&mCurrentPhotonCount, data, sizeof(uint) * 2);
+    std::memcpy(&mCurrentPhotonCount, data, sizeof(uint) * 3);
     mpPhotonCounterCPU->unmap();
 
     // Change Photon dispatch count dynamically.
@@ -637,12 +641,13 @@ void PhotonMapper::collectPhotons(RenderContext* pRenderContext, const RenderDat
     var[nameBuf]["gGlintTexRes"] = mGlintTexRes;
 
 
-    for (uint32_t i = 0; i < 2; i++)
+    for (uint32_t i = 0; i < 3; i++)
     {
         var["gPhotonAABB"][i] = mpPhotonAABB[i];
         var["gPackedPhotonData"][i] = mpPhotonData[i];
     }
-    
+
+    var["gVBufferFirstHit"] = renderData[kInputVBuffer]->asTexture(); 
     var["gVBuffer"] = mpVBuffer;
     var["gView"] = mpViewDir;
     var["gGlints"] = mpGlintTex;

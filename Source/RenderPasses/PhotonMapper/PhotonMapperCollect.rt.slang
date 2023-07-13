@@ -33,10 +33,11 @@ cbuffer Test
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gView;
-StructuredBuffer<AABB> gPhotonAABB[2];
-StructuredBuffer<uint4> gPackedPhotonData[2];
+StructuredBuffer<AABB> gPhotonAABB[3];
+StructuredBuffer<uint4> gPackedPhotonData[3];
 Texture2D<float4> gGlints;
 Buffer<uint> gGlintsNumber;
+Texture2D<PackedHitInfo> gVBufferFirstHit;
 
 // Outputs
 RWTexture2D<float4> gColor;
@@ -44,19 +45,21 @@ RWTexture2D<float4> gColor;
 //Acceleration Structure
 RaytracingAccelerationStructure gPhotonAS;
 
+static const bool kUseGlints = false;
+
 /** Payload for ray (48B).
 */
 struct RayData
 {
     float3 radiance; ///< Accumulated outgoing radiance from path.
-    uint pad; ///< free space.
+    bool glint; ///< free space.
     PackedHitInfo packedHitInfo; ///< Hit info from vBuffer; Up to 16B
 
     SampleGenerator sg; ///< Per-ray state for the sample generator (up to 16B).
   
     __init(){
         this.radiance = float3(0);
-        this.pad = 0;
+        this.glint = false;
     }
 };
 
@@ -119,11 +122,15 @@ void miss(inout RayData rayData : SV_RayPayload)
 [shader("anyhit")]
 void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_IntersectionAttributes)
 {
-    const uint primIndex = PrimitiveIndex();
-
+    if (rayData.glint)
+    {
+        rayData.radiance += float3(1, 0, 0);
+        return;
+    }
     //Get Photon data
+    const uint primIndex = PrimitiveIndex();
     PhotonData pd = PhotonData(gPackedPhotonData[InstanceIndex()][primIndex]);
-        
+            
     //Get hit data from payload
     const HitInfo hit = HitInfo(rayData.packedHitInfo);
     let lod = ExplicitLodTextureSampler(0.f);
@@ -163,7 +170,7 @@ void intersection()
     //Get start point and prim index
     const float3 origin = ObjectRayOrigin();
     const uint primIndex = PrimitiveIndex();
-
+    
     //Get Photon AABB. Instance Index 0 is caustic; 1 is global
     AABB photonAABB = gPhotonAABB[InstanceIndex()][primIndex];
     float radius = InstanceIndex() == 0 ? gPhotonRadius.x : gPhotonRadius.y;
@@ -218,21 +225,52 @@ void rayGen()
     //Collect Caustic Photon
     if (valid)
     {
-        TraceRay(gPhotonAS, rayFlags, 1 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
+        TraceRay(gPhotonAS, rayFlags, 1<<0 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         float w = 1 / (M_PI * gPhotonRadius.x * gPhotonRadius.x);
         radiance += w * rayData.radiance;
         
         rayData.radiance = float3(0);   //Clear Radiance
-        TraceRay(gPhotonAS, rayFlags, 2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
+        TraceRay(gPhotonAS, rayFlags, 1<<1 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
-        radiance += w * rayData.radiance;
+        radiance += rayData.radiance * w;
     }
     //Read Glint text
     
     //radiance += gGlints[launchIndex].xyz;
 
+    float3 glintRadiance = float3(0);
+    if (kUseGlints) //Defined Above
+    {
+        rayData.packedHitInfo = gVBufferFirstHit[launchIndex];
+
+        hit = HitInfo(rayData.packedHitInfo);
+        valid = true; //Check if the ray is valid
+    
+    
+        //Get vertex data for the world position
+        triangleHit = hit.getTriangleHit();
+        v = gScene.getVertexData(triangleHit);
+
+        float3 viewDir = gScene.camera.getPosition() - v.posW;
+        //Ray description 
+        ray.Origin = v.posW;
+        ray.TMin = 0.0;
+        ray.TMax = 0.001;
+        ray.Direction = viewDir; //we take the view dir as direction to save payload space
+
+        rayData.glint = true;
+        //Closest hit shader can be skipped
+        rayFlags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES;
+
+        rayData.radiance = float3(0);
+        TraceRay(gPhotonAS, rayFlags, 1<<2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
+        float w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
+        glintRadiance += rayData.radiance * w;
+
+    }
     
     //Check for test near plane
+    /*
     if (gGlintDebug)
     {
         float3 camPos = gScene.camera.getPosition();
@@ -255,8 +293,9 @@ void rayGen()
         uint glintWeight = gGlintsNumber[glintIdx.x + gGlintTexRes.x * glintIdx.y];
         radiance = gGlints[glintIdx].xyz * glintWeight;
     }
+    */
     
-    gColor[launchIndex] = float4(radiance, 1.f);
+    gColor[launchIndex] = float4(radiance + glintRadiance, 1.f);
 
 
 }

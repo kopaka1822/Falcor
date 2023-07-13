@@ -126,9 +126,9 @@ private:
     float mPhotonRejection = 0.3f;                // Probability a global photon is stored
     uint mNumDispatchedPhotons = 2000000;         // Number of Photons dispatched
     uint mPhotonYExtent = 512;                    // Dispatch Y extend
-    uint2 mNumMaxPhotons = uint2(400000, 100000); // Size of the photon buffer
-    uint2 mNumMaxPhotonsUI = mNumMaxPhotons;
-    uint2 mCurrentPhotonCount = uint2(1000000, 1000000); // Gets data from GPU buffer
+    uint3 mNumMaxPhotons = uint3(400000, 100000, 100000); // Size of the photon buffer
+    uint3 mNumMaxPhotonsUI = mNumMaxPhotons;
+    uint3 mCurrentPhotonCount = uint3(1000000); // Gets data from GPU buffer
     float mASBuildBufferPhotonOverestimate = 1.15f;
     float2 mPhotonCollectionRadiusStart = float2(0.025f, 0.005f);
     float2 mPhotonCollectRadius = mPhotonCollectionRadiusStart; // Radius for collection
@@ -151,6 +151,7 @@ private:
     float mPhotonDynamicChangePercentage = 0.05f; // The percentage the buffer is increased/decreased per frame
 
     //Glints
+    uint mGlintMaxPhotons = 10000;
     int2 mGlintTexRes = uint2(480, 270);
     int2 mGlintTexResUI = mGlintTexRes;
     float3x3 mCameraNearPlane;
@@ -164,8 +165,8 @@ private:
     // Buffer and Textures
     //
 
-    ref<Buffer> mpPhotonAABB[2];    // Photon AABBs for Acceleration Structure building
-    ref<Buffer> mpPhotonData[2];    // Additional Photon data (flux, dir)
+    ref<Buffer> mpPhotonAABB[3];    // Photon AABBs for Acceleration Structure building
+    ref<Buffer> mpPhotonData[3];    // Additional Photon data (flux, dir)
     ref<Buffer> mpPhotonCounter;    // Counter for the number of lights
     ref<Buffer> mpPhotonCounterCPU; // For showing the current number of photons in the UI
     ref<Texture> mpPhotonCullingMask; // Mask for photon culling

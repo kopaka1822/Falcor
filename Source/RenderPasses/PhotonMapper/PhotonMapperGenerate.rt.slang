@@ -50,8 +50,8 @@ cbuffer Light{
 }
 #endif
 
-RWStructuredBuffer<AABB> gPhotonAABB[2];
-RWStructuredBuffer<uint4> gPackedPhotonData[2];
+RWStructuredBuffer<AABB> gPhotonAABB[3];
+RWStructuredBuffer<uint4> gPackedPhotonData[3];
 RWBuffer<uint> gPhotonCounter;
 Texture2D<uint> gPhotonCullingMask;
 RWTexture2D<float4> gGlints;
@@ -69,7 +69,7 @@ enum class GenerationFlags // : uint32_t
 };
 
 static const bool kUseGlints = true;
-static const uint2 kPhotonBufferSize = uint2(PHOTON_BUFFER_SIZE_GLOBAL, PHOTON_BUFFER_SIZE_CAUSTIC);
+static const uint3 kPhotonBufferSize = uint3(PHOTON_BUFFER_SIZE_GLOBAL, PHOTON_BUFFER_SIZE_CAUSTIC, PHOTON_BUFFER_SIZE_GLINT);
 static const uint kUsePhotonCulling = USE_PHOTON_CULLING;
 static const uint kRayFlagTerminatedMiss = 1;
 static const uint kRayFlagTerminatedHit = 2;
@@ -86,9 +86,8 @@ struct RayData
     uint terminated; ///< Set to true when path is terminated.
     float3 direction; ///< Next path segment direction.
     bool diffuseHit; ///< saves if the his is diffuse
-    float2 glintUV;
     bool isEmissive; ///<If the hit is emissive
-    bool glintMiss;
+    float3 glintThp;
 
     SampleGenerator sg; ///< Per-ray state for the sample generator (up to 16B).
 
@@ -103,7 +102,7 @@ struct RayData
         d.origin = float3(0);
         d.direction = float3(0);
         d.isEmissive = false;
-        d.glintUV = float2(-1);
+        d.glintThp = float3(0);
         return d;
     }
 };
@@ -285,18 +284,6 @@ float3 intersectNearPlane(float3 rayOrigin, float3 rayDir)
 void miss(inout RayData rayData : SV_RayPayload)
 {
     rayData.terminated |= kRayFlagTerminatedMiss;
-    //Check intersection
-    if (kUseGlints)
-    {
-        const float3 rayOrigin = WorldRayOrigin();
-        const float3 rayDir = WorldRayDirection();
-        if (true)//Angle
-        {
-            rayData.glintUV = intersectNearPlane(rayOrigin, rayDir).xy;
-            rayData.glintMiss = true;
-
-        }
-    }
 }
 
 [shader("closesthit")]
@@ -342,17 +329,12 @@ void closestHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersecti
 
     if (kUseGlints)
     {
-        float tPhoton = distance(rayOrigin, WorldRayOrigin());
-        const float3 glintDir = -incomingRayDir;
-        //if (dot(glintDir, gGlintNormal) > 0.2f)   //Angle
-        if(true)
+        if (!rayData.diffuseHit)
+        //if (bsdfSample.isLobe(LobeType::Specular) || bsdfSample.isLobe(LobeType::Delta))
         {
-            float3 uvt = intersectNearPlane(WorldRayOrigin(), glintDir);
-            if (all(uvt.xy >= 0.f))
-            {
-                rayData.glintUV = uvt.xy;
-                rayData.terminated |= kRayFlagTerminatedMiss;
-            }
+            float3 toCamera = gScene.camera.getPosition() - sd.posW;
+            toCamera = normalize(toCamera);
+            rayData.glintThp = bsdf.eval(sd, toCamera, rayData.sg);
         }
     }
     
@@ -418,7 +400,6 @@ void rayGen()
         pls.flux *= M_PI;   //Lambert Emitter
     }
 #endif    
-    float3 glintFlux = pls.flux;
     pls.flux /= launchDim.x * launchDim.y; //Division through all dipatched photons
 
     ray.Origin = pls.posW;
@@ -445,39 +426,42 @@ void rayGen()
     {
         if (kUseGlints)
         {
-            rayData.glintMiss = false;
-            rayData.glintUV = float2(-1);
-            glintFlux *= rayData.thp;
+            rayData.glintThp = float3(0);
         }
         
         photon.flux = pls.flux * rayData.thp;
         TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
-        //Check glints
-        if (kUseGlints)
-        {
-            if (all(rayData.glintUV >= 0.f))
-            {
-                uint2 glintIdx = uint2(floor(gGlintTexDim * rayData.glintUV));
-                uint numberHits = 0;
-                InterlockedAdd(gGlintsNumber[glintIdx.x + gGlintTexDim.x * glintIdx.y], 1u, numberHits);
-                float2 glintOut = rayData.glintMiss ? float2(1, 0) : float2(0, 1);
-                glintOut *= 10000.f;
-                uint rndIdx = uint(numberHits * sampleNext1D(rayData.sg));
-
-                if (rndIdx == 0)
-                    gGlints[glintIdx] = float4(photon.flux, 0);
-            }
-        }
-        
-        //Stop if a light source was hit
+         //Stop if a light source was hit
         if (rayData.isEmissive || (rayData.terminated & kRayFlagTerminatedMiss > 0))
             break;
-        
+
         photonPos = rayData.origin;
         photon.dir = ray.Direction;
         reflectedDiffuse = rayData.diffuseHit;
-
+        
+        //Check glints
+        if (kUseGlints)
+        {
+            if (luminance(rayData.glintThp) > 0.f)
+            {
+                const uint glintTypeIdx = 2;
+                uint photonIndex = 0;
+                InterlockedAdd(gPhotonCounter[1], 1u, photonIndex); //2 is glint PhotonBuffer
+                if (photonIndex < 10000)    //TODO set per define
+                {
+                    AABB photonAABB = AABB(photonPos - gPhotonRadius[1], photonPos + gPhotonRadius[1]); //Take Caustic radius for now
+                    gPhotonAABB[glintTypeIdx][photonIndex] = photonAABB;
+                    PhotonData pd = PhotonData();
+                    pd.flux = photon.flux * rayData.glintThp;
+                    pd.dir = -photon.dir;
+                    pd.packedNormal = rayData.packedNormal;
+                
+                    gPackedPhotonData[glintTypeIdx][photonIndex] = pd.pack();
+                }
+            }
+        }
+        
         //rejection
         float rndRoulette = sampleNext1D(rayData.sg);
         bool roulette = rndRoulette <= gRejection;
