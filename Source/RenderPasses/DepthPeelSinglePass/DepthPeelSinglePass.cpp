@@ -84,6 +84,10 @@ DepthPeelSinglePass::DepthPeelSinglePass(ref<Device> pDevice, const Properties& 
     {
         logWarning("DepthPeelSinglePass requires VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation");
     }
+
+    D3D12_FEATURE_DATA_D3D12_OPTIONS3 d3d12Options3 = {};
+    pRawDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS3, &d3d12Options3, sizeof(d3d12Options3));
+    logInfo("ViewInstancingTier: " + std::to_string(d3d12Options3.ViewInstancingTier));
 }
 
 Properties DepthPeelSinglePass::getProperties() const
@@ -128,7 +132,7 @@ void DepthPeelSinglePass::execute(RenderContext* pRenderContext, const RenderDat
         vars["prevDepthTex"] = pPrevDepth;
 
         //mpState->getProgram()->addDefine("USE_ALPHA_TEST", mUseAlphaTest ? "1" : "0");
-        mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mCullMode);
+        mpScene->rasterize(pRenderContext, mpState.get(), mpVars.get(), mCullMode, true);
 
         // copy first layer to kDepthPrimary
         if (pDepthPrimary)

@@ -337,12 +337,12 @@ namespace Falcor
         return mpLightCollection;
     }
 
-    void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode)
+    void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode, bool draw2Instances)
     {
-        rasterize(pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]);
+        rasterize(pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], draw2Instances);
     }
 
-    void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW, const ref<RasterizerState>& pRasterizerStateDoubleSided)
+    void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW, const ref<RasterizerState>& pRasterizerStateDoubleSided, bool draw2Instances)
     {
         FALCOR_PROFILE(pRenderContext, "rasterizeScene");
 
@@ -351,7 +351,9 @@ namespace Falcor
         auto pCurrentRS = pState->getRasterizerState();
         bool isIndexed = hasIndexBuffer();
 
-        for (const auto& draw : mDrawArgs)
+
+
+        for (const auto& draw : (draw2Instances ? mDrawArgsInstanced : mDrawArgs))
         {
             FALCOR_ASSERT(draw.count > 0);
 
@@ -479,7 +481,7 @@ namespace Falcor
         // Add the draw ID layout.
         ref<VertexBufferLayout> pInstLayout = VertexBufferLayout::create();
         pInstLayout->addElement(INSTANCE_DRAW_ID_NAME, 0, drawIDFormat, 1, INSTANCE_DRAW_ID_LOC);
-        pInstLayout->setInputClass(VertexBufferLayout::InputClass::PerInstanceData, 1);
+        pInstLayout->setInputClass(VertexBufferLayout::InputClass::PerInstanceData, 2);
         pLayout->addBufferLayout(kDrawIdBufferIndex, pInstLayout);
 
         // Create the VAO objects.
@@ -2604,9 +2606,10 @@ namespace Falcor
         // TODO: Update the draw args if a mesh undergoes animation that flips the winding.
 
         mDrawArgs.clear();
+        mDrawArgsInstanced.clear();
 
         // Helper to create the draw-indirect buffer.
-        auto createDrawBuffer = [this](const auto& drawMeshes, bool ccw, bool ignoreWinding, ResourceFormat ibFormat = ResourceFormat::Unknown)
+        auto createDrawBuffer = [this](auto& drawMeshes, bool ccw, bool ignoreWinding, ResourceFormat ibFormat = ResourceFormat::Unknown)
         {
             if (drawMeshes.size() > 0)
             {
@@ -2619,6 +2622,16 @@ namespace Falcor
                 draw.ignoreWinding = ignoreWinding;
                 draw.ibFormat = ibFormat;
                 mDrawArgs.push_back(draw);
+
+                // do the same for the instanced
+                for(auto& e : drawMeshes)
+                {
+                    assert(e.InstanceCount == 1);
+                    e.InstanceCount = 2;
+                }
+                draw.pBuffer = Buffer::create(mpDevice, sizeof(drawMeshes[0]) * drawMeshes.size(), Resource::BindFlags::IndirectArg, Buffer::CpuAccess::None, drawMeshes.data());
+                draw.pBuffer->setName("Scene draw buffer 2");
+                mDrawArgsInstanced.push_back(draw);
             }
         };
 

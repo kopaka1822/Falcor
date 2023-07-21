@@ -961,7 +961,11 @@ namespace Falcor
             \param[in] pVars Graphics vars.
             \param[in] cullMode Optional rasterizer cull mode. The default is to cull back-facing primitives.
         */
-        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back);
+        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back)
+        {
+            rasterize(pRenderContext, pState, pVars, cullMode, false);
+        }
+        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode, bool draw2Instances); 
 
         /** Render the scene using the rasterizer.
             This overload uses the supplied rasterizer states.
@@ -972,7 +976,11 @@ namespace Falcor
             \param[in] pRasterizerStateCCW Rasterizer state for meshes with counter-clockwise triangle winding. Can be the same as for clockwise.
             \param[in] pRasterizerStateDoubleSided Rasterizer state for meshes that are double sided and need to be drawn without culling. Can be the same as above.
         */
-        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW, const ref<RasterizerState>& pRasterizerStateDoubleSided);
+        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW, const ref<RasterizerState>& pRasterizerStateDoubleSided)
+        {
+            rasterize(pRenderContext, pState, pVars, pRasterizerStateCW, pRasterizerStateCCW, pRasterizerStateDoubleSided, false);
+        }
+        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW, const ref<RasterizerState>& pRasterizerStateDoubleSided, bool draw2Instances);
 
         /** Get the required raytracing maximum attribute size for this scene.
             Note: This depends on what types of geometry are used in the scene.
@@ -1245,6 +1253,7 @@ namespace Falcor
         ref<Vao> mpMeshVao16Bit;                                    ///< VAO for drawing meshes with 16-bit vertex indices.
         ref<Vao> mpCurveVao;                                        ///< Vertex array object for the global curve vertex/index buffers.
         std::vector<DrawArgs> mDrawArgs;                            ///< List of draw arguments for rasterizing the meshes in the scene.
+        std::vector<DrawArgs> mDrawArgsInstanced; // same as draw args, but meshes are instanced 2 times
 
         // Triangle meshes
         std::vector<MeshDesc> mMeshDesc;                            ///< Copy of mesh data GPU buffer (mpMeshesBuffer).

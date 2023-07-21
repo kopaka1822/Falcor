@@ -34,11 +34,11 @@ struct VSOutEx
     uint rtIndex : SV_RenderTargetArrayIndex;
 };
 
-VSOutEx vsMain(VSIn vIn)
+VSOutEx vsMain(VSIn vIn, uint instanceID : SV_InstanceID)
 {
     VSOutEx o;
     o.vsOut = defaultVS(vIn);
-    o.rtIndex = 1;
+    o.rtIndex = instanceID;
     return o;
 }
 
@@ -104,8 +104,8 @@ void psMain(VSOut vsOut, uint rtIndex : SV_RenderTargetArrayIndex, uint triangle
     // do approximate depth peeling
     //float2 mvec = computeMotionVector(vsOut, int2(vsOut.posH.xy));
 
-    /*float prevDepth = prevDepthTex[int2(vsOut.posH.xy)].x;
+    float prevDepth = prevDepthTex[int2(vsOut.posH.xy)].x;
     if (vsOut.posH.z <= prevDepth)
         discard; // only accept smaller depths
-*/
+
 }
