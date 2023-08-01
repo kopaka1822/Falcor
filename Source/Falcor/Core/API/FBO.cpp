@@ -430,10 +430,12 @@ void Fbo::validateAttachment(const Attachment& attachment) const
                 throw RuntimeError("Error when validating FBO. Different sample counts in attachments.");
             }
 
+            /*
             if (mIsLayered != (attachment.arraySize > 1))
             {
                 throw RuntimeError("Error when validating FBO. Can't bind both layered and non-layered textures.");
             }
+            */
         }
     }
 }
