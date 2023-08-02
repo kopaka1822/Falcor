@@ -56,7 +56,7 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{ device },
         if (isPoint)
         {
             tex = Texture::createCube(
-                mpDevice, mShadowMapSize, mShadowMapSize, mShadowMapFormat, 6u, 1u, nullptr,
+                mpDevice, mShadowMapSize, mShadowMapSize, mShadowMapFormat, 1u, 1u, nullptr,
                 ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource
             );
             tex->setName("ShadowTex");
@@ -115,8 +115,6 @@ void ShadowMap::execute(RenderContext* pRenderContext) {
         auto& lightData = light->getData();
         bool isPoint = (light->getType() == LightType::Point) && (lightData.openingAngle > M_PI_2);
 
-
-
         if (Light::Changes::Active == light->getChanges() && !light->isActive())
         {
             //TODO clear texture
@@ -141,9 +139,9 @@ void ShadowMap::execute(RenderContext* pRenderContext) {
             pRenderContext->clearDsv(mpDepth->getDSV().get(), 1.f, 0);
             
             //Get Light tex
-
-            mpFbo->attachColorTarget(mpShadowMaps[i], 0, 0, j, 1);
-            pRenderContext->clearFbo(mpFbo.get(), float4(0), 1.f, 0, FboAttachmentType::Color);
+            mpFbo->attachColorTarget(mpShadowMaps[i], 0,0,j,1);
+            
+            //pRenderContext->clearFbo(mpFbo.get(), float4(0), 1.f, 0, FboAttachmentType::Color);
             
             float3 lightTarget;
 

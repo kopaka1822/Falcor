@@ -95,7 +95,17 @@ void ShadowPathTracer::setScene(RenderContext* pRenderContext, const ref<Scene>&
         mMaxLights = mpScene->getLightCount();
         mpShadowMap = std::make_unique<ShadowMap>(mpDevice, mpScene);
 
-        //mpTest = Texture::createCube();
+        std::vector<float2> testCube;
+        for (size_t i = 0; i < 1024 * 1024 * 6; i++)
+        {
+            testCube.push_back(float2(0.3, 0.7));
+        }
+
+        mpTest = Texture::createCube(
+            mpDevice, 1024, 1024, ResourceFormat::RG32Float, 1u, 1u, testCube.data(),
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+        );
+        mpTest->setName("TestTex");
     }
 
    
@@ -114,8 +124,6 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     
     //Calculate the shadow map
     mpShadowMap->execute(pRenderContext);
-    auto& tex = mpShadowMap->getTexture(mSelectedLight);
-    auto& srv = tex->getSRV();
     
     if (!mPathProgram.pVars)
     {
@@ -131,7 +139,8 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     var["CB"]["gFrameCount"] = mFrameCount;
 
     var["gShadowSampler"] = mpShadowMap->getSampler();
-    var["gShadowMap"] = mpShadowMap->getTexture(mSelectedLight);
+    var["gShadowMap"] = mpShadowMap->getTexture(0);
+    var["gTestTex"] = mpTest;
     var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
     var["gColor"] = renderData[kOutputColor]->asTexture();
 

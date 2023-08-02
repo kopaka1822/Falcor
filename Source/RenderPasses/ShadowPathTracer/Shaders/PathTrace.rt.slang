@@ -20,6 +20,7 @@ cbuffer CB
 // Inputs
 SamplerState gShadowSampler;
 TextureCube<float> gShadowMap;
+RWTexture2DArray<float2> gTestTex;
 Texture2D<PackedHitInfo> gVBuffer;
 
 // Outputs
@@ -95,10 +96,10 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 
     lightDist /= 30.f; //TODO Set per uniform (Hardcoded farplane for shadow map)
 
-    return float3(shadowDist);
+    return float3(lightDist);
     
-    if(shadowDist < lightDist)
-        return float3(shadowDist);
+    //if(shadowDist < lightDist)
+        //return float3(shadowDist);
     
     /*
     // Test visibility by tracing a shadow ray.
@@ -146,6 +147,13 @@ void rayGen()
 
         outColor += evalDirectAnalytic(sd, mi, rayData.sg);
     }
+    else
+    {
+        outColor = float3(gShadowMap.
+        SampleLevel(gShadowSampler, view, 0.f));
+    }
 
+    gTestTex[uint3(launchIndex, 0)] = float2(0.1, 0.0);
+    
     gColor[launchIndex] = float4(outColor, 1.f);
 }

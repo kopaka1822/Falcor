@@ -176,6 +176,10 @@ ref<DepthStencilView> DepthStencilView::create(
     desc.subresourceRange.mipLevelCount = 1;
     desc.subresourceRange.aspectMask = gfx::TextureAspect::Depth;
     desc.renderTarget.shape = pTexture->getGfxTextureResource()->getDesc()->type;
+    if (desc.renderTarget.shape == gfx::IResource::Type::TextureCube)
+    {
+        desc.renderTarget.shape = gfx::IResource::Type::Texture2D;
+    }
     FALCOR_GFX_CALL(pDevice->getGfxDevice()->createTextureView(pTexture->getGfxTextureResource(), desc, handle.writeRef()));
     return ref<DepthStencilView>(new DepthStencilView(pDevice, pTexture, handle, mipLevel, firstArraySlice, arraySize));
 }
@@ -201,6 +205,7 @@ ref<UnorderedAccessView> UnorderedAccessView::create(
     desc.subresourceRange.layerCount = arraySize;
     desc.subresourceRange.mipLevel = mipLevel;
     desc.subresourceRange.mipLevelCount = 1;
+    desc.renderTarget.shape = pTexture->getGfxTextureResource()->getDesc()->type;
     FALCOR_GFX_CALL(pDevice->getGfxDevice()->createTextureView(pTexture->getGfxTextureResource(), desc, handle.writeRef()));
     return ref<UnorderedAccessView>(new UnorderedAccessView(pDevice, pTexture, handle, mipLevel, firstArraySlice, arraySize));
 }
@@ -241,6 +246,11 @@ ref<RenderTargetView> RenderTargetView::create(
     desc.subresourceRange.mipLevelCount = 1;
     desc.subresourceRange.aspectMask = gfx::TextureAspect::Color;
     desc.renderTarget.shape = pTexture->getGfxTextureResource()->getDesc()->type;
+    if (desc.renderTarget.shape == gfx::IResource::Type::TextureCube)
+    {
+        desc.renderTarget.shape = gfx::IResource::Type::Texture2D;
+    }
+       
     FALCOR_GFX_CALL(pDevice->getGfxDevice()->createTextureView(pTexture->getGfxTextureResource(), desc, handle.writeRef()));
     return ref<RenderTargetView>(new RenderTargetView(pDevice, pTexture, handle, mipLevel, firstArraySlice, arraySize));
 }
