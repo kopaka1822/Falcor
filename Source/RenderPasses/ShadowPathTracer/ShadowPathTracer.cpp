@@ -91,8 +91,6 @@ void ShadowPathTracer::setScene(RenderContext* pRenderContext, const ref<Scene>&
         auto globalTypeConformances = mpScene->getMaterialSystem().getTypeConformances();
         mPathProgram.initRTProgram(mpDevice, mpScene, kPathTracingShader, 96u, globalTypeConformances);
 
-
-        mMaxLights = mpScene->getLightCount();
         mpShadowMap = std::make_unique<ShadowMap>(mpDevice, mpScene);
 
         std::vector<float2> testCube;
@@ -124,7 +122,9 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     
     //Calculate the shadow map
     mpShadowMap->execute(pRenderContext);
-    
+
+    mPathProgram.pProgram->addDefine("NUM_SHADOW_MAPS_POINT", std::to_string(mpShadowMap->getNumShadowMaps()));
+
     if (!mPathProgram.pVars)
     {
         FALCOR_ASSERT(mPathProgram.pProgram);
@@ -137,10 +137,18 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     auto var = mPathProgram.pVars->getRootVar();
 
     var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gShadowMapFarPlane"] = mpShadowMap->getFarPlane();
+    var["CB"]["gSMworldAcneBias"] = mShadowMapWorldAcneBias;
+
+    //Bind Shadow Maps
+    auto& shadowMaps = mpShadowMap->getShadowPointMaps();
+    for (uint32_t i = 0; i < shadowMaps.size(); i++)
+    {
+        var["gShadowMap"][i] = shadowMaps[i];
+    }
 
     var["gShadowSampler"] = mpShadowMap->getSampler();
-    var["gShadowMap"] = mpShadowMap->getTexture(0);
-    var["gTestTex"] = mpTest;
+    
     var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
     var["gColor"] = renderData[kOutputColor]->asTexture();
 
@@ -154,9 +162,7 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
 
 void ShadowPathTracer::renderUI(Gui::Widgets& widget)
 {
-    widget.var("Selected Light", mSelectedLight, 0u, mMaxLights, 1u);
-
-    widget.var("Selected Side", mSelectedSide, 0u, 5u, 1u);
+    widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f);
 }
 
 void ShadowPathTracer::RayTraceProgramHelper::initRTProgram(

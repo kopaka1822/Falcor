@@ -59,9 +59,8 @@ private:
 
     uint2 mScreenRes = uint2(0);
     uint mFrameCount = 0;
-    uint mMaxLights = 1;
-    uint mSelectedLight = 0;
-    uint mSelectedSide = 0;
+
+    float mShadowMapWorldAcneBias = 0.05f;
 
     struct RayTraceProgramHelper
     {

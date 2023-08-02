@@ -41,8 +41,11 @@ public:
 
     void execute(RenderContext* pRenderContext);
 
-    ref<Texture> getTexture(uint lightNum) { return mpShadowMaps[lightNum]; }
+    std::vector<ref<Texture>>& getShadowPointMaps() { return mpShadowMaps; }
     ref<Sampler> getSampler() { return mpShadowSampler; }
+    float getFarPlane() { return mFar; }
+    float getNearPlane() { return mNear; }
+    uint getNumShadowMaps() { return mpShadowMaps.size(); }
 
 private:
     ref<Device> mpDevice;
@@ -57,7 +60,7 @@ private:
     float mNear = 0.01f;
     float mFar = 30.f;
 
-    std::vector<ref<Texture>> mpShadowMaps;
+    std::vector<ref<Texture>> mpShadowMaps; //TODO add a second kind of shadow map
     ref<Sampler> mpShadowSampler;
     ref<Texture> mpDepth;
     ref<Texture> mpTestTex;

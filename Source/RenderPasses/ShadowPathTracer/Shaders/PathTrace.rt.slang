@@ -12,15 +12,18 @@ import Utils.Math.FormatConversion;
 import Utils.Color.ColorHelpers;
 
 
+
 cbuffer CB
 {
     uint gFrameCount;
+    float gShadowMapFarPlane;
+    float gSMworldAcneBias;
+    uint _pad;
 };
 
 // Inputs
 SamplerState gShadowSampler;
-TextureCube<float> gShadowMap;
-RWTexture2DArray<float2> gTestTex;
+TextureCube<float> gShadowMap[NUM_SHADOW_MAPS_POINT];
 Texture2D<PackedHitInfo> gVBuffer;
 
 // Outputs
@@ -90,16 +93,14 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     float3 lightToPoint = sd.posW - lightData.posW;
     float lightDist = length(lightToPoint);
     lightToPoint /= lightDist;
+    lightDist -= gSMworldAcneBias; //Shadow acne
     //Shadow Test with shadow map
-    float shadowDist = gShadowMap.SampleLevel(gShadowSampler, lightToPoint, 0.f);
-    //float shadowDist = gShadowMap[lightToPoint];
+    float shadowDist = gShadowMap[lightIndex].SampleLevel(gShadowSampler, lightToPoint, 0.f);
 
-    lightDist /= 30.f; //TODO Set per uniform (Hardcoded farplane for shadow map)
-
-    return float3(lightDist);
+    shadowDist *= gShadowMapFarPlane; //TODO Set per uniform (Hardcoded farplane for shadow map)
     
-    //if(shadowDist < lightDist)
-        //return float3(shadowDist);
+    if(shadowDist < lightDist)
+        return float3(0);
     
     /*
     // Test visibility by tracing a shadow ray.
@@ -147,13 +148,6 @@ void rayGen()
 
         outColor += evalDirectAnalytic(sd, mi, rayData.sg);
     }
-    else
-    {
-        outColor = float3(gShadowMap.
-        SampleLevel(gShadowSampler, view, 0.f));
-    }
-
-    gTestTex[uint3(launchIndex, 0)] = float2(0.1, 0.0);
-    
+       
     gColor[launchIndex] = float4(outColor, 1.f);
 }

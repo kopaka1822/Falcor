@@ -30,7 +30,7 @@
 namespace
 {
     const std::string kDepthPassProgramFile = "RenderPasses/ShadowPathTracer/Shaders/ShadowMap.3d.slang";
-    const std::string kShaderModel = "6_2";
+    const std::string kShaderModel = "6_5";
 }
 
 ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{ device }, mpScene{ scene } {
@@ -139,9 +139,9 @@ void ShadowMap::execute(RenderContext* pRenderContext) {
             pRenderContext->clearDsv(mpDepth->getDSV().get(), 1.f, 0);
             
             //Get Light tex
-            mpFbo->attachColorTarget(mpShadowMaps[i], 0,0,j,1);
+            mpFbo->attachColorTarget(mpShadowMaps[i], 0, 0, j, 1);
             
-            //pRenderContext->clearFbo(mpFbo.get(), float4(0), 1.f, 0, FboAttachmentType::Color);
+            pRenderContext->clearFbo(mpFbo.get(), float4(0), 1.f, 0, FboAttachmentType::Color);
             
             float3 lightTarget;
 
