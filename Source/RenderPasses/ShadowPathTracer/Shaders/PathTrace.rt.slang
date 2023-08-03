@@ -148,6 +148,10 @@ void rayGen()
 
         outColor += evalDirectAnalytic(sd, mi, rayData.sg);
     }
+    else
+    {
+        outColor += gShadowMap[0].SampleLevel(gShadowSampler, view, 0.f);
+    }
        
     gColor[launchIndex] = float4(outColor, 1.f);
 }

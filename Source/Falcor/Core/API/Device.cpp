@@ -273,10 +273,10 @@ public:
 
 inline Device::Type getDefaultDeviceType()
 {
-#if FALCOR_HAS_VULKAN
-    return Device::Type::Vulkan;
-#elif FALCOR_HAS_D3D12
+#if FALCOR_HAS_D3D12
     return Device::Type::D3D12;
+#elif FALCOR_HAS_VULKAN
+    return Device::Type::Vulkan;
 #else
     throw RuntimeError("No default device type");
 #endif

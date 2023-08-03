@@ -201,7 +201,6 @@ ref<UnorderedAccessView> UnorderedAccessView::create(
     desc.subresourceRange.layerCount = arraySize;
     desc.subresourceRange.mipLevel = mipLevel;
     desc.subresourceRange.mipLevelCount = 1;
-    desc.renderTarget.shape = pTexture->getGfxTextureResource()->getDesc()->type;
     FALCOR_GFX_CALL(pDevice->getGfxDevice()->createTextureView(pTexture->getGfxTextureResource(), desc, handle.writeRef()));
     return ref<UnorderedAccessView>(new UnorderedAccessView(pDevice, pTexture, handle, mipLevel, firstArraySlice, arraySize));
 }
