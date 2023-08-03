@@ -98,7 +98,7 @@ void ShadowMap::setProjection(float near, float far) {
     if (far > 0)
         mFar = far;
 
-    mProjectionMatrix = math::perspective(math::radians(90.f), 1.f, mNear, mFar);
+    mProjectionMatrix = math::perspective(float(M_PI_2), 1.f, mNear, mFar);
 }
 
 void ShadowMap::execute(RenderContext* pRenderContext) {
@@ -137,37 +137,43 @@ void ShadowMap::execute(RenderContext* pRenderContext) {
 
             // Clear depth buffer.
             pRenderContext->clearDsv(mpDepth->getDSV().get(), 1.f, 0);
-            
+            pRenderContext->clearRtv(mpShadowMaps[i]->getRTV(0, j, 1).get(), float4(1.f));
+
             //Get Light tex
             mpFbo->attachColorTarget(mpShadowMaps[i], 0, 0, j, 1);
             
-            pRenderContext->clearFbo(mpFbo.get(), float4(0), 1.f, 0, FboAttachmentType::Color);
+            //pRenderContext->clearFbo(mpFbo.get(), float4(0), 1.f, 0, FboAttachmentType::Color);
             
             float3 lightTarget;
-
+            float3 up;
             switch (j)
             {
             case 0: //+x (or dir) 
                 lightTarget = float3(1, 0, 0);
+                up = float3(0, -1, 0);
                 break;
             case 1: //-x
                 lightTarget = float3(-1, 0, 0);
+                up = float3(0, -1, 0);
                 break;
             case 2: //+y
-                lightTarget = float3(0, 1, 0);
+                lightTarget = float3(0, -1, 0);
+                up = float3(0, 0, -1);
                 break;
             case 3: //-y
-                lightTarget = float3(0, -1, 0);
+                lightTarget = float3(0, 1, 0);
+                up = float3(0, 0, 1);
                 break;
             case 4: //+z
                 lightTarget = float3(0, 0, 1);
+                up = float3(0, -1, 0);
                 break;
             case 5://-z
                 lightTarget = float3(0, 0, -1);
+                up = float3(0, -1, 0);
                 break;
             }
             lightTarget += lightData.posW;
-            float3 up = (j == 2) || (j == 3) ? float3(0, 0, 1) : float3(0, 1, 0);
             float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
             
 

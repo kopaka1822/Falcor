@@ -56,6 +56,50 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
     return sd;
 }
 
+
+static const float3 smSampleOffsetDirections[20] =
+{
+   float3(1, 1, 1),  float3(1, -1, 1),  float3(-1, -1, 1),  float3(-1, 1, 1),
+   float3(1, 1, -1), float3(1, -1, -1), float3(-1, -1, -1), float3(-1, 1, -1),
+   float3(1, 1, 0),  float3(1, -1, 0),  float3(-1, -1, 0),  float3(-1, 1, 0),
+   float3(1, 0, 1),  float3(-1, 0, 1),  float3(1, 0, -1),   float3(-1, 0, -1),
+   float3(0, 1, 1),  float3(0, -1, 1),  float3(0, -1, -1),  float3(0, 1, -1)
+};
+
+float evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData)
+{
+    float shadow = 0.f;
+    float3 lightToPoint = posW - lightData.posW;
+    float lightDist = length(lightToPoint);
+    lightToPoint.y *= -1;
+    //lightToPoint /= lightDist;
+    //lightDist -= gSMworldAcneBias; //Shadow acne
+    //Shadow Test with shadow map
+    
+    float shadowDist = gShadowMap[lightIdx].SampleLevel(gShadowSampler, lightToPoint, 0.f);
+    shadowDist *= gShadowMapFarPlane; //TODO Set per uniform (Hardcoded farplane for shadow map)
+    if (shadowDist + gSMworldAcneBias > lightDist)
+        shadow += 1.f;
+    
+    //PCF
+    /*
+    int samples = 20;
+    //float diskRadius = 0.05;
+    float diskRadius = (1.0 + (lightDist / gShadowMapFarPlane)) / 25.0;
+    for (int i = 0; i < samples; ++i)
+    {
+        float shadowDist = gShadowMap[lightIdx].SampleLevel(gShadowSampler, lightToPoint + smSampleOffsetDirections[i] * diskRadius, 0.f);
+        shadowDist *= gShadowMapFarPlane; // undo mapping [0;1]
+        if (shadowDist + gSMworldAcneBias > lightDist)
+            shadow += 1.0;
+    }
+    shadow /= float(samples);
+    */
+
+    
+    return shadow;
+}
+
 /** Evaluates the direct illumination from analytic lights.
     This function samples Falcor's light list uniformly with one shadow ray.
     \param[in] sd Shading data.
@@ -90,26 +134,14 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
     //const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
 
-    float3 lightToPoint = sd.posW - lightData.posW;
-    float lightDist = length(lightToPoint);
-    lightToPoint /= lightDist;
-    lightDist -= gSMworldAcneBias; //Shadow acne
-    //Shadow Test with shadow map
-    float shadowDist = gShadowMap[lightIndex].SampleLevel(gShadowSampler, lightToPoint, 0.f);
-
-    shadowDist *= gShadowMapFarPlane; //TODO Set per uniform (Hardcoded farplane for shadow map)
-    
-    if(shadowDist < lightDist)
-        return float3(0);
-    
-    /*
     // Test visibility by tracing a shadow ray.
-    bool V = traceShadowRay(origin, ls.dir, ls.distance);
-    if (!V)
-        return float3(0.f);
-    */
+    float shadow = evalShadowMap(lightIndex, sd.posW, lightData);
+    //bool V = traceShadowRay(origin, ls.dir, ls.distance);
+    //if (!V)
+        //return float3(0.f);
+    
     // Evaluate contribution.
-    return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf;
+    return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
 }
 
 [shader("miss")]
