@@ -7,19 +7,22 @@ import Utils.Math.MathHelpers;
 import Utils.Sampling.SampleGenerator;
 import Scene.Material.ShadingUtils;
 import Rendering.Lights.LightHelpers;
-import Utils.Math.PackedFormats;
-import Utils.Math.FormatConversion;
+import Utils.Geometry.GeometryHelpers;
 import Utils.Color.ColorHelpers;
-
-
 
 cbuffer CB
 {
     uint gFrameCount;
+    bool gUseRayTracedShadows;
     float gShadowMapFarPlane;
     float gSMworldAcneBias;
-    uint _pad;
+    
+    float gPCFdiskRadius;
+    bool gUsePCF;   
 };
+
+static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
+static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 
 // Inputs
 SamplerState gShadowSampler;
@@ -28,6 +31,14 @@ Texture2D<PackedHitInfo> gVBuffer;
 
 // Outputs
 RWTexture2D<float4> gColor;
+
+
+/** Payload for shadow ray.
+*/
+struct ShadowRayData
+{
+    bool visible;
+};
 
 /** Payload for ray (48B).
 */
@@ -56,15 +67,20 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
     return sd;
 }
 
-
-static const float3 smSampleOffsetDirections[20] =
+float traceShadowRay(float3 origin, float3 dir, float distance)
 {
-   float3(1, 1, 1),  float3(1, -1, 1),  float3(-1, -1, 1),  float3(-1, 1, 1),
-   float3(1, 1, -1), float3(1, -1, -1), float3(-1, -1, -1), float3(-1, 1, -1),
-   float3(1, 1, 0),  float3(1, -1, 0),  float3(-1, -1, 0),  float3(-1, 1, 0),
-   float3(1, 0, 1),  float3(-1, 0, 1),  float3(1, 0, -1),   float3(-1, 0, -1),
-   float3(0, 1, 1),  float3(0, -1, 1),  float3(0, -1, -1),  float3(0, 1, -1)
-};
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.Direction = dir;
+    ray.TMin = 0.f;
+    ray.TMax = distance;
+
+    ShadowRayData rayData;
+    rayData.visible = false; // Set to true by miss shader if ray is not terminated before
+    TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 1 /* hitIdx */, rayTypeCount, 1 /* missIdx */, ray, rayData);
+
+    return rayData.visible ? 1.f : 0.f;
+}
 
 float evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData)
 {
@@ -72,30 +88,35 @@ float evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData)
     float3 lightToPoint = posW - lightData.posW;
     float lightDist = length(lightToPoint);
     lightToPoint.y *= -1;
-    //lightToPoint /= lightDist;
-    //lightDist -= gSMworldAcneBias; //Shadow acne
     //Shadow Test with shadow map
-    
-    float shadowDist = gShadowMap[lightIdx].SampleLevel(gShadowSampler, lightToPoint, 0.f);
-    shadowDist *= gShadowMapFarPlane; //TODO Set per uniform (Hardcoded farplane for shadow map)
-    if (shadowDist + gSMworldAcneBias > lightDist)
-        shadow += 1.f;
-    
-    //PCF
-    /*
-    int samples = 20;
-    //float diskRadius = 0.05;
-    float diskRadius = (1.0 + (lightDist / gShadowMapFarPlane)) / 25.0;
-    for (int i = 0; i < samples; ++i)
+    if (!gUsePCF)
     {
-        float shadowDist = gShadowMap[lightIdx].SampleLevel(gShadowSampler, lightToPoint + smSampleOffsetDirections[i] * diskRadius, 0.f);
-        shadowDist *= gShadowMapFarPlane; // undo mapping [0;1]
+        float shadowDist = gShadowMap[lightIdx].SampleLevel(gShadowSampler, lightToPoint, 0.f);
+        shadowDist *= gShadowMapFarPlane; //TODO Set per uniform (Hardcoded farplane for shadow map)
         if (shadowDist + gSMworldAcneBias > lightDist)
-            shadow += 1.0;
+            shadow += 1.f;
     }
-    shadow /= float(samples);
-    */
-
+    else
+    {
+        //Proper PCF        
+        float samples = 2.0;
+        float offset = gPCFdiskRadius;
+        
+        for (float x = -offset; x < offset; x += offset / (samples * 0.5))
+        {
+            for (float y = -offset; y < offset; y += offset / (samples * 0.5))
+            {
+                for (float z = -offset; z < offset; z += offset / (samples * 0.5))
+                {
+                    float shadowDist = gShadowMap[lightIdx].SampleLevel(gShadowSampler, lightToPoint + float3(x,y,z), 0.f);
+                    shadowDist *= gShadowMapFarPlane; // undo mapping [0;1]
+                    if (lightDist - gSMworldAcneBias < shadowDist)
+                        shadow += 1.0;
+                }
+            }
+        }
+        shadow /= (samples * samples * samples);
+    }
     
     return shadow;
 }
@@ -132,13 +153,16 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
         return float3(0.f);
 
     // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
-    //const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
+    const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
 
     // Test visibility by tracing a shadow ray.
-    float shadow = evalShadowMap(lightIndex, sd.posW, lightData);
-    //bool V = traceShadowRay(origin, ls.dir, ls.distance);
-    //if (!V)
-        //return float3(0.f);
+    float shadow = 1.f;
+
+    if (gUseRayTracedShadows)
+        shadow = traceShadowRay(origin, ls.dir, ls.distance);
+    else
+        shadow = evalShadowMap(lightIndex, origin, lightData);
+    
     
     // Evaluate contribution.
     return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
@@ -149,6 +173,14 @@ void miss(inout RayData rayData : SV_RayPayload)
 {
     //Empty. Is needed for compilation
 }
+
+[shader("miss")]
+void shadowMiss(inout ShadowRayData rayData)
+{
+    // The miss shader is executed if the ray misses all geometry. Mark as visible.
+    rayData.visible = true;
+}
+
 
 [shader("closesthit")]
 void closestHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
@@ -182,7 +214,7 @@ void rayGen()
     }
     else
     {
-        outColor += gShadowMap[0].SampleLevel(gShadowSampler, view, 0.f);
+        outColor = kUseEnvBackground ? gScene.envMap.eval(view) : kDefaultBackgroundColor;
     }
        
     gColor[launchIndex] = float4(outColor, 1.f);

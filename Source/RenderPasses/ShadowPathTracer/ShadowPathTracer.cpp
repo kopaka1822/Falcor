@@ -124,6 +124,7 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     mpShadowMap->execute(pRenderContext);
 
     mPathProgram.pProgram->addDefine("NUM_SHADOW_MAPS_POINT", std::to_string(mpShadowMap->getNumShadowMaps()));
+    mPathProgram.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
 
     if (!mPathProgram.pVars)
     {
@@ -137,8 +138,11 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     auto var = mPathProgram.pVars->getRootVar();
 
     var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gUseRayTracedShadows"] = mUseRayTracedShadows;
     var["CB"]["gShadowMapFarPlane"] = mpShadowMap->getFarPlane();
     var["CB"]["gSMworldAcneBias"] = mShadowMapWorldAcneBias;
+    var["CB"]["gPCFdiskRadius"] = mPCFdiskRadius;
+    var["CB"]["gUsePCF"] = mUsePCF;
 
     //Bind Shadow Maps
     auto& shadowMaps = mpShadowMap->getShadowPointMaps();
@@ -163,6 +167,12 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
 void ShadowPathTracer::renderUI(Gui::Widgets& widget)
 {
     widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f);
+    widget.checkbox("Use PCF", mUsePCF);
+    widget.tooltip("Enable to use Percentage closer filtering");
+    if (mUsePCF)
+        widget.var("PCF Disc size", mPCFdiskRadius, 0.f, 50.f, 0.001f);
+
+    widget.checkbox("Use RayTraced Shadows", mUseRayTracedShadows);
 }
 
 void ShadowPathTracer::RayTraceProgramHelper::initRTProgram(
@@ -182,10 +192,11 @@ void ShadowPathTracer::RayTraceProgramHelper::initRTProgram(
     if (!scene->hasProceduralGeometry())
         desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
 
-    pBindingTable = RtBindingTable::create(1, 1, scene->getGeometryCount());
+    pBindingTable = RtBindingTable::create(2, 2, scene->getGeometryCount());
     auto& sbt = pBindingTable;
     sbt->setRayGen(desc.addRayGen("rayGen", globalTypeConformances));
     sbt->setMiss(0, desc.addMiss("miss"));
+    sbt->setMiss(1, desc.addMiss("shadowMiss"));
 
     // TODO: Support more geometry types and more material conformances
     if (scene->hasGeometryType(Scene::GeometryType::TriangleMesh))

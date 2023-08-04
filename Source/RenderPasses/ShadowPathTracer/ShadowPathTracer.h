@@ -60,7 +60,10 @@ private:
     uint2 mScreenRes = uint2(0);
     uint mFrameCount = 0;
 
-    float mShadowMapWorldAcneBias = 0.05f;
+    bool mUseRayTracedShadows = false;
+    float mShadowMapWorldAcneBias = 0.15f;
+    bool mUsePCF = false;
+    float mPCFdiskRadius = 0.05f;
 
     struct RayTraceProgramHelper
     {
