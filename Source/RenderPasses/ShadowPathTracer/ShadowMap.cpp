@@ -36,51 +36,36 @@ namespace
 ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{ device }, mpScene{ scene } {
     FALCOR_ASSERT(mpScene);
 
-     mShadowPass.pState = GraphicsState::create(mpDevice);
     // Create FBO
     mpFbo = Fbo::create(mpDevice);
-
-    mpDepth = Texture::create2D(
-        mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::D32Float, 1u, 1u, nullptr,
-        ResourceBindFlags::DepthStencil
-    );
-        
-    //Set the Textures
-    std::vector<ref<Light>> lights = mpScene->getLights();
-
-    for (ref<Light> light : lights)
-    {
-        bool isPoint = (light->getType() == LightType::Point) && (light->getData().openingAngle > M_PI_2);
-
-        ref<Texture> tex;
-        if (isPoint)
-        {
-            tex = Texture::createCube(
-                mpDevice, mShadowMapSize, mShadowMapSize, mShadowMapFormat, 1u, 1u, nullptr,
-                ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource
-            );
-            tex->setName("ShadowTex");
-        }
-        else
-            tex = Texture::create2D(
-                mpDevice, mShadowMapSize, mShadowMapSize, mShadowMapFormat, 1u, 1u, nullptr,
-                ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource
-            );
-
-        mpShadowMaps.push_back(tex);
-    }  
+    mpFboCube = Fbo::create(mpDevice);
+            
+    //Create Light Mapping Buffer
+    prepareShadowMapBuffers();
     
-
-    //Create shadow pass program.
+     // Create shadow cube pass program.
     {
+        mShadowCubePass.pState = GraphicsState::create(mpDevice);
         Program::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psMain");
+        desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psMainCube");
         desc.addTypeConformances(mpScene->getTypeConformances());
         desc.setShaderModel(kShaderModel);
 
-        mShadowPass.pProgram = GraphicsProgram::create(mpDevice, desc, mpScene->getSceneDefines());
-        mShadowPass.pState->setProgram(mShadowPass.pProgram);
+        mShadowCubePass.pProgram = GraphicsProgram::create(mpDevice, desc, mpScene->getSceneDefines());
+        mShadowCubePass.pState->setProgram(mShadowCubePass.pProgram);
+    }
+    //Create shadow misc pass program.
+    {
+        mShadowMiscPass.pState = GraphicsState::create(mpDevice);
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psMainMisc");
+        desc.addTypeConformances(mpScene->getTypeConformances());
+        desc.setShaderModel(kShaderModel);
+
+        mShadowMiscPass.pProgram = GraphicsProgram::create(mpDevice, desc, mpScene->getSceneDefines());
+        mShadowMiscPass.pState->setProgram(mShadowMiscPass.pProgram);
     }
 
     setProjection();
@@ -90,6 +75,111 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{ device },
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
     samplerDesc.setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
     mpShadowSampler = Sampler::create(mpDevice, samplerDesc);
+
+    mFirstFrame = true;
+}
+
+void ShadowMap::prepareShadowMapBuffers() {
+
+    if (mShadowResChanged || !mpDepth)
+    {
+        auto format = mShadowMapCubeFormat == ResourceFormat::R32Float ? ResourceFormat::D32Float : ResourceFormat::D16Unorm;
+        mpDepth =
+            Texture::create2D(mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, format, 1u, 1u, nullptr, ResourceBindFlags::DepthStencil);
+        mpDepth->setName("ShadowMapPassDepthHelper");
+    }
+
+    //Reset existing shadow maps
+    if (mpShadowMaps.size() > 0 || mpShadowMapsCube.size() > 0 || mShadowResChanged || mResetShadowMapBuffers)
+    {
+        for (auto shadowMap : mpShadowMaps)
+            shadowMap.reset();
+        for (auto shadowMap : mpShadowMapsCube)
+            shadowMap.reset();
+
+        mpShadowMaps.clear();
+        mpShadowMapsCube.clear();
+    }
+
+    //Reset the light mapping
+    if (mResetShadowMapBuffers)
+    {
+        mpLightMapping.reset();
+        mpVPMatrixBuffer.reset();
+    }
+        
+
+    // Set the Textures
+    const std::vector<ref<Light>>& lights = mpScene->getLights();
+    uint countPoint = 0;
+    uint countMisc = 0;
+    std::vector<uint> lightMapping;
+    mIsCubeSM.clear();
+    lightMapping.reserve(lights.size());
+    mIsCubeSM.reserve(lights.size());
+
+    for (ref<Light> light : lights)
+    {
+        ref<Texture> tex;
+        if (isPointLight(light))
+        {
+            tex = Texture::createCube(
+                mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, mShadowMapCubeFormat, 1u, 1u, nullptr,
+                ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource
+            );
+            tex->setName("ShadowMapCube" + std::to_string(countPoint));
+            lightMapping.push_back(countPoint); // Push Back Point ID
+            mIsCubeSM.push_back(true);
+            countPoint++;
+            mpShadowMapsCube.push_back(tex);
+        }
+        else
+        {
+            tex = Texture::create2D(
+                mpDevice, mShadowMapSize, mShadowMapSize, mShadowMap2DFormat, 1u, 1u, nullptr,
+                ResourceBindFlags::DepthStencil | ResourceBindFlags::ShaderResource
+            );
+            tex->setName("ShadowMapMisc" + std::to_string(countMisc));
+            lightMapping.push_back(countMisc); // Push Back Misc ID
+            mIsCubeSM.push_back(false);
+            countMisc++;
+            mpShadowMaps.push_back(tex);
+        }
+    }
+
+    //Light Mapping Buffer
+    if (!mpLightMapping)
+    {
+        mpLightMapping = Buffer::createStructured(
+            mpDevice, sizeof(uint), lightMapping.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, lightMapping.data(),
+            false
+        );
+        mpLightMapping->setName("ShadowMapLightMapping");
+    }
+
+    if (!mpVPMatrixStangingBuffer && mpShadowMaps.size() > 0)
+    {
+        std::vector<float4x4> initData(mpShadowMaps.size());
+        for (size_t i = 0; i < initData.size(); i++)
+            initData[i] = float4x4();
+        mpVPMatrixStangingBuffer = Buffer::createStructured(
+            mpDevice, sizeof(float4x4), mpShadowMaps.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::Write, initData.data(),
+            false
+        );
+        mpVPMatrixStangingBuffer->setName("ShadowMapViewProjectionStagingBuffer");
+    }
+
+    if (!mpVPMatrixBuffer && mpShadowMaps.size() > 0)
+    {
+        mpVPMatrixBuffer = Buffer::createStructured(
+            mpDevice, sizeof(float4x4), mpShadowMaps.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false );
+        mpVPMatrixBuffer->setName("ShadowMapViewProjectionBuffer");
+    }
+    
+
+    mResetShadowMapBuffers = false;
+    mShadowResChanged = false;
+    mFirstFrame = true;
 }
 
 void ShadowMap::setProjection(float near, float far) {
@@ -99,56 +189,99 @@ void ShadowMap::setProjection(float near, float far) {
         mFar = far;
 
     mProjectionMatrix = math::perspective(float(M_PI_2), 1.f, mNear, mFar);
+    auto& sceneBounds = mpScene->getSceneBounds();
+    mDirLightPosOffset = sceneBounds.radius();
+    mSceneCenter = sceneBounds.center();
+    mOrthoMatrix =
+        math::ortho(-sceneBounds.radius(), sceneBounds.radius(), -sceneBounds.radius(), sceneBounds.radius(), near, sceneBounds.radius() * 2);
 }
 
-void ShadowMap::execute(RenderContext* pRenderContext) {
+bool ShadowMap::isPointLight(const ref<Light> light) {
+    return (light->getType() == LightType::Point) && (light->getData().openingAngle > M_PI_2);
+}
+
+void ShadowMap::setSMShaderVars(ShaderVar& var, ShaderParameters& params)
+{
+    var["CB"]["gviewProjection"] = params.viewProjectionMatrix;
+    var["CB"]["gLightPos"] = params.lightPosition;
+    var["CB"]["gFarPlane"] = params.farPlane;
+}
+
+bool ShadowMap::update(RenderContext* pRenderContext)
+{
 
     //Return if there is no scene
     if (!mpScene)
-        return;
+        return false;
+
+    if (mAlwaysRenderSM)
+        mFirstFrame = true;
+
+    //Rebuild the Shadow Maps
+    if (mResetShadowMapBuffers || mShadowResChanged)
+        prepareShadowMapBuffers();
 
     //Loop over all lights
-    std::vector<ref<Light>> lights = mpScene->getLights();
-    for (size_t i=0 ; i<lights.size(); i++)
+    const std::vector<ref<Light>>& lights = mpScene->getLights();   
+
+    //Create Render List
+    std::vector<ref<Light>> lightRenderListCube;    //Light List for cube render process
+    std::vector<ref<Light>> lightRenderListMisc;    //Light List for 2D texture shadow maps
+    for (size_t i = 0; i < lights.size(); i++)
     {
         ref<Light> light = lights[i];
+        bool isPoint = isPointLight(light);
+
+        // Check if the type has changed and end the pass if that is the case
+        if (isPoint != mIsCubeSM[i])
+        {
+            mResetShadowMapBuffers = true;
+            return false;
+        }
+
+        if (isPoint)
+            lightRenderListCube.push_back(light);
+        else
+            lightRenderListMisc.push_back(light);
+    }
+
+    //Render all cube lights
+    for (size_t i = 0; i < lightRenderListCube.size(); i++)
+    {
+        //Create Program Vars
+        if (!mShadowCubePass.pVars)
+        {
+            mShadowCubePass.pVars = GraphicsVars::create(mpDevice, mShadowCubePass.pProgram.get());
+        }
+
+        auto light = lightRenderListCube[i];
+
+        auto changes = light->getChanges();
+        bool renderLight = changes == Light::Changes::Active || changes ==  Light::Changes::Position || mFirstFrame;
+
+        if (!renderLight || !light->isActive())
+            continue;        
+
         auto& lightData = light->getData();
-        bool isPoint = (light->getType() == LightType::Point) && (lightData.openingAngle > M_PI_2);
 
-        if (Light::Changes::Active == light->getChanges() && !light->isActive())
+        ShaderParameters params;
+        params.lightPosition = lightData.posW;
+        params.farPlane = mFar;
+        
+         for (size_t j = 0; j < 6; j++)
         {
-            //TODO clear texture
-        }
-        if (!light->isActive() || !isPoint)
-            return;
-
-        //TODO set defines ? 
-
-        if (!mShadowPass.pVars)
-        {
-            mShadowPass.pVars = GraphicsVars::create(mpDevice, mShadowPass.pProgram.get());
-        }
-
-        for (size_t j = 0; j < 6; j++)
-        {
-            //For Lights other than point lights only 1 iteration is needed
-            if (j > 0 && !isPoint)
-                break;
-
             // Clear depth buffer.
             pRenderContext->clearDsv(mpDepth->getDSV().get(), 1.f, 0);
-            pRenderContext->clearRtv(mpShadowMaps[i]->getRTV(0, j, 1).get(), float4(1.f));
 
-            //Get Light tex
-            mpFbo->attachColorTarget(mpShadowMaps[i], 0, 0, j, 1);
-            
-            //pRenderContext->clearFbo(mpFbo.get(), float4(0), 1.f, 0, FboAttachmentType::Color);
-            
+            //Attach Render Targets
+            mpFboCube->attachColorTarget(mpShadowMapsCube[i], 0, 0, j, 1);
+            mpFboCube->attachDepthStencilTarget(mpDepth);
+
             float3 lightTarget;
             float3 up;
             switch (j)
             {
-            case 0: //+x (or dir) 
+            case 0: //+x (or dir)
                 lightTarget = float3(1, 0, 0);
                 up = float3(0, -1, 0);
                 break;
@@ -168,25 +301,109 @@ void ShadowMap::execute(RenderContext* pRenderContext) {
                 lightTarget = float3(0, 0, 1);
                 up = float3(0, -1, 0);
                 break;
-            case 5://-z
+            case 5: //-z
                 lightTarget = float3(0, 0, -1);
                 up = float3(0, -1, 0);
                 break;
             }
             lightTarget += lightData.posW;
             float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
+
+            params.viewProjectionMatrix = math::mul(mProjectionMatrix, viewMat);
             
+            auto vars = mShadowCubePass.pVars->getRootVar();
+            setSMShaderVars(vars, params);
 
-            auto vars = mShadowPass.pVars->getRootVar();
-            vars["CB"]["VPMat"] = math::mul(mProjectionMatrix, viewMat);
-            vars["CB"]["farPlane"] = mFar;
-            vars["CB"]["lightPos"] = lightData.posW;
-           
-
-            mpFbo->attachDepthStencilTarget(mpDepth);
-            mShadowPass.pState->setFbo(mpFbo);
-
-            mpScene->rasterize(pRenderContext, mShadowPass.pState.get(), mShadowPass.pVars.get(), RasterizerState::CullMode::None);
+            mShadowCubePass.pState->setFbo(mpFboCube);
+            mpScene->rasterize(pRenderContext, mShadowCubePass.pState.get(), mShadowCubePass.pVars.get(), RasterizerState::CullMode::None);
         }
+
     }
+
+    std::vector<float4x4> viewProjectionMatrix(lightRenderListMisc.size());
+    std::vector<bool> wasRendered(lightRenderListMisc.size());
+    bool updateVPBuffer = false;
+
+    //Render all spot / directional lights
+    for (size_t i = 0; i < lightRenderListMisc.size(); i++)
+    {
+        // Create Program Vars
+        if (!mShadowMiscPass.pVars)
+        {
+            mShadowMiscPass.pVars = GraphicsVars::create(mpDevice, mShadowMiscPass.pProgram.get());
+        }
+
+        auto light = lightRenderListMisc[i];
+
+        auto changes = light->getChanges();
+        bool renderLight = changes == Light::Changes::Active || changes == Light::Changes::Position || changes == Light::Changes::Direction || mFirstFrame;
+
+        if (!renderLight || !light->isActive())
+        {
+            viewProjectionMatrix[i] = float4x4();
+            wasRendered[i] = false;
+            continue;
+        }
+
+        wasRendered[i] = true;
+        updateVPBuffer |= true;
+
+        auto& lightData = light->getData();
+
+         // Clear depth buffer.
+        pRenderContext->clearDsv(mpShadowMaps[i]->getDSV().get(), 1.f, 0);
+
+        // Attach Render Targets
+        mpFbo->attachDepthStencilTarget(mpShadowMaps[i]);
+
+        ShaderParameters params;
+        if (light->getType() == LightType::Directional)
+        {
+            float3 lightTarget = math::normalize(lightData.dirW);
+            params.lightPosition = mSceneCenter - lightTarget * mDirLightPosOffset;
+            params.farPlane = 2 * mDirLightPosOffset;
+            lightTarget += params.lightPosition;
+
+            float4x4 viewMat = math::matrixFromLookAt(params.lightPosition, lightTarget, float3(0, 1, 0));
+            params.viewProjectionMatrix = math::mul(mOrthoMatrix, viewMat);
+        }
+        else
+        {
+            float3 lightTarget = lightData.posW + lightData.dirW;
+            float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, float3(0, 1, 0));
+
+            params.lightPosition = lightData.posW;
+            params.farPlane = mFar;
+            params.viewProjectionMatrix = math::mul(mProjectionMatrix, viewMat);
+        }
+        
+        viewProjectionMatrix[i] = params.viewProjectionMatrix;
+
+        auto vars = mShadowMiscPass.pVars->getRootVar();
+        setSMShaderVars(vars, params);
+
+        mShadowMiscPass.pState->setFbo(mpFbo);
+        mpScene->rasterize(pRenderContext, mShadowMiscPass.pState.get(), mShadowMiscPass.pVars.get(), RasterizerState::CullMode::None);
+    }
+
+    //Write all ViewProjectionMatrix to the buffer
+    //TODO optimize this depending on the number of active lights
+    if (updateVPBuffer)
+    {
+        float4x4* mats = (float4x4*) mpVPMatrixStangingBuffer->map(Buffer::MapType::WriteDiscard);
+        for (size_t i = 0; i < viewProjectionMatrix.size(); i++)
+        {
+            if (!wasRendered[i])
+                continue;
+            mats[i] = viewProjectionMatrix[i];
+        }
+        mpVPMatrixStangingBuffer->unmap();
+
+        pRenderContext->copyBufferRegion(
+            mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer.get(), 0, sizeof(float4x4) * viewProjectionMatrix.size()
+        );
+    }
+
+    mFirstFrame = false;
+    return true;
 }

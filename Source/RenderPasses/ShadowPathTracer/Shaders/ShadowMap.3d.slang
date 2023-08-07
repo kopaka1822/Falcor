@@ -5,9 +5,10 @@ import Utils.Math.MathHelpers;
 
 cbuffer CB
 {
-    float4x4 VPMat;
-    float farPlane;
-    float3 lightPos;
+    float4x4 gviewProjection;
+
+    float3 gLightPos;
+    float gFarPlane;
 };
 
 struct shadowVSOut
@@ -24,17 +25,27 @@ shadowVSOut vsMain(VSIn vsIn)
     float4x4 worldMat = gScene.getWorldMatrix(instanceID);
     float3 posW = mul(worldMat, float4(vsIn.pos, 1.f)).xyz;
     vOut.posW = posW;
-    vOut.posH = mul(VPMat, float4(posW, 1.f));
+    vOut.posH = mul(gviewProjection, float4(posW, 1.f));
         
     return vOut;
 }
 
-float psMain(shadowVSOut vsOut) : SV_Target0
+float psMainMisc(shadowVSOut vsOut) : SV_Depth
 {
     //Distance between point and light
-    float lightDist = length(vsOut.posW - lightPos);
+    float lightDist = length(vsOut.posW - gLightPos);
     //Map to [0,1]
-    lightDist /= farPlane;
+    lightDist /= gFarPlane;
+
+    return lightDist;
+}
+
+float psMainCube(shadowVSOut vsOut) : SV_Target0
+{
+    //Distance between point and light
+    float lightDist = length(vsOut.posW - gLightPos);
+    //Map to [0,1]
+    lightDist /= gFarPlane;
 
     return lightDist;
 }

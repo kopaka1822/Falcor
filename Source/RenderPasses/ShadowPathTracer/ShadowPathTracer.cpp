@@ -92,18 +92,6 @@ void ShadowPathTracer::setScene(RenderContext* pRenderContext, const ref<Scene>&
         mPathProgram.initRTProgram(mpDevice, mpScene, kPathTracingShader, 96u, globalTypeConformances);
 
         mpShadowMap = std::make_unique<ShadowMap>(mpDevice, mpScene);
-
-        std::vector<float2> testCube;
-        for (size_t i = 0; i < 1024 * 1024 * 6; i++)
-        {
-            testCube.push_back(float2(0.3, 0.7));
-        }
-
-        mpTest = Texture::createCube(
-            mpDevice, 1024, 1024, ResourceFormat::RG32Float, 1u, 1u, testCube.data(),
-            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
-        );
-        mpTest->setName("TestTex");
     }
 
    
@@ -121,9 +109,18 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
 
     
     //Calculate the shadow map
-    mpShadowMap->execute(pRenderContext);
+    if (!mpShadowMap->update(pRenderContext))
+        return;
 
-    mPathProgram.pProgram->addDefine("NUM_SHADOW_MAPS_POINT", std::to_string(mpShadowMap->getNumShadowMaps()));
+    uint countShadowMapsCube = std::max(1u, mpShadowMap->getCountShadowMapsCube());
+    uint countShadowMapsMisc = std::max(1u, mpShadowMap->getCountShadowMaps());
+
+    bool multipleSMTypes = mpShadowMap->getCountShadowMapsCube() > 0 && mpShadowMap->getCountShadowMaps() > 0;
+
+    mPathProgram.pProgram->addDefine("MULTIPLE_SHADOW_MAP_TYPES", multipleSMTypes ? "1" : "0");
+    mPathProgram.pProgram->addDefine("USE_RAY_SHADOWS", mUseRayTracedShadows ? "1" : "0");
+    mPathProgram.pProgram->addDefine("NUM_SHADOW_MAPS_CUBE", std::to_string(countShadowMapsCube));
+    mPathProgram.pProgram->addDefine("NUM_SHADOW_MAPS_MISC", std::to_string(countShadowMapsMisc));
     mPathProgram.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
 
     if (!mPathProgram.pVars)
@@ -138,20 +135,33 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     auto var = mPathProgram.pVars->getRootVar();
 
     var["CB"]["gFrameCount"] = mFrameCount;
-    var["CB"]["gUseRayTracedShadows"] = mUseRayTracedShadows;
     var["CB"]["gShadowMapFarPlane"] = mpShadowMap->getFarPlane();
     var["CB"]["gSMworldAcneBias"] = mShadowMapWorldAcneBias;
     var["CB"]["gPCFdiskRadius"] = mPCFdiskRadius;
     var["CB"]["gUsePCF"] = mUsePCF;
+    var["CB"]["gShadowMapRes"] = mpShadowMap->getResolution();
+    var["CB"]["gDirectionalOffset"] = mpShadowMap->getDirectionalOffset();
+    var["CB"]["gSceneCenter"] = mpShadowMap->getSceneCenter();
 
     //Bind Shadow Maps
-    auto& shadowMaps = mpShadowMap->getShadowPointMaps();
-    for (uint32_t i = 0; i < shadowMaps.size(); i++)
+    if (!mUseRayTracedShadows)
     {
-        var["gShadowMap"][i] = shadowMaps[i];
-    }
+        auto& shadowMapsCube = mpShadowMap->getShadowMapsCube();
+        for (uint32_t i = 0; i < shadowMapsCube.size(); i++)
+        {
+            var["gShadowMapCube"][i] = shadowMapsCube[i];
+        }
+        auto& shadowMaps = mpShadowMap->getShadowMaps();
+        for (uint32_t i = 0; i < shadowMaps.size(); i++)
+        {
+            var["gShadowMap"][i] = shadowMaps[i];
+        }
 
-    var["gShadowSampler"] = mpShadowMap->getSampler();
+        var["gShadowMapVPBuffer"] = mpShadowMap->getViewProjectionBuffer();
+        var["gShadowMapIndexMap"] = mpShadowMap->getLightMapBuffer();
+        var["gShadowSampler"] = mpShadowMap->getSampler();
+    }
+    
     
     var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
     var["gColor"] = renderData[kOutputColor]->asTexture();

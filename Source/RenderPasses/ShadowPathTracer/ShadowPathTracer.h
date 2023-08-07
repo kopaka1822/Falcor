@@ -55,7 +55,6 @@ private:
     ref<Scene> mpScene;
     ref<SampleGenerator> mpSampleGenerator; // GPU Sample Gen
     std::unique_ptr<ShadowMap> mpShadowMap;
-    ref<Texture> mpTest;
 
     uint2 mScreenRes = uint2(0);
     uint mFrameCount = 0;

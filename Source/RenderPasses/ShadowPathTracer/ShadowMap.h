@@ -39,36 +39,75 @@ public:
 
     void setProjection(float near =-1.f , float far = -1.f);
 
-    void execute(RenderContext* pRenderContext);
+    bool update(RenderContext* pRenderContext);
 
-    std::vector<ref<Texture>>& getShadowPointMaps() { return mpShadowMaps; }
+    std::vector<ref<Texture>>& getShadowMapsCube() { return mpShadowMapsCube; }
+    std::vector<ref<Texture>>& getShadowMaps() { return mpShadowMaps; }
+    ref<Buffer> getViewProjectionBuffer() { return mpVPMatrixBuffer; }
+    ref<Buffer> getLightMapBuffer() { return mpLightMapping; }
     ref<Sampler> getSampler() { return mpShadowSampler; }
     float getFarPlane() { return mFar; }
     float getNearPlane() { return mNear; }
-    uint getNumShadowMaps() { return mpShadowMaps.size(); }
+    uint getResolution() { return mShadowMapSize;}
+    float3 getSceneCenter() { return mSceneCenter; }
+    float getDirectionalOffset() { return mDirLightPosOffset; }
+    uint getCountShadowMapsCube() { return mpShadowMapsCube.size(); }
+    uint getCountShadowMaps() { return mpShadowMaps.size(); }
 
 private:
+    struct ShaderParameters
+    {
+        float4x4 viewProjectionMatrix = float4x4();
+
+        float3 lightPosition = float3(0,0,0);
+        float farPlane = 30.f;
+    };
+
+    bool isPointLight(const ref<Light> light);
+    void prepareShadowMapBuffers();
+    void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
+
     ref<Device> mpDevice;
     ref<Scene> mpScene;
     ref<Fbo> mpFbo;
+    ref<Fbo> mpFboCube;
     
-
     uint mShadowMapSize = 1024;
-    ResourceFormat mShadowMapFormat = ResourceFormat::R32Float;
+    uint mShadowMapSizeCube = 512;
+    ResourceFormat mShadowMapCubeFormat = ResourceFormat::R32Float;
+    ResourceFormat mShadowMap2DFormat = ResourceFormat::D32Float;
 
     float4x4 mProjectionMatrix = float4x4();
+    float4x4 mOrthoMatrix = float4x4();
     float mNear = 0.01f;
     float mFar = 30.f;
+    float mDirLightPosOffset = 400.f;
+    float3 mSceneCenter = float3(0);
 
-    std::vector<ref<Texture>> mpShadowMaps; //TODO add a second kind of shadow map
+    bool mAlwaysRenderSM = false;
+    bool mFirstFrame = true;
+    bool mResetShadowMapBuffers = false;
+    bool mShadowResChanged = false;
+    std::vector<bool> mIsCubeSM;    //Vector for fast checks if the type is still correct
+
+    std::vector<ref<Texture>> mpShadowMapsCube; //Cube Shadow Maps (Point Lights)
+    std::vector<ref<Texture>> mpShadowMaps; //2D Texture Shadow Maps (Spot + Directional Light)
+    ref<Buffer> mpLightMapping;
+    ref<Buffer> mpVPMatrixBuffer;
+    ref<Buffer> mpVPMatrixStangingBuffer;
     ref<Sampler> mpShadowSampler;
     ref<Texture> mpDepth;
     ref<Texture> mpTestTex;
 
-    struct
+   
+
+    struct RasterizerPass
     {
-        ref<GraphicsState> pState;
-        ref<GraphicsProgram> pProgram;
-        ref<GraphicsVars> pVars;
-    } mShadowPass;
+        ref<GraphicsState> pState = nullptr;
+        ref<GraphicsProgram> pProgram = nullptr;
+        ref<GraphicsVars> pVars = nullptr;
+    };
+
+    RasterizerPass mShadowCubePass;
+    RasterizerPass mShadowMiscPass;
 };
