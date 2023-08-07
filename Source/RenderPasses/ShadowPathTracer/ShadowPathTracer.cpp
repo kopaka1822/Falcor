@@ -176,8 +176,10 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
 
 void ShadowPathTracer::renderUI(Gui::Widgets& widget)
 {
-    widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f);
-    widget.checkbox("Use PCF", mUsePCF);
+    mpShadowMap->renderUI(widget);
+
+    widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f);    //TODO move to SM
+    widget.checkbox("Use PCF", mUsePCF);                                            //TODO move to SM
     widget.tooltip("Enable to use Percentage closer filtering");
     if (mUsePCF)
         widget.var("PCF Disc size", mPCFdiskRadius, 0.f, 50.f, 0.001f);

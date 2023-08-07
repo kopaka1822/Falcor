@@ -37,10 +37,12 @@ class ShadowMap
 public:
     ShadowMap(ref<Device> device, ref<Scene> scene);
 
-    void setProjection(float near =-1.f , float far = -1.f);
-
+    //Renders and updates the shadow maps if necessary
     bool update(RenderContext* pRenderContext);
 
+    void renderUI(Gui::Widgets& widget);
+
+    //Getter 
     std::vector<ref<Texture>>& getShadowMapsCube() { return mpShadowMapsCube; }
     std::vector<ref<Texture>>& getShadowMaps() { return mpShadowMaps; }
     ref<Buffer> getViewProjectionBuffer() { return mpVPMatrixBuffer; }
@@ -66,6 +68,7 @@ private:
     bool isPointLight(const ref<Light> light);
     void prepareShadowMapBuffers();
     void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
+    void setProjection(float near = -1.f, float far = -1.f);
 
     ref<Device> mpDevice;
     ref<Scene> mpScene;
@@ -84,6 +87,7 @@ private:
     float mDirLightPosOffset = 400.f;
     float3 mSceneCenter = float3(0);
 
+    bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
     bool mFirstFrame = true;
     bool mResetShadowMapBuffers = false;
@@ -99,6 +103,7 @@ private:
     ref<Texture> mpDepth;
     ref<Texture> mpTestTex;
 
+    ref<ParameterBlock> mpShadowMapParameterBlock;
    
 
     struct RasterizerPass

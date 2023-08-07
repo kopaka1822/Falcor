@@ -7,6 +7,8 @@ target_sources(ShadowPathTracer PRIVATE
     ShadowPathTracer.h
 	Shaders/ShadowMap.3d.slang
 	Shaders/PathTrace.rt.slang
+	Shaders/ShadowMapFunctions.slang
+	Shaders/ReflectTypes.cs.slang
 )
 
 target_copy_shaders(ShadowPathTracer RenderPasses/ShadowPathTracer)

@@ -407,3 +407,33 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     mFirstFrame = false;
     return true;
 }
+
+void ShadowMap::renderUI(Gui::Widgets& widget) {
+    if (widget.group("ShadowMap"))
+    {
+
+        widget.checkbox("Always Render", mAlwaysRenderSM);
+
+        //Near Far option
+        static float2 nearFar = float2(mNear, mFar);
+        widget.var("Near/Far", nearFar, 0.0f, 100000.f, 0.001f);
+        widget.tooltip("Changes the Near/Far values used for Point and Spotlights");
+        if (nearFar.x != mNear || nearFar.y != mFar)
+        {
+            mNear = nearFar.x;
+            mFar = nearFar.y;
+            setProjection(mNear, mFar);
+            mFirstFrame = true; //Rerender all shadow maps
+        }
+
+        static uint2 resolution = uint2(mShadowMapSize, mShadowMapSizeCube);
+        widget.var("Shadow Map / Cube Res", resolution, 32u, 16384u, 32u);
+        widget.tooltip("Change Resolution for the Shadow Map (x) or Shadow Cube Map (y). Rebuilds all buffers!");
+        if (widget.button("Apply Change"))
+        {
+            mShadowMapSize = resolution.x;
+            mShadowMapSizeCube = resolution.y;
+            mShadowResChanged = true;
+        }
+    }
+}
