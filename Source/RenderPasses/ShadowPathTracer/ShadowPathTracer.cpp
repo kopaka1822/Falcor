@@ -92,6 +92,10 @@ void ShadowPathTracer::setScene(RenderContext* pRenderContext, const ref<Scene>&
         mPathProgram.initRTProgram(mpDevice, mpScene, kPathTracingShader, 96u, globalTypeConformances);
 
         mpShadowMap = std::make_unique<ShadowMap>(mpDevice, mpScene);
+
+        //Set TMax depending on scene bounds
+        auto& sceneBounds = mpScene->getSceneBounds();
+        mRayTMax = sceneBounds.radius() * 2;
     }
 
    
@@ -112,8 +116,11 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     if (!mpShadowMap->update(pRenderContext))
         return;
 
-    mPathProgram.pProgram->addDefine("USE_RAY_SHADOWS", mUseRayTracedShadows ? "1" : "0");
+    mPathProgram.pProgram->addDefine("USE_EMISSIVE_LIGHT", mpScene->useEmissiveLights() && mUseEmissiveLight ? "1" : "0");
+    mPathProgram.pProgram->addDefine("USE_IMPORTANCE_SAMPLING", mUseImportanceSampling ? "1" : "0");
     mPathProgram.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
+    mPathProgram.pProgram->addDefine("RAY_TMAX", std::to_string(mRayTMax));
+    mPathProgram.pProgram->addDefine("EVALUATE_ALL_ANALYTIC_LIGHTS", mEvalAllAnalyticLights ? "1" : "0");
     mPathProgram.pProgram->addDefines(mpShadowMap->getDefines());
 
     if (!mPathProgram.pVars)
@@ -126,8 +133,11 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     FALCOR_ASSERT(mPathProgram.pVars);
 
     auto var = mPathProgram.pVars->getRootVar();
+    auto constBuff = var["CB"];
 
     var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gMaxBounces"] = mMaxBounces;
+    var["CB"]["gUseShadowMap"] = mUseShadowMapBounce;
         
     var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
     var["gColor"] = renderData[kOutputColor]->asTexture();
@@ -147,7 +157,16 @@ void ShadowPathTracer::renderUI(Gui::Widgets& widget)
 {
     mpShadowMap->renderUI(widget);
 
-    widget.checkbox("Use RayTraced Shadows", mUseRayTracedShadows);
+    if (auto group = widget.group("Path Tracer"))
+    {
+        widget.var("Max Bounces", mMaxBounces, 0u, 32u, 1u);
+        widget.tooltip("Number of Indirect Light Bounces");
+        widget.var("Use SM from Bounce", mUseShadowMapBounce, 0u, mMaxBounces, 1u);
+        widget.tooltip("Tells the renderer, at which bounces the shadow maps should be used");
+        widget.checkbox("Eval all lights per hit", mEvalAllAnalyticLights);
+        widget.checkbox("Enable Emissive Light", mUseEmissiveLight);
+        widget.checkbox("Importance Sampling", mUseImportanceSampling);
+    }
 }
 
 void ShadowPathTracer::RayTraceProgramHelper::initRTProgram(
@@ -163,7 +182,7 @@ void ShadowPathTracer::RayTraceProgramHelper::initRTProgram(
     desc.addShaderLibrary(shaderName);
     desc.setMaxPayloadSize(maxPayloadBytes);
     desc.setMaxAttributeSize(scene->getRaytracingMaxAttributeSize());
-    desc.setMaxTraceRecursionDepth(1);
+    desc.setMaxTraceRecursionDepth(2);  //2, to allow shadow rays in closest hit rays
     if (!scene->hasProceduralGeometry())
         desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
 

@@ -59,10 +59,13 @@ private:
     uint2 mScreenRes = uint2(0);
     uint mFrameCount = 0;
 
-    bool mUseRayTracedShadows = false;
-    float mShadowMapWorldAcneBias = 0.15f;
-    bool mUsePCF = false;
-    float mPCFdiskRadius = 0.05f;
+    float mRayTMax = 1000.f;
+
+    bool mUseImportanceSampling = true;
+    bool mUseEmissiveLight = true;
+    bool mEvalAllAnalyticLights = true;
+    uint mUseShadowMapBounce = 1;
+    uint mMaxBounces = 3;
 
     struct RayTraceProgramHelper
     {
