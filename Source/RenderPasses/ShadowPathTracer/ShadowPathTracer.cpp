@@ -99,7 +99,7 @@ void ShadowPathTracer::setScene(RenderContext* pRenderContext, const ref<Scene>&
 
 void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if (!mpScene) // Return on empty scene
+    if (!mpScene) //Return on empty scene
         return;
 
     if ((mScreenRes.x != renderData.getDefaultTextureDims().x) || (mScreenRes.y != renderData.getDefaultTextureDims().y))
@@ -112,16 +112,9 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     if (!mpShadowMap->update(pRenderContext))
         return;
 
-    uint countShadowMapsCube = std::max(1u, mpShadowMap->getCountShadowMapsCube());
-    uint countShadowMapsMisc = std::max(1u, mpShadowMap->getCountShadowMaps());
-
-    bool multipleSMTypes = mpShadowMap->getCountShadowMapsCube() > 0 && mpShadowMap->getCountShadowMaps() > 0;
-
-    mPathProgram.pProgram->addDefine("MULTIPLE_SHADOW_MAP_TYPES", multipleSMTypes ? "1" : "0");
     mPathProgram.pProgram->addDefine("USE_RAY_SHADOWS", mUseRayTracedShadows ? "1" : "0");
-    mPathProgram.pProgram->addDefine("NUM_SHADOW_MAPS_CUBE", std::to_string(countShadowMapsCube));
-    mPathProgram.pProgram->addDefine("NUM_SHADOW_MAPS_MISC", std::to_string(countShadowMapsMisc));
     mPathProgram.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
+    mPathProgram.pProgram->addDefines(mpShadowMap->getDefines());
 
     if (!mPathProgram.pVars)
     {
@@ -130,41 +123,17 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
         mPathProgram.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
     };
 
-     FALCOR_ASSERT(mPathProgram.pVars);
+    FALCOR_ASSERT(mPathProgram.pVars);
 
     auto var = mPathProgram.pVars->getRootVar();
 
     var["CB"]["gFrameCount"] = mFrameCount;
-    var["CB"]["gShadowMapFarPlane"] = mpShadowMap->getFarPlane();
-    var["CB"]["gSMworldAcneBias"] = mShadowMapWorldAcneBias;
-    var["CB"]["gPCFdiskRadius"] = mPCFdiskRadius;
-    var["CB"]["gUsePCF"] = mUsePCF;
-    var["CB"]["gShadowMapRes"] = mpShadowMap->getResolution();
-    var["CB"]["gDirectionalOffset"] = mpShadowMap->getDirectionalOffset();
-    var["CB"]["gSceneCenter"] = mpShadowMap->getSceneCenter();
-
-    //Bind Shadow Maps
-    if (!mUseRayTracedShadows)
-    {
-        auto& shadowMapsCube = mpShadowMap->getShadowMapsCube();
-        for (uint32_t i = 0; i < shadowMapsCube.size(); i++)
-        {
-            var["gShadowMapCube"][i] = shadowMapsCube[i];
-        }
-        auto& shadowMaps = mpShadowMap->getShadowMaps();
-        for (uint32_t i = 0; i < shadowMaps.size(); i++)
-        {
-            var["gShadowMap"][i] = shadowMaps[i];
-        }
-
-        var["gShadowMapVPBuffer"] = mpShadowMap->getViewProjectionBuffer();
-        var["gShadowMapIndexMap"] = mpShadowMap->getLightMapBuffer();
-        var["gShadowSampler"] = mpShadowMap->getSampler();
-    }
-    
-    
+        
     var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
     var["gColor"] = renderData[kOutputColor]->asTexture();
+
+    mpShadowMap->setShaderData();
+    var["gShadowMap"] = mpShadowMap->getParameterBlock();
 
     FALCOR_ASSERT(mScreenRes.x > 0 && mScreenRes.y > 0);
 
@@ -177,12 +146,6 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
 void ShadowPathTracer::renderUI(Gui::Widgets& widget)
 {
     mpShadowMap->renderUI(widget);
-
-    widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f);    //TODO move to SM
-    widget.checkbox("Use PCF", mUsePCF);                                            //TODO move to SM
-    widget.tooltip("Enable to use Percentage closer filtering");
-    if (mUsePCF)
-        widget.var("PCF Disc size", mPCFdiskRadius, 0.f, 50.f, 0.001f);
 
     widget.checkbox("Use RayTraced Shadows", mUseRayTracedShadows);
 }

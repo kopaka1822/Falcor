@@ -29,7 +29,8 @@
 
 namespace
 {
-    const std::string kDepthPassProgramFile = "RenderPasses/ShadowPathTracer/Shaders/ShadowMap.3d.slang";
+    const std::string kDepthPassProgramFile = "RenderPasses/ShadowPathTracer/Shaders/GenerateShadowMap.3d.slang";
+    const std::string kReflectTypesFile = "RenderPasses/ShadowPathTracer/Shaders/ReflectTypes.cs.slang";
     const std::string kShaderModel = "6_5";
 }
 
@@ -42,31 +43,8 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{ device },
             
     //Create Light Mapping Buffer
     prepareShadowMapBuffers();
-    
-     // Create shadow cube pass program.
-    {
-        mShadowCubePass.pState = GraphicsState::create(mpDevice);
-        Program::Desc desc;
-        desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psMainCube");
-        desc.addTypeConformances(mpScene->getTypeConformances());
-        desc.setShaderModel(kShaderModel);
 
-        mShadowCubePass.pProgram = GraphicsProgram::create(mpDevice, desc, mpScene->getSceneDefines());
-        mShadowCubePass.pState->setProgram(mShadowCubePass.pProgram);
-    }
-    //Create shadow misc pass program.
-    {
-        mShadowMiscPass.pState = GraphicsState::create(mpDevice);
-        Program::Desc desc;
-        desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psMainMisc");
-        desc.addTypeConformances(mpScene->getTypeConformances());
-        desc.setShaderModel(kShaderModel);
-
-        mShadowMiscPass.pProgram = GraphicsProgram::create(mpDevice, desc, mpScene->getSceneDefines());
-        mShadowMiscPass.pState->setProgram(mShadowMiscPass.pProgram);
-    }
+    prepareProgramms();
 
     setProjection();
 
@@ -181,6 +159,103 @@ void ShadowMap::prepareShadowMapBuffers() {
     mShadowResChanged = false;
     mFirstFrame = true;
 }
+
+void ShadowMap::prepareProgramms() {
+    auto globalTypeConformances = mpScene->getMaterialSystem().getTypeConformances();
+    auto defines = getDefines();
+    // Create Shadow Cube create rasterizer Program.
+    {
+        mShadowCubePass.pState = GraphicsState::create(mpDevice);
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psMainCube");
+        desc.addTypeConformances(mpScene->getTypeConformances());
+        desc.setShaderModel(kShaderModel);
+
+        mShadowCubePass.pProgram = GraphicsProgram::create(mpDevice, desc, defines); //TODO set seperate generate defines
+        mShadowCubePass.pState->setProgram(mShadowCubePass.pProgram);
+    }
+    // Create Shadow Map 2D create Program
+    {
+        mShadowMiscPass.pState = GraphicsState::create(mpDevice);
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psMainMisc");
+        desc.addTypeConformances(mpScene->getTypeConformances());
+        desc.setShaderModel(kShaderModel);
+
+        mShadowMiscPass.pProgram = GraphicsProgram::create(mpDevice, desc, defines);    //TODO set seperate generate defines
+        mShadowMiscPass.pState->setProgram(mShadowMiscPass.pProgram);
+    }
+    // Create dummy Compute pass for Parameter block
+    {
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addTypeConformances(globalTypeConformances);
+        desc.setShaderModel(kShaderModel);
+        desc.addShaderLibrary(kReflectTypesFile).csEntry("main");
+        mpReflectTypes = ComputePass::create(mpDevice, desc, defines, false);
+
+        mpReflectTypes->getProgram()->setDefines(defines);
+        mpReflectTypes->setVars(nullptr);
+    }
+    //Create ParameterBlock
+    {
+        auto reflector = mpReflectTypes->getProgram()->getReflector()->getParameterBlock("shadowMap");
+        mpShadowMapParameterBlock = ParameterBlock::create(mpDevice, reflector);
+        FALCOR_ASSERT(mpShadowMapParameterBlock);
+
+        setShaderData();
+    }
+}
+
+DefineList ShadowMap::getDefines() const {
+    DefineList defines;
+
+    uint countShadowMapsCube = std::max(1u, getCountShadowMapsCube());
+    uint countShadowMapsMisc = std::max(1u, getCountShadowMaps());
+    bool multipleSMTypes = getCountShadowMapsCube() > 0 && getCountShadowMaps() > 0;
+
+    defines.add("MULTIPLE_SHADOW_MAP_TYPES", multipleSMTypes ? "1" : "0");
+    defines.add("NUM_SHADOW_MAPS_CUBE", std::to_string(countShadowMapsCube));
+    defines.add("NUM_SHADOW_MAPS_MISC", std::to_string(countShadowMapsMisc));
+
+    if (mpScene)
+        defines.add(mpScene->getSceneDefines());
+
+    return defines;
+}
+
+void ShadowMap::setShaderData() {
+    FALCOR_ASSERT(mpShadowMapParameterBlock);
+
+    auto var = mpShadowMapParameterBlock->getRootVar();
+
+    //Parameters
+    var["gShadowMapFarPlane"] = mFar;
+    var["gSMworldAcneBias"] = mShadowMapWorldAcneBias;
+    var["gPCFdiskRadius"] = mPCFdiskRadius;
+    var["gUsePCF"] = mUsePCF;
+    var["gShadowMapRes"] = mShadowMapSize;
+    var["gDirectionalOffset"] = mDirLightPosOffset;
+    var["gSceneCenter"] = mSceneCenter;
+
+    //Buffers and Textures
+    for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
+    {
+        var["gShadowMapCube"][i] = mpShadowMapsCube[i]; //Can be Nullptr
+    }
+    for (uint32_t i = 0; i < mpShadowMaps.size(); i++)
+    {
+        var["gShadowMap"][i] = mpShadowMaps[i];        //Can be Nullptr
+    }
+
+    var["gShadowMapVPBuffer"] = mpVPMatrixBuffer;      //Can be Nullptr
+    var["gShadowMapIndexMap"] = mpLightMapping;        //Can be Nullptr 
+    var["gShadowSampler"] = mpShadowSampler;
+}
+
+
 
 void ShadowMap::setProjection(float near, float far) {
     if (near > 0)
@@ -435,5 +510,12 @@ void ShadowMap::renderUI(Gui::Widgets& widget) {
             mShadowMapSizeCube = resolution.y;
             mShadowResChanged = true;
         }
+
+        widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f); 
+        widget.checkbox("Use PCF", mUsePCF);                                        
+        widget.tooltip("Enable to use Percentage closer filtering");
+        if (mUsePCF)
+            widget.var("PCF Disc size", mPCFdiskRadius, 0.f, 50.f, 0.001f);
+
     }
 }

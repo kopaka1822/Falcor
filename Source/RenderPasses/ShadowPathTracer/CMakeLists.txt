@@ -5,9 +5,9 @@ target_sources(ShadowPathTracer PRIVATE
 	ShadowMap.h
     ShadowPathTracer.cpp
     ShadowPathTracer.h
-	Shaders/ShadowMap.3d.slang
+	Shaders/GenerateShadowMap.3d.slang
 	Shaders/PathTrace.rt.slang
-	Shaders/ShadowMapFunctions.slang
+	Shaders/ShadowMap.slang
 	Shaders/ReflectTypes.cs.slang
 )
 

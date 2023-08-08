@@ -1,4 +1,8 @@
 #pragma once
+#include "Scene/SceneDefines.slangh"
+#include "Utils/Math/MathConstants.slangh"
+
+import Scene.Raytracing;
 import Rendering.Lights.LightHelpers;
 
 //Set Defines if they where not handled on the CPU
@@ -54,28 +58,32 @@ struct ShadowMap
         }
 
         bool isCube = lightData.type == uint(LightType::Point) && lightData.openingAngle > M_PI_2;
-        float3 lightPosW = lightData.posW;
-        float farPlane = gShadowMapFarPlane;
-        if (lightData.type == uint(LightType::Directional))
-        {
-            farPlane = gDirectionalOffset * 2;
-            lightPosW = gSceneCenter - normalize(lightData.dirW) * gDirectionalOffset;
-        }
+        bool isDirectional = lightData.type == uint(LightType::Directional);
+        //Set Position and far plane depending on the type
+        float3 lightPosW = isDirectional ? gSceneCenter - normalize(lightData.dirW) * gDirectionalOffset : lightData.posW;
+        float farPlane = isDirectional ? gDirectionalOffset * 2 : gShadowMapFarPlane;
     
     
         float shadow = 0.f;
         float3 lightToPoint = posW - lightPosW;
         float lightDist = length(lightToPoint);
+        //If it is not a cube texture, calculate the UV coordinates of the light
         if (!isCube)
         {
             float4x4 viewProjectMat = gShadowMapVPBuffer[index];
             float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
-            lightToPoint.xy = (projPos.xy / projPos.w);
+            lightToPoint.xy = (projPos.xy / projPos.w);                 //This is actually not necessary for Directional Lights
         }
-        lightToPoint.y *= -1;
-    
+        
+        lightToPoint.y *= -1;   //Flip 
+        
         if (!isCube)
-            lightToPoint = lightToPoint * 0.5 + 0.5;
+        {
+            lightToPoint = lightToPoint * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+            if (any(lightToPoint.xy < 0.f) || any(lightToPoint.xy > 1.f))   //Return if outside of the shadow map
+                return shadow;
+        }
+            
     
         //Shadow Test with shadow map
         if (!gUsePCF)
@@ -85,7 +93,7 @@ struct ShadowMap
             if (shadowDist + gSMworldAcneBias > lightDist)
                 shadow += 1.f;
         }
-        else
+        else //Proper PCF
         {
             //Proper PCF        
             float samples = 2.0;

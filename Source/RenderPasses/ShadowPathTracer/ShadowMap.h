@@ -42,6 +42,13 @@ public:
 
     void renderUI(Gui::Widgets& widget);
 
+    //Returns a define List with all the defines. Need to be called once per frame to update defines
+    DefineList getDefines() const;
+    //Sets Shader data
+    void setShaderData();
+    //Gets the parameter block needed for shader usage
+    ref<ParameterBlock> getParameterBlock() const { return mpShadowMapParameterBlock; }
+
     //Getter 
     std::vector<ref<Texture>>& getShadowMapsCube() { return mpShadowMapsCube; }
     std::vector<ref<Texture>>& getShadowMaps() { return mpShadowMaps; }
@@ -53,8 +60,8 @@ public:
     uint getResolution() { return mShadowMapSize;}
     float3 getSceneCenter() { return mSceneCenter; }
     float getDirectionalOffset() { return mDirLightPosOffset; }
-    uint getCountShadowMapsCube() { return mpShadowMapsCube.size(); }
-    uint getCountShadowMaps() { return mpShadowMaps.size(); }
+    uint getCountShadowMapsCube() const { return mpShadowMapsCube.size(); }
+    uint getCountShadowMaps() const { return mpShadowMaps.size(); }
 
 private:
     struct ShaderParameters
@@ -67,8 +74,10 @@ private:
 
     bool isPointLight(const ref<Light> light);
     void prepareShadowMapBuffers();
+    void prepareProgramms();
     void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
     void setProjection(float near = -1.f, float far = -1.f);
+    
 
     ref<Device> mpDevice;
     ref<Scene> mpScene;
@@ -80,12 +89,17 @@ private:
     ResourceFormat mShadowMapCubeFormat = ResourceFormat::R32Float;
     ResourceFormat mShadowMap2DFormat = ResourceFormat::D32Float;
 
+    //Settings
     float4x4 mProjectionMatrix = float4x4();
     float4x4 mOrthoMatrix = float4x4();
     float mNear = 0.01f;
     float mFar = 30.f;
     float mDirLightPosOffset = 400.f;
     float3 mSceneCenter = float3(0);
+    bool mUsePCF = false;
+    float mPCFdiskRadius = 0.05f;
+    float mShadowMapWorldAcneBias = 0.15f;
+
 
     bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
@@ -103,9 +117,9 @@ private:
     ref<Texture> mpDepth;
     ref<Texture> mpTestTex;
 
-    ref<ParameterBlock> mpShadowMapParameterBlock;
+    ref<ComputePass> mpReflectTypes;                //Dummy pass needed to create the parameter block
+    ref<ParameterBlock> mpShadowMapParameterBlock;  //Parameter Block
    
-
     struct RasterizerPass
     {
         ref<GraphicsState> pState = nullptr;
