@@ -77,6 +77,10 @@ private:
     void prepareProgramms();
     void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
     void setProjection(float near = -1.f, float far = -1.f);
+
+    void renderCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
+    void renderCubeGeometry(uint index, ref<Light> light, RenderContext* pRenderContext);
+    float4x4 getProjViewForCubeFace(uint face, const LightData& lightData , bool useOrtho = false);
     
 
     ref<Device> mpDevice;
@@ -86,8 +90,9 @@ private:
     
     uint mShadowMapSize = 1024;
     uint mShadowMapSizeCube = 512;
-    ResourceFormat mShadowMapCubeFormat = ResourceFormat::R32Float;
-    ResourceFormat mShadowMap2DFormat = ResourceFormat::D32Float;
+    ResourceFormat mShadowMapFormat = ResourceFormat::D32Float;
+    RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
+
 
     //Settings
     float4x4 mProjectionMatrix = float4x4();
@@ -100,7 +105,7 @@ private:
     float mPCFdiskRadius = 0.05f;
     float mShadowMapWorldAcneBias = 0.15f;
 
-
+    bool mUseGeometryCubePass = false;
     bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
     bool mFirstFrame = true;
@@ -128,5 +133,6 @@ private:
     };
 
     RasterizerPass mShadowCubePass;
+    RasterizerPass mShadowCubeGeometryPass;
     RasterizerPass mShadowMiscPass;
 };

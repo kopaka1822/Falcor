@@ -26,6 +26,7 @@ static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const bool kUseImportanceSampling = USE_IMPORTANCE_SAMPLING;
 static const float kRayTMax = RAY_TMAX; 
 static const bool kEvalAllAnalytic = EVALUATE_ALL_ANALYTIC_LIGHTS;
+static const bool kAdjustShadingNormals = ADJUST_SHADING_NORMALS;
 
 Texture2D<PackedHitInfo> gVBuffer;
 
@@ -215,7 +216,8 @@ void closestHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersecti
     //Init Matrialsystem for hit
     let lod = ExplicitLodTextureSampler(0.f);
     ShadingData sd = loadShadingData(hit, rayData.direction, lod);
-    let mi = gScene.materials.getMaterialInstance(sd, lod);
+    uint hints = kAdjustShadingNormals ? (uint) MaterialInstanceHints::AdjustShadingNormal : 0;
+    let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
 
     //TODO add emissive?
     if (kUseEmissve)
@@ -262,7 +264,8 @@ void rayGen()
         //Material and shading information
         ShadingData sd = loadShadingData(hitInfo, view, lod);
         // Create material instance at shading point.
-        let mi = gScene.materials.getMaterialInstance(sd, lod);
+        uint hints = kAdjustShadingNormals ? (uint) MaterialInstanceHints::AdjustShadingNormal : 0;
+        let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
         
         //Emissive Light
         outColor += mi.getProperties(sd).emission;

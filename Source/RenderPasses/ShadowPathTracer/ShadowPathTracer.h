@@ -61,6 +61,7 @@ private:
 
     float mRayTMax = 1000.f;
 
+    bool mAdjustShadingNormals = true;
     bool mUseImportanceSampling = true;
     bool mUseEmissiveLight = true;
     bool mEvalAllAnalyticLights = true;

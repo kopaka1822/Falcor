@@ -59,13 +59,8 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{ device },
 
 void ShadowMap::prepareShadowMapBuffers() {
 
-    if (mShadowResChanged || !mpDepth)
-    {
-        auto format = mShadowMapCubeFormat == ResourceFormat::R32Float ? ResourceFormat::D32Float : ResourceFormat::D16Unorm;
-        mpDepth =
-            Texture::create2D(mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, format, 1u, 1u, nullptr, ResourceBindFlags::DepthStencil);
-        mpDepth->setName("ShadowMapPassDepthHelper");
-    }
+    if ((mShadowResChanged || mResetShadowMapBuffers) && mpDepth)
+        mpDepth.reset();
 
     //Reset existing shadow maps
     if (mpShadowMaps.size() > 0 || mpShadowMapsCube.size() > 0 || mShadowResChanged || mResetShadowMapBuffers)
@@ -101,11 +96,19 @@ void ShadowMap::prepareShadowMapBuffers() {
         ref<Texture> tex;
         if (isPointLight(light))
         {
+            //Setup cube map tex
+            auto format = mShadowMapFormat;
+            if (!mUseGeometryCubePass)
+                format = format == ResourceFormat::D32Float ? ResourceFormat::R32Float : ResourceFormat::R16Unorm;
+
+            auto bindFlags = ResourceBindFlags::ShaderResource;
+            bindFlags |= mUseGeometryCubePass ? ResourceBindFlags::DepthStencil : ResourceBindFlags::RenderTarget;
+
             tex = Texture::createCube(
-                mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, mShadowMapCubeFormat, 1u, 1u, nullptr,
-                ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource
+                mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, format, 1u, 1u, nullptr, bindFlags
             );
             tex->setName("ShadowMapCube" + std::to_string(countPoint));
+
             lightMapping.push_back(countPoint); // Push Back Point ID
             mIsCubeSM.push_back(true);
             countPoint++;
@@ -114,10 +117,11 @@ void ShadowMap::prepareShadowMapBuffers() {
         else
         {
             tex = Texture::create2D(
-                mpDevice, mShadowMapSize, mShadowMapSize, mShadowMap2DFormat, 1u, 1u, nullptr,
+                mpDevice, mShadowMapSize, mShadowMapSize, mShadowMapFormat, 1u, 1u, nullptr,
                 ResourceBindFlags::DepthStencil | ResourceBindFlags::ShaderResource
             );
             tex->setName("ShadowMapMisc" + std::to_string(countMisc));
+
             lightMapping.push_back(countMisc); // Push Back Misc ID
             mIsCubeSM.push_back(false);
             countMisc++;
@@ -126,7 +130,7 @@ void ShadowMap::prepareShadowMapBuffers() {
     }
 
     //Light Mapping Buffer
-    if (!mpLightMapping)
+    if (!mpLightMapping && lightMapping.size() > 0)
     {
         mpLightMapping = Buffer::createStructured(
             mpDevice, sizeof(uint), lightMapping.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, lightMapping.data(),
@@ -174,6 +178,18 @@ void ShadowMap::prepareProgramms() {
 
         mShadowCubePass.pProgram = GraphicsProgram::create(mpDevice, desc, defines); //TODO set seperate generate defines
         mShadowCubePass.pState->setProgram(mShadowCubePass.pProgram);
+    }
+    //Create Shadow Map Cube Geometry Shader Pass
+    {
+        mShadowCubeGeometryPass.pState = GraphicsState::create(mpDevice);
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsGeoCube").gsEntry("gsCube").psEntry("psGeoCube");
+        desc.addTypeConformances(mpScene->getTypeConformances());
+        desc.setShaderModel(kShaderModel);
+
+        mShadowCubeGeometryPass.pProgram = GraphicsProgram::create(mpDevice, desc, defines); // TODO set seperate generate defines
+        mShadowCubeGeometryPass.pState->setProgram(mShadowCubeGeometryPass.pProgram);
     }
     // Create Shadow Map 2D create Program
     {
@@ -282,12 +298,135 @@ void ShadowMap::setSMShaderVars(ShaderVar& var, ShaderParameters& params)
     var["CB"]["gFarPlane"] = params.farPlane;
 }
 
+void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext) {
+
+    //Rendering per face with an array depth buffer is seemingly bugged, therefore a helper depth buffer is needed
+    if (!mpDepth)
+    {
+        mpDepth = Texture::create2D(mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, mShadowMapFormat, 1u, 1u,
+                nullptr, ResourceBindFlags::DepthStencil
+        );
+        mpDepth->setName("ShadowMapCubePassDepthHelper");
+    }
+   
+    // Create Program Vars
+    if (!mShadowCubePass.pVars)
+    {
+        mShadowCubePass.pVars = GraphicsVars::create(mpDevice, mShadowCubePass.pProgram.get());
+    }
+
+    auto changes = light->getChanges();
+    bool renderLight = changes == Light::Changes::Active || changes == Light::Changes::Position || mFirstFrame;
+
+    if (!renderLight || !light->isActive())
+        return;
+
+    auto& lightData = light->getData();
+
+    ShaderParameters params;
+    params.lightPosition = lightData.posW;
+    params.farPlane = mFar;
+
+    for (size_t face = 0; face < 6; face++)
+    {
+        // Clear depth buffer.
+        pRenderContext->clearDsv(mpDepth->getDSV().get(), 1.f, 0);
+        // Attach Render Targets
+        mpFboCube->attachColorTarget(mpShadowMapsCube[index], 0, 0, face, 1);
+        mpFboCube->attachDepthStencilTarget(mpDepth);
+
+        params.viewProjectionMatrix = getProjViewForCubeFace(face, lightData);
+
+        auto vars = mShadowCubePass.pVars->getRootVar();
+        setSMShaderVars(vars, params);
+
+        mShadowCubePass.pState->setFbo(mpFboCube);
+        mpScene->rasterize(pRenderContext, mShadowCubePass.pState.get(), mShadowCubePass.pVars.get(), mCullMode);
+    }
+}
+
+void ShadowMap::renderCubeGeometry(uint index, ref<Light> light, RenderContext* pRenderContext) {
+    // Create Program Vars
+    if (!mShadowCubeGeometryPass.pVars)
+    {
+        mShadowCubeGeometryPass.pVars = GraphicsVars::create(mpDevice, mShadowCubeGeometryPass.pProgram.get());
+    }
+
+    auto changes = light->getChanges();
+    bool renderLight = changes == Light::Changes::Active || changes == Light::Changes::Position || mFirstFrame;
+
+    if (!renderLight || !light->isActive())
+        return;
+
+    auto& lightData = light->getData();
+
+    ShaderParameters params;
+    params.lightPosition = lightData.posW;
+    params.farPlane = mFar;
+    params.viewProjectionMatrix = float4x4();
+
+    pRenderContext->clearDsv(mpShadowMapsCube[index]->getDSV(0, 0, 6).get(), 1.f, 0);
+    mpFboCube->attachDepthStencilTarget(mpShadowMapsCube[index], 0, 0, 6);
+
+    std::vector<float4x4> viewMats(6);
+    for (size_t j = 0; j < 6; j++)
+        viewMats[j] = getProjViewForCubeFace(j, lightData);
+
+    auto var = mShadowCubeGeometryPass.pVars->getRootVar();
+    setSMShaderVars(var, params);
+    for (uint k = 0; k < 6; k++)
+        var["CBGeo"]["gviewProjectionGeo"][k] = viewMats[k];
+
+    mShadowCubeGeometryPass.pState->setFbo(mpFboCube);
+    mpScene->rasterize(pRenderContext, mShadowCubeGeometryPass.pState.get(), mShadowCubeGeometryPass.pVars.get(), mCullMode );
+}
+
+float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData, bool useOrtho)
+{
+    float3 lightTarget;
+    float3 up;
+    switch (face)
+    {
+    case 0: //+x (or dir)
+        lightTarget = float3(1, 0, 0);
+        up = float3(0, -1, 0);
+        break;
+    case 1: //-x
+        lightTarget = float3(-1, 0, 0);
+        up = float3(0, -1, 0);
+        break;
+    case 2: //+y
+        lightTarget = float3(0, -1, 0);
+        up = float3(0, 0, -1);
+        break;
+    case 3: //-y
+        lightTarget = float3(0, 1, 0);
+        up = float3(0, 0, 1);
+        break;
+    case 4: //+z
+        lightTarget = float3(0, 0, 1);
+        up = float3(0, -1, 0);
+        break;
+    case 5: //-z
+        lightTarget = float3(0, 0, -1);
+        up = float3(0, -1, 0);
+        break;
+    }
+    lightTarget += lightData.posW;
+    float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
+
+    return math::mul(mProjectionMatrix, viewMat);
+}
+
 bool ShadowMap::update(RenderContext* pRenderContext)
 {
-
     //Return if there is no scene
     if (!mpScene)
         return false;
+
+    //Return if there is no active light
+    if (mpScene->getActiveLightCount() == 0)
+        return true; 
 
     if (mAlwaysRenderSM)
         mFirstFrame = true;
@@ -323,76 +462,10 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     //Render all cube lights
     for (size_t i = 0; i < lightRenderListCube.size(); i++)
     {
-        //Create Program Vars
-        if (!mShadowCubePass.pVars)
-        {
-            mShadowCubePass.pVars = GraphicsVars::create(mpDevice, mShadowCubePass.pProgram.get());
-        }
-
-        auto light = lightRenderListCube[i];
-
-        auto changes = light->getChanges();
-        bool renderLight = changes == Light::Changes::Active || changes ==  Light::Changes::Position || mFirstFrame;
-
-        if (!renderLight || !light->isActive())
-            continue;        
-
-        auto& lightData = light->getData();
-
-        ShaderParameters params;
-        params.lightPosition = lightData.posW;
-        params.farPlane = mFar;
-        
-         for (size_t j = 0; j < 6; j++)
-        {
-            // Clear depth buffer.
-            pRenderContext->clearDsv(mpDepth->getDSV().get(), 1.f, 0);
-
-            //Attach Render Targets
-            mpFboCube->attachColorTarget(mpShadowMapsCube[i], 0, 0, j, 1);
-            mpFboCube->attachDepthStencilTarget(mpDepth);
-
-            float3 lightTarget;
-            float3 up;
-            switch (j)
-            {
-            case 0: //+x (or dir)
-                lightTarget = float3(1, 0, 0);
-                up = float3(0, -1, 0);
-                break;
-            case 1: //-x
-                lightTarget = float3(-1, 0, 0);
-                up = float3(0, -1, 0);
-                break;
-            case 2: //+y
-                lightTarget = float3(0, -1, 0);
-                up = float3(0, 0, -1);
-                break;
-            case 3: //-y
-                lightTarget = float3(0, 1, 0);
-                up = float3(0, 0, 1);
-                break;
-            case 4: //+z
-                lightTarget = float3(0, 0, 1);
-                up = float3(0, -1, 0);
-                break;
-            case 5: //-z
-                lightTarget = float3(0, 0, -1);
-                up = float3(0, -1, 0);
-                break;
-            }
-            lightTarget += lightData.posW;
-            float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
-
-            params.viewProjectionMatrix = math::mul(mProjectionMatrix, viewMat);
-            
-            auto vars = mShadowCubePass.pVars->getRootVar();
-            setSMShaderVars(vars, params);
-
-            mShadowCubePass.pState->setFbo(mpFboCube);
-            mpScene->rasterize(pRenderContext, mShadowCubePass.pState.get(), mShadowCubePass.pVars.get(), RasterizerState::CullMode::None);
-        }
-
+        if (mUseGeometryCubePass)
+            renderCubeGeometry(i, lightRenderListCube[i], pRenderContext);
+        else //Render Scene 6 times, once for each face
+            renderCubeEachFace(i, lightRenderListCube[i], pRenderContext);
     }
 
     std::vector<float4x4> viewProjectionMatrix(lightRenderListMisc.size());
@@ -458,7 +531,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
         setSMShaderVars(vars, params);
 
         mShadowMiscPass.pState->setFbo(mpFbo);
-        mpScene->rasterize(pRenderContext, mShadowMiscPass.pState.get(), mShadowMiscPass.pVars.get(), RasterizerState::CullMode::None);
+        mpScene->rasterize(pRenderContext, mShadowMiscPass.pState.get(), mShadowMiscPass.pVars.get(), mCullMode);
     }
 
     //Write all ViewProjectionMatrix to the buffer
@@ -484,10 +557,13 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 }
 
 void ShadowMap::renderUI(Gui::Widgets& widget) {
-    if (widget.group("ShadowMap"))
+    if (auto group = widget.group("ShadowMap"))
     {
+        widget.checkbox("Render every Frame", mAlwaysRenderSM);
 
-        widget.checkbox("Always Render", mAlwaysRenderSM);
+        if (widget.checkbox("CubeSM render in one pass", mUseGeometryCubePass))
+            mResetShadowMapBuffers = true;  
+        widget.tooltip("If enables, renders the cube shadow map in one pass with an geometry shader.\n Else each face is rendered seperatry");
 
         //Near Far option
         static float2 nearFar = float2(mNear, mFar);

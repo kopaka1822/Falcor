@@ -110,17 +110,17 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     {
         mScreenRes = renderData.getDefaultTextureDims();
     }
-
-    
+ 
     //Calculate the shadow map
     if (!mpShadowMap->update(pRenderContext))
         return;
 
-    mPathProgram.pProgram->addDefine("USE_EMISSIVE_LIGHT", mpScene->useEmissiveLights() && mUseEmissiveLight ? "1" : "0");
+    mPathProgram.pProgram->addDefine("USE_EMISSIVE_LIGHT", mUseEmissiveLight ? "1" : "0");
     mPathProgram.pProgram->addDefine("USE_IMPORTANCE_SAMPLING", mUseImportanceSampling ? "1" : "0");
     mPathProgram.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
     mPathProgram.pProgram->addDefine("RAY_TMAX", std::to_string(mRayTMax));
     mPathProgram.pProgram->addDefine("EVALUATE_ALL_ANALYTIC_LIGHTS", mEvalAllAnalyticLights ? "1" : "0");
+    mPathProgram.pProgram->addDefine("ADJUST_SHADING_NORMALS", mAdjustShadingNormals ? "1" : "0");
     mPathProgram.pProgram->addDefines(mpShadowMap->getDefines());
 
     if (!mPathProgram.pVars)
@@ -166,6 +166,7 @@ void ShadowPathTracer::renderUI(Gui::Widgets& widget)
         widget.checkbox("Eval all lights per hit", mEvalAllAnalyticLights);
         widget.checkbox("Enable Emissive Light", mUseEmissiveLight);
         widget.checkbox("Importance Sampling", mUseImportanceSampling);
+        widget.checkbox("Adjust Shading Normals", mAdjustShadingNormals);
     }
 }
 
