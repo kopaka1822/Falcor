@@ -91,7 +91,7 @@ private:
     uint mShadowMapSize = 1024;
     uint mShadowMapSizeCube = 512;
     ResourceFormat mShadowMapFormat = ResourceFormat::D32Float;
-    RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
+    RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Front;
 
 
     //Settings

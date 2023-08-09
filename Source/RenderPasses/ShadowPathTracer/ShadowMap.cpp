@@ -32,7 +32,14 @@ namespace
     const std::string kDepthPassProgramFile = "RenderPasses/ShadowPathTracer/Shaders/GenerateShadowMap.3d.slang";
     const std::string kReflectTypesFile = "RenderPasses/ShadowPathTracer/Shaders/ReflectTypes.cs.slang";
     const std::string kShaderModel = "6_5";
-}
+
+
+    const Gui::DropdownList kShadowMapCullMode{
+        {(uint)RasterizerState::CullMode::None, "None"},
+        {(uint)RasterizerState::CullMode::Front, "Front"},
+        {(uint)RasterizerState::CullMode::Back, "Back"},
+    };
+    }
 
 ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{ device }, mpScene{ scene } {
     FALCOR_ASSERT(mpScene);
@@ -327,6 +334,7 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
     params.lightPosition = lightData.posW;
     params.farPlane = mFar;
 
+    pRenderContext->clearRtv(mpShadowMapsCube[index]->getRTV(0, 0, 6).get(), float4(1.f));
     for (size_t face = 0; face < 6; face++)
     {
         // Clear depth buffer.
@@ -587,7 +595,17 @@ void ShadowMap::renderUI(Gui::Widgets& widget) {
             mShadowResChanged = true;
         }
 
-        widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f); 
+        if (widget.dropdown("Cull Mode", kShadowMapCullMode, (uint32_t&)mCullMode))
+        {
+            if (mCullMode == RasterizerState::CullMode::Front)
+                mShadowMapWorldAcneBias = 0.f;
+            mFirstFrame = true; //Render all shadow maps again
+        }
+            
+
+        if (mCullMode != RasterizerState::CullMode::Front)
+            widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f); 
+
         widget.checkbox("Use PCF", mUsePCF);                                        
         widget.tooltip("Enable to use Percentage closer filtering");
         if (mUsePCF)
