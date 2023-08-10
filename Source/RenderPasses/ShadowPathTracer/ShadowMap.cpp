@@ -164,7 +164,10 @@ void ShadowMap::prepareShadowMapBuffers() {
             mpDevice, sizeof(float4x4), mpShadowMaps.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false );
         mpVPMatrixBuffer->setName("ShadowMapViewProjectionBuffer");
     }
-    
+
+    mSpotDirViewProjMat.resize(mpShadowMaps.size());
+    for (auto& vpMat : mSpotDirViewProjMat)
+        vpMat = float4x4();
 
     mResetShadowMapBuffers = false;
     mShadowResChanged = false;
@@ -476,7 +479,6 @@ bool ShadowMap::update(RenderContext* pRenderContext)
             renderCubeEachFace(i, lightRenderListCube[i], pRenderContext);
     }
 
-    std::vector<float4x4> viewProjectionMatrix(lightRenderListMisc.size());
     std::vector<bool> wasRendered(lightRenderListMisc.size());
     bool updateVPBuffer = false;
 
@@ -492,19 +494,18 @@ bool ShadowMap::update(RenderContext* pRenderContext)
         auto light = lightRenderListMisc[i];
 
         auto changes = light->getChanges();
-        bool renderLight = changes == Light::Changes::Active || changes == Light::Changes::Position || changes == Light::Changes::Direction || mFirstFrame;
+        bool renderLight = (changes == Light::Changes::Active) || (changes == Light::Changes::Position) || (changes == Light::Changes::Direction) || mFirstFrame;
+
+        auto& lightData = light->getData();
 
         if (!renderLight || !light->isActive())
         {
-            viewProjectionMatrix[i] = float4x4();
             wasRendered[i] = false;
             continue;
         }
 
         wasRendered[i] = true;
         updateVPBuffer |= true;
-
-        auto& lightData = light->getData();
 
          // Clear depth buffer.
         pRenderContext->clearDsv(mpShadowMaps[i]->getDSV().get(), 1.f, 0);
@@ -533,7 +534,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
             params.viewProjectionMatrix = math::mul(mProjectionMatrix, viewMat);
         }
         
-        viewProjectionMatrix[i] = params.viewProjectionMatrix;
+        mSpotDirViewProjMat[i] = params.viewProjectionMatrix;
 
         auto vars = mShadowMiscPass.pVars->getRootVar();
         setSMShaderVars(vars, params);
@@ -546,17 +547,17 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     //TODO optimize this depending on the number of active lights
     if (updateVPBuffer)
     {
-        float4x4* mats = (float4x4*) mpVPMatrixStangingBuffer->map(Buffer::MapType::WriteDiscard);
-        for (size_t i = 0; i < viewProjectionMatrix.size(); i++)
+        float4x4* mats = (float4x4*) mpVPMatrixStangingBuffer->map(Buffer::MapType::Write);
+        for (size_t i = 0; i < mSpotDirViewProjMat.size(); i++)
         {
             if (!wasRendered[i])
                 continue;
-            mats[i] = viewProjectionMatrix[i];
+            mats[i] = mSpotDirViewProjMat[i];
         }
         mpVPMatrixStangingBuffer->unmap();
 
         pRenderContext->copyBufferRegion(
-            mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer.get(), 0, sizeof(float4x4) * viewProjectionMatrix.size()
+            mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer.get(), 0, sizeof(float4x4) * mSpotDirViewProjMat.size()
         );
     }
 

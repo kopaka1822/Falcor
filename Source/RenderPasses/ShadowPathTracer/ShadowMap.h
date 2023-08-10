@@ -113,6 +113,8 @@ private:
     bool mShadowResChanged = false;
     std::vector<bool> mIsCubeSM;    //Vector for fast checks if the type is still correct
 
+    std::vector<float4x4> mSpotDirViewProjMat;
+
     std::vector<ref<Texture>> mpShadowMapsCube; //Cube Shadow Maps (Point Lights)
     std::vector<ref<Texture>> mpShadowMaps; //2D Texture Shadow Maps (Spot + Directional Light)
     ref<Buffer> mpLightMapping;
