@@ -129,7 +129,7 @@ float3 fromLocalToWorld(const in float3 normal, float3 w)
 
 #if USE_EMISSIVE_LIGHT  //Function is only valid if the emissive sampler is set
 bool createLightSample(inout SampleGenerator sg, out PhotonLightSample pls ){
-
+    pls = {};
     if (gScene.lightCollection.isEmpty())
         return false;
 
@@ -175,6 +175,8 @@ bool createLightSample(inout SampleGenerator sg, out PhotonLightSample pls ){
 
 bool createLightSampleAnalytic(inout SampleGenerator sg, out PhotonLightSample pls, out float3 sampledDir)
 {
+    pls = {};
+    sampledDir = float3(0);
     const uint lightCount = gScene.getLightCount();
     if (lightCount == 0)
         return false;

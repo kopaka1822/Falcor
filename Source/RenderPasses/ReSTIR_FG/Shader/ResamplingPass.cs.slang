@@ -53,7 +53,7 @@ cbuffer Constant
     float gMatThreshold;            //Differences between the diffuse probabilities of the materials
     uint gDisocclusionBoostSamples; //Number of spartial samples if no temporal surface was found
     float gAttenuationRadius;       //Radius for the attenuation
-    uint2 _pad;
+    float2 gJacobianMinMax;         //Minimum and Maximum values for the jacobian
 }
 
 struct LightSample{
@@ -99,9 +99,15 @@ bool getLightSample(in FGData fgData, in float3 worldPos, out LightSample ls, ou
     ls.Li = luminance(fgData.flux);
     float distAttenuation = vplAttenuation(sampleDistance, gAttenuationRadius);
     float cosTheta = saturate(dot(normalize(fgData.normal), -ls.dir));
-    ls.Li *= (cosTheta * distAttenuation) / fgData.jacobianDeterminant;
-    
-    return ls.Li > 0; //true if sample is valid
+    float jacobian = (cosTheta * distAttenuation) / fgData.jacobianDeterminant;
+
+    //Jacobian is outside of valid values (Solid angle ratio too different)
+    if(jacobian < gJacobianMinMax.x || jacobian > gJacobianMinMax.y)
+        return false;
+
+    ls.Li *= jacobian;
+
+    return ls.Li >= 0; //true if sample is valid
 }
 
 void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
@@ -173,15 +179,18 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
 
         //Get target pdf at current location if reservoir and sample are valid
         float targetPdf = 0;
+        bool combine = true;
         if (prev.M > 0 && sampleValid)
         {
             LightSample ls = { };
             float dis = 0;
-            bool validLS = getLightSample(fgPrev, surface.posW, ls, dis);
-            targetPdf = validLS ? surface.getPdf(ls.dir, ls.Li) : 0.f;
+            if (!getLightSample(fgPrev, surface.posW, ls, dis))
+                combine = false;
+            targetPdf = surface.getPdf(ls.dir, ls.Li);
         }
 
-        selectPrevSample = r.combineReservoir(prev, targetPdf, sampleNext1D(sg));
+        if(combine)
+            selectPrevSample = r.combineReservoir(prev, targetPdf, sampleNext1D(sg));
         if (selectPrevSample)
             fgSample = fgPrev;
     }
@@ -280,8 +289,9 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
         {
             LightSample ls = { };
             float dis;
-            bool valid = getLightSample(fgNeigh, surface.posW, ls, dis);
-            sampleTargetPdf = valid ? surface.getPdf(ls.dir, ls.Li) : 0.f;
+            if (!getLightSample(fgNeigh, surface.posW, ls, dis))
+                continue;
+            sampleTargetPdf = surface.getPdf(ls.dir, ls.Li);
         }
         //Combine Reservoirs
         if (r.combineReservoir(sampledReservoir, sampleTargetPdf, sampleNext1D(sg)))
@@ -314,9 +324,11 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
             float ps = 0.0f;
             LightSample ls = { };
             float dist = 0;
-            
-            bool valid = getLightSample(fgSample, biasSurface.posW, ls, dist);
-            ps = valid ? biasSurface.getPdf(ls.dir, ls.Li) : 0.f;
+
+            //Skip Sample if it was rejected by jacobian
+            if (!getLightSample(fgSample, biasSurface.posW, ls, dist))
+                continue;
+            ps = biasSurface.getPdf(ls.dir, ls.Li);
         
             //Trace ray
     #if BIAS_CORRECTION_MODE >= BIAS_MODE_RAYTRACE
@@ -468,8 +480,9 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
         {
             LightSample ls = { };
             float dis;
-            bool valid = getLightSample(fgPrev, surface.posW, ls, dis);
-            sampleTargetPdf = valid ? surface.getPdf(ls.dir, ls.Li) : 0.f;
+            if (!getLightSample(fgPrev, surface.posW, ls, dis))
+                continue;
+            sampleTargetPdf = surface.getPdf(ls.dir, ls.Li);
         }
         //Combine Reservoirs
         if (r.combineReservoir(sampledReservoir, sampleTargetPdf, sampleNext1D(sg)))
@@ -483,7 +496,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
     #if BIAS_CORRECTION_MODE >= BIAS_MODE_BASIC
         
         float pi = r.targetPdf;
-    float piSum = r.targetPdf; //piSum = target * M_initial ; M_initial is always 1 for us
+        float piSum = r.targetPdf; //piSum = target * M_initial ; M_initial is always 1 for us
         
         //go through all neighbors again
         for (int i = 0; i < numSamples; i++)
@@ -502,9 +515,11 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
             float ps = 0.0f;
             LightSample ls = { };
             float dist = 0;
-            
-            bool valid = getLightSample(fgSample, biasSurface.posW, ls, dist);
-            ps = valid ? biasSurface.getPdf(ls.dir, ls.Li) : 0.f;
+
+            //Skip Sample if it was rejected by jacobian
+            if (!getLightSample(fgSample, biasSurface.posW, ls, dist))
+                continue;
+            ps = biasSurface.getPdf(ls.dir, ls.Li);
         
             //Trace ray
     #if BIAS_CORRECTION_MODE >= BIAS_MODE_RAYTRACE

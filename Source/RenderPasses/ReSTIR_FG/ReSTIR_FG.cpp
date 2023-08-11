@@ -305,6 +305,9 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
             changed |= widget.var("Material Threshold", mMaterialThreshold, 0.0f, 1.0f, 0.0001f);
             widget.tooltip("Maximum absolute difference between the Diffuse probabilitys of the surfaces. 1 = Disabled ; 0 = Same surface");
 
+            changed |= widget.var("Jacobian Min/Max", mJacobianMinMax, 0.0f, 1000.f, 0.01f);
+            widget.tooltip("Min and Max values for the jacobian determinant. If smaller/higher the Reservoirs will not be combined");
+
             if (auto group2 = widget.group("Temporal Options"))
             {
                 changed |= widget.var("Temporal age", mTemporalMaxAge, 0u, 512u);
@@ -930,6 +933,7 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
      var[uniformName]["gMatThreshold"] = mMaterialThreshold;
      var[uniformName]["gDisocclusionBoostSamples"] = mDisocclusionBoostSamples;
      var[uniformName]["gAttenuationRadius"] = mSampleRadiusAttenuation;
+     var[uniformName]["gJacobianMinMax"] = mJacobianMinMax;
 
      // Execute
      const uint2 targetDim = renderData.getDefaultTextureDims();

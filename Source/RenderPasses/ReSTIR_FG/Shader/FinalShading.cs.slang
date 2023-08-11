@@ -214,10 +214,6 @@ void main(uint2 pixel : SV_DispatchThreadID)
             diffuse += fgRadiance * thp;  //TODO do this properly
     #endif
 
-       
-        
-        
-
          // Use sum of reflection/transmission albedo as they are denoised together.
         diffuseIllumination = (diffuse * thp) / diffuseReflectance;
         specularIllumination = (specular * thp) / specularReflectance;
