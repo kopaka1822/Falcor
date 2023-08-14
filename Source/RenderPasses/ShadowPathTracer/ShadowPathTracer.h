@@ -65,6 +65,7 @@ private:
     bool mUseImportanceSampling = true;
     bool mUseEmissiveLight = true;
     bool mEvalAllAnalyticLights = true;
+    bool mUseAlphaTest = true;
     uint mUseShadowMapBounce = 1;
     uint mMaxBounces = 3;
 

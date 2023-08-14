@@ -74,9 +74,12 @@ private:
 
     bool isPointLight(const ref<Light> light);
     void prepareShadowMapBuffers();
+    void prepareRasterProgramms();
     void prepareProgramms();
     void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
     void setProjection(float near = -1.f, float far = -1.f);
+
+    DefineList getDefinesShadowMapGenPass() const;
 
     void renderCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
     void renderCubeGeometry(uint index, ref<Light> light, RenderContext* pRenderContext);
@@ -103,14 +106,15 @@ private:
     float3 mSceneCenter = float3(0);
     bool mUsePCF = false;
     float mPCFdiskRadius = 0.05f;
-    float mShadowMapWorldAcneBias = 0.15f;
+    float mShadowMapWorldAcneBias = 0.0f;
+    bool mUseAlphaTest = true;
 
-    bool mUseGeometryCubePass = false;
     bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
     bool mFirstFrame = true;
     bool mResetShadowMapBuffers = false;
     bool mShadowResChanged = false;
+    bool mRasterDefinesChanged = false;
     std::vector<bool> mIsCubeSM;    //Vector for fast checks if the type is still correct
 
     std::vector<float4x4> mSpotDirViewProjMat;
@@ -132,9 +136,14 @@ private:
         ref<GraphicsState> pState = nullptr;
         ref<GraphicsProgram> pProgram = nullptr;
         ref<GraphicsVars> pVars = nullptr;
+
+        void reset() {
+            pState.reset();
+            pProgram.reset();
+            pVars.reset();
+        }
     };
 
     RasterizerPass mShadowCubePass;
-    RasterizerPass mShadowCubeGeometryPass;
     RasterizerPass mShadowMiscPass;
 };

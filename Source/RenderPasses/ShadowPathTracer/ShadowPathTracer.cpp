@@ -121,6 +121,7 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     mPathProgram.pProgram->addDefine("RAY_TMAX", std::to_string(mRayTMax));
     mPathProgram.pProgram->addDefine("EVALUATE_ALL_ANALYTIC_LIGHTS", mEvalAllAnalyticLights ? "1" : "0");
     mPathProgram.pProgram->addDefine("ADJUST_SHADING_NORMALS", mAdjustShadingNormals ? "1" : "0");
+    mPathProgram.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     mPathProgram.pProgram->addDefines(mpShadowMap->getDefines());
 
     if (!mPathProgram.pVars)
@@ -163,6 +164,7 @@ void ShadowPathTracer::renderUI(Gui::Widgets& widget)
         widget.tooltip("Number of Indirect Light Bounces");
         widget.var("Use SM from Bounce", mUseShadowMapBounce, 0u, mMaxBounces, 1u);
         widget.tooltip("Tells the renderer, at which bounces the shadow maps should be used");
+        widget.checkbox("Alpha Test", mUseAlphaTest);
         widget.checkbox("Eval all lights per hit", mEvalAllAnalyticLights);
         widget.checkbox("Enable Emissive Light", mUseEmissiveLight);
         widget.checkbox("Importance Sampling", mUseImportanceSampling);
@@ -196,7 +198,8 @@ void ShadowPathTracer::RayTraceProgramHelper::initRTProgram(
     // TODO: Support more geometry types and more material conformances
     if (scene->hasGeometryType(Scene::GeometryType::TriangleMesh))
     {
-        sbt->setHitGroup(0, scene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", ""));
+        sbt->setHitGroup(0, scene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+        sbt->setHitGroup(1, scene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("", "shadowAnyHit"));
     }
 
     pProgram = RtProgram::create(device, desc, scene->getSceneDefines());

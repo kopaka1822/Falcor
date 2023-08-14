@@ -11,76 +11,68 @@ cbuffer CB
     float gFarPlane;
 };
 
-cbuffer CBGeo
-{
-    float4x4 gviewProjectionGeo[6];
-};
 
-struct shadowVSOut
-{
-    linear float3 posW : POSW;
-    float4        posH : SV_POSITION;
-};
+#ifndef INTERPOLATION_MODE
+#define INTERPOLATION_MODE linear
+#endif
 
-struct geometryShaderIn
+struct ShadowVsOut
 {
+    INTERPOLATION_MODE float3 normalW : NORMAL; ///< Shading normal in world space (not normalized!).
+    INTERPOLATION_MODE float4 tangentW : TANGENT; ///< Shading tangent in world space (not normalized!).
+    INTERPOLATION_MODE float2 texC : TEXCRD; ///< Texture coordinate.
+    INTERPOLATION_MODE float3 posW : POSW; ///< Position in world space.
+
+    // Per-triangle data
+    nointerpolation GeometryInstanceID instanceID : INSTANCE_ID; ///< Geometry instance ID.
+    nointerpolation uint materialID : MATERIAL_ID; ///< Material ID.
+
     float4 posH : SV_POSITION;
 };
 
-struct geometryShaderOut
-{
-    linear float3 posW : POSW;
-    float4        posH : SV_POSITION;
-    uint          rtvId : SV_RenderTargetArrayIndex;
-};
-
 //Vertex Shaders
-shadowVSOut vsMain(VSIn vsIn)
+ShadowVsOut vsMain(VSIn vIn)
 {
-    shadowVSOut vOut;
-    const GeometryInstanceID instanceID = { vsIn.instanceID };
+    ShadowVsOut vOut;
+    const GeometryInstanceID instanceID = { vIn.instanceID };
+
     float4x4 worldMat = gScene.getWorldMatrix(instanceID);
-    float3 posW = mul(worldMat, float4(vsIn.pos, 1.f)).xyz;
+    float3 posW = mul(worldMat, float4(vIn.pos, 1.f)).xyz;
     vOut.posW = posW;
     vOut.posH = mul(gviewProjection, float4(posW, 1.f));
-        
-    return vOut;
-}
+    
+    vOut.instanceID = instanceID;
+    vOut.materialID = gScene.getMaterialID(instanceID);
 
-geometryShaderIn vsGeoCube(VSIn vsIn)
-{
-    geometryShaderIn vOut;
-    const GeometryInstanceID instanceID = { vsIn.instanceID };
-    float4x4 worldMat = gScene.getWorldMatrix(instanceID);
-    float3 posW = mul(worldMat, float4(vsIn.pos, 1.f)).xyz;
-    vOut.posH = float4(posW, 1.f);
-        
+    vOut.texC = vIn.texC;
+    vOut.normalW = mul(gScene.getInverseTransposeWorldMatrix(instanceID), vIn.unpack().normal);
+    float4 tangent = vIn.unpack().tangent;
+    vOut.tangentW = float4(mul((float3x3) worldMat, tangent.xyz), tangent.w);
+    
     return vOut;
-}
-
-//Geometry Shaders
-[maxvertexcount(18)]
-void gsCube(triangle geometryShaderIn input[3], inout TriangleStream<geometryShaderOut> OutputStream)
-{
-    geometryShaderOut output;
-    for (uint face = 0; face < 6; face++)
-    {
-        for (uint i = 0; i < 3; i++)
-        {
-            output.posW = input[i].posH.xyz;
-            output.posH = mul(gviewProjectionGeo[face], float4(output.posW, 1.f));
-            output.rtvId = face;
-            OutputStream.Append(output);
-        }
-        OutputStream.RestartStrip();
-    }
 }
 
 // Pixel Shaders
-float psMainMisc(shadowVSOut vsOut) : SV_Depth
+bool shadowAlphaTest(ShadowVsOut vsOut, uint triangleIndex)
+{
+    let lod = ImplicitLodTextureSampler();
+    //Set vertex data
+    VertexData v;
+    v.posW = vsOut.posW;
+    v.texC = vsOut.texC;
+    v.normalW = normalize(vsOut.normalW);
+    v.faceNormalW = gScene.getFaceNormalW(vsOut.instanceID, triangleIndex);;
+    v.tangentW.xyz = normalize(vsOut.tangentW.xyz);
+    v.tangentW.w = sign(vsOut.tangentW.w); // Preserve zero to indicate invalid tangent.
+
+    return gScene.materials.alphaTest(v, vsOut.materialID, lod);
+}
+
+// Pixel Shaders
+float defaultPixelShader(float3 posW)
 {
     //Distance between point and light
-    float lightDist = length(vsOut.posW - gLightPos);
+    float lightDist = length(posW - gLightPos);
     //Map to [0,1]
     lightDist /= gFarPlane;
 
@@ -88,22 +80,18 @@ float psMainMisc(shadowVSOut vsOut) : SV_Depth
 }
 
 // Pixel Shaders
-float psGeoCube(geometryShaderOut vsOut) : SV_Depth
+float psMain(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Depth
 {
-    //Distance between point and light
-    float lightDist = length(vsOut.posW - gLightPos);
-    //Map to [0,1]
-    lightDist /= gFarPlane;
-
-    return lightDist;
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+    return defaultPixelShader(vsOut.posW);
 }
 
-float psMainCube(shadowVSOut vsOut) : SV_Target
+float psMainCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
 {
-    //Distance between point and light
-    float lightDist = length(vsOut.posW - gLightPos);
-    //Map to [0,1]
-    lightDist /= gFarPlane;
-
-    return lightDist;
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+    return defaultPixelShader(vsOut.posW);
 }

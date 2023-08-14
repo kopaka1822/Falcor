@@ -27,6 +27,7 @@ static const bool kUseImportanceSampling = USE_IMPORTANCE_SAMPLING;
 static const float kRayTMax = RAY_TMAX; 
 static const bool kEvalAllAnalytic = EVALUATE_ALL_ANALYTIC_LIGHTS;
 static const bool kAdjustShadingNormals = ADJUST_SHADING_NORMALS;
+static const bool kAlphaTest = ALPHA_TEST;
 
 Texture2D<PackedHitInfo> gVBuffer;
 
@@ -200,6 +201,35 @@ void shadowMiss(inout ShadowRayData rayData)
 {
     // The miss shader is executed if the ray misses all geometry. Mark as visible.
     rayData.visible = true;
+}
+
+[shader("anyhit")]
+void anyHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
+{
+    if (kAlphaTest)
+    {
+        // Alpha test for non-opaque geometry.
+        GeometryInstanceID instanceID = getGeometryInstanceID();
+        VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
+        const uint materialID = gScene.getMaterialID(instanceID);
+        if (gScene.materials.alphaTest(v, materialID, 0.f))
+            IgnoreHit();
+    }
+     
+}
+
+[shader("anyhit")]
+void shadowAnyHit(inout ShadowRayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
+{
+    if (kAlphaTest)
+    {
+        // Alpha test for non-opaque geometry.
+        GeometryInstanceID instanceID = getGeometryInstanceID();
+        VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
+        const uint materialID = gScene.getMaterialID(instanceID);
+        if (gScene.materials.alphaTest(v, materialID, 0.f))
+            IgnoreHit();
+    }
 }
 
 
