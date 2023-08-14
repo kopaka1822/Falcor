@@ -339,10 +339,10 @@ namespace Falcor
 
     void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode)
     {
-        rasterize(pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode]);
+        rasterize(pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]);
     }
 
-    void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW)
+    void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW , const ref<RasterizerState>& pRasterizerStateDS)
     {
         FALCOR_PROFILE(pRenderContext, "rasterizeScene");
 
@@ -358,8 +358,12 @@ namespace Falcor
             // Set state.
             pState->setVao(draw.ibFormat == ResourceFormat::R16Uint ? mpMeshVao16Bit : mpMeshVao);
 
-            if (draw.ccw) pState->setRasterizerState(pRasterizerStateCCW);
-            else pState->setRasterizerState(pRasterizerStateCW);
+            if (draw.ignoreWinding)
+                pState->setRasterizerState(pRasterizerStateDS);
+            else if (draw.ccw)
+                pState->setRasterizerState(pRasterizerStateCCW);
+            else
+                pState->setRasterizerState(pRasterizerStateCW);
 
             // Draw the primitives.
             if (isIndexed)
@@ -2605,7 +2609,7 @@ namespace Falcor
         mDrawArgs.clear();
 
         // Helper to create the draw-indirect buffer.
-        auto createDrawBuffer = [this](const auto& drawMeshes, bool ccw, ResourceFormat ibFormat = ResourceFormat::Unknown)
+        auto createDrawBuffer = [this](const auto& drawMeshes, bool ccw, bool ignoreWinding, ResourceFormat ibFormat = ResourceFormat::Unknown)
         {
             if (drawMeshes.size() > 0)
             {
@@ -2615,6 +2619,7 @@ namespace Falcor
                 FALCOR_ASSERT(drawMeshes.size() <= std::numeric_limits<uint32_t>::max());
                 draw.count = (uint32_t)drawMeshes.size();
                 draw.ccw = ccw;
+                draw.ignoreWinding = ignoreWinding;
                 draw.ibFormat = ibFormat;
                 mDrawArgs.push_back(draw);
             }
@@ -2622,7 +2627,7 @@ namespace Falcor
 
         if (hasIndexBuffer())
         {
-            std::vector<DrawIndexedArguments> drawClockwiseMeshes[2], drawCounterClockwiseMeshes[2];
+            std::vector<DrawIndexedArguments> drawClockwiseMeshes[2], drawCounterClockwiseMeshes[2], drawDoubleSidedMeshes[2];
 
             uint32_t instanceID = 0;
             for (const auto& instance : mGeometryInstanceData)
@@ -2631,6 +2636,7 @@ namespace Falcor
 
                 const auto& mesh = mMeshDesc[instance.geometryID];
                 bool use16Bit = mesh.use16BitIndices();
+                const auto mat = getMaterial(MaterialID::fromSlang(mesh.materialID));
 
                 DrawIndexedArguments draw;
                 draw.IndexCountPerInstance = mesh.indexCount;
@@ -2638,19 +2644,25 @@ namespace Falcor
                 draw.StartIndexLocation = mesh.ibOffset * (use16Bit ? 2 : 1);
                 draw.BaseVertexLocation = mesh.vbOffset;
                 draw.StartInstanceLocation = instanceID++;
-
                 int i = use16Bit ? 0 : 1;
-                (instance.isWorldFrontFaceCW()) ? drawClockwiseMeshes[i].push_back(draw) : drawCounterClockwiseMeshes[i].push_back(draw);
+                if (mat->isDoubleSided() || !mat->isOpaque())
+                    drawDoubleSidedMeshes[i].push_back(draw);
+                else if (instance.isWorldFrontFaceCW())
+                    drawClockwiseMeshes[i].push_back(draw);
+                else
+                    drawCounterClockwiseMeshes[i].push_back(draw);
             }
 
-            createDrawBuffer(drawClockwiseMeshes[0], false, ResourceFormat::R16Uint);
-            createDrawBuffer(drawClockwiseMeshes[1], false, ResourceFormat::R32Uint);
-            createDrawBuffer(drawCounterClockwiseMeshes[0], true, ResourceFormat::R16Uint);
-            createDrawBuffer(drawCounterClockwiseMeshes[1], true, ResourceFormat::R32Uint);
+            createDrawBuffer(drawClockwiseMeshes[0], false,false, ResourceFormat::R16Uint);
+            createDrawBuffer(drawClockwiseMeshes[1], false, false, ResourceFormat::R32Uint);
+            createDrawBuffer(drawCounterClockwiseMeshes[0], true, false, ResourceFormat::R16Uint);
+            createDrawBuffer(drawCounterClockwiseMeshes[1], true, false, ResourceFormat::R32Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[0], true, true, ResourceFormat::R16Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[1], true, true, ResourceFormat::R32Uint);
         }
         else
         {
-            std::vector<DrawArguments> drawClockwiseMeshes, drawCounterClockwiseMeshes;
+            std::vector<DrawArguments> drawClockwiseMeshes, drawCounterClockwiseMeshes, drawDoubleSidedMeshes;
 
             uint32_t instanceID = 0;
             for (const auto& instance : mGeometryInstanceData)
@@ -2659,6 +2671,7 @@ namespace Falcor
 
                 const auto& mesh = mMeshDesc[instance.geometryID];
                 FALCOR_ASSERT(mesh.indexCount == 0);
+                const auto mat = getMaterial(MaterialID::fromSlang(mesh.materialID));
 
                 DrawArguments draw;
                 draw.VertexCountPerInstance = mesh.vertexCount;
@@ -2666,11 +2679,18 @@ namespace Falcor
                 draw.StartVertexLocation = mesh.vbOffset;
                 draw.StartInstanceLocation = instanceID++;
 
-                (instance.isWorldFrontFaceCW()) ? drawClockwiseMeshes.push_back(draw) : drawCounterClockwiseMeshes.push_back(draw);
+                
+                if (mat->isDoubleSided() || !mat->isOpaque())
+                    drawDoubleSidedMeshes.push_back(draw);
+                else if (instance.isWorldFrontFaceCW())
+                    drawClockwiseMeshes.push_back(draw);
+                else
+                    drawCounterClockwiseMeshes.push_back(draw);
             }
 
-            createDrawBuffer(drawClockwiseMeshes, false);
-            createDrawBuffer(drawCounterClockwiseMeshes, true);
+            createDrawBuffer(drawClockwiseMeshes, false, false);
+            createDrawBuffer(drawCounterClockwiseMeshes, true, false);
+            createDrawBuffer(drawDoubleSidedMeshes, true, true);
         }
     }
 

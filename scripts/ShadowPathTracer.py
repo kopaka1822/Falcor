@@ -11,6 +11,7 @@ def render_graph_ShadowPathTracer():
     g.add_edge('ShadowPathTracer.color', 'AccumulatePass.input')
     g.add_edge('AccumulatePass.output', 'ToneMapper.src')
     g.mark_output('ToneMapper.dst')
+    g.mark_output('AccumulatePass.output')
     return g
 
 ShadowPathTracer = render_graph_ShadowPathTracer()

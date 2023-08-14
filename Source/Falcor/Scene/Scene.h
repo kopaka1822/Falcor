@@ -970,8 +970,9 @@ namespace Falcor
             \param[in] pVars Graphics vars.
             \param[in] pRasterizerStateCW Rasterizer state for meshes with clockwise triangle winding.
             \param[in] pRasterizerStateCCW Rasterizer state for meshes with counter-clockwise triangle winding. Can be the same as for clockwise.
+            \param[in] pRasterizerStateDS Rasterizer state for double sided meshes. Same as Cull mode None.
         */
-        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW);
+        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW,  const ref<RasterizerState>& pRasterizerStateDS);
 
         /** Get the required raytracing maximum attribute size for this scene.
             Note: This depends on what types of geometry are used in the scene.
@@ -1228,6 +1229,7 @@ namespace Falcor
             ref<Buffer> pBuffer;            ///< Buffer holding the draw-indirect arguments.
             uint32_t count = 0;             ///< Number of draws.
             bool ccw = true;                ///< True if counterclockwise triangle winding.
+            bool ignoreWinding = false;     ///< Ignores winding and forces draws without culling (for transparent and double sided mats)
             ResourceFormat ibFormat = ResourceFormat::Unknown;  ///< Index buffer format.
         };
 
