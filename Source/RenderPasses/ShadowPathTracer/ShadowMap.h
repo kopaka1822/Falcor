@@ -105,7 +105,6 @@ private:
     float mDirLightPosOffset = 400.f;
     float3 mSceneCenter = float3(0);
     bool mUsePCF = false;
-    float mPCFdiskRadius = 0.05f;
     float mShadowMapWorldAcneBias = 0.0f;
     bool mUseAlphaTest = true;
 

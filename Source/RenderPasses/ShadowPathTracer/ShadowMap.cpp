@@ -263,7 +263,6 @@ void ShadowMap::setShaderData() {
     //Parameters
     var["gShadowMapFarPlane"] = mFar;
     var["gSMworldAcneBias"] = mShadowMapWorldAcneBias;
-    var["gPCFdiskRadius"] = mPCFdiskRadius;
     var["gUsePCF"] = mUsePCF;
     var["gShadowMapRes"] = mShadowMapSize;
     var["gDirectionalOffset"] = mDirLightPosOffset;
@@ -577,8 +576,6 @@ void ShadowMap::renderUI(Gui::Widgets& widget) {
         mRasterDefinesChanged |= widget.checkbox("Alpha Test", mUseAlphaTest);
         widget.checkbox("Use PCF", mUsePCF);                                        
         widget.tooltip("Enable to use Percentage closer filtering");
-        if (mUsePCF)
-            widget.var("PCF Disc size", mPCFdiskRadius, 0.f, 50.f, 0.001f);
 
     }
 }
