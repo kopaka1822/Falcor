@@ -123,14 +123,13 @@ struct ShadowMap
             return shadow;
 
         float farPlane = lightData.type == uint(LightType::Directional) ? gDirectionalOffset * 2 : gShadowMapFarPlane;
-
-        bool useRandomSample = kUsePoissonSampling;    //If random is not initialized, fall back to PCF
+ 
         //Shadow Test with shadow map
-        if (!kUsePCF && !useRandomSample)
+        if (!kUsePCF && !kUsePoissonSampling) 
         {
             shadow += standardShadowTest(index, shadowUV, isCube, farPlane, lightDist);
         }
-        else if (useRandomSample)
+        else if (kUsePoissonSampling)
         {
             if (isCube)
             {
@@ -185,6 +184,63 @@ struct ShadowMap
         }
     
         return shadow;
+    }
+
+    //Return true
+    bool hybridShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
+    {
+        uint index = lightIdx;
+        //Get the right index if multiple shadow map types are used
+        if (kMultipleSMTypes)
+        {
+            index = gShadowMapIndexMap[lightIdx];
+        }
+        
+        shadow = 0.f;
+        float lightDist;
+        float3 shadowUV;
+        bool isCube;
+        if (!getDistanceAndUV(index, posW, lightData, shadowUV, lightDist, isCube))
+            return true;
+
+        float farPlane = lightData.type == uint(LightType::Directional) ? gDirectionalOffset * 2 : gShadowMapFarPlane;
+
+        float maxDist = farPlane;
+        float minDist = 0.f;
+
+        //get min dist and max dist
+        //if (!kUsePoissonSampling) //Use PCF
+        if(true)
+        {
+            float4 shadowVals;
+            if (isCube)
+                shadowVals = gShadowMapCube[index].Gather(gShadowSampler, shadowUV);
+            else
+            {
+                float2 gatherUV = (floor(shadowUV.xy * float(gShadowMapRes) - 0.5) + 1.0f) / float(gShadowMapRes);
+                shadowVals = gShadowMap[index].Gather(gShadowSampler, gatherUV);
+            }
+                
+            shadowVals *= farPlane;
+            for (uint k = 0; k < 4; k++)
+            {
+                maxDist = min(maxDist, shadowVals[k] + gSMworldAcneBias);
+                minDist = max(minDist, shadowVals[k] + gSMworldAcneBias);
+            }
+        }
+        else
+        {
+            //TODO implement
+        }
+
+        //Check if ray tracing is needed or if we can skip
+        if ((lightDist > maxDist)  || (lightDist < minDist))
+            return false;
+
+        if (lightDist <= maxDist) // Lit
+            shadow = 1.f;
+
+        return true;
     }
 
 };

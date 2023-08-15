@@ -122,6 +122,7 @@ void ShadowPathTracer::execute(RenderContext* pRenderContext, const RenderData& 
     mPathProgram.pProgram->addDefine("EVALUATE_ALL_ANALYTIC_LIGHTS", mEvalAllAnalyticLights ? "1" : "0");
     mPathProgram.pProgram->addDefine("ADJUST_SHADING_NORMALS", mAdjustShadingNormals ? "1" : "0");
     mPathProgram.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
+    mPathProgram.pProgram->addDefine("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
     mPathProgram.pProgram->addDefines(mpShadowMap->getDefines());
 
     if (!mPathProgram.pVars)
@@ -162,13 +163,14 @@ void ShadowPathTracer::renderUI(Gui::Widgets& widget)
     {
         widget.var("Max Bounces", mMaxBounces, 0u, 32u, 1u);
         widget.tooltip("Number of Indirect Light Bounces");
-        widget.var("Use SM from Bounce", mUseShadowMapBounce, 0u, mMaxBounces, 1u);
+        widget.var("Use SM from Bounce", mUseShadowMapBounce, 0u, mMaxBounces + 1, 1u);
         widget.tooltip("Tells the renderer, at which bounces the shadow maps should be used");
         widget.checkbox("Alpha Test", mUseAlphaTest);
         widget.checkbox("Eval all lights per hit", mEvalAllAnalyticLights);
         widget.checkbox("Enable Emissive Light", mUseEmissiveLight);
         widget.checkbox("Importance Sampling", mUseImportanceSampling);
         widget.checkbox("Adjust Shading Normals", mAdjustShadingNormals);
+        widget.checkbox("Use Hybrid SM", mUseHybridSM);
     }
 }
 

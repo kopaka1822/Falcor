@@ -66,6 +66,7 @@ private:
     bool mUseEmissiveLight = true;
     bool mEvalAllAnalyticLights = true;
     bool mUseAlphaTest = true;
+    bool mUseHybridSM = false;
     uint mUseShadowMapBounce = 1;
     uint mMaxBounces = 3;
 

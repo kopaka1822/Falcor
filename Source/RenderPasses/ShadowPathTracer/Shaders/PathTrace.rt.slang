@@ -28,6 +28,7 @@ static const float kRayTMax = RAY_TMAX;
 static const bool kEvalAllAnalytic = EVALUATE_ALL_ANALYTIC_LIGHTS;
 static const bool kAdjustShadingNormals = ADJUST_SHADING_NORMALS;
 static const bool kAlphaTest = ALPHA_TEST;
+static const bool kUseHybridShadowMap = USE_HYBRID_SM;
 
 Texture2D<PackedHitInfo> gVBuffer;
 
@@ -147,13 +148,24 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 
         // Test visibility by tracing a shadow ray.
         float shadow;
-        if (gUseShadowMap <= pathLength)
-            shadow = gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg);
+        if (kUseHybridShadowMap && gUseShadowMap <= pathLength)
+        {
+            if (!gShadowMap.hybridShadowMap(lightIndex, origin, lightData, sg, shadow))
+                shadow = traceShadowRay(origin, ls.dir, ls.distance);
+        }
         else
-            shadow = traceShadowRay(origin, ls.dir, ls.distance);
-
+        {
+            if (gUseShadowMap <= pathLength)
+                shadow = gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg);
+            else
+                shadow = traceShadowRay(origin, ls.dir, ls.distance);
+        }
+        
+        
+        
+        
         // Evaluate contribution.
-        if(kEvalAllAnalytic)
+        if (kEvalAllAnalytic)
             Li += mi.eval(sd, ls.dir, sg) * ls.Li * shadow;
         else
             Li += mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
