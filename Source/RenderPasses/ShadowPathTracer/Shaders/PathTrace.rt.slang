@@ -148,7 +148,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
         // Test visibility by tracing a shadow ray.
         float shadow;
         if (gUseShadowMap <= pathLength)
-            shadow = gShadowMap.evalShadowMap(lightIndex, origin, lightData);
+            shadow = gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg);
         else
             shadow = traceShadowRay(origin, ls.dir, ls.distance);
 

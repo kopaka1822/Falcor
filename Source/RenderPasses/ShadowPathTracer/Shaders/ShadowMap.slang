@@ -4,6 +4,7 @@
 
 import Scene.Raytracing;
 import Rendering.Lights.LightHelpers;
+import Utils.Sampling.SampleGenerator;
 
 //Set Defines if they where not handled on the CPU
 #ifndef NUM_SHADOW_MAPS_CUBE
@@ -15,6 +16,9 @@ import Rendering.Lights.LightHelpers;
 #ifndef MULTIPLE_SHADOW_MAP_TYPES
     #define MULTIPLE_SHADOW_MAP_TYPES 1
 #endif
+
+static const bool kUsePCF = USE_PCF;
+static const bool kUsePoissonSampling = USE_POISSON_SAMPLING;
 
 struct ShadowMap
 {
@@ -28,12 +32,31 @@ struct ShadowMap
 
     float gShadowMapFarPlane;
     float gSMworldAcneBias;
-    bool gUsePCF;
     uint gShadowMapRes;
+    float gDirectionalOffset;
     
     float3 gSceneCenter;
-    float gDirectionalOffset;
+    float gPoissonDiscRad;
+    
+    float gPoissonMiscRad;
+    uint3 _pad;
+    
 
+    //Static Arrays for Poission Disc Sampling
+    static const float2 kPoissonDisc[16] ={float2(-0.94201624, -0.39906216), float2(0.94558609, -0.76890725),
+                                          float2(-0.094184101, -0.92938870),float2(0.34495938, 0.29387760),
+                                          float2(-0.91588581, 0.45771432),  float2(-0.81544232, -0.87912464),
+                                          float2(-0.38277543, 0.27676845),  float2(0.97484398, 0.75648379),
+                                          float2(0.44323325, -0.97511554),  float2(0.53742981, -0.47373420),
+                                          float2(-0.26496911, -0.41893023), float2(0.79197514, 0.19090188),
+                                          float2(-0.24188840, 0.99706507),  float2(-0.81409955, 0.91437590),
+                                          float2(0.19984126, 0.78641367),   float2(0.14383161, -0.14100790)};
+
+    static const float3 kPoissonCube[20] ={float3(1, 1, 1), float3(1, -1, 1), float3(-1, -1, 1), float3(-1, 1, 1),
+                                                     float3(1, 1, -1), float3(1, -1, -1), float3(-1, -1, -1), float3(-1, 1, -1),
+                                                     float3(1, 1, 0), float3(1, -1, 0), float3(-1, -1, 0), float3(-1, 1, 0),
+                                                     float3(1, 0, 1), float3(-1, 0, 1), float3(1, 0, -1), float3(-1, 0, -1),
+                                                     float3(0, 1, 1), float3(0, -1, 1), float3(0, -1, -1), float3(0, 1, -1)};
 
     //Gets the shadow value
     // sample vec is either the directional vec (isCube = true) or the uvCoordinates
@@ -72,8 +95,18 @@ struct ShadowMap
         }
         return true;
     }
+
+    float standardShadowTest(in const uint index, in const float3 shadowUV, in const bool isCube, in const float farPlane, in const float lightDist)
+    {
+        float shadowDist = getShadowValue(index, shadowUV, isCube);
+        shadowDist *= farPlane;
+        if (shadowDist + gSMworldAcneBias > lightDist)
+            return 1.f;
+        return 0.f;
+    }
     
-    float evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData)
+    //Evaluates the shadow map for the given light. rng is only used in Poission sampling
+    float evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -90,16 +123,38 @@ struct ShadowMap
             return shadow;
 
         float farPlane = lightData.type == uint(LightType::Directional) ? gDirectionalOffset * 2 : gShadowMapFarPlane;
-        
+
+        bool useRandomSample = kUsePoissonSampling;    //If random is not initialized, fall back to PCF
         //Shadow Test with shadow map
-        if (!gUsePCF)
+        if (!kUsePCF && !useRandomSample)
         {
-            float shadowDist = getShadowValue(index, shadowUV, isCube);
-            shadowDist *= farPlane;
-            if (shadowDist + gSMworldAcneBias > lightDist)
-                shadow += 1.f;
+            shadow += standardShadowTest(index, shadowUV, isCube, farPlane, lightDist);
         }
-        else //PCF using gather (practically free)
+        else if (useRandomSample)
+        {
+            if (isCube)
+            {
+                for (uint k = 0; k < 4; k++)
+                {
+                    uint poisIdx = uint(19.9999f * sampleNext1D(sg));
+                    float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRad * 0.25f;
+                    shadow += standardShadowTest(index, uv, isCube, farPlane, lightDist);    //TODO Get a better solution than sampleNext3D
+                }
+                shadow *= 0.25f;
+            }
+            else
+            {
+                for (uint k = 0; k < 4; k++)
+                {
+                    uint poisIdx = uint(15.9999f * sampleNext1D(sg));
+                    float3 uv = shadowUV;
+                    uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad * 32.f) / gShadowMapRes);
+                    shadow += standardShadowTest(index, uv, isCube, farPlane, lightDist);
+                }
+                shadow *= 0.25f;
+            }
+        }
+        else    //PCF using gather (relatively cheap)
         {
             if (isCube)
             {

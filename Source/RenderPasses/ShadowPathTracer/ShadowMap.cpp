@@ -206,7 +206,8 @@ void ShadowMap::prepareRasterProgramms() {
 void ShadowMap::prepareProgramms() {
     auto globalTypeConformances = mpScene->getMaterialSystem().getTypeConformances();
     prepareRasterProgramms();
-    auto definesPB = getDefines(); 
+    auto definesPB = getDefines();
+    definesPB.add("SAMPLE_GENERATOR_TYPE", "0");
     // Create dummy Compute pass for Parameter block
     {
         Program::Desc desc;
@@ -239,6 +240,8 @@ DefineList ShadowMap::getDefines() const {
     defines.add("MULTIPLE_SHADOW_MAP_TYPES", multipleSMTypes ? "1" : "0");
     defines.add("NUM_SHADOW_MAPS_CUBE", std::to_string(countShadowMapsCube));
     defines.add("NUM_SHADOW_MAPS_MISC", std::to_string(countShadowMapsMisc));
+    defines.add("USE_PCF", mUsePCF ? "1" : "0");
+    defines.add("USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
 
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
@@ -263,10 +266,10 @@ void ShadowMap::setShaderData() {
     //Parameters
     var["gShadowMapFarPlane"] = mFar;
     var["gSMworldAcneBias"] = mShadowMapWorldAcneBias;
-    var["gUsePCF"] = mUsePCF;
     var["gShadowMapRes"] = mShadowMapSize;
     var["gDirectionalOffset"] = mDirLightPosOffset;
     var["gSceneCenter"] = mSceneCenter;
+    var["gPoissonDiscRad"] = gPoissonDiscRad;
 
     //Buffers and Textures
     for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
@@ -576,6 +579,8 @@ void ShadowMap::renderUI(Gui::Widgets& widget) {
         mRasterDefinesChanged |= widget.checkbox("Alpha Test", mUseAlphaTest);
         widget.checkbox("Use PCF", mUsePCF);                                        
         widget.tooltip("Enable to use Percentage closer filtering");
-
+        widget.checkbox("Use Poisson Disc Sampling", mUsePoissonDisc);
+        widget.tooltip("Use Poisson Disc Sampling, only enabled if rng of the eval function is filled");
+        widget.var("Poisson Disc Rad", gPoissonDiscRad, 0.f, 50.f, 0.001f);
     }
 }

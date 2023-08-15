@@ -105,8 +105,10 @@ private:
     float mDirLightPosOffset = 400.f;
     float3 mSceneCenter = float3(0);
     bool mUsePCF = false;
+    bool mUsePoissonDisc = false;
     float mShadowMapWorldAcneBias = 0.0f;
     bool mUseAlphaTest = true;
+    float gPoissonDiscRad = 0.15f;
 
     bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
