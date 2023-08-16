@@ -234,7 +234,7 @@ struct ShadowMap
         }
 
         //Check if ray tracing is needed or if we can skip
-        if ((lightDist > maxDist)  || (lightDist < minDist))
+        if ((lightDist > maxDist)  && (lightDist < minDist))
             return false;
 
         if (lightDist <= maxDist) // Lit
