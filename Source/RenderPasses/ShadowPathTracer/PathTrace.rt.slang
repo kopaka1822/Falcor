@@ -10,7 +10,7 @@ import Rendering.Lights.LightHelpers;
 import Utils.Geometry.GeometryHelpers;
 import Utils.Color.ColorHelpers;
 
-import ShadowMap;
+import Rendering.ShadowMaps.ShadowMap;
 
 cbuffer CB
 {

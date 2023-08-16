@@ -30,7 +30,7 @@
 
 namespace
 {
-    const std::string kPathTracingShader = "RenderPasses/ShadowPathTracer/Shaders/PathTrace.rt.slang";
+    const std::string kPathTracingShader = "RenderPasses/ShadowPathTracer/PathTrace.rt.slang";
     const std::string kShaderModel = "6_5";
 
      // Render Pass inputs and outputs

@@ -27,28 +27,30 @@
  **************************************************************************/
 #include "ShadowMap.h"
 
+namespace Falcor
+{
 namespace
 {
-    const std::string kDepthPassProgramFile = "RenderPasses/ShadowPathTracer/Shaders/GenerateShadowMap.3d.slang";
-    const std::string kReflectTypesFile = "RenderPasses/ShadowPathTracer/Shaders/ReflectTypes.cs.slang";
-    const std::string kShaderModel = "6_5";
+const std::string kDepthPassProgramFile = "Rendering/ShadowMaps/GenerateShadowMap.3d.slang";
+const std::string kReflectTypesFile = "Rendering/ShadowMaps/ReflectTypesForParameterBlock.cs.slang";
+const std::string kShaderModel = "6_5";
 
+const Gui::DropdownList kShadowMapCullMode{
+    {(uint)RasterizerState::CullMode::None, "None"},
+    {(uint)RasterizerState::CullMode::Front, "Front"},
+    {(uint)RasterizerState::CullMode::Back, "Back"},
+};
+} // namespace
 
-    const Gui::DropdownList kShadowMapCullMode{
-        {(uint)RasterizerState::CullMode::None, "None"},
-        {(uint)RasterizerState::CullMode::Front, "Front"},
-        {(uint)RasterizerState::CullMode::Back, "Back"},
-    };
-    }
-
-ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{ device }, mpScene{ scene } {
+ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, mpScene{scene}
+{
     FALCOR_ASSERT(mpScene);
 
     // Create FBO
     mpFbo = Fbo::create(mpDevice);
     mpFboCube = Fbo::create(mpDevice);
-            
-    //Create Light Mapping Buffer
+
+    // Create Light Mapping Buffer
     prepareShadowMapBuffers();
 
     prepareProgramms();
@@ -64,12 +66,12 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{ device },
     mFirstFrame = true;
 }
 
-void ShadowMap::prepareShadowMapBuffers() {
-
+void ShadowMap::prepareShadowMapBuffers()
+{
     if ((mShadowResChanged || mResetShadowMapBuffers) && mpDepth)
         mpDepth.reset();
 
-    //Reset existing shadow maps
+    // Reset existing shadow maps
     if (mpShadowMaps.size() > 0 || mpShadowMapsCube.size() > 0 || mShadowResChanged || mResetShadowMapBuffers)
     {
         for (auto shadowMap : mpShadowMaps)
@@ -81,13 +83,12 @@ void ShadowMap::prepareShadowMapBuffers() {
         mpShadowMapsCube.clear();
     }
 
-    //Reset the light mapping
+    // Reset the light mapping
     if (mResetShadowMapBuffers)
     {
         mpLightMapping.reset();
         mpVPMatrixBuffer.reset();
     }
-        
 
     // Set the Textures
     const std::vector<ref<Light>>& lights = mpScene->getLights();
@@ -103,15 +104,13 @@ void ShadowMap::prepareShadowMapBuffers() {
         ref<Texture> tex;
         if (isPointLight(light))
         {
-            //Setup cube map tex
+            // Setup cube map tex
             auto format = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::R32Float : ResourceFormat::R16Unorm;
 
             auto bindFlags = ResourceBindFlags::ShaderResource;
             bindFlags |= ResourceBindFlags::RenderTarget;
 
-            tex = Texture::createCube(
-                mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, format, 1u, 1u, nullptr, bindFlags
-            );
+            tex = Texture::createCube(mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, format, 1u, 1u, nullptr, bindFlags);
             tex->setName("ShadowMapCube" + std::to_string(countPoint));
 
             lightMapping.push_back(countPoint); // Push Back Point ID
@@ -134,7 +133,7 @@ void ShadowMap::prepareShadowMapBuffers() {
         }
     }
 
-    //Light Mapping Buffer
+    // Light Mapping Buffer
     if (!mpLightMapping && lightMapping.size() > 0)
     {
         mpLightMapping = Buffer::createStructured(
@@ -159,7 +158,8 @@ void ShadowMap::prepareShadowMapBuffers() {
     if (!mpVPMatrixBuffer && mpShadowMaps.size() > 0)
     {
         mpVPMatrixBuffer = Buffer::createStructured(
-            mpDevice, sizeof(float4x4), mpShadowMaps.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false );
+            mpDevice, sizeof(float4x4), mpShadowMaps.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false
+        );
         mpVPMatrixBuffer->setName("ShadowMapViewProjectionBuffer");
     }
 
@@ -172,7 +172,8 @@ void ShadowMap::prepareShadowMapBuffers() {
     mFirstFrame = true;
 }
 
-void ShadowMap::prepareRasterProgramms() {
+void ShadowMap::prepareRasterProgramms()
+{
     mShadowCubePass.reset();
     mShadowMiscPass.reset();
 
@@ -203,7 +204,8 @@ void ShadowMap::prepareRasterProgramms() {
     }
 }
 
-void ShadowMap::prepareProgramms() {
+void ShadowMap::prepareProgramms()
+{
     auto globalTypeConformances = mpScene->getMaterialSystem().getTypeConformances();
     prepareRasterProgramms();
     auto definesPB = getDefines();
@@ -220,7 +222,7 @@ void ShadowMap::prepareProgramms() {
         mpReflectTypes->getProgram()->setDefines(definesPB);
         mpReflectTypes->setVars(nullptr);
     }
-    //Create ParameterBlock
+    // Create ParameterBlock
     {
         auto reflector = mpReflectTypes->getProgram()->getReflector()->getParameterBlock("shadowMap");
         mpShadowMapParameterBlock = ParameterBlock::create(mpDevice, reflector);
@@ -230,7 +232,8 @@ void ShadowMap::prepareProgramms() {
     }
 }
 
-DefineList ShadowMap::getDefines() const {
+DefineList ShadowMap::getDefines() const
+{
     DefineList defines;
 
     uint countShadowMapsCube = std::max(1u, getCountShadowMapsCube());
@@ -249,7 +252,8 @@ DefineList ShadowMap::getDefines() const {
     return defines;
 }
 
-DefineList ShadowMap::getDefinesShadowMapGenPass() const {
+DefineList ShadowMap::getDefinesShadowMapGenPass() const
+{
     DefineList defines;
     defines.add("USE_ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     if (mpScene)
@@ -258,12 +262,13 @@ DefineList ShadowMap::getDefinesShadowMapGenPass() const {
     return defines;
 }
 
-void ShadowMap::setShaderData() {
+void ShadowMap::setShaderData()
+{
     FALCOR_ASSERT(mpShadowMapParameterBlock);
 
     auto var = mpShadowMapParameterBlock->getRootVar();
 
-    //Parameters
+    // Parameters
     var["gShadowMapFarPlane"] = mFar;
     var["gSMworldAcneBias"] = mShadowMapWorldAcneBias;
     var["gShadowMapRes"] = mShadowMapSize;
@@ -271,24 +276,23 @@ void ShadowMap::setShaderData() {
     var["gSceneCenter"] = mSceneCenter;
     var["gPoissonDiscRad"] = gPoissonDiscRad;
 
-    //Buffers and Textures
+    // Buffers and Textures
     for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
     {
-        var["gShadowMapCube"][i] = mpShadowMapsCube[i]; //Can be Nullptr
+        var["gShadowMapCube"][i] = mpShadowMapsCube[i]; // Can be Nullptr
     }
     for (uint32_t i = 0; i < mpShadowMaps.size(); i++)
     {
-        var["gShadowMap"][i] = mpShadowMaps[i];        //Can be Nullptr
+        var["gShadowMap"][i] = mpShadowMaps[i]; // Can be Nullptr
     }
 
-    var["gShadowMapVPBuffer"] = mpVPMatrixBuffer;      //Can be Nullptr
-    var["gShadowMapIndexMap"] = mpLightMapping;        //Can be Nullptr 
+    var["gShadowMapVPBuffer"] = mpVPMatrixBuffer; // Can be Nullptr
+    var["gShadowMapIndexMap"] = mpLightMapping;   // Can be Nullptr
     var["gShadowSampler"] = mpShadowSampler;
 }
 
-
-
-void ShadowMap::setProjection(float near, float far) {
+void ShadowMap::setProjection(float near, float far)
+{
     if (near > 0)
         mNear = near;
     if (far > 0)
@@ -298,11 +302,13 @@ void ShadowMap::setProjection(float near, float far) {
     auto& sceneBounds = mpScene->getSceneBounds();
     mDirLightPosOffset = sceneBounds.radius();
     mSceneCenter = sceneBounds.center();
-    mOrthoMatrix =
-        math::ortho(-sceneBounds.radius(), sceneBounds.radius(), -sceneBounds.radius(), sceneBounds.radius(), near, sceneBounds.radius() * 2);
+    mOrthoMatrix = math::ortho(
+        -sceneBounds.radius(), sceneBounds.radius(), -sceneBounds.radius(), sceneBounds.radius(), near, sceneBounds.radius() * 2
+    );
 }
 
-bool ShadowMap::isPointLight(const ref<Light> light) {
+bool ShadowMap::isPointLight(const ref<Light> light)
+{
     return (light->getType() == LightType::Point) && (light->getData().openingAngle > M_PI_2);
 }
 
@@ -313,13 +319,13 @@ void ShadowMap::setSMShaderVars(ShaderVar& var, ShaderParameters& params)
     var["CB"]["gFarPlane"] = params.farPlane;
 }
 
-void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext) {
-
-    //Rendering per face with an array depth buffer is seemingly bugged, therefore a helper depth buffer is needed
+void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext)
+{
+    // Rendering per face with an array depth buffer is seemingly bugged, therefore a helper depth buffer is needed
     if (!mpDepth)
     {
-        mpDepth = Texture::create2D(mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, mShadowMapFormat, 1u, 1u,
-                nullptr, ResourceBindFlags::DepthStencil
+        mpDepth = Texture::create2D(
+            mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, mShadowMapFormat, 1u, 1u, nullptr, ResourceBindFlags::DepthStencil
         );
         mpDepth->setName("ShadowMapCubePassDepthHelper");
     }
@@ -405,18 +411,18 @@ float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData
 
 bool ShadowMap::update(RenderContext* pRenderContext)
 {
-    //Return if there is no scene
+    // Return if there is no scene
     if (!mpScene)
         return false;
 
-    //Return if there is no active light
+    // Return if there is no active light
     if (mpScene->getActiveLightCount() == 0)
-        return true; 
+        return true;
 
     if (mAlwaysRenderSM)
         mFirstFrame = true;
 
-    //Rebuild the Shadow Maps
+    // Rebuild the Shadow Maps
     if (mResetShadowMapBuffers || mShadowResChanged)
         prepareShadowMapBuffers();
 
@@ -427,12 +433,12 @@ bool ShadowMap::update(RenderContext* pRenderContext)
         mRasterDefinesChanged = false;
     }
 
-    //Loop over all lights
-    const std::vector<ref<Light>>& lights = mpScene->getLights();   
+    // Loop over all lights
+    const std::vector<ref<Light>>& lights = mpScene->getLights();
 
-    //Create Render List
-    std::vector<ref<Light>> lightRenderListCube;    //Light List for cube render process
-    std::vector<ref<Light>> lightRenderListMisc;    //Light List for 2D texture shadow maps
+    // Create Render List
+    std::vector<ref<Light>> lightRenderListCube; // Light List for cube render process
+    std::vector<ref<Light>> lightRenderListMisc; // Light List for 2D texture shadow maps
     for (size_t i = 0; i < lights.size(); i++)
     {
         ref<Light> light = lights[i];
@@ -451,7 +457,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
             lightRenderListMisc.push_back(light);
     }
 
-    //Render all cube lights
+    // Render all cube lights
     for (size_t i = 0; i < lightRenderListCube.size(); i++)
         renderCubeEachFace(i, lightRenderListCube[i], pRenderContext);
 
@@ -465,13 +471,14 @@ bool ShadowMap::update(RenderContext* pRenderContext)
         mShadowMiscPass.pVars = GraphicsVars::create(mpDevice, mShadowMiscPass.pProgram.get());
     }
 
-    //Render all spot / directional lights
+    // Render all spot / directional lights
     for (size_t i = 0; i < lightRenderListMisc.size(); i++)
     {
         auto light = lightRenderListMisc[i];
 
         auto changes = light->getChanges();
-        bool renderLight = (changes == Light::Changes::Active) || (changes == Light::Changes::Position) || (changes == Light::Changes::Direction) || mFirstFrame;
+        bool renderLight = (changes == Light::Changes::Active) || (changes == Light::Changes::Position) ||
+                           (changes == Light::Changes::Direction) || mFirstFrame;
 
         auto& lightData = light->getData();
 
@@ -484,7 +491,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
         wasRendered[i] = true;
         updateVPBuffer |= true;
 
-         // Clear depth buffer.
+        // Clear depth buffer.
         pRenderContext->clearDsv(mpShadowMaps[i]->getDSV().get(), 1.f, 0);
 
         // Attach Render Targets
@@ -510,7 +517,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
             params.farPlane = mFar;
             params.viewProjectionMatrix = math::mul(mProjectionMatrix, viewMat);
         }
-        
+
         mSpotDirViewProjMat[i] = params.viewProjectionMatrix;
 
         auto vars = mShadowMiscPass.pVars->getRootVar();
@@ -520,11 +527,11 @@ bool ShadowMap::update(RenderContext* pRenderContext)
         mpScene->rasterize(pRenderContext, mShadowMiscPass.pState.get(), mShadowMiscPass.pVars.get(), mCullMode);
     }
 
-    //Write all ViewProjectionMatrix to the buffer
-    //TODO optimize this depending on the number of active lights
+    // Write all ViewProjectionMatrix to the buffer
+    // TODO optimize this depending on the number of active lights
     if (updateVPBuffer)
     {
-        float4x4* mats = (float4x4*) mpVPMatrixStangingBuffer->map(Buffer::MapType::Write);
+        float4x4* mats = (float4x4*)mpVPMatrixStangingBuffer->map(Buffer::MapType::Write);
         for (size_t i = 0; i < mSpotDirViewProjMat.size(); i++)
         {
             if (!wasRendered[i])
@@ -542,14 +549,16 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     return true;
 }
 
-void ShadowMap::renderUI(Gui::Widgets& widget) {
+void ShadowMap::renderUI(Gui::Widgets& widget)
+{
     if (auto group = widget.group("ShadowMap"))
     {
         widget.checkbox("Render every Frame", mAlwaysRenderSM);
-              
-        widget.tooltip("If enables, renders the cube shadow map in one pass with an geometry shader.\n Else each face is rendered seperatry");
 
-        //Near Far option
+        widget.tooltip("If enables, renders the cube shadow map in one pass with an geometry shader.\n Else each face is rendered seperatry"
+        );
+
+        // Near Far option
         static float2 nearFar = float2(mNear, mFar);
         widget.var("Near/Far", nearFar, 0.0f, 100000.f, 0.001f);
         widget.tooltip("Changes the Near/Far values used for Point and Spotlights");
@@ -558,7 +567,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget) {
             mNear = nearFar.x;
             mFar = nearFar.y;
             setProjection(mNear, mFar);
-            mFirstFrame = true; //Rerender all shadow maps
+            mFirstFrame = true; // Rerender all shadow maps
         }
 
         static uint2 resolution = uint2(mShadowMapSize, mShadowMapSizeCube);
@@ -572,15 +581,17 @@ void ShadowMap::renderUI(Gui::Widgets& widget) {
         }
 
         if (widget.dropdown("Cull Mode", kShadowMapCullMode, (uint32_t&)mCullMode))
-            mFirstFrame = true; //Render all shadow maps again
-            
-        widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f); 
+            mFirstFrame = true; // Render all shadow maps again
+
+        widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f);
 
         mRasterDefinesChanged |= widget.checkbox("Alpha Test", mUseAlphaTest);
-        widget.checkbox("Use PCF", mUsePCF);                                        
+        widget.checkbox("Use PCF", mUsePCF);
         widget.tooltip("Enable to use Percentage closer filtering");
         widget.checkbox("Use Poisson Disc Sampling", mUsePoissonDisc);
         widget.tooltip("Use Poisson Disc Sampling, only enabled if rng of the eval function is filled");
         widget.var("Poisson Disc Rad", gPoissonDiscRad, 0.f, 50.f, 0.001f);
     }
+}
+
 }

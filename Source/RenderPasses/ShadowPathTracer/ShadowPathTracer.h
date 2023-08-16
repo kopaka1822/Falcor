@@ -28,7 +28,7 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
-#include "ShadowMap.h"
+#include "Rendering/ShadowMaps/ShadowMap.h"
 
 using namespace Falcor;
 
