@@ -28,22 +28,31 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include "Utils/Sampling/SampleGenerator.h"
 #include "Rendering/ShadowMaps/ShadowMap.h"
 
 using namespace Falcor;
 
-class ShadowPathTracer : public RenderPass
+/** Minimal path tracer.
+
+    This pass implements a minimal brute-force path tracer. It does purposely
+    not use any importance sampling or other variance reduction techniques.
+    The output is unbiased/consistent ground truth images, against which other
+    renderers can be validated.
+
+    Note that transmission and nested dielectrics are not yet supported.
+*/
+class MinimalPathTracerShadowMap : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(ShadowPathTracer, "ShadowPathTracer", "Insert pass description here.");
+    FALCOR_PLUGIN_CLASS(MinimalPathTracerShadowMap, "MinimalPathTracerShadowMap", "Minimal path tracer that can use ShadowMaps.");
 
-    static ref<ShadowPathTracer> create(ref<Device> pDevice, const Properties& props) { return make_ref<ShadowPathTracer>(pDevice, props); }
+    static ref<MinimalPathTracerShadowMap> create(ref<Device> pDevice, const Properties& props) { return make_ref<MinimalPathTracerShadowMap>(pDevice, props); }
 
-    ShadowPathTracer(ref<Device> pDevice, const Properties& props);
+    MinimalPathTracerShadowMap(ref<Device> pDevice, const Properties& props);
 
     virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
@@ -51,44 +60,32 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
+    void parseProperties(const Properties& props);
+    void prepareVars();
 
-    ref<Scene> mpScene;
-    ref<SampleGenerator> mpSampleGenerator; // GPU Sample Gen
-    std::unique_ptr<ShadowMap> mpShadowMap;
+    // Internal state
+    ref<Scene>                  mpScene;                        ///< Current scene.
+    ref<SampleGenerator>        mpSampleGenerator;              ///< GPU sample generator.
+    std::unique_ptr<ShadowMap>  mpShadowMap;                    ///< Shadow Map
 
-    uint2 mScreenRes = uint2(0);
-    uint mFrameCount = 0;
+    // Configuration
+    uint                        mMaxBounces = 3;                ///< Max number of indirect bounces (0 = none).
+    bool                        mComputeDirect = true;          ///< Compute direct illumination (otherwise indirect only).
+    bool                        mUseImportanceSampling = true;  ///< Use importance sampling for materials.
+    bool                        mUseEmissiveLight = true;       ///< Disables Emissive Light
+    bool                        mUseAlphaTest = true;           ///< Alpha Test
+    bool                        mUseHybridSM = false;           ///< Uses the Hybrid Shadow Maps (https://gpuopen.com/fidelityfx-hybrid-shadows/#details)
+    uint                        mUseShadowMapBounce = 1;        ///< Use the Shadow Map starting at bounce x. If mMaxBounces + 1 it is disabled      
 
-    float mRayTMax = 1000.f;
+    // Runtime data
+    uint                        mFrameCount = 0;                ///< Frame count since scene was loaded.
+    bool                        mOptionsChanged = false;
 
-    bool mAdjustShadingNormals = true;
-    bool mUseImportanceSampling = true;
-    bool mUseEmissiveLight = true;
-    bool mEvalAllAnalyticLights = true;
-    bool mUseAlphaTest = true;
-    bool mUseHybridSM = false;
-    uint mUseShadowMapBounce = 1;
-    uint mMaxBounces = 3;
-
-    struct RayTraceProgramHelper
+    // Ray tracing program.
+    struct
     {
         ref<RtProgram> pProgram;
         ref<RtBindingTable> pBindingTable;
         ref<RtProgramVars> pVars;
-
-        static const RayTraceProgramHelper create()
-        {
-            RayTraceProgramHelper r;
-            r.pProgram = nullptr;
-            r.pBindingTable = nullptr;
-            r.pVars = nullptr;
-            return r;
-        }
-
-        void initRTProgram(ref<Device> device, ref<Scene> scene, const std::string& shaderName, uint maxPayloadBytes,   const Program::TypeConformanceList& globalTypeConformances );
-
-        void initProgramVars(ref<Device> pDevice, ref<Scene> pScene, ref<SampleGenerator> pSampleGenerator);
-    };
-
-    RayTraceProgramHelper mPathProgram;
+    } mTracer;
 };

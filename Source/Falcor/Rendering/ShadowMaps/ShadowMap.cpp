@@ -224,7 +224,7 @@ void ShadowMap::prepareProgramms()
     }
     // Create ParameterBlock
     {
-        auto reflector = mpReflectTypes->getProgram()->getReflector()->getParameterBlock("shadowMap");
+        auto reflector = mpReflectTypes->getProgram()->getReflector()->getParameterBlock("gShadowMap");
         mpShadowMapParameterBlock = ParameterBlock::create(mpDevice, reflector);
         FALCOR_ASSERT(mpShadowMapParameterBlock);
 
@@ -243,8 +243,8 @@ DefineList ShadowMap::getDefines() const
     defines.add("MULTIPLE_SHADOW_MAP_TYPES", multipleSMTypes ? "1" : "0");
     defines.add("NUM_SHADOW_MAPS_CUBE", std::to_string(countShadowMapsCube));
     defines.add("NUM_SHADOW_MAPS_MISC", std::to_string(countShadowMapsMisc));
-    defines.add("USE_PCF", mUsePCF ? "1" : "0");
-    defines.add("USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
+    defines.add("SM_USE_PCF", mUsePCF ? "1" : "0");
+    defines.add("SM_USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
 
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
@@ -289,6 +289,11 @@ void ShadowMap::setShaderData()
     var["gShadowMapVPBuffer"] = mpVPMatrixBuffer; // Can be Nullptr
     var["gShadowMapIndexMap"] = mpLightMapping;   // Can be Nullptr
     var["gShadowSampler"] = mpShadowSampler;
+}
+
+void ShadowMap::setShaderDataAndBindBlock(ShaderVar rootVar) {
+    setShaderData();
+    rootVar["gShadowMap"] = getParameterBlock();
 }
 
 void ShadowMap::setProjection(float near, float far)
@@ -551,47 +556,44 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 
 void ShadowMap::renderUI(Gui::Widgets& widget)
 {
-    if (auto group = widget.group("ShadowMap"))
+    widget.checkbox("Render every Frame", mAlwaysRenderSM);
+
+    widget.tooltip("If enables, renders the cube shadow map in one pass with an geometry shader.\n Else each face is rendered seperatry");
+
+    // Near Far option
+    static float2 nearFar = float2(mNear, mFar);
+    widget.var("Near/Far", nearFar, 0.0f, 100000.f, 0.001f);
+    widget.tooltip("Changes the Near/Far values used for Point and Spotlights");
+    if (nearFar.x != mNear || nearFar.y != mFar)
     {
-        widget.checkbox("Render every Frame", mAlwaysRenderSM);
-
-        widget.tooltip("If enables, renders the cube shadow map in one pass with an geometry shader.\n Else each face is rendered seperatry"
-        );
-
-        // Near Far option
-        static float2 nearFar = float2(mNear, mFar);
-        widget.var("Near/Far", nearFar, 0.0f, 100000.f, 0.001f);
-        widget.tooltip("Changes the Near/Far values used for Point and Spotlights");
-        if (nearFar.x != mNear || nearFar.y != mFar)
-        {
-            mNear = nearFar.x;
-            mFar = nearFar.y;
-            setProjection(mNear, mFar);
-            mFirstFrame = true; // Rerender all shadow maps
-        }
-
-        static uint2 resolution = uint2(mShadowMapSize, mShadowMapSizeCube);
-        widget.var("Shadow Map / Cube Res", resolution, 32u, 16384u, 32u);
-        widget.tooltip("Change Resolution for the Shadow Map (x) or Shadow Cube Map (y). Rebuilds all buffers!");
-        if (widget.button("Apply Change"))
-        {
-            mShadowMapSize = resolution.x;
-            mShadowMapSizeCube = resolution.y;
-            mShadowResChanged = true;
-        }
-
-        if (widget.dropdown("Cull Mode", kShadowMapCullMode, (uint32_t&)mCullMode))
-            mFirstFrame = true; // Render all shadow maps again
-
-        widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f);
-
-        mRasterDefinesChanged |= widget.checkbox("Alpha Test", mUseAlphaTest);
-        widget.checkbox("Use PCF", mUsePCF);
-        widget.tooltip("Enable to use Percentage closer filtering");
-        widget.checkbox("Use Poisson Disc Sampling", mUsePoissonDisc);
-        widget.tooltip("Use Poisson Disc Sampling, only enabled if rng of the eval function is filled");
-        widget.var("Poisson Disc Rad", gPoissonDiscRad, 0.f, 50.f, 0.001f);
+        mNear = nearFar.x;
+        mFar = nearFar.y;
+        setProjection(mNear, mFar);
+        mFirstFrame = true; // Rerender all shadow maps
     }
+
+    static uint2 resolution = uint2(mShadowMapSize, mShadowMapSizeCube);
+    widget.var("Shadow Map / Cube Res", resolution, 32u, 16384u, 32u);
+    widget.tooltip("Change Resolution for the Shadow Map (x) or Shadow Cube Map (y). Rebuilds all buffers!");
+    if (widget.button("Apply Change"))
+    {
+        mShadowMapSize = resolution.x;
+        mShadowMapSizeCube = resolution.y;
+        mShadowResChanged = true;
+    }
+
+    if (widget.dropdown("Cull Mode", kShadowMapCullMode, (uint32_t&)mCullMode))
+        mFirstFrame = true; // Render all shadow maps again
+
+    widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f);
+
+    mRasterDefinesChanged |= widget.checkbox("Alpha Test", mUseAlphaTest);
+    widget.checkbox("Use PCF", mUsePCF);
+    widget.tooltip("Enable to use Percentage closer filtering");
+    widget.checkbox("Use Poisson Disc Sampling", mUsePoissonDisc);
+    widget.tooltip("Use Poisson Disc Sampling, only enabled if rng of the eval function is filled");
+    widget.var("Poisson Disc Rad", gPoissonDiscRad, 0.f, 50.f, 0.001f);
+        
 }
 
 }

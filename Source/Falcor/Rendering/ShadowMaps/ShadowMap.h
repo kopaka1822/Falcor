@@ -65,23 +65,14 @@ public:
     DefineList getDefines() const;
     // Sets Shader data
     void setShaderData();
+
+    // Sets the shader data and binds the block to var "gShadowMap"
+    void setShaderDataAndBindBlock(ShaderVar rootVar);
+
     // Gets the parameter block needed for shader usage
     ref<ParameterBlock> getParameterBlock() const { return mpShadowMapParameterBlock; }
 
-    // Getter
-    std::vector<ref<Texture>>& getShadowMapsCube() { return mpShadowMapsCube; }
-    std::vector<ref<Texture>>& getShadowMaps() { return mpShadowMaps; }
-    ref<Buffer> getViewProjectionBuffer() { return mpVPMatrixBuffer; }
-    ref<Buffer> getLightMapBuffer() { return mpLightMapping; }
-    ref<Sampler> getSampler() { return mpShadowSampler; }
-    float getFarPlane() { return mFar; }
-    float getNearPlane() { return mNear; }
-    uint getResolution() { return mShadowMapSize; }
-    float3 getSceneCenter() { return mSceneCenter; }
-    float getDirectionalOffset() { return mDirLightPosOffset; }
-    uint getCountShadowMapsCube() const { return mpShadowMapsCube.size(); }
-    uint getCountShadowMaps() const { return mpShadowMaps.size(); }
-
+    
 private:
     struct ShaderParameters
     {
@@ -102,6 +93,20 @@ private:
 
     void renderCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, bool useOrtho = false);
+
+    // Getter
+    std::vector<ref<Texture>>& getShadowMapsCube() { return mpShadowMapsCube; }
+    std::vector<ref<Texture>>& getShadowMaps() { return mpShadowMaps; }
+    ref<Buffer> getViewProjectionBuffer() { return mpVPMatrixBuffer; }
+    ref<Buffer> getLightMapBuffer() { return mpLightMapping; }
+    ref<Sampler> getSampler() { return mpShadowSampler; }
+    float getFarPlane() { return mFar; }
+    float getNearPlane() { return mNear; }
+    uint getResolution() { return mShadowMapSize; }
+    float3 getSceneCenter() { return mSceneCenter; }
+    float getDirectionalOffset() { return mDirLightPosOffset; }
+    uint getCountShadowMapsCube() const { return mpShadowMapsCube.size(); }
+    uint getCountShadowMaps() const { return mpShadowMaps.size(); }
 
     ref<Device> mpDevice;
     ref<Scene> mpScene;

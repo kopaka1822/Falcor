@@ -17,9 +17,6 @@ import Utils.Sampling.SampleGenerator;
     #define MULTIPLE_SHADOW_MAP_TYPES 1
 #endif
 
-static const bool kUsePCF = USE_PCF;
-static const bool kUsePoissonSampling = USE_POISSON_SAMPLING;
-
 struct ShadowMap
 {
     static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;
@@ -40,7 +37,9 @@ struct ShadowMap
     
     float gPoissonMiscRad;
     uint3 _pad;
-    
+
+    static const bool kUsePCF = SM_USE_PCF;
+    static const bool kUsePoissonSampling = SM_USE_POISSON_SAMPLING;
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] ={float2(-0.94201624, -0.39906216), float2(0.94558609, -0.76890725),
@@ -106,8 +105,9 @@ struct ShadowMap
     }
     
     //Evaluates the shadow map for the given light. rng is only used in Poission sampling
-    float evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg)
+    bool evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
     {
+        //TODO include checks and return false if shadow mapping is not possible
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
         if (kMultipleSMTypes)
@@ -115,12 +115,12 @@ struct ShadowMap
             index = gShadowMapIndexMap[lightIdx];
         }
         
-        float shadow = 0.f;
+        shadow = 0.f;
         float lightDist;
         float3 shadowUV;
         bool isCube;
         if (!getDistanceAndUV(index, posW, lightData, shadowUV, lightDist, isCube))
-            return shadow;
+            return true;
 
         float farPlane = lightData.type == uint(LightType::Directional) ? gDirectionalOffset * 2 : gShadowMapFarPlane;
  
@@ -183,7 +183,7 @@ struct ShadowMap
             }
         }
     
-        return shadow;
+        return true;
     }
 
     //Return true
@@ -244,3 +244,5 @@ struct ShadowMap
     }
 
 };
+
+ParameterBlock<ShadowMap> gShadowMap;

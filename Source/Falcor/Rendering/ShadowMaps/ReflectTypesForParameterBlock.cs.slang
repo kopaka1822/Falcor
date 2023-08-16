@@ -8,8 +8,6 @@
 
 import ShadowMap;
 
-ParameterBlock<ShadowMap> shadowMap;
-
 StructuredBuffer<uint> gShadowMapIndexMap;
 StructuredBuffer<float4x4> gShadowMapVPBuffer;
 
