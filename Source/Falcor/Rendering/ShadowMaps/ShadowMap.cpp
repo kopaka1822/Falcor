@@ -269,9 +269,11 @@ void ShadowMap::setShaderData()
     auto var = mpShadowMapParameterBlock->getRootVar();
 
     // Parameters
+    var["gShadowMapNearPlane"] = mNear;
     var["gShadowMapFarPlane"] = mFar;
     var["gSMworldAcneBias"] = mShadowMapWorldAcneBias;
     var["gShadowMapRes"] = mShadowMapSize;
+    var["gShadowMapResCube"] = mShadowMapSizeCube;
     var["gDirectionalOffset"] = mDirLightPosOffset;
     var["gSceneCenter"] = mSceneCenter;
     var["gPoissonDiscRad"] = gPoissonDiscRad;

@@ -27,16 +27,18 @@ struct ShadowMap
     StructuredBuffer<uint> gShadowMapIndexMap;
     StructuredBuffer<float4x4> gShadowMapVPBuffer;
 
+    float gShadowMapNearPlane;
     float gShadowMapFarPlane;
     float gSMworldAcneBias;
-    uint gShadowMapRes;
     float gDirectionalOffset;
     
+    uint gShadowMapRes;
     float3 gSceneCenter;
+
+    uint gShadowMapResCube;
     float gPoissonDiscRad;
-    
     float gPoissonMiscRad;
-    uint3 _pad;
+    uint _pad;
 
     static const bool kUsePCF = SM_USE_PCF;
     static const bool kUsePoissonSampling = SM_USE_POISSON_SAMPLING;
@@ -241,6 +243,21 @@ struct ShadowMap
             shadow = 1.f;
 
         return true;
+    }
+
+    //TODO support different near for each shadow map?
+    //TODO Use Projected area/seen area (use the normal of the hit point)
+    
+    //Oracle Funktion for determening if a shadow map should be used
+    //
+    float oracleFunction(float pixelUVArea, float nearCamera, float distanceToCamera, float distanceToLight ,bool isCube)
+    {
+        float projAreaCam = pixelUVArea * distanceToCamera;
+        float pixelAreaSM = isCube ? 1.f / gShadowMapResCube : 1.f / gShadowMapRes;
+        pixelAreaSM *= pixelAreaSM;
+        float projSMArea = pixelAreaSM * distanceToLight;
+
+        return projSMArea / projAreaCam;
     }
 
 };

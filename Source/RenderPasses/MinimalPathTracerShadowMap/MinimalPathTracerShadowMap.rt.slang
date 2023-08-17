@@ -262,7 +262,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 
     // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
     const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
-
+        
     //Visiblity Test using Shadow Map or Shadow Ray
     float shadow;
     if (kUseHybridShadowMap && gUseShadowMap <= pathLength)
@@ -272,7 +272,22 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     }
     else
     {
-        if (gUseShadowMap <= pathLength)
+        //Test orcale function
+        float2 uvPixelSize = 1.f / DispatchRaysDimensions().xy;
+        const float distanceCamera = distance(sd.posW, gScene.camera.getPosition());
+        const float distanceToLight = distance(sd.posW, lightData.posW);
+        const float camNear = gScene.camera.data.nearZ;
+        const bool isCube = lightData.type == uint(LightType::Point) && lightData.openingAngle > M_PI_2;
+
+        float oracle = gShadowMap.oracleFunction(uvPixelSize.x * uvPixelSize.y, camNear, distanceCamera, distanceToLight, isCube);
+
+        /*
+        if (oracle <= 0.5f)
+            return float3(1, 0, 0);
+        else
+            return float3(0, 1, 0);
+        */
+        if (gUseShadowMap <= pathLength && oracle <= 0.5f)
             gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg, shadow);
         else
             shadow = traceShadowRay(origin, ls.dir, ls.distance);
@@ -608,13 +623,66 @@ void scatterSdfGridClosestHit(inout ScatterRayData rayData, SDFGridHitData sdfGr
 // Shader entry point for ray generation shader.
 //
 
+float getNormalizedPixelAreaA()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 frameDim = DispatchRaysDimensions().xy;
+    
+    float3 edgesPixelW[4];
+    float2 offset[4] = { float2(0, 0), float2(0, 1), float2(1, 0), float2(1, 1) };
+    for (uint i = 0; i < 4; i++)
+    {
+        float2 p = (pixel + offset[i]) / frameDim;
+        float2 ndc = float2(2, -2) * p + float2(-1, 1);
+
+        edgesPixelW[i] = ndc.x * gScene.camera.data.cameraU + ndc.y * gScene.camera.data.cameraV + gScene.camera.data.cameraW;
+    }
+    float3 middlePoint = edgesPixelW[0] + edgesPixelW[1] + edgesPixelW[2] + edgesPixelW[3];
+    middlePoint /= 4;
+    
+    float distA = distance(edgesPixelW[0], edgesPixelW[1]);
+    float distB = distance(edgesPixelW[0], edgesPixelW[2]);
+
+    return (distA * distB) / length(middlePoint);
+}
+
+float3 getNormalizedPixelAreaB()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 frameDim = DispatchRaysDimensions().xy;
+    
+    float3 edgesPixelW[4];
+    float2 offset[4] = { float2(0, 0), float2(0, 1), float2(1, 0), float2(1, 1) };
+    for (uint i = 0; i < 4; i++)
+    {
+        float2 p = (pixel + offset[i]) / frameDim;
+        float2 ndc = 2.f * p - 1.0;
+      
+        float4 invProjPixel = mul(gScene.camera.data.invViewProj, float4(ndc, 0.0f, 1.f));
+        edgesPixelW[i] = invProjPixel.xyz / invProjPixel.w;
+    }
+    float3 middlePoint = edgesPixelW[0] + edgesPixelW[1] + edgesPixelW[2] + edgesPixelW[3];
+    middlePoint /= 4;
+    
+    
+    float distA = distance(edgesPixelW[0], edgesPixelW[1]);
+    float distB = distance(edgesPixelW[0], edgesPixelW[2]);
+
+    return edgesPixelW[0];
+}
+
 [shader("raygeneration")]
 void rayGen()
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
 
-    float3 color = tracePath(pixel, frameDim);
+    //float3 color = tracePath(pixel, frameDim);
 
+    float a = getNormalizedPixelAreaA();
+    //float b = getNormalizedPixelAreaB();
+    
+    float3 color = getNormalizedPixelAreaB();
+    
     gOutputColor[pixel] = float4(color, 1.f);
 }
