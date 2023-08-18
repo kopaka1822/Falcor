@@ -74,8 +74,10 @@ private:
     bool                        mUseImportanceSampling = true;  ///< Use importance sampling for materials.
     bool                        mUseEmissiveLight = true;       ///< Disables Emissive Light
     bool                        mUseAlphaTest = true;           ///< Alpha Test
+    bool                        mUseSMOracle = true;            ///< Enables Shadow Map Oracle function
     bool                        mUseHybridSM = false;           ///< Uses the Hybrid Shadow Maps (https://gpuopen.com/fidelityfx-hybrid-shadows/#details)
-    uint                        mUseShadowMapBounce = 1;        ///< Use the Shadow Map starting at bounce x. If mMaxBounces + 1 it is disabled      
+    uint                        mUseShadowMapBounce = 0;        ///< Use the Shadow Map starting at bounce x. If mMaxBounces + 1 it is disabled
+    bool                        mShowOracleFunc = false;        ///< Shows the Oracle function 
 
     // Runtime data
     uint                        mFrameCount = 0;                ///< Frame count since scene was loaded.

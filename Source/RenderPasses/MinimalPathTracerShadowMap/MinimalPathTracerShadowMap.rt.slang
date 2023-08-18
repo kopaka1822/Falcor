@@ -92,6 +92,8 @@ static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const float kRayTMax = FLT_MAX;
 static const bool kAlphaTest = ALPHA_TEST;
 static const bool kUseHybridShadowMap = USE_HYBRID_SM;
+static const bool kUseOracle = USE_ORACLE_FUNCTION;
+static const bool kShowOracleRadius = SHOW_ORACLE_INFLUENCE;
 
 /** Payload for shadow ray.
 */
@@ -105,7 +107,7 @@ struct ShadowRayData
 struct ScatterRayData
 {
     float3  radiance;       ///< Accumulated outgoing radiance from path.
-    bool    terminated;     ///< Set to true when path is terminated.
+    float distance;          ///< Accumulated ray distance; Set to -1 if terminated.
     float3  thp;            ///< Current path throughput. This is updated at each path vertex.
     uint    pathLength;     ///< Path length in number of path segments (0 at origin, 1 at first secondary hit, etc.). Max 2^31.
     float3  origin;         ///< Next path segment origin.
@@ -115,9 +117,10 @@ struct ScatterRayData
 
     /** Initializes ray payload with default parameters.
     */
-    __init(SampleGenerator sg)
+    __init(
+    SampleGenerator sg)
     {
-        this.terminated = false;
+        this.distance = 0.f;
         this.pathLength = 0;
         this.radiance = float3(0, 0, 0);
         this.thp = float3(1, 1, 1);
@@ -238,8 +241,9 @@ void traceScatterRay(inout ScatterRayData rayData)
     \param[in,out] sg SampleGenerator object.
     \return Outgoing radiance in view direction.
 */
-float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, uint pathLength = 0)
+float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout ScatterRayData rayData)
 {
+    const uint pathLength = rayData.pathLength;
     const uint lightCount = gScene.getLightCount();
     if (lightCount == 0) return float3(0.f);
 
@@ -264,35 +268,47 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
         
     //Visiblity Test using Shadow Map or Shadow Ray
-    float shadow;
-    if (kUseHybridShadowMap && gUseShadowMap <= pathLength)
+
+    //Get orcale function
+    float oracle = 0.f;
+    if (kUseOracle)
     {
-        if (!gShadowMap.hybridShadowMap(lightIndex, origin, lightData, sg, shadow))
-            shadow = traceShadowRay(origin, ls.dir, ls.distance);
-    }
-    else
-    {
-        //Test orcale function
-        float2 uvPixelSize = 1.f / DispatchRaysDimensions().xy;
-        const float distanceCamera = distance(sd.posW, gScene.camera.getPosition());
-        const float distanceToLight = distance(sd.posW, lightData.posW);
-        const float camNear = gScene.camera.data.nearZ;
+        float3 toLight = lightData.posW - sd.posW;
         const bool isCube = lightData.type == uint(LightType::Point) && lightData.openingAngle > M_PI_2;
 
-        float oracle = gShadowMap.oracleFunction(uvPixelSize.x * uvPixelSize.y, camNear, distanceCamera, distanceToLight, isCube);
-
-        /*
-        if (oracle <= 0.5f)
+        oracle = gShadowMap.oracleFunction(sd.V, rayData.distance, toLight, normalize(sd.frame.N), isCube);
+    }
+    
+    float shadow;
+    bool useNormalSM = oracle <= 1.0f;
+    bool useShadowRay = gUseShadowMap > pathLength;
+    if (kUseHybridShadowMap && !useShadowRay)
+    {
+        useShadowRay = !gShadowMap.hybridShadowMap(lightIndex, origin, lightData, sg, shadow);
+        useShadowRay &= (!useNormalSM || !kUseOracle); //Disable ray if oracle function was evaluated true
+    }
+    else if (!useShadowRay && useNormalSM)
+    {
+        gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg, shadow);
+    }
+       
+    if (kShowOracleRadius && gUseShadowMap <= pathLength)
+    {
+        if (useNormalSM)
             return float3(1, 0, 0);
+        else if(kUseHybridShadowMap && !useShadowRay)
+            return float3(0, 0, 1);
         else
             return float3(0, 1, 0);
-        */
-        if (gUseShadowMap <= pathLength && oracle <= 0.5f)
-            gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg, shadow);
-        else
-            shadow = traceShadowRay(origin, ls.dir, ls.distance);
     }
 
+    //Make sure the ray is used if no hybrid shadow mapping is used
+    if (!kUseHybridShadowMap)
+        useShadowRay |= !useNormalSM;
+    
+    if (useShadowRay)
+        shadow = traceShadowRay(origin, ls.dir, ls.distance);
+   
     // Evaluate contribution.
     return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
 }
@@ -333,6 +349,7 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool i
 */
 void handleHit(const HitInfo hit, inout ScatterRayData rayData)
 {
+    rayData.pathLength++;
     const bool isCurveHit = hit.getType() == HitType::Curve;
     let lod = ExplicitLodTextureSampler(0.f);
 
@@ -351,7 +368,7 @@ void handleHit(const HitInfo hit, inout ScatterRayData rayData)
     // Check whether to terminate based on max depth.
     if (rayData.pathLength >= kMaxBounces)
     {
-        rayData.terminated = true;
+        rayData.distance = -1.f;
         return;
     }
 
@@ -370,7 +387,7 @@ void handleHit(const HitInfo hit, inout ScatterRayData rayData)
     // Add contribution of direct light from analytic lights.
     if (kUseAnalyticLights)
     {
-        float3 Lr = evalDirectAnalytic(sd, mi, rayData.sg, rayData.pathLength + 1);
+        float3 Lr = evalDirectAnalytic(sd, mi, rayData.sg, rayData);
         rayData.radiance += rayData.thp * Lr;
     }
 
@@ -378,11 +395,9 @@ void handleHit(const HitInfo hit, inout ScatterRayData rayData)
     // The raygen shader will continue the path based on the returned payload.
     if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, rayData))
     {
-        rayData.terminated = true;
+        rayData.distance = -1.f;
         return;
     }
-
-    rayData.pathLength++;
 }
 
 /** This is the main entry point for the minimal path tracer.
@@ -438,6 +453,10 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
             rayOrigin = sd.computeNewRayOrigin();
         }
 
+        // Prepare ray payload.
+        ScatterRayData rayData = ScatterRayData(sg);
+        rayData.distance = distance(gScene.camera.data.posW, sd.posW);  //set the currently traveled distance
+        
         if (kComputeDirect)
         {
             // Always output directly emitted light, independent of whether emissive materials are treated as light sources or not.
@@ -445,17 +464,14 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 
             // Add contribution of direct light from analytic lights.
             // Light probe and mesh lights are handled by the scatter ray hit/miss shaders.
-            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, sg) : float3(0.f);
+            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, sg, rayData) : float3(0.f);
         }
-
-        // Prepare ray payload.
-        ScatterRayData rayData = ScatterRayData(sg);
-
+        
         // Generate scatter ray.
-        if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, rayData)) rayData.terminated = true;
+        if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, rayData)) rayData.distance = -1.f;
 
         // Follow path into the scene and compute its total contribution.
-        for (uint depth = 0; depth <= kMaxBounces && !rayData.terminated; depth++)
+        for (uint depth = 0; depth <= kMaxBounces && rayData.distance > 0; depth++)
         {
             // Trace scatter ray. If it hits geometry, the closest hit shader samples
             // direct illumination and generates the next scatter ray.
@@ -482,7 +498,7 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 void scatterMiss(inout ScatterRayData rayData)
 {
     // Ray missed the scene. Mark the ray as terminated.
-    rayData.terminated = true;
+    rayData.distance = -1.f;
 
     // Add contribution from distant light (env map) in this direction.
     if (kUseEnvLight && (kComputeDirect || rayData.pathLength > 0))
@@ -524,6 +540,7 @@ void scatterTriangleMeshClosestHit(inout ScatterRayData rayData, BuiltInTriangle
     triangleHit.instanceID = getGeometryInstanceID();
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics = attribs.barycentrics;
+    rayData.distance += RayTCurrent();
     handleHit(HitInfo(triangleHit), rayData);
 }
 
@@ -565,6 +582,7 @@ void scatterDisplacedTriangleMeshClosestHit(inout ScatterRayData rayData, Displa
     displacedTriangleHit.primitiveIndex = PrimitiveIndex();
     displacedTriangleHit.barycentrics = attribs.barycentrics;
     displacedTriangleHit.displacement = attribs.displacement;
+    rayData.distance += RayTCurrent();
     handleHit(HitInfo(displacedTriangleHit), rayData);
 }
 
@@ -591,6 +609,7 @@ void scatterCurveClosestHit(inout ScatterRayData rayData, CurveIntersector::Attr
     curveHit.instanceID = getGeometryInstanceID();
     curveHit.primitiveIndex = PrimitiveIndex();
     curveHit.barycentrics = attribs.barycentrics;
+    rayData.distance += RayTCurrent();
     handleHit(HitInfo(curveHit), rayData);
 }
 
@@ -616,73 +635,20 @@ void scatterSdfGridClosestHit(inout ScatterRayData rayData, SDFGridHitData sdfGr
     SDFGridHit sdfGridHit;
     sdfGridHit.instanceID = getGeometryInstanceID();
     sdfGridHit.hitData = sdfGridHitData;
+    rayData.distance += RayTCurrent();
     handleHit(HitInfo(sdfGridHit), rayData);
 }
 
 //
 // Shader entry point for ray generation shader.
 //
-
-float getNormalizedPixelAreaA()
-{
-    uint2 pixel = DispatchRaysIndex().xy;
-    uint2 frameDim = DispatchRaysDimensions().xy;
-    
-    float3 edgesPixelW[4];
-    float2 offset[4] = { float2(0, 0), float2(0, 1), float2(1, 0), float2(1, 1) };
-    for (uint i = 0; i < 4; i++)
-    {
-        float2 p = (pixel + offset[i]) / frameDim;
-        float2 ndc = float2(2, -2) * p + float2(-1, 1);
-
-        edgesPixelW[i] = ndc.x * gScene.camera.data.cameraU + ndc.y * gScene.camera.data.cameraV + gScene.camera.data.cameraW;
-    }
-    float3 middlePoint = edgesPixelW[0] + edgesPixelW[1] + edgesPixelW[2] + edgesPixelW[3];
-    middlePoint /= 4;
-    
-    float distA = distance(edgesPixelW[0], edgesPixelW[1]);
-    float distB = distance(edgesPixelW[0], edgesPixelW[2]);
-
-    return (distA * distB) / length(middlePoint);
-}
-
-float3 getNormalizedPixelAreaB()
-{
-    uint2 pixel = DispatchRaysIndex().xy;
-    uint2 frameDim = DispatchRaysDimensions().xy;
-    
-    float3 edgesPixelW[4];
-    float2 offset[4] = { float2(0, 0), float2(0, 1), float2(1, 0), float2(1, 1) };
-    for (uint i = 0; i < 4; i++)
-    {
-        float2 p = (pixel + offset[i]) / frameDim;
-        float2 ndc = 2.f * p - 1.0;
-      
-        float4 invProjPixel = mul(gScene.camera.data.invViewProj, float4(ndc, 0.0f, 1.f));
-        edgesPixelW[i] = invProjPixel.xyz / invProjPixel.w;
-    }
-    float3 middlePoint = edgesPixelW[0] + edgesPixelW[1] + edgesPixelW[2] + edgesPixelW[3];
-    middlePoint /= 4;
-    
-    
-    float distA = distance(edgesPixelW[0], edgesPixelW[1]);
-    float distB = distance(edgesPixelW[0], edgesPixelW[2]);
-
-    return edgesPixelW[0];
-}
-
 [shader("raygeneration")]
 void rayGen()
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
 
-    //float3 color = tracePath(pixel, frameDim);
-
-    float a = getNormalizedPixelAreaA();
-    //float b = getNormalizedPixelAreaB();
-    
-    float3 color = getNormalizedPixelAreaB();
+    float3 color = tracePath(pixel, frameDim);
     
     gOutputColor[pixel] = float4(color, 1.f);
 }

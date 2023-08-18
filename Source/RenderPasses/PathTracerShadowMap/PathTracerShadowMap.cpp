@@ -1298,7 +1298,7 @@ void PathTracerShadowMap::tracePass(RenderContext* pRenderContext, const RenderD
 
     if (mVarsChanged) mpSampleGenerator->setShaderData(var);
     if (mpRTXDI) mpRTXDI->setShaderData(var);
-    if (mpShadowMap) mpShadowMap->setShaderDataAndBindBlock(var);
+    if (mpShadowMap) mpShadowMap->setShaderDataAndBindBlock(var, renderData.getDefaultTextureDims());
 
     mpPixelStats->prepareProgram(tracePass.pProgram, var);
     mpPixelDebug->prepareProgram(tracePass.pProgram, var);

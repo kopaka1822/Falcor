@@ -169,6 +169,8 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     mTracer.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
     mTracer.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     mTracer.pProgram->addDefine("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
+    mTracer.pProgram->addDefine("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
+    mTracer.pProgram->addDefine("SHOW_ORACLE_INFLUENCE", mShowOracleFunc ? "1" : "0");
     mTracer.pProgram->addDefines(mpShadowMap->getDefines());
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
@@ -188,7 +190,7 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     var["CB"]["gUseShadowMap"] = mUseShadowMapBounce;
 
     //Set Shadow Map per Iteration Shader Data
-    mpShadowMap->setShaderDataAndBindBlock(var);
+    mpShadowMap->setShaderDataAndBindBlock(var, renderData.getDefaultTextureDims());
 
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)
@@ -232,6 +234,9 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
 
     if (auto group = widget.group("Shadow Map Options"))
     {
+        widget.checkbox("Use Oracle Function", mUseSMOracle);
+        widget.tooltip("Enables the oracle function for Shadow Mapping",true);
+
         widget.var("Use SM from Bounce", mUseShadowMapBounce, 0u, mMaxBounces + 1, 1u);
         widget.tooltip("Tells the renderer, at which bounces the shadow maps should be used. To disable shadow map usage set to \"Max bounces\" + 1 ", true);
         widget.checkbox("Use Hybrid SM", mUseHybridSM);
@@ -241,6 +246,9 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
             mpShadowMap->renderUI(group);
         else
             widget.text("Further Shadow Map Options to appear \n when a scene is loaded in.");
+
+        widget.checkbox("Show Oracle Function", mShowOracleFunc);
+        widget.tooltip("Use SM = Red; Use RayTracing/Hybrid SM = green. Shows only the for the first SM bounce", true);
     }
 
     // If rendering options that modify the output have changed, set flag to indicate that.

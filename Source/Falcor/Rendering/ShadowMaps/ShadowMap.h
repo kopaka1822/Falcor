@@ -64,15 +64,17 @@ public:
     // Returns a define List with all the defines. Need to be called once per frame to update defines
     DefineList getDefines() const;
     // Sets Shader data
-    void setShaderData();
+    void setShaderData(const uint2 frameDim = uint2(1920u, 1080u));
 
     // Sets the shader data and binds the block to var "gShadowMap"
-    void setShaderDataAndBindBlock(ShaderVar rootVar);
+    void setShaderDataAndBindBlock(ShaderVar rootVar, const uint2 frameDim = uint2(1920u, 1080u));
 
     // Gets the parameter block needed for shader usage
     ref<ParameterBlock> getParameterBlock() const { return mpShadowMapParameterBlock; }
 
-    
+    //Get Normalized pixel size used in oracle function
+    float getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect);
+
 private:
     struct ShaderParameters
     {
@@ -119,8 +121,6 @@ private:
     RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Front;
 
     // Settings
-    float4x4 mProjectionMatrix = float4x4();
-    float4x4 mOrthoMatrix = float4x4();
     float mNear = 0.01f;
     float mFar = 30.f;
     float mDirLightPosOffset = 400.f;
@@ -137,6 +137,14 @@ private:
     bool mResetShadowMapBuffers = false;
     bool mShadowResChanged = false;
     bool mRasterDefinesChanged = false;
+
+    //Internal
+    float4x4 mProjectionMatrix = float4x4();
+    float4x4 mOrthoMatrix = float4x4();
+    float mSMCubePixelSize = 1.f;
+    float mSMPixelSize = 1.f;
+
+    
     std::vector<bool> mIsCubeSM; // Vector for fast checks if the type is still correct
 
     std::vector<float4x4> mSpotDirViewProjMat;

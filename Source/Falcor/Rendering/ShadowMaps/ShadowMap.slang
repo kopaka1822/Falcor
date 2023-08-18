@@ -27,18 +27,19 @@ struct ShadowMap
     StructuredBuffer<uint> gShadowMapIndexMap;
     StructuredBuffer<float4x4> gShadowMapVPBuffer;
 
-    float gShadowMapNearPlane;
     float gShadowMapFarPlane;
     float gSMworldAcneBias;
-    float gDirectionalOffset;
-    
+    float gDirectionalOffset;    
     uint gShadowMapRes;
+    
     float3 gSceneCenter;
-
-    uint gShadowMapResCube;
+    float gSMCubePixelSize;
+    
+    float gSMPixelSize;
+    float gCamerPixelSize;
     float gPoissonDiscRad;
-    float gPoissonMiscRad;
     uint _pad;
+    
 
     static const bool kUsePCF = SM_USE_PCF;
     static const bool kUsePoissonSampling = SM_USE_POISSON_SAMPLING;
@@ -226,8 +227,10 @@ struct ShadowMap
             shadowVals *= farPlane;
             for (uint k = 0; k < 4; k++)
             {
-                maxDist = min(maxDist, shadowVals[k] + gSMworldAcneBias);
-                minDist = max(minDist, shadowVals[k] + gSMworldAcneBias);
+                float shadowDepth = shadowVals[k] + gSMworldAcneBias;
+                maxDist = min(maxDist, shadowDepth);
+                minDist = max(minDist, shadowDepth);
+                shadow += lightDist <= shadowDepth ? 0.25f : 0.f;   //Add to shadow in pcf style
             }
         }
         else
@@ -238,26 +241,30 @@ struct ShadowMap
         //Check if ray tracing is needed or if we can skip
         if ((lightDist > maxDist)  && (lightDist < minDist))
             return false;
-
-        if (lightDist <= maxDist) // Lit
-            shadow = 1.f;
-
+        
         return true;
     }
 
     //TODO support different near for each shadow map?
     //TODO Use Projected area/seen area (use the normal of the hit point)
-    
+
     //Oracle Funktion for determening if a shadow map should be used
     //
-    float oracleFunction(float pixelUVArea, float nearCamera, float distanceToCamera, float distanceToLight ,bool isCube)
+    float oracleFunction(float3 viewDir, float rayDistance, float3 toLight, float3 surfaceNormal ,bool isCube)
     {
-        float projAreaCam = pixelUVArea * distanceToCamera;
-        float pixelAreaSM = isCube ? 1.f / gShadowMapResCube : 1.f / gShadowMapRes;
-        pixelAreaSM *= pixelAreaSM;
+        //Normalize lightDir
+        float distanceToLight = length(toLight);
+        toLight /= distanceToLight;
+
+        //Get the cos theta between normal and vectors
+        float angleCamera = dot(viewDir, surfaceNormal);
+        float angleLight = dot(toLight, surfaceNormal);
+        
+        float projAreaCam = gCamerPixelSize * rayDistance;
+        float pixelAreaSM = isCube ? gSMCubePixelSize : gSMPixelSize;
         float projSMArea = pixelAreaSM * distanceToLight;
 
-        return projSMArea / projAreaCam;
+        return (projSMArea * angleCamera) / (projAreaCam * angleLight);
     }
 
 };

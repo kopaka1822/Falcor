@@ -26,6 +26,8 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "ShadowMap.h"
+#include "Scene/Camera/Camera.h"
+#include "Utils/Math/FalcorMath.h"
 
 namespace Falcor
 {
@@ -262,21 +264,25 @@ DefineList ShadowMap::getDefinesShadowMapGenPass() const
     return defines;
 }
 
-void ShadowMap::setShaderData()
+void ShadowMap::setShaderData(const uint2 frameDim)
 {
     FALCOR_ASSERT(mpShadowMapParameterBlock);
 
     auto var = mpShadowMapParameterBlock->getRootVar();
 
+    auto& cameraData = mpScene->getCamera()->getData();
+
     // Parameters
-    var["gShadowMapNearPlane"] = mNear;
     var["gShadowMapFarPlane"] = mFar;
     var["gSMworldAcneBias"] = mShadowMapWorldAcneBias;
-    var["gShadowMapRes"] = mShadowMapSize;
-    var["gShadowMapResCube"] = mShadowMapSizeCube;
     var["gDirectionalOffset"] = mDirLightPosOffset;
+    var["gShadowMapRes"] = mShadowMapSize;
     var["gSceneCenter"] = mSceneCenter;
+    var["gSMCubePixelSize"] = mSMCubePixelSize;
+    var["gSMPixelSize"] = mSMPixelSize;
+    var["gCamerPixelSize"] = getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight)  ,cameraData.aspectRatio);
     var["gPoissonDiscRad"] = gPoissonDiscRad;
+
 
     // Buffers and Textures
     for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
@@ -293,8 +299,9 @@ void ShadowMap::setShaderData()
     var["gShadowSampler"] = mpShadowSampler;
 }
 
-void ShadowMap::setShaderDataAndBindBlock(ShaderVar rootVar) {
-    setShaderData();
+void ShadowMap::setShaderDataAndBindBlock(ShaderVar rootVar, const uint2 frameDim)
+{
+    setShaderData(frameDim);
     rootVar["gShadowMap"] = getParameterBlock();
 }
 
@@ -312,6 +319,10 @@ void ShadowMap::setProjection(float near, float far)
     mOrthoMatrix = math::ortho(
         -sceneBounds.radius(), sceneBounds.radius(), -sceneBounds.radius(), sceneBounds.radius(), near, sceneBounds.radius() * 2
     );
+
+    //Set normalized pixel sizes
+    mSMCubePixelSize = getNormalizedPixelSize(uint2(mShadowMapSizeCube), float(M_PI_2), 1.f);
+    mSMPixelSize = getNormalizedPixelSize(uint2(mShadowMapSize), float(M_PI_2), 1.f);
 }
 
 bool ShadowMap::isPointLight(const ref<Light> light)
@@ -431,7 +442,11 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 
     // Rebuild the Shadow Maps
     if (mResetShadowMapBuffers || mShadowResChanged)
+    {
         prepareShadowMapBuffers();
+        setProjection(mNear, mFar);
+    }
+        
 
     if (mRasterDefinesChanged)
     {
@@ -596,6 +611,16 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     widget.tooltip("Use Poisson Disc Sampling, only enabled if rng of the eval function is filled");
     widget.var("Poisson Disc Rad", gPoissonDiscRad, 0.f, 50.f, 0.001f);
         
+}
+
+// Gets the pixel size at distance 1. Assumes every pixel has the same size.
+float ShadowMap::getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect)
+{
+    float h = tan(fovY / 2.f) * 2.f;
+    float w = h * aspect;
+    float wPix = w / frameDim.x;
+    float hPix = h / frameDim.y;
+    return wPix * hPix;
 }
 
 }
