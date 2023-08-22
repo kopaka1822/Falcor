@@ -271,17 +271,18 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 
     //Get orcale function
     float oracle = 0.f;
-    if (kUseOracle)
+    bool useShadowRay = gUseShadowMap > pathLength;
+    if (kUseOracle && !useShadowRay)
     {
         float3 toLight = lightData.posW - sd.posW;
         const bool isCube = lightData.type == uint(LightType::Point) && lightData.openingAngle > M_PI_2;
 
-        oracle = gShadowMap.oracleFunction(sd.V, rayData.distance, toLight, normalize(sd.frame.N), isCube);
+        oracle = gShadowMap.oracleFunction(sd.V, rayData.distance, toLight, sd.frame.N, isCube);
     }
     
     float shadow;
-    bool useNormalSM = oracle <= 1.0f;
-    bool useShadowRay = gUseShadowMap > pathLength;
+    bool useNormalSM = oracle <= 1.f;
+    
     if (kUseHybridShadowMap && !useShadowRay)
     {
         useShadowRay = !gShadowMap.hybridShadowMap(lightIndex, origin, lightData, sg, shadow);
@@ -308,7 +309,10 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     
     if (useShadowRay)
         shadow = traceShadowRay(origin, ls.dir, ls.distance);
-   
+
+    if(shadow < 0.5f)
+        return float3(0);
+    
     // Evaluate contribution.
     return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
 }

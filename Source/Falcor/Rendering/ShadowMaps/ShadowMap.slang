@@ -181,7 +181,7 @@ struct ShadowMap
                 for (uint k = 0; k < 4; k++)
                 {
                     if (shadowVals[k] + gSMworldAcneBias > lightDist)
-                        shadow += 1.f * w[k];
+                        shadow += w[k];
                 }
             }
         }
@@ -216,12 +216,16 @@ struct ShadowMap
         if(true)
         {
             float4 shadowVals;
+            float4 w = float4(0.25);
             if (isCube)
                 shadowVals = gShadowMapCube[index].Gather(gShadowSampler, shadowUV);
             else
             {
                 float2 gatherUV = (floor(shadowUV.xy * float(gShadowMapRes) - 0.5) + 1.0f) / float(gShadowMapRes);
                 shadowVals = gShadowMap[index].Gather(gShadowSampler, gatherUV);
+                float2 f = frac(shadowUV.xy * float(gShadowMapRes) - 0.5f);
+                // (-,+),(+,+)(+,-)(-,-)
+                w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
             }
                 
             shadowVals *= farPlane;
@@ -230,7 +234,7 @@ struct ShadowMap
                 float shadowDepth = shadowVals[k] + gSMworldAcneBias;
                 maxDist = min(maxDist, shadowDepth);
                 minDist = max(minDist, shadowDepth);
-                shadow += lightDist <= shadowDepth ? 0.25f : 0.f;   //Add to shadow in pcf style
+                shadow += lightDist <= shadowDepth ? w[k] : 0.f;   //Add to shadow in pcf style
             }
         }
         else
@@ -250,12 +254,12 @@ struct ShadowMap
 
     //Oracle Funktion for determening if a shadow map should be used
     //
-    float oracleFunction(float3 viewDir, float rayDistance, float3 toLight, float3 surfaceNormal ,bool isCube)
+    float oracleFunction(float3 viewDir, float rayDistance, float3 toLight, float3 surfaceNormal, bool isCube)
     {
         //Normalize lightDir
         float distanceToLight = length(toLight);
         toLight /= distanceToLight;
-
+        
         //Get the cos theta between normal and vectors
         float angleCamera = dot(viewDir, surfaceNormal);
         float angleLight = dot(toLight, surfaceNormal);
@@ -265,6 +269,33 @@ struct ShadowMap
         float projSMArea = pixelAreaSM * distanceToLight;
 
         return (projSMArea * angleCamera) / (projAreaCam * angleLight);
+    }
+
+    //Confidence Function used in https://www.cg.tuwien.ac.at/research/publications/2007/Scherzer-2007-PCS/Scherzer-2007-PCS-Preprint.pdf
+    float oracleFunction2(uint lightIdx, float3 posW, bool isCube)
+    {
+        if (isCube)
+            return 1.f;
+        
+        uint index = lightIdx;
+        //Get the right index if multiple shadow map types are used
+        if (kMultipleSMTypes)
+        {
+            index = gShadowMapIndexMap[lightIdx];
+        }
+        
+        float4x4 viewProjectMat = gShadowMapVPBuffer[index];
+        float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
+        float2 shadowUV = (projPos.xy / projPos.w); //This is actually not necessary for Directional Lights        
+        shadowUV.y *= -1; //Flip 
+        shadowUV = shadowUV * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+        float2 shadowPixelPos = shadowUV * gShadowMapRes;
+        shadowPixelPos -= floor(shadowPixelPos);    //Convert to pixel pos [0,1]
+
+        //difference
+        shadowPixelPos = abs(shadowPixelPos - 0.5f);
+        
+        return 1.f-max(shadowPixelPos.x, shadowPixelPos.y) * 2.f; //confidence
     }
 
 };
