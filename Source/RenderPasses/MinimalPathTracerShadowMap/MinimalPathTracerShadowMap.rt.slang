@@ -94,6 +94,7 @@ static const bool kAlphaTest = ALPHA_TEST;
 static const bool kUseHybridShadowMap = USE_HYBRID_SM;
 static const bool kUseOracle = USE_ORACLE_FUNCTION;
 static const bool kShowOracleRadius = SHOW_ORACLE_INFLUENCE;
+static const bool kUseLobeDistFactor = ORACLE_LOBE_DIST_FACTOR;
 
 /** Payload for shadow ray.
 */
@@ -111,7 +112,9 @@ struct ScatterRayData
     float3  thp;            ///< Current path throughput. This is updated at each path vertex.
     uint    pathLength;     ///< Path length in number of path segments (0 at origin, 1 at first secondary hit, etc.). Max 2^31.
     float3  origin;         ///< Next path segment origin.
+    float   lobeDistFactor; ///< Factor how the lobe affects the distance of the ray 
     float3  direction;      ///< Next path segment direction.
+    uint    _pad;
 
     SampleGenerator sg;     ///< Per-ray state for the sample generator (up to 16B).
 
@@ -126,6 +129,8 @@ struct ScatterRayData
         this.thp = float3(1, 1, 1);
         this.origin = float3(0, 0, 0);
         this.direction = float3(0, 0, 0);
+        this.lobeDistFactor = 1.f;
+        this._pad = 0;
         this.sg = sg;
     }
 };
@@ -338,6 +343,14 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool i
         }
         rayData.direction = bsdfSample.wo;
         rayData.thp *= bsdfSample.weight;
+
+        //Get the lobe distance factor based on the lobe type (TODO use roughness instead ?)
+        if (kUseLobeDistFactor)
+        {
+            rayData.lobeDistFactor = bsdfSample.isLobe(LobeType::Diffuse) ? M_2PI : 1.f;
+
+        }
+        
         return any(rayData.thp > 0.f);
     }
 
@@ -370,7 +383,7 @@ void handleHit(const HitInfo hit, inout ScatterRayData rayData)
     }
 
     // Check whether to terminate based on max depth.
-    if (rayData.pathLength >= kMaxBounces)
+    if (rayData.pathLength > kMaxBounces)
     {
         rayData.distance = -1.f;
         return;
@@ -544,7 +557,7 @@ void scatterTriangleMeshClosestHit(inout ScatterRayData rayData, BuiltInTriangle
     triangleHit.instanceID = getGeometryInstanceID();
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics = attribs.barycentrics;
-    rayData.distance += RayTCurrent();
+    rayData.distance += RayTCurrent() * rayData.lobeDistFactor;
     handleHit(HitInfo(triangleHit), rayData);
 }
 

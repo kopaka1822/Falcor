@@ -40,7 +40,7 @@ namespace
 
     // Ray tracing settings that affect the traversal stack size.
     // These should be set as small as possible.
-    const uint32_t kMaxPayloadSizeBytes = 72u;
+    const uint32_t kMaxPayloadSizeBytes = 80u;
     const uint32_t kMaxRecursionDepth = 2u;
 
     const char kInputViewDir[] = "viewW";
@@ -171,6 +171,7 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     mTracer.pProgram->addDefine("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
     mTracer.pProgram->addDefine("SHOW_ORACLE_INFLUENCE", mShowOracleFunc ? "1" : "0");
+    mTracer.pProgram->addDefine("ORACLE_LOBE_DIST_FACTOR", mUseOracleLobeDistFactor ? "1" : "0");
     mTracer.pProgram->addDefines(mpShadowMap->getDefines());
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
@@ -236,11 +237,18 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
     {
         widget.checkbox("Use Oracle Function", mUseSMOracle);
         widget.tooltip("Enables the oracle function for Shadow Mapping",true);
+        if (mUseSMOracle)   //TODO add oracle settings if too many factors appear
+        {
+            widget.checkbox("Use Lobe factor", mUseOracleLobeDistFactor);
+            widget.tooltip("Uses a factor that increases the distance if a rough lobe was used (diffuse; specular WIP)");//TODO change text if specular is implemented
+        }
 
         widget.var("Use SM from Bounce", mUseShadowMapBounce, 0u, mMaxBounces + 1, 1u);
         widget.tooltip("Tells the renderer, at which bounces the shadow maps should be used. To disable shadow map usage set to \"Max bounces\" + 1 ", true);
         widget.checkbox("Use Hybrid SM", mUseHybridSM);
         widget.tooltip("Enables Hybrid Shadow Maps, where the edge of the shadow map is traced", true);
+
+       
 
         if (mpShadowMap)
             mpShadowMap->renderUI(group);
