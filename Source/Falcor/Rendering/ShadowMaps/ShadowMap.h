@@ -85,6 +85,15 @@ private:
         float farPlane = 30.f;
     };
 
+    enum LightTypeSM
+    {
+        NotSupported = 0x00,
+        Point = 0x01,
+        Spot = 0x02,
+        Directional = 0x04,
+    };
+
+    LightTypeSM getLightType(const ref<Light> light);
     bool isPointLight(const ref<Light> light);
     void prepareShadowMapBuffers();
     void prepareRasterProgramms();
@@ -96,6 +105,8 @@ private:
     DefineList getDefinesShadowMapGenPass() const;
 
     void renderCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
+    bool renderSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
+    void renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, bool useOrtho = false);
 
     // Getter
@@ -136,6 +147,7 @@ private:
     float mSlopeBias = 0.5f;
     bool mUseAlphaTest = true;
     float gPoissonDiscRad = 0.15f;
+    uint mCascadesLevelCount = 4;
 
     bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
@@ -145,18 +157,22 @@ private:
     bool mRasterDefinesChanged = false;
 
     //Internal
+    std::vector<float4x4> mCascadedVPMatrix;
+    uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
     float4x4 mProjectionMatrix = float4x4();
     float4x4 mOrthoMatrix = float4x4();
     float mSMCubePixelSize = 1.f;
     float mSMPixelSize = 1.f;
 
     
-    std::vector<bool> mIsCubeSM; // Vector for fast checks if the type is still correct
+    //std::vector<bool> mIsCubeSM;
+    std::vector<LightTypeSM> mPrevLightType;  // Vector to check if the Shadow Map Type is still correct
 
     std::vector<float4x4> mSpotDirViewProjMat;
 
-    std::vector<ref<Texture>> mpShadowMapsCube; // Cube Shadow Maps (Point Lights)
-    std::vector<ref<Texture>> mpShadowMaps;     // 2D Texture Shadow Maps (Spot + Directional Light)
+    std::vector<ref<Texture>> mpCascadedShadowMaps; //Cascaded Shadow Maps for Directional Lights
+    std::vector<ref<Texture>> mpShadowMapsCube;     // Cube Shadow Maps (Point Lights)
+    std::vector<ref<Texture>> mpShadowMaps;         // 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights)
     ref<Buffer> mpLightMapping;
     ref<Buffer> mpVPMatrixBuffer;
     ref<Buffer> mpVPMatrixStangingBuffer;
