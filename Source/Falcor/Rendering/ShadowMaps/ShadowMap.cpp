@@ -65,6 +65,9 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
     samplerDesc.setAddressingMode(Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap, Sampler::AddressMode::Wrap);
     mpShadowSampler = Sampler::create(mpDevice, samplerDesc);
 
+    // Set RasterizerStateDescription
+    updateRasterizerStates();
+
     mFirstFrame = true;
 }
 
@@ -274,7 +277,6 @@ void ShadowMap::setShaderData(const uint2 frameDim)
 
     // Parameters
     var["gShadowMapFarPlane"] = mFar;
-    var["gSMworldAcneBias"] = mShadowMapWorldAcneBias;
     var["gDirectionalOffset"] = mDirLightPosOffset;
     var["gShadowMapRes"] = mShadowMapSize;
     var["gSceneCenter"] = mSceneCenter;
@@ -323,6 +325,39 @@ void ShadowMap::setProjection(float near, float far)
     //Set normalized pixel sizes
     mSMCubePixelSize = getNormalizedPixelSize(uint2(mShadowMapSizeCube), float(M_PI_2), 1.f);
     mSMPixelSize = getNormalizedPixelSize(uint2(mShadowMapSize), float(M_PI_2), 1.f);
+}
+
+void ShadowMap::updateRasterizerStates() {
+    mFrontClockwiseRS[RasterizerState::CullMode::None] = RasterizerState::create(RasterizerState::Desc()
+                                                                                     .setFrontCounterCW(false)
+                                                                                     .setDepthBias(mBias, mSlopeBias)
+                                                                                     .setDepthClamp(true)
+                                                                                     .setCullMode(RasterizerState::CullMode::None));
+    mFrontClockwiseRS[RasterizerState::CullMode::Back] = RasterizerState::create(RasterizerState::Desc()
+                                                                                     .setFrontCounterCW(false)
+                                                                                     .setDepthBias(mBias, mSlopeBias)
+                                                                                     .setDepthClamp(true)
+                                                                                     .setCullMode(RasterizerState::CullMode::Back));
+    mFrontClockwiseRS[RasterizerState::CullMode::Front] = RasterizerState::create(RasterizerState::Desc()
+                                                                                      .setFrontCounterCW(false)
+                                                                                      .setDepthBias(mBias, mSlopeBias)
+                                                                                      .setDepthClamp(true)
+                                                                                      .setCullMode(RasterizerState::CullMode::Front));
+    mFrontCounterClockwiseRS[RasterizerState::CullMode::None] = RasterizerState::create(RasterizerState::Desc()
+                                                                                      .setFrontCounterCW(true)
+                                                                                      .setDepthBias(mBias, mSlopeBias)
+                                                                                      .setDepthClamp(true)
+                                                                                      .setCullMode(RasterizerState::CullMode::None));
+    mFrontCounterClockwiseRS[RasterizerState::CullMode::Back] = RasterizerState::create(RasterizerState::Desc()
+                                                                                      .setFrontCounterCW(true)
+                                                                                      .setDepthBias(mBias, mSlopeBias)
+                                                                                      .setDepthClamp(true)
+                                                                                      .setCullMode(RasterizerState::CullMode::Back));
+    mFrontCounterClockwiseRS[RasterizerState::CullMode::Front] = RasterizerState::create(RasterizerState::Desc()
+                                                                                      .setFrontCounterCW(true)
+                                                                                      .setDepthBias(mBias, mSlopeBias)
+                                                                                      .setDepthClamp(true)
+                                                                                      .setCullMode(RasterizerState::CullMode::Front));
 }
 
 bool ShadowMap::isPointLight(const ref<Light> light)
@@ -386,7 +421,7 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
         setSMShaderVars(vars, params);
 
         mShadowCubePass.pState->setFbo(mpFboCube);
-        mpScene->rasterize(pRenderContext, mShadowCubePass.pState.get(), mShadowCubePass.pVars.get(), mCullMode);
+        mpScene->rasterize(pRenderContext, mShadowCubePass.pState.get(), mShadowCubePass.pVars.get(), RasterizerState::CullMode::Front);
     }
 }
 
@@ -439,6 +474,14 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 
     if (mAlwaysRenderSM)
         mFirstFrame = true;
+
+    if (mBiasSettingsChanged)
+    {
+        updateRasterizerStates();   //DepthBias is set here
+        mFirstFrame = true; //Re render all SM
+        mBiasSettingsChanged = false;
+    }
+        
 
     // Rebuild the Shadow Maps
     if (mResetShadowMapBuffers || mShadowResChanged)
@@ -546,7 +589,10 @@ bool ShadowMap::update(RenderContext* pRenderContext)
         setSMShaderVars(vars, params);
 
         mShadowMiscPass.pState->setFbo(mpFbo);
-        mpScene->rasterize(pRenderContext, mShadowMiscPass.pState.get(), mShadowMiscPass.pVars.get(), mCullMode);
+        mpScene->rasterize(
+            pRenderContext, mShadowMiscPass.pState.get(), mShadowMiscPass.pVars.get(), mFrontClockwiseRS[mCullMode],
+            mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]
+        );
     }
 
     // Write all ViewProjectionMatrix to the buffer
@@ -574,8 +620,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 void ShadowMap::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Render every Frame", mAlwaysRenderSM);
-
-    widget.tooltip("If enables, renders the cube shadow map in one pass with an geometry shader.\n Else each face is rendered seperatry");
+    widget.tooltip("Renders all shadow maps every frame");
 
     // Near Far option
     static float2 nearFar = float2(mNear, mFar);
@@ -602,7 +647,8 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     if (widget.dropdown("Cull Mode", kShadowMapCullMode, (uint32_t&)mCullMode))
         mFirstFrame = true; // Render all shadow maps again
 
-    widget.var("Shadow World Acne", mShadowMapWorldAcneBias, 0.f, 50.f, 0.001f);
+    mBiasSettingsChanged |= widget.var("Shadow Map Bias", mBias, 0, 256, 1);
+    mBiasSettingsChanged |= widget.var("Shadow Slope Bias", mSlopeBias, 0.f, 50.f, 0.001f);
 
     mRasterDefinesChanged |= widget.checkbox("Alpha Test", mUseAlphaTest);
     widget.checkbox("Use PCF", mUsePCF);

@@ -28,21 +28,21 @@ struct ShadowMap
     StructuredBuffer<float4x4> gShadowMapVPBuffer;
 
     float gShadowMapFarPlane;
-    float gSMworldAcneBias;
     float gDirectionalOffset;    
     uint gShadowMapRes;
-    
-    float3 gSceneCenter;
     float gSMCubePixelSize;
     
+    float3 gSceneCenter;
     float gSMPixelSize;
+    
     float gCamerPixelSize;
     float gPoissonDiscRad;
-    uint _pad;
+    uint2 _pad;
     
 
     static const bool kUsePCF = SM_USE_PCF;
     static const bool kUsePoissonSampling = SM_USE_POISSON_SAMPLING;
+    static const float kCubeEpsilon = 1e-5f;
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] ={float2(-0.94201624, -0.39906216), float2(0.94558609, -0.76890725),
@@ -84,14 +84,16 @@ struct ShadowMap
         {
             float4x4 viewProjectMat = gShadowMapVPBuffer[index];
             float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
-            shadowUV.xy = (projPos.xy / projPos.w); //This is actually not necessary for Directional Lights
+            shadowUV.xyz = (projPos.xyz / projPos.w); //This is actually not necessary for Directional Lights
         }
         
         shadowUV.y *= -1; //Flip 
         
         if (!isCube)
         {
+            lightDist = shadowUV.z;
             shadowUV = shadowUV * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+            
             if (any(shadowUV.xy < 0.f) || any(shadowUV.xy > 1.f))   //Return if outside of the shadow map
                 return false;
         }
@@ -101,8 +103,9 @@ struct ShadowMap
     float standardShadowTest(in const uint index, in const float3 shadowUV, in const bool isCube, in const float farPlane, in const float lightDist)
     {
         float shadowDist = getShadowValue(index, shadowUV, isCube);
-        shadowDist *= farPlane;
-        if (shadowDist + gSMworldAcneBias > lightDist)
+        if (isCube)
+            shadowDist = (shadowDist - kCubeEpsilon) * farPlane;
+        if (shadowDist > lightDist)
             return 1.f;
         return 0.f;
     }
@@ -164,7 +167,7 @@ struct ShadowMap
                 shadowVals *= farPlane;
                 for (uint k = 0; k < 4; k++)
                 {
-                    if (shadowVals[k] + gSMworldAcneBias > lightDist)
+                    if (shadowVals[k] > lightDist)
                         shadow += 1.f;
                 }
                 shadow *= 0.25f;
@@ -173,14 +176,14 @@ struct ShadowMap
             {
                 float2 gatherUV = (floor(shadowUV.xy * float(gShadowMapRes) - 0.5) + 1.0f) / float(gShadowMapRes);
                 float4 shadowVals = gShadowMap[index].Gather(gShadowSampler, gatherUV);
-                shadowVals *= farPlane;
+                //shadowVals *= farPlane;
                 //Interpolation weights
                 float2 f = frac(shadowUV.xy * float(gShadowMapRes) - 0.5f);
                 // (-,+),(+,+)(+,-)(-,-)
                 float4 w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
                 for (uint k = 0; k < 4; k++)
                 {
-                    if (shadowVals[k] + gSMworldAcneBias > lightDist)
+                    if (shadowVals[k] > lightDist)
                         shadow += w[k];
                 }
             }
@@ -218,7 +221,10 @@ struct ShadowMap
             float4 shadowVals;
             float4 w = float4(0.25);
             if (isCube)
+            {
                 shadowVals = gShadowMapCube[index].Gather(gShadowSampler, shadowUV);
+                shadowVals *= farPlane;
+            }
             else
             {
                 float2 gatherUV = (floor(shadowUV.xy * float(gShadowMapRes) - 0.5) + 1.0f) / float(gShadowMapRes);
@@ -228,10 +234,10 @@ struct ShadowMap
                 w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
             }
                 
-            shadowVals *= farPlane;
+            
             for (uint k = 0; k < 4; k++)
             {
-                float shadowDepth = shadowVals[k] + gSMworldAcneBias;
+                float shadowDepth = shadowVals[k];
                 maxDist = min(maxDist, shadowDepth);
                 minDist = max(minDist, shadowDepth);
                 shadow += lightDist <= shadowDepth ? w[k] : 0.f;   //Add to shadow in pcf style

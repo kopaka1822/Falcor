@@ -80,12 +80,12 @@ float defaultPixelShader(float3 posW)
 }
 
 // Pixel Shaders
-float psMain(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Depth
+void psMain(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID)
 {
     #if USE_ALPHA_TEST
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
-    return defaultPixelShader(vsOut.posW);
+    //return defaultPixelShader(vsOut.posW);
 }
 
 float psMainCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target

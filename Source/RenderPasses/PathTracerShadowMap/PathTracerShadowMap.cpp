@@ -878,7 +878,7 @@ void PathTracerShadowMap::preparePathTracer(const RenderData& renderData)
     {
         auto reflector = mpReflectTypes->getProgram()->getReflector()->getParameterBlock("pathTracer");
         mpPathTracerBlock = ParameterBlock::create(mpDevice, reflector);
-        FALCOR_ASSERT(mpPathTracerShadowMapBlock);
+        FALCOR_ASSERT(mpPathTracerBlock);
         mVarsChanged = true;
     }
 

@@ -43,6 +43,7 @@
 #include <memory>
 #include <type_traits>
 #include <vector>
+#include <map>
 
 /*
     Wrapper Module for Shadow Maps, which allow ShadowMaps to be easily integrated into every Render Pass.
@@ -90,6 +91,7 @@ private:
     void prepareProgramms();
     void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
     void setProjection(float near = -1.f, float far = -1.f);
+    void updateRasterizerStates();
 
     DefineList getDefinesShadowMapGenPass() const;
 
@@ -118,7 +120,9 @@ private:
     uint mShadowMapSize = 1024;
     uint mShadowMapSizeCube = 512;
     ResourceFormat mShadowMapFormat = ResourceFormat::D32Float;
-    RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Front;
+    RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
+    std::map<RasterizerState::CullMode, ref<RasterizerState>> mFrontClockwiseRS;
+    std::map<RasterizerState::CullMode, ref<RasterizerState>> mFrontCounterClockwiseRS;
 
     // Settings
     float mNear = 0.01f;
@@ -127,7 +131,9 @@ private:
     float3 mSceneCenter = float3(0);
     bool mUsePCF = false;
     bool mUsePoissonDisc = false;
-    float mShadowMapWorldAcneBias = 0.0f;
+    bool mBiasSettingsChanged = false;
+    int32_t mBias = 16;
+    float mSlopeBias = 0.5f;
     bool mUseAlphaTest = true;
     float gPoissonDiscRad = 0.15f;
 
