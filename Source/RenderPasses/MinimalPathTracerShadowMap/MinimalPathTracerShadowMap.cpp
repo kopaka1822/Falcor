@@ -189,6 +189,7 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
     var["CB"]["gUseShadowMap"] = mUseShadowMapBounce;
+    var["CB"]["gOracleComp"] = mOracleCompaireValue;
 
     //Set Shadow Map per Iteration Shader Data
     mpShadowMap->setShaderDataAndBindBlock(var, renderData.getDefaultTextureDims());
@@ -235,28 +236,41 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
 
     if (auto group = widget.group("Shadow Map Options"))
     {
-        widget.checkbox("Use Oracle Function", mUseSMOracle);
-        widget.tooltip("Enables the oracle function for Shadow Mapping",true);
-        if (mUseSMOracle)   //TODO add oracle settings if too many factors appear
+        group.checkbox("Use Oracle Function", mUseSMOracle);
+        group.tooltip("Enables the oracle function for Shadow Mapping", true);
+        if (mUseSMOracle)
         {
-            widget.checkbox("Use Lobe factor", mUseOracleLobeDistFactor);
-            widget.tooltip("Uses a factor that increases the distance if a rough lobe was used (diffuse; specular WIP)");//TODO change text if specular is implemented
+            if (Gui::Group group2 = widget.group("OracleOptions", true)) // TODO add oracle settings if too many factors appear
+            {
+                group2.var("Oracle Compaire Value", mOracleCompaireValue, 0.f, 64.f, 0.1f);
+                group2.tooltip("Compaire Value for the Oracle function. Is basically compaired against ShadowMapPixelArea/CameraPixelArea.");
+                group2.checkbox("Use Lobe factor", mUseOracleLobeDistFactor);
+                group2.tooltip("Uses a factor that increases the distance if a rough lobe was used (diffuse; specular WIP)"); // TODO change text if specular is implemented
+            }
         }
+        
 
-        widget.var("Use SM from Bounce", mUseShadowMapBounce, 0u, mMaxBounces + 1, 1u);
-        widget.tooltip("Tells the renderer, at which bounces the shadow maps should be used. To disable shadow map usage set to \"Max bounces\" + 1 ", true);
-        widget.checkbox("Use Hybrid SM", mUseHybridSM);
-        widget.tooltip("Enables Hybrid Shadow Maps, where the edge of the shadow map is traced", true);
+        group.var("Use SM from Bounce", mUseShadowMapBounce, 0u, mMaxBounces + 1, 1u);
+        group.tooltip(
+            "Tells the renderer, at which bounces the shadow maps should be used. To disable shadow map usage set to \"Max bounces\" + 1 ",
+            true
+        );
+        if (group.checkbox("Use Hybrid SM", mUseHybridSM))
+        {
+            if (mUseHybridSM)
+                mOracleCompaireValue = 4.f;
+        }
+        group.tooltip("Enables Hybrid Shadow Maps, where the edge of the shadow map is traced", true);
 
        
 
         if (mpShadowMap)
             mpShadowMap->renderUI(group);
         else
-            widget.text("Further Shadow Map Options to appear \n when a scene is loaded in.");
+            group.text("Further Shadow Map Options to appear \n when a scene is loaded in.");
 
-        widget.checkbox("Show Oracle Function", mShowOracleFunc);
-        widget.tooltip("Use SM = Red; Use RayTracing/Hybrid SM = green. Shows only the for the first SM bounce", true);
+        group.checkbox("Show Oracle Function", mShowOracleFunc);
+        group.tooltip("Use SM = Red; Use RayTracing/Hybrid SM = green. Shows only the for the first SM bounce", true);
     }
 
     // If rendering options that modify the output have changed, set flag to indicate that.

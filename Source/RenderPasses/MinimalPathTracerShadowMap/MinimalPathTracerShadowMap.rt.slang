@@ -69,7 +69,7 @@ cbuffer CB
     uint        gFrameCount;        // Frame count since scene was loaded.
     uint        gPRNGDimension;     // First available PRNG dimension.
     uint        gUseShadowMap;      // Bounce at which the shadow map should be used
-    uint        _pad;               // Padding
+    float       gOracleComp;       // Oracle Compaire Value
 }
 
 // Inputs
@@ -286,7 +286,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     }
     
     float shadow;
-    bool useNormalSM = oracle <= 1.f;
+    bool useNormalSM = oracle <= gOracleComp;
     
     if (kUseHybridShadowMap && !useShadowRay)
     {
