@@ -111,7 +111,7 @@ void ShadowMap::prepareShadowMapBuffers()
         auto lightType = getLightType(light);
         mPrevLightType.push_back(lightType);
 
-        if (lightType & LightTypeSM::Point)
+        if (lightType == LightTypeSM::Point)
         {
             // Setup cube map tex
             auto format = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::R32Float : ResourceFormat::R16Unorm;
@@ -126,7 +126,7 @@ void ShadowMap::prepareShadowMapBuffers()
             countPoint++;
             mpShadowMapsCube.push_back(tex);
         }
-        else if (lightType & LightTypeSM::Spot)
+        else if (lightType == LightTypeSM::Spot)
         {
             tex = Texture::create2D(
                 mpDevice, mShadowMapSize, mShadowMapSize, mShadowMapFormat, 1u, 1u, nullptr,
@@ -138,10 +138,10 @@ void ShadowMap::prepareShadowMapBuffers()
             countMisc++;
             mpShadowMaps.push_back(tex);
         }
-        else if (lightType & LightTypeSM::Directional)
+        else if (lightType == LightTypeSM::Directional)
         {
             tex = Texture::create2D(
-                mpDevice, mShadowMapSize, mShadowMapSize, mShadowMapFormat, mCascadesLevelCount, 1u, nullptr,
+                mpDevice, mShadowMapSize, mShadowMapSize, mShadowMapFormat, mCascadedLevelCount, 1u, nullptr,
                 ResourceBindFlags::DepthStencil | ResourceBindFlags::ShaderResource
             );
             tex->setName("ShadowMapCascade" + std::to_string(countCascade));
@@ -156,6 +156,19 @@ void ShadowMap::prepareShadowMapBuffers()
         }
     }
 
+    //Check if multiple SM types are used
+    LightTypeSM checkType = LightTypeSM::NotSupported;
+    for (size_t i = 0; i < mPrevLightType.size(); i++)
+    {
+        if (i == 0)
+            checkType = mPrevLightType[i];
+        else if (checkType != mPrevLightType[i])
+        {
+            mMultipleSMTypes = true;
+            break;
+        }
+    }
+
     // Light Mapping Buffer
     if (!mpLightMapping && lightMapping.size() > 0)
     {
@@ -166,28 +179,28 @@ void ShadowMap::prepareShadowMapBuffers()
         mpLightMapping->setName("ShadowMapLightMapping");
     }
 
-    if (!mpVPMatrixStangingBuffer && (mpShadowMaps.size() > 0 || mpCascadedShadowMaps.size() > 0))
+    if ((!mpVPMatrixStangingBuffer || !mpVPMatrixBuffer) && (mpShadowMaps.size() > 0 || mpCascadedShadowMaps.size() > 0))
     {
-        size_t size = mpShadowMaps.size() + mpCascadedShadowMaps.size() * mCascadesLevelCount;
-        std::vector<float4x4> initData(mpShadowMaps.size());
+        size_t size = mpShadowMaps.size() + mpCascadedShadowMaps.size() * mCascadedLevelCount;
+        std::vector<float4x4> initData(size);
         for (size_t i = 0; i < initData.size(); i++)
             initData[i] = float4x4();
 
         mpVPMatrixStangingBuffer = Buffer::createStructured(
-            mpDevice, sizeof(float4x4), mpShadowMaps.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::Write, initData.data(),
+            mpDevice, sizeof(float4x4), size, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::Write, initData.data(),
             false
         );
         mpVPMatrixStangingBuffer->setName("ShadowMapViewProjectionStagingBuffer");
-    }
 
-    if (!mpVPMatrixBuffer && mpShadowMaps.size() > 0)
-    {
-        mpVPMatrixBuffer = Buffer::createStructured(
-            mpDevice, sizeof(float4x4), mpShadowMaps.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false
+         mpVPMatrixBuffer = Buffer::createStructured(
+            mpDevice, sizeof(float4x4), size, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false
         );
         mpVPMatrixBuffer->setName("ShadowMapViewProjectionBuffer");
+
+        mCascadedMatrixStartIndex = mpShadowMaps.size();   //Set the start index for the cascaded VP Mats
     }
 
+    mCascadedVPMatrix.resize(mpCascadedShadowMaps.size() * mCascadedLevelCount);
     mSpotDirViewProjMat.resize(mpShadowMaps.size());
     for (auto& vpMat : mSpotDirViewProjMat)
         vpMat = float4x4();
@@ -263,11 +276,14 @@ DefineList ShadowMap::getDefines() const
 
     uint countShadowMapsCube = std::max(1u, getCountShadowMapsCube());
     uint countShadowMapsMisc = std::max(1u, getCountShadowMaps());
-    bool multipleSMTypes = getCountShadowMapsCube() > 0 && getCountShadowMaps() > 0;
+    uint countShadowMapsCascade = std::max(1u, (uint) mpCascadedShadowMaps.size());
 
-    defines.add("MULTIPLE_SHADOW_MAP_TYPES", multipleSMTypes ? "1" : "0");
+    defines.add("MULTIPLE_SHADOW_MAP_TYPES", mMultipleSMTypes ? "1" : "0");
     defines.add("NUM_SHADOW_MAPS_CUBE", std::to_string(countShadowMapsCube));
     defines.add("NUM_SHADOW_MAPS_MISC", std::to_string(countShadowMapsMisc));
+    defines.add("NUM_SHADOW_MAPS_CASCADE", std::to_string(countShadowMapsCascade));
+    defines.add("CASCADED_MATRIX_OFFSET", std::to_string(mCascadedMatrixStartIndex));
+    defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
     defines.add("SM_USE_PCF", mUsePCF ? "1" : "0");
     defines.add("SM_USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
 
@@ -281,6 +297,7 @@ DefineList ShadowMap::getDefinesShadowMapGenPass() const
 {
     DefineList defines;
     defines.add("USE_ALPHA_TEST", mUseAlphaTest ? "1" : "0");
+    defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
 
@@ -304,6 +321,7 @@ void ShadowMap::setShaderData(const uint2 frameDim)
     var["gSMPixelSize"] = mSMPixelSize;
     var["gCamerPixelSize"] = getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight)  ,cameraData.aspectRatio);
     var["gPoissonDiscRad"] = gPoissonDiscRad;
+    var["gCascMaxFar"] = mCascadedMaxFar; 
 
 
     // Buffers and Textures
@@ -314,6 +332,10 @@ void ShadowMap::setShaderData(const uint2 frameDim)
     for (uint32_t i = 0; i < mpShadowMaps.size(); i++)
     {
         var["gShadowMap"][i] = mpShadowMaps[i]; // Can be Nullptr
+    }
+    for (uint32_t i = 0; i < mpCascadedShadowMaps.size(); i++)
+    {
+        var["gCascadedShadowMap"][i] = mpCascadedShadowMaps[i]; // Can be Nullptr
     }
 
     var["gShadowMapVPBuffer"] = mpVPMatrixBuffer; // Can be Nullptr
@@ -380,7 +402,7 @@ void ShadowMap::updateRasterizerStates() {
                                                                                       .setCullMode(RasterizerState::CullMode::Front));
 }
 
-ShadowMap::LightTypeSM ShadowMap::getLightType(const ref<Light> light)
+LightTypeSM ShadowMap::getLightType(const ref<Light> light)
 {
     const LightType& type = light->getType();
     if (type == LightType::Directional)
@@ -542,10 +564,115 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
     return true;
 }
 
-void ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext) {
-    //TODO
-    //Matrix Calc see https://learnopengl.com/Guest-Articles/2021/CSM
-    //Or https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps
+ //Calc based on https://learnopengl.com/Guest-Articles/2021/CSM
+void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) {
+   
+    auto& sceneBounds = mpScene->getSceneBounds();
+    auto camera = mpScene->getCamera();
+
+    mCascadedMaxFar = std::min(sceneBounds.radius() * 2, camera->getFarPlane()); // Clamp Far to scene bounds
+    uint startIdx = index * mCascadedLevelCount;    //Get start index in vector
+
+    const auto& cameraData = mpScene->getCamera()->getData();
+
+    float near = cameraData.nearZ;
+    float far = mCascadedMaxFar / mCascadedLevelCount; // TODO: Better seperation?
+
+   
+    float camFovY = focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight);
+    
+
+    for (uint i = 0; i < mCascadedLevelCount; i++)
+    {
+        //Get the 8 corners of the frustum Part
+        const float4x4 proj = math::perspective(camFovY, cameraData.aspectRatio, near, far);
+        const float4x4 inv = math::inverse(math::mul(proj, cameraData.viewMat));
+        std::vector<float4> frustumCorners;
+        for (uint x = 0; x <= 1; x++){
+            for (uint y = 0; y <= 1; y++){
+                for (uint z = 0; z <= 1; z++){
+                    const float4 pt = math::mul(inv, float4(2.f * x - 1.f, 2.f * y - 1.f, 2.f * z - 1.f, 1.f));
+                    frustumCorners.push_back(pt / pt.w);
+                }
+            }
+        }
+
+        //Get Centerpoint for view
+        float3 center = float3(0);
+        for (const auto& p : frustumCorners)
+            center += p.xyz();
+        center /= 8.f;
+        const float4x4 casView = math::matrixFromLookAt(center, center + lightData.dirW, float3(0, 1, 0));
+
+        //Get Box for Orto
+        float minX = std::numeric_limits<float>::max();
+        float maxX = std::numeric_limits<float>::lowest();
+        float minY = std::numeric_limits<float>::max();
+        float maxY = std::numeric_limits<float>::lowest();
+        float minZ = std::numeric_limits<float>::max();
+        float maxZ = std::numeric_limits<float>::lowest();
+        for (const float4& p : frustumCorners){
+            const float4 vp = math::mul(casView, p);
+            minX = std::min(minX, vp.x);
+            maxX = std::max(maxX, vp.x);
+            minY = std::min(minY, vp.y);
+            maxY = std::max(maxY, vp.y);
+            minZ = std::min(minZ, vp.z);
+            maxZ = std::max(maxZ, vp.z);
+        }
+
+        //Pull away minZ and maxZ depending on the scenes size (20% of total radius)
+        minZ -= 0.2f * sceneBounds.radius();
+        maxZ += 0.2f * sceneBounds.radius();
+
+        const float4x4 casProj = math::ortho(minX, maxX,  minY, maxY, minZ, maxZ);
+
+        mCascadedVPMatrix[startIdx * mCascadedLevelCount + i] = math::mul(casProj, casView);
+
+        //Update near far for next level
+        near = far;
+        far += mCascadedMaxFar / mCascadedLevelCount;
+    }
+}
+
+bool ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext) {
+    auto& lightData = light->getData();
+
+    if ( !light->isActive())
+    {
+        return false;
+    }
+
+    // Clear depth buffer.
+    
+
+    //Update viewProj
+    calcProjViewForCascaded(index, lightData);
+
+    uint casMatIdx = index * mCascadedLevelCount;
+    //Render each cascade
+    for (uint cascLevel = 0; cascLevel < mCascadedLevelCount; cascLevel++)
+    {
+        pRenderContext->clearDsv(mpCascadedShadowMaps[index]->getDSV(0, cascLevel, 1).get(), 1.f, 0);
+        ShaderParameters params;
+        params.lightPosition = lightData.posW;
+        params.farPlane = mFar;
+        params.viewProjectionMatrix = mCascadedVPMatrix[casMatIdx + cascLevel];
+
+        auto vars = mShadowMiscPass.pVars->getRootVar();
+        setSMShaderVars(vars, params);
+
+        mpFbo->attachDepthStencilTarget(mpCascadedShadowMaps[index], 0, cascLevel, 1);
+        mShadowMiscPass.pState->setFbo(mpFbo);
+        mpScene->rasterize(
+            pRenderContext, mShadowMiscPass.pState.get(), mShadowMiscPass.pVars.get(), mFrontClockwiseRS[mCullMode],
+            mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]
+        );
+    }
+
+    
+
+    return true;
 }
 
 bool ShadowMap::update(RenderContext* pRenderContext)
@@ -647,12 +774,11 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     updateVPBuffer |= lightRenderListCascaded.size() > 0;
     for (size_t i = 0; i < lightRenderListCascaded.size(); i++)
     {
-        renderCascaded(i, lightRenderListCascaded[i], pRenderContext);
+        updateVPBuffer |= renderCascaded(i, lightRenderListCascaded[i], pRenderContext);
     }
 
     // Write all ViewProjectionMatrix to the buffer
     // TODO optimize this depending on the number of active lights
-    // TODO Add cascaded
     if (updateVPBuffer)
     {
         float4x4* mats = (float4x4*)mpVPMatrixStangingBuffer->map(Buffer::MapType::Write);
@@ -662,11 +788,17 @@ bool ShadowMap::update(RenderContext* pRenderContext)
                 continue;
             mats[i] = mSpotDirViewProjMat[i];
         }
+
+        for (size_t i = 0; i < mpCascadedShadowMaps.size() * mCascadedLevelCount; i++)
+        {
+            mats[mCascadedMatrixStartIndex + i] = mCascadedVPMatrix[i];
+        }
+
         mpVPMatrixStangingBuffer->unmap();
 
-        pRenderContext->copyBufferRegion(
-            mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer.get(), 0, sizeof(float4x4) * mSpotDirViewProjMat.size()
-        );
+        size_t totalSize = mpShadowMaps.size() + mpCascadedShadowMaps.size() * mCascadedLevelCount;
+
+        pRenderContext->copyBufferRegion(mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer.get(), 0, sizeof(float4x4) * totalSize);
     }
 
     mFirstFrame = false;

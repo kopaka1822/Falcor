@@ -298,6 +298,7 @@ target_sources(Falcor PRIVATE
 	Rendering/ShadowMaps/ShadowMap.cpp
 	Rendering/ShadowMaps/ShadowMap.h
 	Rendering/ShadowMaps/ShadowMap.slang
+	Rendering/ShadowMaps/ShadowMapTypes.slang
 
     Rendering/Utils/PixelStats.cpp
     Rendering/Utils/PixelStats.cs.slang

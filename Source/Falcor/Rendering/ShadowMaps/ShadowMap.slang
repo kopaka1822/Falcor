@@ -5,6 +5,7 @@
 import Scene.Raytracing;
 import Rendering.Lights.LightHelpers;
 import Utils.Sampling.SampleGenerator;
+import ShadowMapTypes; 
 
 //Set Defines if they where not handled on the CPU
 #ifndef NUM_SHADOW_MAPS_CUBE
@@ -13,17 +14,19 @@ import Utils.Sampling.SampleGenerator;
 #ifndef NUM_SHADOW_MAPS_MISC
     #define NUM_SHADOW_MAPS_MISC 1
 #endif
+#ifndef NUM_SHADOW_MAPS_CASCADE
+    #define NUM_SHADOW_MAPS_CASCADE 1
+#endif
 #ifndef MULTIPLE_SHADOW_MAP_TYPES
     #define MULTIPLE_SHADOW_MAP_TYPES 1
 #endif
 
 struct ShadowMap
 {
-    static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;
-
     SamplerState gShadowSampler;
     TextureCube<float> gShadowMapCube[NUM_SHADOW_MAPS_CUBE];
     Texture2D<float> gShadowMap[NUM_SHADOW_MAPS_MISC];
+    Texture2DArray<float> gCascadedShadowMap[NUM_SHADOW_MAPS_CASCADE];
     StructuredBuffer<uint> gShadowMapIndexMap;
     StructuredBuffer<float4x4> gShadowMapVPBuffer;
 
@@ -37,9 +40,12 @@ struct ShadowMap
     
     float gCamerPixelSize;
     float gPoissonDiscRad;
-    uint2 _pad;
+    float gCascMaxFar;
+    uint _pad;
     
-
+    static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;
+    static const uint kCascadedMatOffset = CASCADED_MATRIX_OFFSET;
+    static const uint kCascadedLevels = CASCADED_LEVEL;
     static const bool kUsePCF = SM_USE_PCF;
     static const bool kUsePoissonSampling = SM_USE_POISSON_SAMPLING;
     static const float kCubeEpsilon = 1e-5f;
@@ -62,49 +68,91 @@ struct ShadowMap
 
     //Gets the shadow value
     // sample vec is either the directional vec (isCube = true) or the uvCoordinates
-    float getShadowValue(uint index, float3 sampleVec, bool isCube)
+    float getShadowValue(uint index, float3 sampleVec, const uint lightType, uint level = 0)
     {
-        if (isCube)
-            return gShadowMapCube[index].SampleLevel(gShadowSampler, sampleVec, 0.f);
-        else
-            return gShadowMap[index].SampleLevel(gShadowSampler, sampleVec.xy, 0.f);
+        float sv = 0.f;
+        switch (lightType)
+        {
+            case LightTypeSM::Point:
+                sv = gShadowMapCube[index].SampleLevel(gShadowSampler, sampleVec, 0.f);
+                break;
+            case LightTypeSM::Spot:
+                sv = gShadowMap[index].SampleLevel(gShadowSampler, sampleVec.xy, 0.f);
+                break;
+            case LightTypeSM::Directional:
+                sv = gCascadedShadowMap[index].SampleLevel(gShadowSampler, float3(sampleVec.xy, level), 0.f);
+                break;
+            default:
+                break;
+        }
+
+        return sv;
     }
 
-    bool getDistanceAndUV(in uint index, in float3 posW, const in LightData lightData, out float3 shadowUV, out float lightDist, out bool isCube)
+    uint getSMLightType(const in LightData lightData)
     {
-        isCube = lightData.type == uint(LightType::Point) && lightData.openingAngle > M_PI_2;
-        //Set Position and far plane depending on the type
-        float3 lightPosW = lightData.type == uint(LightType::Directional) ? gSceneCenter - normalize(lightData.dirW) * gDirectionalOffset : lightData.posW;
-        
-   
-        shadowUV = posW - lightPosW;
-        lightDist = length(shadowUV);
-        //If it is not a cube texture, calculate the UV coordinates of the light
-        if (!isCube)
-        {
-            float4x4 viewProjectMat = gShadowMapVPBuffer[index];
-            float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
-            shadowUV.xyz = (projPos.xyz / projPos.w); //This is actually not necessary for Directional Lights
-        }
-        
+        uint lightType = 0;
+        //Determine the light type
+        if (lightData.type == uint(LightType::Directional))
+            lightType = (uint) LightTypeSM::Directional;
+        else if (lightData.type == uint(LightType::Point) && lightData.openingAngle > M_PI_2)
+            lightType = (uint) LightTypeSM::Point;
+        else
+            lightType = (uint) LightTypeSM::Spot;
+
+        return lightType;
+    }
+    
+    bool pointDistanceAndSampleVec(in uint index, in float3 posW, const in LightData lightData, out float3 shadowUV, out float lightDist)
+    {
+        shadowUV = posW - lightData.posW;
+        lightDist = (length(shadowUV) / gShadowMapFarPlane) + kCubeEpsilon;
+        shadowUV.y *= -1; //Flip
+        return true;
+    }
+    
+    bool spotDistanceAndSampleVec(in uint index, in float3 posW, const in LightData lightData, out float2 shadowUV, out float lightDist)
+    {
+        float4x4 viewProjectMat = gShadowMapVPBuffer[index];
+        float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
+        projPos.xyz = (projPos.xyz / projPos.w); //This is actually not necessary for Directional Lights
+        lightDist = projPos.z;
+        shadowUV = projPos.xy;
         shadowUV.y *= -1; //Flip 
-        
-        if (!isCube)
-        {
-            lightDist = shadowUV.z;
-            shadowUV = shadowUV * 0.5 + 0.5; //UV from [-1,1] to [0,1]
-            
-            if (any(shadowUV.xy < 0.f) || any(shadowUV.xy > 1.f))   //Return if outside of the shadow map
-                return false;
-        }
+        shadowUV = shadowUV * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+
+        if (any(shadowUV.xy < 0.f) || any(shadowUV.xy > 1.f))   //Return if outside of the shadow map
+            return false;
         return true;
     }
 
-    float standardShadowTest(in const uint index, in const float3 shadowUV, in const bool isCube, in const float farPlane, in const float lightDist)
+    uint getCascadedLevel(float3 posW)
     {
-        float shadowDist = getShadowValue(index, shadowUV, isCube);
-        if (isCube)
-            shadowDist = (shadowDist - kCubeEpsilon) * farPlane;
+        float linearZ = abs(mul(gScene.camera.data.viewMat, float4(posW, 1.f)).z);
+        //float linearZ = distance(gScene.camera.getPosition(), posW);
+        linearZ = saturate(linearZ / gCascMaxFar); //Turn into cascaded linearZ (can be smaller than the real linZ)
+        return (uint)(floor(linearZ * kCascadedLevels));
+    }
+    
+    bool directionalDistanceAndSampleVec(in uint index, in uint level, in float3 posW, const in LightData lightData, out float2 shadowUV, out float lightDist)
+    {
+        uint bufferIdx = kCascadedMatOffset + index * kCascadedLevels;
+        float4x4 viewProjectMat = gShadowMapVPBuffer[bufferIdx + level];
+        float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
+        projPos.xyz = (projPos.xyz / projPos.w); //This is actually not necessary for Directional Lights
+        lightDist = projPos.z;
+        shadowUV = projPos.xy;
+        shadowUV.y *= -1; //Flip 
+        shadowUV = shadowUV * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+
+        if (any(shadowUV.xy < 0.f) || any(shadowUV.xy > 1.f))   //Return if outside of the shadow map
+            return false;
+        return true;
+    }
+    
+    float standardShadowTest(in const uint index, in const uint level,in const float3 shadowUV, in const uint lightType, in const float lightDist)
+    {
+        float shadowDist = getShadowValue(index, shadowUV, lightType, level);
         if (shadowDist > lightDist)
             return 1.f;
         return 0.f;
@@ -113,7 +161,6 @@ struct ShadowMap
     //Evaluates the shadow map for the given light. rng is only used in Poission sampling
     bool evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
     {
-        //TODO include checks and return false if shadow mapping is not possible
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
         if (kMultipleSMTypes)
@@ -122,28 +169,44 @@ struct ShadowMap
         }
         
         shadow = 0.f;
-        float lightDist;
-        float3 shadowUV;
-        bool isCube;
-        if (!getDistanceAndUV(index, posW, lightData, shadowUV, lightDist, isCube))
-            return true;
-
-        float farPlane = lightData.type == uint(LightType::Directional) ? gDirectionalOffset * 2 : gShadowMapFarPlane;
- 
+        float lightDist = 0.f;
+        float3 shadowUV = float3(0);
+        uint lightType = getSMLightType(lightData);
+        uint cascLevel = getCascadedLevel(posW);
+        
+        bool valid = false;
+        switch (lightType)
+        {
+            case LightTypeSM::Point:
+                valid = pointDistanceAndSampleVec(index, posW, lightData, shadowUV, lightDist);
+                break;
+            case LightTypeSM::Spot:
+                valid = spotDistanceAndSampleVec(index, posW, lightData, shadowUV.xy, lightDist);
+                break;
+            case LightTypeSM::Directional:
+                valid = directionalDistanceAndSampleVec(index, cascLevel, posW, lightData, shadowUV.xy, lightDist);
+                break;
+            default:
+                break;
+        }
+        
+        if (!valid)
+            return true;    //Ray is needed
+         
         //Shadow Test with shadow map
         if (!kUsePCF && !kUsePoissonSampling) 
         {
-            shadow += standardShadowTest(index, shadowUV, isCube, farPlane, lightDist);
+            shadow += standardShadowTest(index, cascLevel , shadowUV, lightType, lightDist);
         }
         else if (kUsePoissonSampling)
         {
-            if (isCube)
+            if (lightType == (uint) LightTypeSM::Point)
             {
                 for (uint k = 0; k < 4; k++)
                 {
                     uint poisIdx = uint(19.9999f * sampleNext1D(sg));
                     float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRad * 0.25f;
-                    shadow += standardShadowTest(index, uv, isCube, farPlane, lightDist);    //TODO Get a better solution than sampleNext3D
+                    shadow += standardShadowTest(index, cascLevel, uv, lightType, lightDist); //TODO Get a better solution than sampleNext3D
                 }
                 shadow *= 0.25f;
             }
@@ -154,17 +217,16 @@ struct ShadowMap
                     uint poisIdx = uint(15.9999f * sampleNext1D(sg));
                     float3 uv = shadowUV;
                     uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad * 32.f) / gShadowMapRes);
-                    shadow += standardShadowTest(index, uv, isCube, farPlane, lightDist);
+                    shadow += standardShadowTest(index, cascLevel, uv, lightType, lightDist);
                 }
                 shadow *= 0.25f;
             }
         }
         else    //PCF using gather (relatively cheap)
         {
-            if (isCube)
+            if (lightType == (uint) LightTypeSM::Point)
             {
                 float4 shadowVals = gShadowMapCube[index].Gather(gShadowSampler, shadowUV);
-                shadowVals *= farPlane;
                 for (uint k = 0; k < 4; k++)
                 {
                     if (shadowVals[k] > lightDist)
@@ -175,8 +237,11 @@ struct ShadowMap
             else
             {
                 float2 gatherUV = (floor(shadowUV.xy * float(gShadowMapRes) - 0.5) + 1.0f) / float(gShadowMapRes);
-                float4 shadowVals = gShadowMap[index].Gather(gShadowSampler, gatherUV);
-                //shadowVals *= farPlane;
+                float4 shadowVals;
+                if(lightType == (uint) LightTypeSM::Spot)
+                    shadowVals = gShadowMap[index].Gather(gShadowSampler, gatherUV);
+                else
+                    shadowVals = gCascadedShadowMap[index].Gather(gShadowSampler, float3(gatherUV, cascLevel));
                 //Interpolation weights
                 float2 f = frac(shadowUV.xy * float(gShadowMapRes) - 0.5f);
                 // (-,+),(+,+)(+,-)(-,-)
@@ -203,15 +268,32 @@ struct ShadowMap
         }
         
         shadow = 0.f;
-        float lightDist;
-        float3 shadowUV;
-        bool isCube;
-        if (!getDistanceAndUV(index, posW, lightData, shadowUV, lightDist, isCube))
-            return true;
+        float lightDist = 0.f;
+        float3 shadowUV = float3(0);
+        uint lightType = getSMLightType(lightData);
+        uint cascLevel = getCascadedLevel(posW);
+        
+        bool valid = false;
+        switch (lightType)
+        {
+            case LightTypeSM::Point:
+                valid = pointDistanceAndSampleVec(index, posW, lightData, shadowUV, lightDist);
+                break;
+            case LightTypeSM::Spot:
+                valid = spotDistanceAndSampleVec(index, posW, lightData, shadowUV.xy, lightDist);
+                break;
+            case LightTypeSM::Directional:
+                valid = directionalDistanceAndSampleVec(index, cascLevel, posW, lightData, shadowUV.xy, lightDist);
+                break;
+            default:
+                break;
+        }
+        
+        if (!valid)
+            return true; //Ray is needed
 
-        float farPlane = lightData.type == uint(LightType::Directional) ? gDirectionalOffset * 2 : gShadowMapFarPlane;
-
-        float maxDist = farPlane;
+       
+        float maxDist = gCascMaxFar;    //Maximum distance possible in scene
         float minDist = 0.f;
 
         //get min dist and max dist
@@ -220,15 +302,19 @@ struct ShadowMap
         {
             float4 shadowVals;
             float4 w = float4(0.25);
-            if (isCube)
+            if (lightType == (uint)LightTypeSM::Point)
             {
                 shadowVals = gShadowMapCube[index].Gather(gShadowSampler, shadowUV);
-                shadowVals *= farPlane;
             }
             else
             {
                 float2 gatherUV = (floor(shadowUV.xy * float(gShadowMapRes) - 0.5) + 1.0f) / float(gShadowMapRes);
-                shadowVals = gShadowMap[index].Gather(gShadowSampler, gatherUV);
+                
+                if (lightType == (uint) LightTypeSM::Spot)
+                    shadowVals = gShadowMap[index].Gather(gShadowSampler, gatherUV);
+                else
+                    shadowVals = gCascadedShadowMap[index].Gather(gShadowSampler, float3(gatherUV, cascLevel));
+                
                 float2 f = frac(shadowUV.xy * float(gShadowMapRes) - 0.5f);
                 // (-,+),(+,+)(+,-)(-,-)
                 w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));

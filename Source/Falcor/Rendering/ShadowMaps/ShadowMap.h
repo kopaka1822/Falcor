@@ -40,6 +40,8 @@
 #include "Utils/Debug/PixelDebug.h"
 #include "Scene/Scene.h"
 
+#include "ShadowMapTypes.slang"
+
 #include <memory>
 #include <type_traits>
 #include <vector>
@@ -85,14 +87,6 @@ private:
         float farPlane = 30.f;
     };
 
-    enum LightTypeSM
-    {
-        NotSupported = 0x00,
-        Point = 0x01,
-        Spot = 0x02,
-        Directional = 0x04,
-    };
-
     LightTypeSM getLightType(const ref<Light> light);
     bool isPointLight(const ref<Light> light);
     void prepareShadowMapBuffers();
@@ -106,8 +100,9 @@ private:
 
     void renderCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
     bool renderSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
-    void renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext);
+    bool renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, bool useOrtho = false);
+    void calcProjViewForCascaded(uint index, const LightData& lightData);
 
     // Getter
     std::vector<ref<Texture>>& getShadowMapsCube() { return mpShadowMapsCube; }
@@ -147,7 +142,7 @@ private:
     float mSlopeBias = 0.5f;
     bool mUseAlphaTest = true;
     float gPoissonDiscRad = 0.15f;
-    uint mCascadesLevelCount = 4;
+    uint mCascadedLevelCount = 4;
 
     bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
@@ -163,6 +158,8 @@ private:
     float4x4 mOrthoMatrix = float4x4();
     float mSMCubePixelSize = 1.f;
     float mSMPixelSize = 1.f;
+    bool mMultipleSMTypes = false;
+    float mCascadedMaxFar = 1000000.f;
 
     
     //std::vector<bool> mIsCubeSM;

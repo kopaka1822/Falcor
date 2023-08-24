@@ -307,7 +307,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
         else
             return float3(0, 1, 0);
     }
-
+        
     //Make sure the ray is used if no hybrid shadow mapping is used
     if (!kUseHybridShadowMap)
         useShadowRay |= !useNormalSM;
