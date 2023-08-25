@@ -21,8 +21,8 @@ import ShadowMapTypes;
     #define MULTIPLE_SHADOW_MAP_TYPES 1
 #endif
 
-#ifndef CASCADED_SLIZE_BUFFER_SIZE
-    #define CASCADED_SLIZE_BUFFER_SIZE 4
+#ifndef CASCADED_SLICE_BUFFER_SIZE
+    #define CASCADED_SLICE_BUFFER_SIZE 4
 #endif
 
 struct ShadowMap
@@ -35,15 +35,12 @@ struct ShadowMap
     StructuredBuffer<float4x4> gShadowMapVPBuffer;
     StructuredBuffer<float> gShadowMapNPSBuffer;
 
-    float gShadowMapFarPlane;
-    float gDirectionalOffset;    
+    float gShadowMapFarPlane;    
     uint gShadowMapRes;
     float gCameraNPS;
+    float gPoissonDiscRad;    
     
-    float3 gSceneCenter;
-    float gPoissonDiscRad;
-    
-    float gCascadedZSlices[CASCADED_SLIZE_BUFFER_SIZE];
+    float gCascadedZSlices[CASCADED_SLICE_BUFFER_SIZE]; //Between 4 and 8
     
     static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;
     static const uint kCascadedMatOffset = CASCADED_MATRIX_OFFSET;
@@ -99,7 +96,7 @@ struct ShadowMap
         //Determine the light type
         if (lightData.type == uint(LightType::Directional))
             lightType = (uint) LightTypeSM::Directional;
-        else if (lightData.type == uint(LightType::Point) && lightData.openingAngle > M_PI_2)
+        else if (lightData.type == uint(LightType::Point) && lightData.openingAngle > M_PI_4)
             lightType = (uint) LightTypeSM::Point;
         else
             lightType = (uint) LightTypeSM::Spot;

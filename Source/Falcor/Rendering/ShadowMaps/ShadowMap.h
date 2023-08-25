@@ -89,12 +89,10 @@ private:
     };
 
     LightTypeSM getLightType(const ref<Light> light);
-    bool isPointLight(const ref<Light> light);
     void prepareShadowMapBuffers();
     void prepareRasterProgramms();
     void prepareProgramms();
     void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
-    void setProjection(float near = -1.f, float far = -1.f);
     void updateRasterizerStates();
     void handleNormalizedPixelSizeBuffer();
 
@@ -103,7 +101,7 @@ private:
     void renderCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
     bool renderSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
     bool renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext);
-    float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, bool useOrtho = false);
+    float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix);
     void calcProjViewForCascaded(uint index, const LightData& lightData);
 
     // Getter
@@ -115,8 +113,6 @@ private:
     float getFarPlane() { return mFar; }
     float getNearPlane() { return mNear; }
     uint getResolution() { return mShadowMapSize; }
-    float3 getSceneCenter() { return mSceneCenter; }
-    float getDirectionalOffset() { return mDirLightPosOffset; }
     uint getCountShadowMapsCube() const { return mpShadowMapsCube.size(); }
     uint getCountShadowMaps() const { return mpShadowMaps.size(); }
 
@@ -136,8 +132,6 @@ private:
     // Settings
     float mNear = 0.01f;
     float mFar = 30.f;
-    float mDirLightPosOffset = 400.f;
-    float3 mSceneCenter = float3(0);
     bool mUsePCF = false;
     bool mUsePoissonDisc = false;
     bool mBiasSettingsChanged = false;
@@ -159,10 +153,6 @@ private:
     //Internal
     std::vector<float4x4> mCascadedVPMatrix;
     uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
-    float4x4 mProjectionMatrix = float4x4();
-    float4x4 mOrthoMatrix = float4x4();
-    float mSMCubePixelSize = 1.f;
-    float mSMPixelSize = 1.f;
     bool mMultipleSMTypes = false;
     float mCascadedMaxFar = 1000000.f;
     bool mCascadedFirstThisFrame = true;
@@ -173,7 +163,6 @@ private:
     
     //std::vector<bool> mIsCubeSM;
     std::vector<LightTypeSM> mPrevLightType;  // Vector to check if the Shadow Map Type is still correct
-
     std::vector<float4x4> mSpotDirViewProjMat;
 
     std::vector<ref<Texture>> mpCascadedShadowMaps; //Cascaded Shadow Maps for Directional Lights

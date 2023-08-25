@@ -57,8 +57,6 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
 
     prepareProgramms();
 
-    setProjection();
-
     // Create sampler.
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
@@ -284,7 +282,7 @@ DefineList ShadowMap::getDefines() const
     uint countShadowMapsMisc = std::max(1u, getCountShadowMaps());
     uint countShadowMapsCascade = std::max(1u, (uint) mpCascadedShadowMaps.size());
 
-    uint cascadedSlizeBufferSize = mCascadedLevelCount > 4 ? 8 : 4;
+    uint cascadedSliceBufferSize = mCascadedLevelCount > 4 ? 8 : 4;
 
     defines.add("MULTIPLE_SHADOW_MAP_TYPES", mMultipleSMTypes ? "1" : "0");
     defines.add("NUM_SHADOW_MAPS_CUBE", std::to_string(countShadowMapsCube));
@@ -292,7 +290,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("NUM_SHADOW_MAPS_CASCADE", std::to_string(countShadowMapsCascade));
     defines.add("CASCADED_MATRIX_OFFSET", std::to_string(mCascadedMatrixStartIndex));
     defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
-    defines.add("CASCADED_SLIZE_BUFFER_SIZE", std::to_string(cascadedSlizeBufferSize));
+    defines.add("CASCADED_SLICE_BUFFER_SIZE", std::to_string(cascadedSliceBufferSize));
     defines.add("SM_USE_PCF", mUsePCF ? "1" : "0");
     defines.add("SM_USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
     defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
@@ -326,9 +324,7 @@ void ShadowMap::setShaderData(const uint2 frameDim)
 
     // Parameters
     var["gShadowMapFarPlane"] = mFar;
-    var["gDirectionalOffset"] = mDirLightPosOffset;
     var["gShadowMapRes"] = mShadowMapSize;
-    var["gSceneCenter"] = mSceneCenter;
     var["gCameraNPS"] = getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight)  ,cameraData.aspectRatio);
     var["gPoissonDiscRad"] = gPoissonDiscRad;
         for (uint i = 0; i < mCascadedZSlices.size(); i++)
@@ -358,26 +354,6 @@ void ShadowMap::setShaderDataAndBindBlock(ShaderVar rootVar, const uint2 frameDi
 {
     setShaderData(frameDim);
     rootVar["gShadowMap"] = getParameterBlock();
-}
-
-void ShadowMap::setProjection(float near, float far)
-{
-    if (near > 0)
-        mNear = near;
-    if (far > 0)
-        mFar = far;
-
-    mProjectionMatrix = math::perspective(float(M_PI_2), 1.f, mNear, mFar);
-    auto& sceneBounds = mpScene->getSceneBounds();
-    mDirLightPosOffset = sceneBounds.radius();
-    mSceneCenter = sceneBounds.center();
-    mOrthoMatrix = math::ortho(
-        -sceneBounds.radius(), sceneBounds.radius(), -sceneBounds.radius(), sceneBounds.radius(), near, sceneBounds.radius() * 2
-    );
-
-    //Set normalized pixel sizes
-    mSMCubePixelSize = getNormalizedPixelSize(uint2(mShadowMapSizeCube), float(M_PI_2), 1.f);
-    mSMPixelSize = getNormalizedPixelSize(uint2(mShadowMapSize), float(M_PI_2), 1.f);
 }
 
 void ShadowMap::updateRasterizerStates() {
@@ -420,18 +396,13 @@ LightTypeSM ShadowMap::getLightType(const ref<Light> light)
         return LightTypeSM::Directional;
     else if (type == LightType::Point)
     {
-        if (light->getData().openingAngle > M_PI_2)
+        if (light->getData().openingAngle > M_PI_4)
             return LightTypeSM::Point;
         else
             return LightTypeSM::Spot;
     }
 
     return LightTypeSM::NotSupported;
-}
-
-bool ShadowMap::isPointLight(const ref<Light> light)
-{
-    return (light->getType() == LightType::Point) && (light->getData().openingAngle > M_PI_2);
 }
 
 void ShadowMap::setSMShaderVars(ShaderVar& var, ShaderParameters& params)
@@ -475,6 +446,8 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
     params.lightPosition = lightData.posW;
     params.farPlane = mFar;
 
+    const float4x4 projMat = math::perspective(float(M_PI_2), 1.f, mNear, mFar); //Is the same for all 6 faces
+
     pRenderContext->clearRtv(mpShadowMapsCube[index]->getRTV(0, 0, 6).get(), float4(1.f));
     for (size_t face = 0; face < 6; face++)
     {
@@ -484,7 +457,7 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
         mpFboCube->attachColorTarget(mpShadowMapsCube[index], 0, 0, face, 1);
         mpFboCube->attachDepthStencilTarget(mpDepth);
 
-        params.viewProjectionMatrix = getProjViewForCubeFace(face, lightData);
+        params.viewProjectionMatrix = getProjViewForCubeFace(face, lightData, projMat);
 
         auto vars = mShadowCubePass.pVars->getRootVar();
         setSMShaderVars(vars, params);
@@ -494,7 +467,7 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
     }
 }
 
-float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData, bool useOrtho)
+float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix)
 {
     float3 lightTarget;
     float3 up;
@@ -528,7 +501,7 @@ float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData
     lightTarget += lightData.posW;
     float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
 
-    return math::mul(mProjectionMatrix, viewMat);
+    return math::mul(projectionMatrix, viewMat);
 }
 
 bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered) {
@@ -557,10 +530,11 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
   
     float3 lightTarget = lightData.posW + lightData.dirW;
     float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, float3(0, 1, 0));
+    float4x4 projMat = math::perspective(lightData.openingAngle * 2, 1.f, mNear, mFar);
 
     params.lightPosition = lightData.posW;
     params.farPlane = mFar;
-    params.viewProjectionMatrix = math::mul(mProjectionMatrix, viewMat);     
+    params.viewProjectionMatrix = math::mul(projMat, viewMat);     
   
     mSpotDirViewProjMat[index] = params.viewProjectionMatrix;
 
@@ -745,7 +719,6 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     if (mResetShadowMapBuffers || mShadowResChanged)
     {
         prepareShadowMapBuffers();
-        setProjection(mNear, mFar);
     }
         
 
@@ -767,7 +740,6 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     {
         ref<Light> light = lights[i];
         LightTypeSM type = getLightType(light);
-        //bool isPoint = isPointLight(light);
 
         // Check if the type has changed and end the pass if that is the case
         if (type != mPrevLightType[i])
@@ -866,7 +838,6 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     {
         mNear = nearFar.x;
         mFar = nearFar.y;
-        setProjection(mNear, mFar);
         mFirstFrame = true; // Rerender all shadow maps
     }
 
@@ -953,7 +924,7 @@ void ShadowMap::handleNormalizedPixelSizeBuffer()
             pointNPS.push_back(getNormalizedPixelSize(uint2(mShadowMapSizeCube), float(M_PI_2), 1.f));
             break;
         case LightTypeSM::Spot:
-            spotNPS.push_back(getNormalizedPixelSize(uint2(mShadowMapSize), float(M_PI_2), 1.f));   //TODO add the used opening angle if supported by matrixes
+            spotNPS.push_back(getNormalizedPixelSize(uint2(mShadowMapSize), light->getData().openingAngle * 2, 1.f));
             break;
         case LightTypeSM::Directional:
             for (uint i = 0; i < mCascadedLevelCount; i++)
