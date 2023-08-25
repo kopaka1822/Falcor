@@ -279,10 +279,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     bool useShadowRay = gUseShadowMap > pathLength;
     if (kUseOracle && !useShadowRay)
     {
-        float3 toLight = lightData.posW - sd.posW;
-        const bool isCube = lightData.type == uint(LightType::Point) && lightData.openingAngle > M_PI_2;
-
-        oracle = gShadowMap.oracleFunction(sd.V, rayData.distance, toLight, sd.frame.N, isCube);
+        oracle = gShadowMap.oracleFunction(lightIndex, lightData, sd, rayData.distance);
     }
     
     float shadow;

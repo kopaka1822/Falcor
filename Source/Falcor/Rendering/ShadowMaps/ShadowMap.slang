@@ -33,20 +33,16 @@ struct ShadowMap
     Texture2DArray<float> gCascadedShadowMap[NUM_SHADOW_MAPS_CASCADE];
     StructuredBuffer<uint> gShadowMapIndexMap;
     StructuredBuffer<float4x4> gShadowMapVPBuffer;
+    StructuredBuffer<float> gShadowMapNPSBuffer;
 
     float gShadowMapFarPlane;
     float gDirectionalOffset;    
     uint gShadowMapRes;
-    float gSMCubePixelSize;
+    float gCameraNPS;
     
     float3 gSceneCenter;
-    float gSMPixelSize;
-    
-    float gCamerPixelSize;
     float gPoissonDiscRad;
-    float gCascMaxFar;
-    uint _pad;
-
+    
     float gCascadedZSlices[CASCADED_SLIZE_BUFFER_SIZE];
     
     static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;
@@ -55,6 +51,8 @@ struct ShadowMap
     static const bool kUsePCF = SM_USE_PCF;
     static const bool kUsePoissonSampling = SM_USE_POISSON_SAMPLING;
     static const float kCubeEpsilon = 1e-5f;
+    static const uint kNPSOffsetSpot = NPS_OFFSET_SPOT;
+    static const uint kNPSOffsetCasc = NPS_OFFSET_CASCADED;
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] ={float2(-0.94201624, -0.39906216), float2(0.94558609, -0.76890725),
@@ -305,7 +303,7 @@ struct ShadowMap
             return true; //Ray is needed
 
        
-        float maxDist = gCascMaxFar;    //Maximum distance possible in scene
+        float maxDist = FLT_MAX;    //Maximum distance possible in scene
         float minDist = 0.f;
 
         //get min dist and max dist
@@ -358,18 +356,41 @@ struct ShadowMap
 
     //Oracle Funktion for determening if a shadow map should be used
     //
-    float oracleFunction(float3 viewDir, float rayDistance, float3 toLight, float3 surfaceNormal, bool isCube)
+    float oracleFunction(uint lightIdx, const in LightData lightData, const in ShadingData sd , float rayDistance)
     {
-        //Normalize lightDir
-        float distanceToLight = length(toLight);
-        toLight /= distanceToLight;
+        //Get the right index if multiple shadow map types are used
+        if (kMultipleSMTypes)
+        {
+            lightIdx = gShadowMapIndexMap[lightIdx];
+        }
+        uint lightType = getSMLightType(lightData);
+
+        if (lightType == (uint) LightTypeSM::Spot)
+            lightIdx += kNPSOffsetSpot;
+        
+        float distanceToLight;
+        float3 toLight;
+
+        //Get LightDir and Distance
+        if (lightType == (uint) LightTypeSM::Directional)
+        {
+            return 0.f; //TODO  
+        }
+        else
+        {
+            toLight = lightData.posW - sd.posW;
+            distanceToLight = length(toLight);
+            toLight /= distanceToLight;
+        }
+
+        const float3 N = sd.frame.N;
         
         //Get the cos theta between normal and vectors
-        float angleCamera = dot(viewDir, surfaceNormal);
-        float angleLight = dot(toLight, surfaceNormal);
+        float angleCamera = dot(sd.V, N);
+        float angleLight = dot(toLight, N);
         
-        float projAreaCam = gCamerPixelSize * rayDistance;
-        float pixelAreaSM = isCube ? gSMCubePixelSize : gSMPixelSize;
+        float projAreaCam = gCameraNPS * rayDistance;
+        float pixelAreaSM = gShadowMapNPSBuffer[lightIdx];
         float projSMArea = pixelAreaSM * distanceToLight;
 
         return (projSMArea * angleCamera) / (projAreaCam * angleLight);

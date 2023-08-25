@@ -5,10 +5,10 @@ BEGIN_NAMESPACE_FALCOR
 
 enum class LightTypeSM : uint32_t
     {
-        NotSupported = 0x00,
-        Point = 0x01,
-        Spot = 0x02,
-        Directional = 0x04,
+        NotSupported = 0,
+        Point = 1,
+        Spot = 2,
+        Directional = 3,
     };
 FALCOR_ENUM_INFO(LightTypeSM, {
     { LightTypeSM::NotSupported, "NotSupported" },

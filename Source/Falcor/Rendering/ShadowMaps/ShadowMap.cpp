@@ -89,12 +89,14 @@ void ShadowMap::prepareShadowMapBuffers()
         mpShadowMaps.clear();
         mpShadowMapsCube.clear();
         mpCascadedShadowMaps.clear();
+        mpNormalizedPixelSize.reset();
     }
 
     // Reset the light mapping
     if (mResetShadowMapBuffers)
     {
         mpLightMapping.reset();
+        mpNormalizedPixelSize.reset();
         mpVPMatrixBuffer.reset();
     }
 
@@ -144,7 +146,7 @@ void ShadowMap::prepareShadowMapBuffers()
         else if (lightType == LightTypeSM::Directional)
         {
             tex = Texture::create2D(
-                mpDevice, mShadowMapSize, mShadowMapSize, mShadowMapFormat, mCascadedLevelCount, 1u, nullptr,
+                mpDevice, mShadowMapSizeCascaded, mShadowMapSizeCascaded, mShadowMapFormat, mCascadedLevelCount, 1u, nullptr,
                 ResourceBindFlags::DepthStencil | ResourceBindFlags::ShaderResource
             );
             tex->setName("ShadowMapCascade" + std::to_string(countCascade));
@@ -204,6 +206,7 @@ void ShadowMap::prepareShadowMapBuffers()
     }
 
     mCascadedVPMatrix.resize(mpCascadedShadowMaps.size() * mCascadedLevelCount);
+    mCascadedWidthHeight.resize(mpCascadedShadowMaps.size() * mCascadedLevelCount); //For Normalized Pixel Size
     mSpotDirViewProjMat.resize(mpShadowMaps.size());
     for (auto& vpMat : mSpotDirViewProjMat)
         vpMat = float4x4();
@@ -292,6 +295,9 @@ DefineList ShadowMap::getDefines() const
     defines.add("CASCADED_SLIZE_BUFFER_SIZE", std::to_string(cascadedSlizeBufferSize));
     defines.add("SM_USE_PCF", mUsePCF ? "1" : "0");
     defines.add("SM_USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
+    defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
+    defines.add("NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
+    
 
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
@@ -323,16 +329,11 @@ void ShadowMap::setShaderData(const uint2 frameDim)
     var["gDirectionalOffset"] = mDirLightPosOffset;
     var["gShadowMapRes"] = mShadowMapSize;
     var["gSceneCenter"] = mSceneCenter;
-    var["gSMCubePixelSize"] = mSMCubePixelSize;
-    var["gSMPixelSize"] = mSMPixelSize;
-    var["gCamerPixelSize"] = getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight)  ,cameraData.aspectRatio);
+    var["gCameraNPS"] = getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight)  ,cameraData.aspectRatio);
     var["gPoissonDiscRad"] = gPoissonDiscRad;
-    var["gCascMaxFar"] = mCascadedMaxFar;
         for (uint i = 0; i < mCascadedZSlices.size(); i++)
             var["gCascadedZSlices"][i] = mCascadedZSlices[i];
     
-
-
     // Buffers and Textures
     for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
     {
@@ -347,6 +348,7 @@ void ShadowMap::setShaderData(const uint2 frameDim)
         var["gCascadedShadowMap"][i] = mpCascadedShadowMaps[i]; // Can be Nullptr
     }
 
+    var["gShadowMapNPSBuffer"] = mpNormalizedPixelSize; //Can be Nullptr on init
     var["gShadowMapVPBuffer"] = mpVPMatrixBuffer; // Can be Nullptr
     var["gShadowMapIndexMap"] = mpLightMapping;   // Can be Nullptr
     var["gShadowSampler"] = mpShadowSampler;
@@ -612,8 +614,6 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
 
     for (uint i = 0; i < mCascadedLevelCount; i++)
     {
-       
-
         //Get the 8 corners of the frustum Part
          const float4x4 proj = math::perspective(camFovY, cameraData.aspectRatio, near, mCascadedZSlices[i]);
         const float4x4 inv = math::inverse(math::mul(proj, cameraData.viewMat));
@@ -670,6 +670,7 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
 
         const float4x4 casProj = math::ortho(minX, maxX,  minY, maxY, minZ, maxZ);
 
+        mCascadedWidthHeight[startIdx * mCascadedLevelCount + i] = float2(abs(maxX - minX), abs(maxY - minY));
         mCascadedVPMatrix[startIdx * mCascadedLevelCount + i] = math::mul(casProj, casView);
 
         //Update near far for next level
@@ -846,6 +847,8 @@ bool ShadowMap::update(RenderContext* pRenderContext)
         pRenderContext->copyBufferRegion(mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer.get(), 0, sizeof(float4x4) * totalSize);
     }
 
+    handleNormalizedPixelSizeBuffer();
+
     mFirstFrame = false;
     return true;
 }
@@ -920,6 +923,66 @@ float ShadowMap::getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect
     float wPix = w / frameDim.x;
     float hPix = h / frameDim.y;
     return wPix * hPix;
+}
+
+float ShadowMap::getNormalizedPixelSize(uint2 frameDim, float2 widthHeight)
+{
+    float wPix = widthHeight.x / frameDim.x;
+    float hPix = widthHeight.y / frameDim.y;
+    return wPix * hPix;
+}
+
+void ShadowMap::handleNormalizedPixelSizeBuffer()
+{
+    //If buffer is build, no need to rebuild it
+    if (mpNormalizedPixelSize)
+        return;
+
+    //Get the NPS(Normalized Pixel Size) for each light type
+    std::vector<float> pointNPS;
+    std::vector<float> spotNPS;
+    std::vector<float> dirNPS;
+
+    uint cascadedCount = 0;
+    for (ref<Light> light : mpScene->getLights())
+    {
+        auto type = getLightType(light);
+        switch (type)
+        {
+        case LightTypeSM::Point:
+            pointNPS.push_back(getNormalizedPixelSize(uint2(mShadowMapSizeCube), float(M_PI_2), 1.f));
+            break;
+        case LightTypeSM::Spot:
+            spotNPS.push_back(getNormalizedPixelSize(uint2(mShadowMapSize), float(M_PI_2), 1.f));   //TODO add the used opening angle if supported by matrixes
+            break;
+        case LightTypeSM::Directional:
+            for (uint i = 0; i < mCascadedLevelCount; i++)
+            {
+                dirNPS.push_back(
+                    getNormalizedPixelSize(uint2(mShadowMapSizeCascaded), mCascadedWidthHeight[cascadedCount * mCascadedLevelCount + i])
+                );
+            }
+            cascadedCount++;
+            break;
+        }
+    }
+
+    mNPSOffsets = uint2(pointNPS.size(), pointNPS.size() + spotNPS.size());
+    size_t totalSize = mNPSOffsets.y + dirNPS.size();
+
+    std::vector<float> npsData;
+    npsData.reserve(totalSize);
+    for (auto nps : pointNPS)
+        npsData.push_back(nps);
+    for (auto nps : spotNPS)
+        npsData.push_back(nps);
+    for (auto nps : dirNPS)
+        npsData.push_back(nps);
+
+    //Create the buffer
+    mpNormalizedPixelSize = Buffer::createStructured(
+        mpDevice, sizeof(float), npsData.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, npsData.data(), false
+    );
 }
 
 }

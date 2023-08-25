@@ -77,6 +77,7 @@ public:
 
     //Get Normalized pixel size used in oracle function
     float getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect);
+    float getNormalizedPixelSize(uint2 frameDim, float2 widthHeight);    //Ortho case
 
 private:
     struct ShaderParameters
@@ -95,6 +96,7 @@ private:
     void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
     void setProjection(float near = -1.f, float far = -1.f);
     void updateRasterizerStates();
+    void handleNormalizedPixelSizeBuffer();
 
     DefineList getDefinesShadowMapGenPass() const;
 
@@ -125,6 +127,7 @@ private:
 
     uint mShadowMapSize = 1024;
     uint mShadowMapSizeCube = 512;
+    uint mShadowMapSizeCascaded = 2048;
     ResourceFormat mShadowMapFormat = ResourceFormat::D32Float;
     RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
     std::map<RasterizerState::CullMode, ref<RasterizerState>> mFrontClockwiseRS;
@@ -164,6 +167,8 @@ private:
     float mCascadedMaxFar = 1000000.f;
     bool mCascadedFirstThisFrame = true;
     std::vector<float> mCascadedZSlices;
+    std::vector<float2> mCascadedWidthHeight;
+    uint2 mNPSOffsets = uint2(0);   //x = idx first spot; y = idx first cascade
 
     
     //std::vector<bool> mIsCubeSM;
@@ -177,6 +182,7 @@ private:
     ref<Buffer> mpLightMapping;
     ref<Buffer> mpVPMatrixBuffer;
     ref<Buffer> mpVPMatrixStangingBuffer;
+    ref<Buffer> mpNormalizedPixelSize;             //Buffer with the normalized pixel size for each ShadowMap
     ref<Sampler> mpShadowSampler;
     ref<Texture> mpDepth;
     ref<Texture> mpTestTex;
