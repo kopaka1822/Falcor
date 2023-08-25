@@ -21,6 +21,10 @@ import ShadowMapTypes;
     #define MULTIPLE_SHADOW_MAP_TYPES 1
 #endif
 
+#ifndef CASCADED_SLIZE_BUFFER_SIZE
+    #define CASCADED_SLIZE_BUFFER_SIZE 4
+#endif
+
 struct ShadowMap
 {
     SamplerState gShadowSampler;
@@ -42,6 +46,8 @@ struct ShadowMap
     float gPoissonDiscRad;
     float gCascMaxFar;
     uint _pad;
+
+    float gCascadedZSlices[CASCADED_SLIZE_BUFFER_SIZE];
     
     static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;
     static const uint kCascadedMatOffset = CASCADED_MATRIX_OFFSET;
@@ -128,10 +134,16 @@ struct ShadowMap
 
     uint getCascadedLevel(float3 posW)
     {
+        
         float linearZ = abs(mul(gScene.camera.data.viewMat, float4(posW, 1.f)).z);
-        //float linearZ = distance(gScene.camera.getPosition(), posW);
-        linearZ = saturate(linearZ / gCascMaxFar); //Turn into cascaded linearZ (can be smaller than the real linZ)
-        return (uint)(floor(linearZ * kCascadedLevels));
+        uint level = 0;
+        for (uint i = 0; i < kCascadedLevels - 1; i++)
+        {
+            if (linearZ < gCascadedZSlices[i])
+                return level;
+            level++;
+        }
+        return level;
     }
     
     bool directionalDistanceAndSampleVec(in uint index, in uint level, in float3 posW, const in LightData lightData, out float2 shadowUV, out float lightDist)

@@ -83,9 +83,12 @@ void ShadowMap::prepareShadowMapBuffers()
             shadowMap.reset();
         for (auto shadowMap : mpShadowMapsCube)
             shadowMap.reset();
+        for (auto shadowMap : mpCascadedShadowMaps)
+            shadowMap.reset();
 
         mpShadowMaps.clear();
         mpShadowMapsCube.clear();
+        mpCascadedShadowMaps.clear();
     }
 
     // Reset the light mapping
@@ -278,12 +281,15 @@ DefineList ShadowMap::getDefines() const
     uint countShadowMapsMisc = std::max(1u, getCountShadowMaps());
     uint countShadowMapsCascade = std::max(1u, (uint) mpCascadedShadowMaps.size());
 
+    uint cascadedSlizeBufferSize = mCascadedLevelCount > 4 ? 8 : 4;
+
     defines.add("MULTIPLE_SHADOW_MAP_TYPES", mMultipleSMTypes ? "1" : "0");
     defines.add("NUM_SHADOW_MAPS_CUBE", std::to_string(countShadowMapsCube));
     defines.add("NUM_SHADOW_MAPS_MISC", std::to_string(countShadowMapsMisc));
     defines.add("NUM_SHADOW_MAPS_CASCADE", std::to_string(countShadowMapsCascade));
     defines.add("CASCADED_MATRIX_OFFSET", std::to_string(mCascadedMatrixStartIndex));
     defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
+    defines.add("CASCADED_SLIZE_BUFFER_SIZE", std::to_string(cascadedSlizeBufferSize));
     defines.add("SM_USE_PCF", mUsePCF ? "1" : "0");
     defines.add("SM_USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
 
@@ -321,7 +327,10 @@ void ShadowMap::setShaderData(const uint2 frameDim)
     var["gSMPixelSize"] = mSMPixelSize;
     var["gCamerPixelSize"] = getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight)  ,cameraData.aspectRatio);
     var["gPoissonDiscRad"] = gPoissonDiscRad;
-    var["gCascMaxFar"] = mCascadedMaxFar; 
+    var["gCascMaxFar"] = mCascadedMaxFar;
+        for (uint i = 0; i < mCascadedZSlices.size(); i++)
+            var["gCascadedZSlices"][i] = mCascadedZSlices[i];
+    
 
 
     // Buffers and Textures
@@ -569,23 +578,44 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
    
     auto& sceneBounds = mpScene->getSceneBounds();
     auto camera = mpScene->getCamera();
-
-    mCascadedMaxFar = std::min(sceneBounds.radius() * 2, camera->getFarPlane()); // Clamp Far to scene bounds
-    uint startIdx = index * mCascadedLevelCount;    //Get start index in vector
-
     const auto& cameraData = mpScene->getCamera()->getData();
 
-    float near = cameraData.nearZ;
-    float far = mCascadedMaxFar / mCascadedLevelCount; // TODO: Better seperation?
+    if (mCascadedFirstThisFrame)
+    {
+        //Calc the cascaded far value
+        mCascadedMaxFar = std::min(sceneBounds.radius() * 2, camera->getFarPlane()); // Clamp Far to scene bounds
 
-   
-    float camFovY = focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight);
+        //Check if the size of the array is still right
+        if (mCascadedZSlices.size() != mCascadedLevelCount)
+        {
+            mCascadedZSlices.clear();
+            mCascadedZSlices.resize(mCascadedLevelCount);
+        }
+
+        //Z slizes formula by: https://developer.download.nvidia.com/SDK/10.5/opengl/src/cascaded_shadow_maps/doc/cascaded_shadow_maps.pdf
+        const uint N = mCascadedLevelCount;
+        for (uint i = 1 ; i <= N; i++)
+        {
+            mCascadedZSlices[i-1] = mCascadedFrustumFix * (cameraData.nearZ * pow((mCascadedMaxFar / cameraData.nearZ), float(i) / N));
+            mCascadedZSlices[i-1] += (1.f - mCascadedFrustumFix) * (cameraData.nearZ + (float(i) / N) * (mCascadedMaxFar - cameraData.nearZ));
+        }
+
+        mCascadedFirstThisFrame = false;
+    }
+
     
+    uint startIdx = index * mCascadedLevelCount;    //Get start index in vector
+
+    //Set start near
+    float near = cameraData.nearZ;
+    float camFovY = focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight);
 
     for (uint i = 0; i < mCascadedLevelCount; i++)
     {
+       
+
         //Get the 8 corners of the frustum Part
-        const float4x4 proj = math::perspective(camFovY, cameraData.aspectRatio, near, far);
+         const float4x4 proj = math::perspective(camFovY, cameraData.aspectRatio, near, mCascadedZSlices[i]);
         const float4x4 inv = math::inverse(math::mul(proj, cameraData.viewMat));
         std::vector<float4> frustumCorners;
         for (uint x = 0; x <= 1; x++){
@@ -621,22 +651,38 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
             maxZ = std::max(maxZ, vp.z);
         }
 
-        //Pull away minZ and maxZ depending on the scenes size (20% of total radius)
-        minZ -= 0.2f * sceneBounds.radius();
-        maxZ += 0.2f * sceneBounds.radius();
+        if (minZ < 0)
+        {
+            minZ *= mCascZMult;
+        }
+        else
+        {
+            minZ /= mCascZMult;
+        }
+        if (maxZ < 0)
+        {
+            maxZ /= mCascZMult;
+        }
+        else
+        {
+            maxZ *= mCascZMult;
+        }
 
         const float4x4 casProj = math::ortho(minX, maxX,  minY, maxY, minZ, maxZ);
 
         mCascadedVPMatrix[startIdx * mCascadedLevelCount + i] = math::mul(casProj, casView);
 
         //Update near far for next level
-        near = far;
-        far += mCascadedMaxFar / mCascadedLevelCount;
+        near = mCascadedZSlices[i];
     }
 }
 
-bool ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext) {
+bool ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext)
+{
     auto& lightData = light->getData();
+
+    if (index == 0)
+        mCascadedFirstThisFrame = true;
 
     if ( !light->isActive())
     {
@@ -669,8 +715,6 @@ bool ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRen
             mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]
         );
     }
-
-    
 
     return true;
 }
@@ -772,6 +816,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 
     //Render cascaded
     updateVPBuffer |= lightRenderListCascaded.size() > 0;
+    bool cascFirstThisFrame = true;
     for (size_t i = 0; i < lightRenderListCascaded.size(); i++)
     {
         updateVPBuffer |= renderCascaded(i, lightRenderListCascaded[i], pRenderContext);
@@ -831,6 +876,26 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         mShadowMapSizeCube = resolution.y;
         mShadowResChanged = true;
     }
+
+    if (mpCascadedShadowMaps.size() > 0)
+    {
+        if (auto group = widget.group("CascadedOptions"))
+        {
+            if (widget.var("Cacaded Level", mCascadedLevelCount, 1u, 8u, 1u))
+            {
+                mResetShadowMapBuffers = true;
+                mShadowResChanged = true;
+            }
+                
+            widget.tooltip("Changes the number of cascaded levels");
+            widget.var("Z Slize Exp influence", mCascadedFrustumFix, 0.f, 1.f, 0.001f);
+            widget.tooltip("Influence of the Exponentenial part in the zSlice calculation. (1-Value) is used for the linear part");
+            widget.var("Z Value Multi", mCascZMult, 1.f, 1000.f, 0.1f);
+            widget.tooltip("Pulls the Z-Values of each cascaded level apart. Is needed as not all Geometry is in the View-Frustum");
+
+        }
+    }
+    
 
     if (widget.dropdown("Cull Mode", kShadowMapCullMode, (uint32_t&)mCullMode))
         mFirstFrame = true; // Render all shadow maps again

@@ -143,6 +143,8 @@ private:
     bool mUseAlphaTest = true;
     float gPoissonDiscRad = 0.15f;
     uint mCascadedLevelCount = 4;
+    float mCascadedFrustumFix = 0.5f;
+    float mCascZMult = 10.f;    //Pushes the z Values apart
 
     bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
@@ -160,6 +162,8 @@ private:
     float mSMPixelSize = 1.f;
     bool mMultipleSMTypes = false;
     float mCascadedMaxFar = 1000000.f;
+    bool mCascadedFirstThisFrame = true;
+    std::vector<float> mCascadedZSlices;
 
     
     //std::vector<bool> mIsCubeSM;
