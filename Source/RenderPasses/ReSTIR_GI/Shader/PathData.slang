@@ -1,8 +1,8 @@
 import Utils.Math.PackedFormats;
 import Utils.Math.FormatConversion;
 
-//Final Gather Data. 64 bytes
-struct FGData{
+//Path Data Data. 64 bytes
+struct GIData{
     float3 posW;
     uint packedNormal;
     float3 flux;

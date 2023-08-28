@@ -10,13 +10,13 @@ import Rendering.Materials.Fresnel;
   * Register presure is reduced through the packed fields in the Surface struct
 */
 
-struct PackedSurfaceDataFG{
+struct PackedSurfaceDataGI{
     uint2 data0;
     uint2 data1;
     uint2 data2;
 };
 
-struct SurfaceFG{
+struct SurfaceGI{
     float3 posW;       //< World position of the hit point     
     float viewDepth;    //< View Depth from camera to hit point. Negative values indicate an invalid Surface
     uint packedNormal;  //< Packed Normal
@@ -67,7 +67,7 @@ struct SurfaceFG{
     }
 
     //Initialize with packedData and a viewDir
-    __init(const PackedSurfaceDataFG packed, const float3 viewDir){
+    __init(const PackedSurfaceDataGI packed, const float3 viewDir){
         posW.xy = asfloat(packed.data0);
         posW.z = asfloat(packed.data1.x);
         viewDepth = asfloat(packed.data1.y);
@@ -77,8 +77,8 @@ struct SurfaceFG{
      }
 
     //Packs the surface data
-    PackedSurfaceDataFG pack(){
-        PackedSurfaceDataFG packed = {};
+    PackedSurfaceDataGI pack(){
+        PackedSurfaceDataGI packed = {};
         packed.data0 = asuint(posW.xy);
         packed.data1.x = asuint(posW.z);
         packed.data1.y = asuint(viewDepth);
@@ -88,9 +88,9 @@ struct SurfaceFG{
         return packed;
     }
 
-    static SurfaceFG create(float3 posW, float3 normal, float3 viewDir, float viewDepth, float roughness, float diffuse, float specular)
+    static SurfaceGI create(float3 posW, float3 normal, float3 viewDir, float viewDepth, float roughness, float diffuse, float specular)
     {
-        SurfaceFG s = { };
+        SurfaceGI s = { };
         s.posW = posW;
         s.viewDir = viewDir;
         s.normal = normal;
@@ -145,7 +145,7 @@ struct SurfaceFG{
     }
 
     //ReStir version
-    bool isValidNeighbor(const in SurfaceFG neighbor, const float depthThreshold, const float normalThreshold)
+    bool isValidNeighbor(const in SurfaceGI neighbor, const float depthThreshold, const float normalThreshold)
     {
         float normalCheck = dot(normal, neighbor.normal);
         float minLinZDiff = viewDepth * depthThreshold;
@@ -153,7 +153,7 @@ struct SurfaceFG{
         return ((normalCheck >= normalThreshold) && (linZDiff <= minLinZDiff));
     }
     //ReStir heuristic + material difference
-    bool isValidNeighbor(const in SurfaceFG neighbor, const float depthThreshold, const float normalThreshold, const float matThreshold)
+    bool isValidNeighbor(const in SurfaceGI neighbor, const float depthThreshold, const float normalThreshold, const float matThreshold)
     {
         float normalCheck = dot(normal, neighbor.normal);
         float minLinZDiff = viewDepth * depthThreshold;

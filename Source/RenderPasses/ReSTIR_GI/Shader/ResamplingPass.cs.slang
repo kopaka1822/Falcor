@@ -11,8 +11,8 @@ import Utils.Math.MathHelpers;
 import Utils.Color.ColorHelpers;
 
 import Reservoir;
-import SurfaceDataFG;
-import FinalGatherData;
+import SurfaceDataGI;
+import PathData;
 
 #if USE_REDUCED_RESERVOIR_FORMAT
     RWTexture2D<uint2> gReservoir;
@@ -22,10 +22,10 @@ import FinalGatherData;
     Texture2D<uint4> gReservoirPrev;
 #endif
 
-RWStructuredBuffer<FGData> gFGSampleData;
-StructuredBuffer<FGData> gFGSampleDataPrev;
-StructuredBuffer<PackedSurfaceDataFG> gSurface;
-StructuredBuffer<PackedSurfaceDataFG>gSurfacePrev;
+RWStructuredBuffer<GIData> gGIPathData;
+StructuredBuffer<GIData> gGIPathDataPrev;
+StructuredBuffer<PackedSurfaceDataGI> gSurface;
+StructuredBuffer<PackedSurfaceDataGI>gSurfacePrev;
 Texture2D<float2> gMVec;
 Texture2D<float4> gView;
 Texture2D<float4> gPrevView;
@@ -61,18 +61,13 @@ struct LightSample{
     float Li;
 };
 
-struct PhotonLight{
-    float4 pos;
-    float4 flux;
-};
-
 static const float kRayEpsilon = 0.99f;
 
 uint index2Dto1D(uint2 idx, uint width){
     return idx.x + width * idx.y;
 }
 
-SurfaceFG getSurface(uint2 idx, bool prev)
+SurfaceGI getSurface(uint2 idx, bool prev)
 {
     float3 viewDir;
     if (prev)
@@ -80,26 +75,26 @@ SurfaceFG getSurface(uint2 idx, bool prev)
     else
         viewDir = gView[idx].xyz;
 
-    PackedSurfaceDataFG surfaceData;
+    PackedSurfaceDataGI surfaceData;
     if (prev)
         surfaceData = gSurfacePrev[index2Dto1D(idx, gFrameDim.x)];
     else
         surfaceData = gSurface[index2Dto1D(idx, gFrameDim.x)];
     
-    return SurfaceFG(surfaceData, viewDir);
+    return SurfaceGI(surfaceData, viewDir);
 }
 
-bool getLightSample(in FGData fgData, in float3 worldPos, out LightSample ls, out float sampleDistance)
+bool getLightSample(in GIData giData, in float3 worldPos, out LightSample ls, out float sampleDistance)
 {
     //Get light position    
-    ls.dir = fgData.posW - worldPos;
+    ls.dir = giData.posW - worldPos;
     sampleDistance = length(ls.dir);
     ls.dir = ls.dir / sampleDistance; //normalize
     
-    ls.Li = luminance(fgData.flux);
+    ls.Li = luminance(giData.flux);
     float distAttenuation = vplAttenuation(sampleDistance, gAttenuationRadius);
-    float cosTheta = saturate(dot(normalize(fgData.normal), -ls.dir));
-    float jacobian = (cosTheta * distAttenuation) / fgData.jacobianDeterminant;
+    float cosTheta = saturate(dot(normalize(giData.normal), -ls.dir));
+    float jacobian = (cosTheta * distAttenuation) / giData.jacobianDeterminant;
 
     //Jacobian is outside of valid values (Solid angle ratio too different)
     if(jacobian < gJacobianMinMax.x || jacobian > gJacobianMinMax.y)
@@ -110,7 +105,7 @@ bool getLightSample(in FGData fgData, in float3 worldPos, out LightSample ls, ou
     return ls.Li >= 0; //true if sample is valid
 }
 
-void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
+void temporalResampling(uint2 pixel, inout Reservoir r, inout GIData giSample, in SurfaceGI surface)
 {
     SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
 
@@ -126,7 +121,7 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
 
     //Check if a neighbor surface matches up
     //Try to find a matching surface in the neighborhood of the reprojected pixel
-    SurfaceFG temporalSurface;
+    SurfaceGI temporalSurface;
     bool selectPrevSample = false;
     uint previousM = 0;
     bool foundTemporalSurface = false;
@@ -168,9 +163,9 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
         previousM = prev.M;
 
         bool sampleValid = true;
-        FGData fgPrev = gFGSampleDataPrev[index2Dto1D(idx, gFrameDim.x)];
+        GIData giPrev = gGIPathDataPrev[index2Dto1D(idx, gFrameDim.x)];
         //Kill the reservoir if the sample is no longer valid or was replaced
-        if (!fgPrev.valid)
+        if (!giPrev.valid)
         {
             prev.weightSum = 0;
             prev.M = 0;
@@ -184,7 +179,7 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
         {
             LightSample ls = { };
             float dis = 0;
-            if (!getLightSample(fgPrev, surface.posW, ls, dis))
+            if (!getLightSample(giPrev, surface.posW, ls, dis))
                 combine = false;
             targetPdf = surface.getPdf(ls.dir, ls.Li);
         }
@@ -192,7 +187,7 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
         if(combine)
             selectPrevSample = r.combineReservoir(prev, targetPdf, sampleNext1D(sg));
         if (selectPrevSample)
-            fgSample = fgPrev;
+            giSample = giPrev;
     }
 
 
@@ -205,7 +200,7 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
     {
         LightSample ls = { };
         float distance = 0;
-        bool valid = getLightSample(fgSample, temporalSurface.posW, ls, distance);
+        bool valid = getLightSample(giSample, temporalSurface.posW, ls, distance);
         float ps = valid ? temporalSurface.getPdf(ls.dir, ls.Li) : 0.f;
 
 #if BIAS_CORRECTION_MODE >= BIAS_MODE_RAYTRACE
@@ -231,7 +226,7 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
 #endif //BIAS_MODE_BASIC
 }
 
-void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
+void spatialResampling(uint2 pixel, inout Reservoir r, inout GIData giSample, in SurfaceGI surface)
 {
     SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
     
@@ -257,7 +252,7 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
         min(max(uint2(0), idx), gFrameDim - 1);
 
         //Get surface and check if valid
-        SurfaceFG neighSurface = getSurface(idx, false); //Get surface
+        SurfaceGI neighSurface = getSurface(idx, false); //Get surface
         if (!neighSurface.valid)
             continue;
         
@@ -268,9 +263,9 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
         Reservoir sampledReservoir = Reservoir(gReservoirPrev[idx]);    //Current reservoir is stored in prev
         
         bool sampleValid = true;
-        FGData fgNeigh = gFGSampleDataPrev[index2Dto1D(idx, gFrameDim.x)];
+        GIData giNeigh = gGIPathDataPrev[index2Dto1D(idx, gFrameDim.x)];
         //Kill the reservoir if the sample is no longer valid or was replaced
-        if (!fgNeigh.valid)
+        if (!giNeigh.valid)
         {
             sampledReservoir.weightSum = 0;
             sampledReservoir.M = 0;
@@ -289,7 +284,7 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
         {
             LightSample ls = { };
             float dis;
-            if (!getLightSample(fgNeigh, surface.posW, ls, dis))
+            if (!getLightSample(giNeigh, surface.posW, ls, dis))
                 continue;
             sampleTargetPdf = surface.getPdf(ls.dir, ls.Li);
         }
@@ -297,7 +292,7 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
         if (r.combineReservoir(sampledReservoir, sampleTargetPdf, sampleNext1D(sg)))
         {
             selectedSample = i;
-            fgSample = fgNeigh;
+            giSample = giNeigh;
         }
     }
 
@@ -316,7 +311,7 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
             //Get Index
             uint2 idx = uint2(cachedIndices[i] >> 16, (cachedIndices[i] & 0xFFFF));
             //Get Surface
-            SurfaceFG biasSurface = getSurface(idx, false);
+            SurfaceGI biasSurface = getSurface(idx, false);
             if (!biasSurface.valid)
                 continue;
         
@@ -326,7 +321,7 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
             float dist = 0;
 
             //Skip Sample if it was rejected by jacobian
-            if (!getLightSample(fgSample, biasSurface.posW, ls, dist))
+            if (!getLightSample(giSample, biasSurface.posW, ls, dist))
                 continue;
             ps = biasSurface.getPdf(ls.dir, ls.Li);
         
@@ -360,7 +355,7 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
     #endif //BIAS MODE BASIC    
 }
 
-void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
+void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout GIData giSample, in SurfaceGI surface)
 {
     SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
 
@@ -394,7 +389,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
         min(max(uint2(0), idx), gFrameDim - 1);
         
         //Get Hit sample from last frame
-        SurfaceFG temporalSurface = getSurface(idx, true);
+        SurfaceGI temporalSurface = getSurface(idx, true);
         if (!temporalSurface.valid)
             continue;
 
@@ -444,7 +439,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
             min(max(uint2(0), idx), gFrameDim - 1);
             
              //Get surface and check if valid
-            SurfaceFG neighSurface = getSurface(idx, true);
+            SurfaceGI neighSurface = getSurface(idx, true);
             if (!neighSurface.valid)
                 continue;
         
@@ -456,11 +451,11 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
         Reservoir sampledReservoir = Reservoir(gReservoirPrev[idx]);
         sampledReservoir.M = min(sampledReservoir.M, historyLimit);
 
-        FGData fgPrev = gFGSampleDataPrev[index2Dto1D(idx, gFrameDim.x)];
+        GIData giPrev = gGIPathDataPrev[index2Dto1D(idx, gFrameDim.x)];
 
         //Kill the reservoir if it is not valid
         bool sampleValid = true;
-        if (!fgPrev.valid)
+        if (!giPrev.valid)
         {
             sampledReservoir.weightSum = 0;
             sampledReservoir.M = 0;
@@ -480,7 +475,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
         {
             LightSample ls = { };
             float dis;
-            if (!getLightSample(fgPrev, surface.posW, ls, dis))
+            if (!getLightSample(giPrev, surface.posW, ls, dis))
                 continue;
             sampleTargetPdf = surface.getPdf(ls.dir, ls.Li);
         }
@@ -488,7 +483,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
         if (r.combineReservoir(sampledReservoir, sampleTargetPdf, sampleNext1D(sg)))
         {
             selectedSample = i;
-            fgSample = fgPrev;
+            giSample = giPrev;
         }
     }
 
@@ -507,7 +502,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
             //Get Index
             uint2 idx = uint2(cachedIndices[i] >> 16, (cachedIndices[i] & 0xFFFF));
             //Get Surface
-            SurfaceFG biasSurface = getSurface(idx, true);
+            SurfaceGI biasSurface = getSurface(idx, true);
             if (!biasSurface.valid)
                 continue;
         
@@ -517,7 +512,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
             float dist = 0;
 
             //Skip Sample if it was rejected by jacobian
-            if (!getLightSample(fgSample, biasSurface.posW, ls, dist))
+            if (!getLightSample(giSample, biasSurface.posW, ls, dist))
                 continue;
             ps = biasSurface.getPdf(ls.dir, ls.Li);
         
@@ -554,26 +549,26 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
 void main(uint2 dTid : SV_DispatchThreadID)
 {    
     //Check if surface is valid
-    SurfaceFG surface = getSurface(dTid, false);
+    SurfaceGI surface = getSurface(dTid, false);
     if (!surface.valid)
         return;
         
     //Load reservoir from current iteration
     Reservoir r = { };
-    FGData fgData = FGData();
+    GIData giData = GIData();
 
     //Load current reservoir in 
 #if MODE_SPATIAL
     Reservoir current = Reservoir(gReservoirPrev[dTid]);
     if (current.weightSum > 0)
     {
-        fgData = gFGSampleDataPrev[index2Dto1D(dTid, gFrameDim.x)];
+        giData = gGIPathDataPrev[index2Dto1D(dTid, gFrameDim.x)];
     }
 #else //Mode Temporal or Spatiotemporal
     Reservoir current = Reservoir(gReservoir[dTid]);
     if (current.weightSum > 0)
     {
-        fgData = gFGSampleData[index2Dto1D(dTid, gFrameDim.x)];
+        giData = gGIPathData[index2Dto1D(dTid, gFrameDim.x)];
     }
 #endif //MODE_SPATIAL
     
@@ -581,11 +576,11 @@ void main(uint2 dTid : SV_DispatchThreadID)
     
     //Do resampling
 #if MODE_SPATIOTEMPORAL
-    spatiotemporalResampling(dTid, r, fgData, surface);
+    spatiotemporalResampling(dTid, r, giData, surface);
 #elif MODE_TEMPORAL
-    temporalResampling(dTid, r, fgData, surface);
+    temporalResampling(dTid, r, giData, surface);
 #elif MODE_SPATIAL
-    spatialResampling(dTid, r, fgData, surface);
+    spatialResampling(dTid, r, giData, surface);
 #endif //Resampling Mode
 
     //Store reservoir and sample data    
@@ -594,5 +589,5 @@ void main(uint2 dTid : SV_DispatchThreadID)
 #else
     gReservoir[dTid] = r.pack();
 #endif
-    gFGSampleData[index2Dto1D(dTid, gFrameDim.x)] = fgData;
+    gGIPathData[index2Dto1D(dTid, gFrameDim.x)] = giData;
 }

@@ -6,35 +6,29 @@ import Scene.Intersection;
 import Utils.Math.MathHelpers;
 import Utils.Sampling.SampleGenerator;
 import Scene.Material.ShadingUtils;
+import Rendering.Lights.EmissiveLightSampler;
+import Rendering.Lights.EmissiveLightSamplerHelpers;
+import Rendering.Lights.LightHelpers;
 import Rendering.Materials.Microfacet;
 import Rendering.Materials.Fresnel;
 import Rendering.Lights.LightHelpers;
+import Utils.Geometry.GeometryHelpers;
 import Utils.Math.PackedFormats;
 import Utils.Math.FormatConversion;
 import Utils.Color.ColorHelpers;
 import Rendering.RTXDI.RTXDI;
 
 import Reservoir;
-import FinalGatherData;
-import SurfaceDataFG;
-import Hash;
+import PathData;
+import SurfaceDataGI;
 
 cbuffer PerFrame
 {
     uint gFrameCount;       // Frame count since scene was loaded.
-    float2 gCollectionRadius;
-    float gHashScaleFactor; //Hash scale factor. 1/diameter
     float gAttenuationRadius;
-    uint3 _pad;
+    uint gBounces;
+    uint _pad;
 }
-
-cbuffer Constant{
-    uint gHashSize;     //Size is always 2^x
-    bool gUseAlphaTest; //Alpha test
-    bool gDeltaRejection;   //Accept every non delta surface as diffuse
-    //bool gCreateFallbackSample; //Creates a reference sample if current sample was invalid
-    uint _pad2;
-}  
 
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
@@ -42,9 +36,8 @@ Texture2D<float4> gView;
 Texture2D <float>gLinZ;
 
 //Outputs
-RWStructuredBuffer<PackedSurfaceDataFG> gSurfaceData;
-RWTexture2D<PackedHitInfo> gFinalGatherHit;
-RWTexture2D<uint> gPhotonCullingMask;
+RWStructuredBuffer<PackedSurfaceDataGI> gSurfaceData;
+RWStructuredBuffer<GIData> gGISample;
 
 //Outputs
 #if USE_REDUCED_RESERVOIR_FORMAT
@@ -53,15 +46,18 @@ RWTexture2D<uint> gPhotonCullingMask;
     RWTexture2D<uint4> gReservoir;
 #endif
 
-static const bool kUsePhotonCulling = USE_PHOTON_CULLING;
+EmissiveLightSampler gEmissiveSampler; ///< Emissive light sampler. Only valid when kUseEmissiveLights == true.
+
+static const bool kNEE = GI_USE_NEE; 
+static const bool kUseAnalyticLights = GI_USE_ANALYTIC; 
+static const bool kUseEmissiveLights = GI_USE_EMISSIVE; 
+static const bool kUseAlphaTest = GI_ALPHA_TEST;
+static const bool kUseMIS = GI_MIS;
+static const bool kRussianRoulette = GI_RUSSIAN_ROULETTE;
 
 struct TraceData
 {
-    PackedHitInfo packedHitInfo; //< Reflection albedo of the current hit point
-    uint packedNormal; ///< Face normal encoded in 16 bit polar coordinates
-    float distance; ///< 
-    float NdotL; ///< NdotL precalculated for targetPDF
-    uint _pad;
+    PackedHitInfo packedHitInfo; //< Packed Hit Info
 
     SampleGenerator sg; ///< Per-ray state for the sample generator (up to 16B).
     
@@ -70,13 +66,30 @@ struct TraceData
     static TraceData create()
     {
         TraceData d;
-        d.NdotL = 0.f;
-        d.packedHitInfo = {
-        };
-        d.packedNormal = 0;
-        d.distance = -1;
-        d._pad = 0;
+        d.packedHitInfo = { };
         return d;
+    }
+};
+
+struct ShadowTraceData
+{
+    bool visible;
+};
+
+ /** Describes a light sample.
+    */
+struct LightSample
+{
+    float3 Li; ///< Incident radiance at the shading point (unshadowed). This is already divided by the pdf.
+    float pdf; ///< Pdf with respect to solid angle at the shading point.
+    float3 origin; ///< Ray origin for visibility evaluation (offseted to avoid self-intersection).
+    float distance; ///< Ray distance for visibility evaluation (shortened to avoid self-intersection).
+    float3 dir; ///< Ray direction for visibility evaluation (normalized).
+    uint lightType; ///< Light type this sample comes from (0 -> analytic; 1 -> emissive).
+
+    RayDesc getVisibilityRay()
+    {
+        return {origin, 0.f, dir, distance};
     }
 };
 
@@ -95,137 +108,171 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
     return sd;
 }
 
-#if CULLING_ALT_VERSION
-//Alternative Version to fill the culling grid. Only marks the cells 
-void cullingGetArrayOfCells(float3 position, float radius, inout uint arrCounter, out int3 outCells[16])
+   /** Generates a light sample on the emissive geometry.
+        \param[in] shading data.
+        \param[in] upperHemisphere True if only upper hemisphere should be considered.
+        \param[in,out] sg Sample generator.
+        \param[out] ls Struct describing valid samples.
+        \return True if the sample is valid and has nonzero contribution, false otherwise.
+    */
+bool generateEmissiveSample(const in ShadingData sd, const bool upperHemisphere, inout SampleGenerator sg, out LightSample ls)
 {
-    float3 cell = (position.xyz * gHashScaleFactor);
-    float radInScale = radius * gHashScaleFactor;
-    float3 cellFloor = floor(cell);
-    int3 startCell = int3(cellFloor);
-    float3 relCellPos = abs(cell - cellFloor);
-    //Get offset direction
-    int3 offsetCell;
-    offsetCell.x = relCellPos.x < 0.5 ? -1 : 1;
-    offsetCell.y = relCellPos.y < 0.5 ? -1 : 1;
-    offsetCell.z = relCellPos.z < 0.5 ? -1 : 1;
+    ls = { }; // Default initialization to avoid divergence at returns.
+    if (!kUseEmissiveLights)
+        return false;
 
-    const int3 cellPattern[7] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1), int3(1, 1, 0), int3(1, 0, 1), int3(0, 1, 1), int3(1, 1, 1) };
-    int3 cellSet = int3(0);
+    TriangleLightSample tls;
+    if (!gEmissiveSampler.sampleLight(sd.posW, sd.faceN, upperHemisphere, sg, tls))
+        return false;
+
+        // Setup returned sample.
+    ls.Li = tls.pdf > 0.f ? tls.Le / tls.pdf : float3(0);
+    ls.pdf = tls.pdf;
+        // Offset shading and light position to avoid self-intersection.
+    float3 lightPos = computeRayOrigin(tls.posW, tls.normalW);
+    ls.origin = computeRayOrigin(sd.posW, dot(sd.faceN, lightPos - sd.posW) >= 0 ? sd.faceN : -sd.faceN);
+    float3 toLight = lightPos - ls.origin;
+    ls.distance = length(toLight);
+    ls.dir = normalize(toLight);
+
+    return any(ls.Li > 0.f);
+}
+
+    /** Generates a light sample on the analytic lights.
+        \param[in] shading data.
+        \param[in,out] sg Sample generator.
+        \param[out] ls Struct describing valid samples.
+        \return True if the sample is valid and has nonzero contribution, false otherwise.
+    */
+bool generateAnalyticLightSample(const in ShadingData sd, inout SampleGenerator sg, out LightSample ls)
+{
+    ls = { }; // Default initialization to avoid divergence at returns.
+
+    uint lightCount = gScene.getLightCount();
+    if (!kUseAnalyticLights || lightCount == 0)
+        return false;
+
+    // Sample analytic light source selected uniformly from the light list.
+    // TODO: Sample based on estimated contributions as pdf.
+    uint lightIndex = min(uint(sampleNext1D(sg) * lightCount), lightCount - 1);
+
+    // Sample local light source.
+    AnalyticLightSample lightSample;
+    if (!sampleLight(sd.posW, gScene.getLight(lightIndex), sg, lightSample))
+        return false;
+
+        // Setup returned sample.
+    ls.pdf = lightSample.pdf / lightCount;
+    ls.Li = lightSample.Li * lightCount;
+        // Offset shading position to avoid self-intersection.
+    ls.origin = computeRayOrigin(sd.posW, dot(sd.faceN, lightSample.dir) >= 0 ? sd.faceN : -sd.faceN);
     
-    //Fill the cell array
-    outCells[arrCounter] = startCell; // Cell 0
-    arrCounter++;
+    // Analytic lights do not currently have a geometric representation in the scene.
+    // Do not worry about adjusting the ray length to avoid self-intersections at the light.
+    ls.distance = lightSample.distance;
+    ls.dir = lightSample.dir;
 
-    //Go through the first 3 cells (either x,y or z set)
-    [unroll]
-    for (uint i = 0; i < 3; i++)
-    {
-        int3 tmpCell = int3(floor(cell + radInScale * float3(offsetCell * cellPattern[i])));
-        bool skip = (tmpCell.x == startCell.x) && (tmpCell.y == startCell.y) && (tmpCell.z == startCell.z);
-        if (!skip)
-        {
-            outCells[arrCounter] = tmpCell;
-            arrCounter++;
-            cellSet[i] = 1;
-        }
-    }
-    //Go through cell 3-6 (two axis set)
-    [unroll]
-    for (uint i = 3; i < 6; i++)
-    {
-        int3 shouldBeSet = cellSet * cellPattern[i];
-        if (shouldBeSet.x + shouldBeSet.y + shouldBeSet.z >= 2)
-        {
-            outCells[arrCounter] = int3(floor(cell + radInScale * float3(offsetCell * cellPattern[i])));
-            arrCounter++;
-        }
-    }
-    //Case all 3 axis set
-    if (cellSet.x + cellSet.y + cellSet.z == 3)
-    {
-        outCells[arrCounter] = int3(floor(cell + radInScale * float3(offsetCell * cellPattern[6])));
-        arrCounter++;
-    }
+    return any(ls.Li > 0.f);
 }
 
-//Culling with Global and Caustic collection pos. hitPos1 -> Global, hitPos2 -> Caustic, 
-void photonCulling(float3 hitPos1, float3 hitPos2)
+bool selectLightType(out uint lightType, out float pdf, inout SampleGenerator sg)
 {
-    uint counter = 0;
-    int3 cells[16]; //Possible cells
-    cullingGetArrayOfCells(hitPos1, gCollectionRadius.x, counter, cells);
-    cullingGetArrayOfCells(hitPos2, gCollectionRadius.y, counter, cells);
+    pdf = 0.5f;
 
+    float u = sampleNext1D(sg);
 
-    uint hashes[16];
-    [unroll]
-    for (uint i = 0; i < 16; i++)
+    if (u < pdf)
     {
-        if (i < counter) //Abort if we have written all cells
-        {
-            hashes[i] = hash(cells[i]) & (gHashSize - 1); //calculateHash TODO: Test other hashes
-        }
+        lightType = 0;  //analytic
     }
-    //Insert them into the hash buffer
-    [unroll]
-    for (uint i = 0; i < 16; i++)
+    else
+        lightType = 1; //emissive
+
+    return true;
+}
+
+bool generateLightSample(const in ShadingData sd, inout SampleGenerator sg, out LightSample ls)
+{
+    ls = { };
+
+    uint lightType;
+    float selectionPdf;
+    if (!selectLightType(lightType, selectionPdf, sg))
+        return false;
+
+    bool valid = false;
+    if (kUseEmissiveLights && lightType == 1 /*emissive*/)
     {
-        if (i < counter) //Abort if we have written all cells
-        {
-            gPhotonCullingMask[ReSTIR_LinearIndexToZCurve(hashes[i])] = 1;
-        }
+        // Emissive light samplers have an option to exclusively sample the upper hemisphere.
+        valid = generateEmissiveSample(sd, true, sg, ls);
+    }
+    if (kUseAnalyticLights && lightType == 0)
+    {
+        valid = generateAnalyticLightSample(sd, sg, ls);
+    }
+    if (!valid)
+        return false;
+
+    // Reject samples in non-requested hemispheres.
+    float NdotL = dot(sd.faceN, ls.dir);
+    if (NdotL <= kMinCosTheta)
+        return false;
+
+    // Account for light type selection.
+    ls.lightType = lightType;
+    ls.pdf *= selectionPdf;
+    ls.Li /= selectionPdf;
+
+    return true;
+}
+
+    /** Evaluates MIS Balance Heuristic.
+        \param[in] n0 Number of samples taken from the first sampling strategy.
+        \param[in] p0 Pdf for the first sampling strategy.
+        \param[in] n1 Number of samples taken from the second sampling strategy.
+        \param[in] p1 Pdf for the second sampling strategy.
+        \return Weight for the contribution from the first strategy (p0).
+    */
+float evalMIS(float n0, float p0, float n1, float p1)
+{
+     // Balance heuristic
+    float q0 = n0 * p0;
+    float q1 = n1 * p1;
+    return q0 / (q0 + q1);
+}
+
+[shader("miss")]
+void shadowMiss(inout ShadowTraceData shadowData : SV_RayPayload)
+{
+    shadowData.visible = true; //Nothing was hit -> visible
+}
+
+//Use anyhit for alpha test if activated
+[shader("anyhit")]
+void shadowAnyHit(inout ShadowTraceData shadowData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
+{
+    if (kUseAlphaTest)
+    {
+        // Alpha test for non-opaque geometry.
+        GeometryInstanceID instanceID = getGeometryInstanceID();
+        VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
+        uint materialID = gScene.getMaterialID(instanceID);
+        if (gScene.materials.alphaTest(v, materialID, 0.f))
+            IgnoreHit();
     }
 }
-#else //CULLING_ALT_VER
-void cullingGetArrayOfCells(float3 position, float radius, uint startIdx , out int3 outCells[16]){
-    float3 cell = (position.xyz * gHashScaleFactor);
-    float radInScale = radius * gHashScaleFactor;
-    float3 cellFloor = floor(cell);
-    float3 relCellPos = abs(cell - cellFloor);
-    //Get offset direction
-    int3 offsetCell;
-    offsetCell.x = relCellPos.x < 0.5 ? -1 : 1;
-    offsetCell.y = relCellPos.y < 0.5 ? -1 : 1;
-    offsetCell.z = relCellPos.z < 0.5 ? -1 : 1;
-
-    //Fill the cell array
-    outCells[startIdx] = int3(cellFloor);
-    outCells[startIdx + 1] = int3(floor(cell + radInScale * float3(offsetCell.x, 0, 0)));
-    outCells[startIdx + 2] = int3(floor(cell + radInScale * float3(offsetCell.x, offsetCell.y, 0)));
-    outCells[startIdx + 3] = int3(floor(cell + radInScale * float3(offsetCell.x, offsetCell.y, offsetCell.z)));
-    outCells[startIdx + 4] = int3(floor(cell + radInScale * float3(offsetCell.x, 0, offsetCell.z)));
-    outCells[startIdx + 5] = int3(floor(cell + radInScale * float3(0, offsetCell.y, 0)));
-    outCells[startIdx + 6] = int3(floor(cell + radInScale * float3(0, offsetCell.y, offsetCell.z)));
-    outCells[startIdx + 7] = int3(floor(cell + radInScale * float3(0, 0, offsetCell.z)));
-}
-
-void photonCulling(float3 hitPos1, float3 hitPos2){
-    //Get the 7 nearest neighbors (photon can still be in it)
-    int3 cells[16];
-    cullingGetArrayOfCells(hitPos1, gCollectionRadius.x, 0, cells);
-    cullingGetArrayOfCells(hitPos2, gCollectionRadius.y, 8, cells);
-
-    //Insert them into the hash buffer
-    [unroll]
-    for(uint i=0; i<16; i++){
-        uint h = hash(cells[i]) & (gHashSize - 1);    //calculateHash TODO: Test other hashes
-        gPhotonCullingMask[ReSTIR_LinearIndexToZCurve(h)] = 1;
-    }
-}
-#endif//CULLING_ALT_VER
 
 [shader("miss")]
 void miss(inout TraceData rayData : SV_RayPayload)
 {
-    rayData.distance = -1.f;
+    rayData.packedHitInfo = {}; //Set to empty -> Invalid
 }
 
 //Use anyhit for alpha test if activated
 [shader("anyhit")]
 void anyHit(inout TraceData rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    if (gUseAlphaTest)
+    if (kUseAlphaTest)
     {
         // Alpha test for non-opaque geometry.
         GeometryInstanceID instanceID = getGeometryInstanceID();
@@ -244,28 +291,8 @@ void closestHit(inout TraceData rayData : SV_RayPayload, BuiltInTriangleIntersec
     triangleHit.instanceID = getGeometryInstanceID();
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics = attribs.barycentrics;
-    VertexData v = getVertexData(triangleHit.instanceID, PrimitiveIndex(), attribs);
-    const uint materialID = gScene.getMaterialID(triangleHit.instanceID);
-    let lod = ExplicitLodTextureSampler(0.f);
-    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, incomingRayDir, lod);
-
-    //TODO Add Alternative. Sample a new direction using BSDF and take reflective lobe
     
-    uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
-    let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
-    
-    let bsdfProperties = bsdf.getProperties(sd);
-    bool diffuseHit = luminance(bsdfProperties.diffuseReflectionAlbedo) > 0;
-    diffuseHit &= luminance(bsdfProperties.emission) <= 0; //Ignore emissive hits, as they are sampled by ReSTIR
-    
-    if(diffuseHit){
-        rayData.distance = RayTCurrent();
-        rayData.packedNormal = encodeNormal2x16(bsdfProperties.guideNormal);
-        rayData.packedHitInfo = HitInfo(triangleHit).getData();
-        rayData.NdotL = saturate(dot(bsdfProperties.guideNormal, incomingRayDir));
-    }else{
-        rayData.distance = -1.f;
-    }
+    rayData.packedHitInfo = HitInfo(triangleHit).getData();
 }
 
 [shader("raygeneration")]
@@ -275,9 +302,10 @@ void rayGen()
     uint2 launchDim = DispatchRaysDimensions().xy;
     
     HitInfo hitInfo = HitInfo(gVBuffer[launchIndex]);
-    SurfaceFG surface = SurfaceFG();
+    SurfaceGI surface = SurfaceGI();
     Reservoir reservoir = Reservoir();
     TraceData traceData = TraceData::create();
+    GIData giData = GIData();
     
     if (hitInfo.isValid())
     {
@@ -304,41 +332,110 @@ void rayGen()
     #endif
         
         //Fill Surface Buffer used for calculating the target PDF
-        surface = SurfaceFG::create(sd.computeNewRayOrigin(), bsdfProperties.guideNormal, sd.V, viewDepth, bsdfProperties.roughness,
+        surface = SurfaceGI::create(sd.computeNewRayOrigin(), bsdfProperties.guideNormal, sd.V, viewDepth, bsdfProperties.roughness,
                                       luminance(bsdfProperties.diffuseReflectionAlbedo), luminance(bsdfProperties.specularReflectance));
         
         reservoir.targetPdf = surface.getPdf(bsdfSample.wo);
     
         reservoir.weightSum = 1.f / bsdfSample.pdf; // 1/selectPDF
 
-        RayDesc tRay;
-        tRay.Origin = sd.computeNewRayOrigin();
-        tRay.TMin = 0.0001f;
-        tRay.TMax = 10000.f;
-        tRay.Direction = bsdfSample.wo;
-    
-        if (validSample)
+        float3 thp = float3(1.f);
+        float3 radiance = float3(0.f);
+        
+        
+        for (uint i = 0; (i < gBounces) && validSample; i++)
         {
-            TraceRay(gScene.rtAccel, 0, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, tRay, traceData);
-            validSample = traceData.distance > 0;
-        }
-    
-        if (validSample)
-        {                      
-            reservoir.M = 1; 
-            float3 hitPos = tRay.Origin + tRay.Direction * traceData.distance;
-    
-            if (kUsePhotonCulling)
-            {
-                photonCulling(hitPos, sd.posW);
-            }
-        }
+            RayDesc tRay;
+            tRay.Origin = sd.computeNewRayOrigin();
+            tRay.TMin = 0.0001f;
+            tRay.TMax = 10000.f;
+            tRay.Direction = bsdfSample.wo;
 
-    
-        if (!validSample)
+            TraceRay(gScene.rtAccel, 0, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, tRay, traceData);
+
+            hitInfo = HitInfo(traceData.packedHitInfo);
+            validSample = hitInfo.isValid();
+
+            //End loop if it is not valid; TODO add enviroment sample at i>0
+            if (!validSample)
+                break;
+
+            //Update the shading informations
+            sd = loadShadingData(hitInfo, bsdfSample.wo, lod);
+            let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
+            let miProperties = mi.getProperties(sd);
+
+            if (i == 0)
+            {
+                //If an emissive light source is hit, return as this case is already covered by ReSTIR
+                //if (any(miProperties.emission > 0.f))
+                //    break;
+                //Fill GIData for the first hit (the resample point). Radiance is filled in at a later point
+                giData.posW = sd.computeNewRayOrigin();
+                giData.normal = miProperties.guideNormal;
+                float dist = distance(tRay.Origin, sd.posW);
+                giData.jacobianDeterminant = vplAttenuation(dist, gAttenuationRadius) * saturate(dot(miProperties.guideNormal, sd.V));
+            }
+            else
+            {
+                radiance += thp * miProperties.emission;
+            }
+
+            //Get a light sample
+            if (kNEE)
+            {
+                LightSample ls = { };
+                if (generateLightSample(sd, traceData.sg, ls))
+                {
+                    if (kUseMIS && ls.lightType == 1) //Emissive
+                    {
+                        float scatterPdf = mi.evalPdf(sd, ls.dir, true);
+                        ls.Li *= evalMIS(1, ls.pdf, 1, scatterPdf);
+                    }
+                    
+                    float3 Lr = mi.eval(sd, ls.dir, traceData.sg) * ls.Li;
+                    //Shadow test
+                    if (any(Lr > 0.f))
+                    {
+                        ShadowTraceData shadowData;
+                        shadowData.visible = false;
+                        RayDesc shadowRay = ls.getVisibilityRay();
+                            
+                        TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 1 /* hitIdx */, rayTypeCount, 1 /* missIdx */, tRay, traceData);
+
+                        if(shadowData.visible)
+                                radiance += Lr * thp;
+                    }
+                }
+            }
+            
+            //Generate next sample
+            validSample = mi.sample(sd, traceData.sg, bsdfSample);
+            thp *= bsdfSample.weight;
+
+            //Terminate Path early with russian roulette
+            if (kRussianRoulette)
+            {
+                const float rrVal = luminance(thp);
+                const float prob = max(0.f, 1.f - rrVal);
+                const float u = sampleNext1D(traceData.sg);
+                if (u < prob)
+                    validSample = false;
+                    
+                thp /= 1.f - prob;
+            }
+                    
+        }
+        
+        if (giData.valid)
         {
-            traceData.packedHitInfo = { };
-            reservoir.weightSum = 0.f; //invalidate reseroir
+            giData.flux = radiance;
+            reservoir.M = 1; 
+            reservoir.targetPdf *= luminance(radiance);
+        }
+        else
+        {
+            reservoir.weightSum = 0.f; //invalidate reservoir
         }
     }
 #if USE_RTXDI
@@ -349,8 +446,7 @@ void rayGen()
 #endif //USE_RTXDI
     
     //Store data in buffers
-    //gLightFactor[launchIndex] = lightFactor;
-    gFinalGatherHit[launchIndex] = traceData.packedHitInfo;
+    gGISample[index2Dto1D(launchIndex, launchDim.x)] = giData;
     gSurfaceData[index2Dto1D(launchIndex, launchDim.x)] = surface.pack();   //TODO better index
     
     #if USE_REDUCED_RESERVOIR_FORMAT

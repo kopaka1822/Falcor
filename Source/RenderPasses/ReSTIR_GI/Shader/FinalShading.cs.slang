@@ -12,7 +12,7 @@ import Utils.Color.ColorHelpers;
 import Rendering.RTXDI.RTXDI;
 
 import Reservoir;
-import FinalGatherData;
+import PathData;
 
 //For Syntax highlighting
 #ifndef USE_RTXDI
@@ -29,7 +29,7 @@ import FinalGatherData;
 #endif
 
 
-StructuredBuffer<FGData> gFGSampleData;
+StructuredBuffer<GIData> gGISampleData;
 
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float2> gMVec;
@@ -73,16 +73,16 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
 
 void getEmissiveLight(uint idx,in float3 worldPos, out float distance ,out float3 toLight, out float3 Li){
     //Get light position
-    FGData fgData = gFGSampleData[idx];
+    GIData giData = gGISampleData[idx];
     
-    toLight = fgData.posW - worldPos;
+    toLight = giData.posW - worldPos;
     distance = length(toLight);
     toLight = toLight/ distance;    //normalize
 
-    Li = fgData.flux;
+    Li = giData.flux;
     float distAttenuation = vplAttenuation(distance, gAttenuationRadius);
-    float cosTheta = saturate(dot(normalize(fgData.normal), -toLight));
-    Li *= (cosTheta * distAttenuation)/fgData.jacobianDeterminant;
+    float cosTheta = saturate(dot(normalize(giData.normal), -toLight));
+    Li *= (cosTheta * distAttenuation)/giData.jacobianDeterminant;
 }
 
 [numthreads(16, 16, 1)]
