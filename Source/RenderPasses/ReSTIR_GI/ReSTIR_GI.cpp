@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-21, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -25,38 +25,38 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-import Params;
-import Utils.Math.PackedFormats;
+#include "ReSTIR_GI.h"
 
-struct ColorType
+extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
-#if COLOR_FORMAT == 0 /* ColorFormat::RGBA32F */
-    float4 data;
+    registry.registerClass<RenderPass, ReSTIR_GI>();
+}
 
-    float3 get()
-    {
-        return data.rgb;
-    }
+ReSTIR_GI::ReSTIR_GI(ref<Device> pDevice, const Properties& props)
+    : RenderPass(pDevice)
+{
+}
 
-    [mutating] void set(float3 color)
-    {
-        data = float4(color, 1.f);
-    }
+Properties ReSTIR_GI::getProperties() const
+{
+    return {};
+}
 
-#elif COLOR_FORMAT == 1 /* ColorFormat::LogLuvHDR */
-    uint data;
+RenderPassReflection ReSTIR_GI::reflect(const CompileData& compileData)
+{
+    // Define the required resources here
+    RenderPassReflection reflector;
+    //reflector.addOutput("dst");
+    //reflector.addInput("src");
+    return reflector;
+}
 
-    float3 get()
-    {
-        return decodeLogLuvHDR(data);
-    }
+void ReSTIR_GI::execute(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    // renderData holds the requested resources
+    // auto& pTexture = renderData.getTexture("src");
+}
 
-    [mutating] void set(float3 color)
-    {
-        data = encodeLogLuvHDR(color);
-    }
-
-#else
-#error Invalid COLOR_FORMAT
-#endif
-};
+void ReSTIR_GI::renderUI(Gui::Widgets& widget)
+{
+}

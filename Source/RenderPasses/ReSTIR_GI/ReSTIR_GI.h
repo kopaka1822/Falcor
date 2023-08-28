@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-22, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -25,26 +25,29 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
+#pragma once
+#include "Falcor.h"
+#include "RenderGraph/RenderPass.h"
 
-/** Dummy compute program for reflection of the structured buffer types.
+using namespace Falcor;
 
-     Falcor requires reflection data to be able to create a structured buffer,
-     but the programs are not yet ready to be used when we create the buffers.
-     Therefore we create this dummy program to make it easier.
- */
-import RenderPasses.Shared.Denoising.NRDData;
-import PathTracer;
-import ColorType;
-import GuideData;
+class ReSTIR_GI : public RenderPass
+{
+public:
+    FALCOR_PLUGIN_CLASS(ReSTIR_GI, "ReSTIR_GI", "Insert pass description here.");
 
-ParameterBlock<PathTracer> pathTracer;
+    static ref<ReSTIR_GI> create(ref<Device> pDevice, const Properties& props) { return make_ref<ReSTIR_GI>(pDevice, props); }
 
-StructuredBuffer<ColorType> sampleColor;
-StructuredBuffer<GuideData> sampleGuideData;
-StructuredBuffer<NRDRadiance> sampleNRDRadiance;
-StructuredBuffer<float> sampleNRDHitDist;
-StructuredBuffer<float4> sampleNRDPrimaryHitNeeOnDelta;
-StructuredBuffer<float4> sampleNRDEmission;
-StructuredBuffer<float4> sampleNRDReflectance;
+    ReSTIR_GI(ref<Device> pDevice, const Properties& props);
 
-void main() {}
+    virtual Properties getProperties() const override;
+    virtual RenderPassReflection reflect(const CompileData& compileData) override;
+    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
+    virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
+    virtual void renderUI(Gui::Widgets& widget) override;
+    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override {}
+    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
+    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
+
+private:
+};
