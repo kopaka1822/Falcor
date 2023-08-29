@@ -96,6 +96,7 @@ void ShadowMap::prepareShadowMapBuffers()
         mpLightMapping.reset();
         mpNormalizedPixelSize.reset();
         mpVPMatrixBuffer.reset();
+        mpVPMatrixStangingBuffer.clear();
     }
 
     // Set the Textures
@@ -182,23 +183,28 @@ void ShadowMap::prepareShadowMapBuffers()
         mpLightMapping->setName("ShadowMapLightMapping");
     }
 
-    if ((!mpVPMatrixStangingBuffer || !mpVPMatrixBuffer) && (mpShadowMaps.size() > 0 || mpCascadedShadowMaps.size() > 0))
+    if ((!mpVPMatrixBuffer) && (mpShadowMaps.size() > 0 || mpCascadedShadowMaps.size() > 0))
     {
         size_t size = mpShadowMaps.size() + mpCascadedShadowMaps.size() * mCascadedLevelCount;
         std::vector<float4x4> initData(size);
         for (size_t i = 0; i < initData.size(); i++)
             initData[i] = float4x4();
 
-        mpVPMatrixStangingBuffer = Buffer::createStructured(
-            mpDevice, sizeof(float4x4), size, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::Write, initData.data(),
-            false
-        );
-        mpVPMatrixStangingBuffer->setName("ShadowMapViewProjectionStagingBuffer");
-
          mpVPMatrixBuffer = Buffer::createStructured(
             mpDevice, sizeof(float4x4), size, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false
         );
         mpVPMatrixBuffer->setName("ShadowMapViewProjectionBuffer");
+
+        mpVPMatrixStangingBuffer.clear();
+        mpVPMatrixStangingBuffer.resize(kStagingBufferCount);
+        for (uint i = 0; i < kStagingBufferCount; i++)
+        {
+            mpVPMatrixStangingBuffer[i] = Buffer::createStructured(
+                mpDevice, sizeof(float4x4), size, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::Write, initData.data(), false
+            );
+            mpVPMatrixStangingBuffer[i]->setName("ShadowMapViewProjectionStagingBuffer " + std::to_string(i));
+        }
+
 
         mCascadedMatrixStartIndex = mpShadowMaps.size();   //Set the start index for the cascaded VP Mats
     }
@@ -327,8 +333,10 @@ void ShadowMap::setShaderData(const uint2 frameDim)
     var["gShadowMapRes"] = mShadowMapSize;
     var["gCameraNPS"] = getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight)  ,cameraData.aspectRatio);
     var["gPoissonDiscRad"] = gPoissonDiscRad;
-        for (uint i = 0; i < mCascadedZSlices.size(); i++)
-            var["gCascadedZSlices"][i] = mCascadedZSlices[i];
+    for (uint i = 0; i < mCascadedZSlices.size(); i++)
+        var["gCascadedZSlices"][i] = mCascadedZSlices[i];
+    for (uint i = 0; i < mCascadedPos.size(); i++)
+        var["gCascadedCamPos"][i] = mCascadedPos[i];
     
     // Buffers and Textures
     for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
@@ -562,10 +570,13 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
         mCascadedMaxFar = std::min(sceneBounds.radius() * 2, camera->getFarPlane()); // Clamp Far to scene bounds
 
         //Check if the size of the array is still right
-        if (mCascadedZSlices.size() != mCascadedLevelCount)
+        if ((mCascadedZSlices.size() != mCascadedLevelCount) ||
+            (mCascadedPos.size() != mCascadedLevelCount))
         {
             mCascadedZSlices.clear();
+            mCascadedPos.clear();
             mCascadedZSlices.resize(mCascadedLevelCount);
+            mCascadedPos.resize(mCascadedLevelCount);
         }
 
         //Z slizes formula by: https://developer.download.nvidia.com/SDK/10.5/opengl/src/cascaded_shadow_maps/doc/cascaded_shadow_maps.pdf
@@ -646,6 +657,8 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
 
         mCascadedWidthHeight[startIdx * mCascadedLevelCount + i] = float2(abs(maxX - minX), abs(maxY - minY));
         mCascadedVPMatrix[startIdx * mCascadedLevelCount + i] = math::mul(casProj, casView);
+        if (mCascadedFirstThisFrame)
+            mCascadedPos[i] = center - normalize(lightData.dirW) * abs(minZ);
 
         //Update near far for next level
         near = mCascadedZSlices[i];
@@ -799,7 +812,9 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     // TODO optimize this depending on the number of active lights
     if (updateVPBuffer)
     {
-        float4x4* mats = (float4x4*)mpVPMatrixStangingBuffer->map(Buffer::MapType::Write);
+        static uint stagingCount = 0;
+
+        float4x4* mats = (float4x4*)mpVPMatrixStangingBuffer[stagingCount]->map(Buffer::MapType::Write);
         for (size_t i = 0; i < mSpotDirViewProjMat.size(); i++)
         {
             if (!wasRendered[i])
@@ -812,11 +827,15 @@ bool ShadowMap::update(RenderContext* pRenderContext)
             mats[mCascadedMatrixStartIndex + i] = mCascadedVPMatrix[i];
         }
 
-        mpVPMatrixStangingBuffer->unmap();
+        mpVPMatrixStangingBuffer[stagingCount]->unmap();
 
         size_t totalSize = mpShadowMaps.size() + mpCascadedShadowMaps.size() * mCascadedLevelCount;
 
-        pRenderContext->copyBufferRegion(mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer.get(), 0, sizeof(float4x4) * totalSize);
+        pRenderContext->copyBufferRegion(
+            mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer[stagingCount].get(), 0, sizeof(float4x4) * totalSize
+        );
+
+        stagingCount = (stagingCount + 1) % kStagingBufferCount;
     }
 
     handleNormalizedPixelSizeBuffer();
@@ -841,13 +860,14 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         mFirstFrame = true; // Rerender all shadow maps
     }
 
-    static uint2 resolution = uint2(mShadowMapSize, mShadowMapSizeCube);
-    widget.var("Shadow Map / Cube Res", resolution, 32u, 16384u, 32u);
-    widget.tooltip("Change Resolution for the Shadow Map (x) or Shadow Cube Map (y). Rebuilds all buffers!");
+    static uint3 resolution = uint3(mShadowMapSize, mShadowMapSizeCube, mShadowMapSizeCascaded);
+    widget.var("Shadow Map / Cube / Cascaded Res", resolution, 32u, 16384u, 32u);
+    widget.tooltip("Change Resolution for the Shadow Map (x) or Shadow Cube Map (y) or Cascaded SM (z). Rebuilds all buffers!");
     if (widget.button("Apply Change"))
     {
         mShadowMapSize = resolution.x;
         mShadowMapSizeCube = resolution.y;
+        mShadowMapSizeCascaded = resolution.z;
         mShadowResChanged = true;
     }
 
@@ -954,6 +974,7 @@ void ShadowMap::handleNormalizedPixelSizeBuffer()
     mpNormalizedPixelSize = Buffer::createStructured(
         mpDevice, sizeof(float), npsData.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, npsData.data(), false
     );
+    mpNormalizedPixelSize->setName("ShadowMap::NPSBuffer");
 }
 
 }

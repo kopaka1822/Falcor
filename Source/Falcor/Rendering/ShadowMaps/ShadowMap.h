@@ -121,6 +121,8 @@ private:
     ref<Fbo> mpFbo;
     ref<Fbo> mpFboCube;
 
+    const uint kStagingBufferCount = 3;
+
     uint mShadowMapSize = 1024;
     uint mShadowMapSizeCube = 512;
     uint mShadowMapSizeCascaded = 2048;
@@ -138,7 +140,7 @@ private:
     int32_t mBias = 16;
     float mSlopeBias = 0.5f;
     bool mUseAlphaTest = true;
-    float gPoissonDiscRad = 0.15f;
+    float gPoissonDiscRad = 0.5f;
     uint mCascadedLevelCount = 4;
     float mCascadedFrustumFix = 0.5f;
     float mCascZMult = 10.f;    //Pushes the z Values apart
@@ -152,6 +154,7 @@ private:
 
     //Internal
     std::vector<float4x4> mCascadedVPMatrix;
+    std::vector<float3> mCascadedPos;
     uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
     bool mMultipleSMTypes = false;
     float mCascadedMaxFar = 1000000.f;
@@ -170,7 +173,7 @@ private:
     std::vector<ref<Texture>> mpShadowMaps;         // 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights)
     ref<Buffer> mpLightMapping;
     ref<Buffer> mpVPMatrixBuffer;
-    ref<Buffer> mpVPMatrixStangingBuffer;
+    std::vector<ref<Buffer>> mpVPMatrixStangingBuffer;
     ref<Buffer> mpNormalizedPixelSize;             //Buffer with the normalized pixel size for each ShadowMap
     ref<Sampler> mpShadowSampler;
     ref<Texture> mpDepth;

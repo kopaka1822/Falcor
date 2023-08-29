@@ -41,6 +41,7 @@ struct ShadowMap
     float gPoissonDiscRad;    
     
     float gCascadedZSlices[CASCADED_SLICE_BUFFER_SIZE]; //Between 4 and 8
+    float3 gCascadedCamPos[CASCADED_SLICE_BUFFER_SIZE]; //Between 4 and 8
     
     static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;
     static const uint kCascadedMatOffset = CASCADED_MATRIX_OFFSET;
@@ -212,8 +213,8 @@ struct ShadowMap
                 for (uint k = 0; k < 4; k++)
                 {
                     uint poisIdx = uint(19.9999f * sampleNext1D(sg));
-                    float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRad * 0.25f;
-                    shadow += standardShadowTest(index, cascLevel, uv, lightType, lightDist); //TODO Get a better solution than sampleNext3D
+                    float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRad * 0.25f; //TODO Better solution (angle?) 
+                    shadow += standardShadowTest(index, cascLevel, uv, lightType, lightDist); 
                 }
                 shadow *= 0.25f;
             }
@@ -221,9 +222,9 @@ struct ShadowMap
             {
                 for (uint k = 0; k < 4; k++)
                 {
-                    uint poisIdx = uint(15.9999f * sampleNext1D(sg));
+                    uint poisIdx = uint(15.99999f * sampleNext1D(sg));
                     float3 uv = shadowUV;
-                    uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad * 32.f) / gShadowMapRes);
+                    uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad) / gShadowMapRes);
                     shadow += standardShadowTest(index, cascLevel, uv, lightType, lightDist);
                 }
                 shadow *= 0.25f;
@@ -371,7 +372,13 @@ struct ShadowMap
         //Get LightDir and Distance
         if (lightType == (uint) LightTypeSM::Directional)
         {
-            return 0.f; //TODO  
+            
+            uint level = getCascadedLevel(sd.posW);
+            uint matBufferIdx = (kCascadedMatOffset + lightIdx * kCascadedLevels) + level;
+            float3 lightPos = gCascadedCamPos[level];
+            distanceToLight = abs((lightPos - sd.posW).y); //TODO Not right;
+            toLight = -lightData.dirW;
+            lightIdx += kNPSOffsetCasc + level; 
         }
         else
         {
@@ -379,6 +386,7 @@ struct ShadowMap
             distanceToLight = length(toLight);
             toLight /= distanceToLight;
         }
+        
 
         const float3 N = sd.frame.N;
         
@@ -386,9 +394,9 @@ struct ShadowMap
         float angleCamera = dot(sd.V, N);
         float angleLight = dot(toLight, N);
         
-        float projAreaCam = gCameraNPS * rayDistance;
+        float projAreaCam = gCameraNPS * rayDistance * rayDistance;
         float pixelAreaSM = gShadowMapNPSBuffer[lightIdx];
-        float projSMArea = pixelAreaSM * distanceToLight;
+        float projSMArea = pixelAreaSM * distanceToLight * distanceToLight;
 
         return (projSMArea * angleCamera) / (projAreaCam * angleLight);
     }
