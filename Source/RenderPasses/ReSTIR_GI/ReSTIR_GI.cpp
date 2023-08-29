@@ -314,7 +314,7 @@ bool ReSTIR_GI::prepareLighting(RenderContext* pRenderContext)
         if (!mpEmissiveLightSampler)
         {
             FALCOR_ASSERT(pLights && pLights->getActiveLightCount(pRenderContext) > 0);
-            FALCOR_ASSERT(!mpEmissiveSampler);
+            FALCOR_ASSERT(!mpEmissiveLightSampler);
 
             switch (mEmissiveType)
             {
