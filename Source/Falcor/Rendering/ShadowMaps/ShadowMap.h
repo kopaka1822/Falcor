@@ -77,7 +77,7 @@ public:
 
     //Get Normalized pixel size used in oracle function
     float getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect);
-    float getNormalizedPixelSize(uint2 frameDim, float2 widthHeight);    //Ortho case
+    float getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height);    //Ortho case
 
 private:
     struct ShaderParameters
@@ -154,7 +154,6 @@ private:
 
     //Internal
     std::vector<float4x4> mCascadedVPMatrix;
-    std::vector<float3> mCascadedPos;
     uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
     bool mMultipleSMTypes = false;
     float mCascadedMaxFar = 1000000.f;

@@ -335,8 +335,6 @@ void ShadowMap::setShaderData(const uint2 frameDim)
     var["gPoissonDiscRad"] = gPoissonDiscRad;
     for (uint i = 0; i < mCascadedZSlices.size(); i++)
         var["gCascadedZSlices"][i] = mCascadedZSlices[i];
-    for (uint i = 0; i < mCascadedPos.size(); i++)
-        var["gCascadedCamPos"][i] = mCascadedPos[i];
     
     // Buffers and Textures
     for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
@@ -570,13 +568,10 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
         mCascadedMaxFar = std::min(sceneBounds.radius() * 2, camera->getFarPlane()); // Clamp Far to scene bounds
 
         //Check if the size of the array is still right
-        if ((mCascadedZSlices.size() != mCascadedLevelCount) ||
-            (mCascadedPos.size() != mCascadedLevelCount))
+        if ((mCascadedZSlices.size() != mCascadedLevelCount))
         {
             mCascadedZSlices.clear();
-            mCascadedPos.clear();
             mCascadedZSlices.resize(mCascadedLevelCount);
-            mCascadedPos.resize(mCascadedLevelCount);
         }
 
         //Z slizes formula by: https://developer.download.nvidia.com/SDK/10.5/opengl/src/cascaded_shadow_maps/doc/cascaded_shadow_maps.pdf
@@ -586,7 +581,6 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
             mCascadedZSlices[i-1] = mCascadedFrustumFix * (cameraData.nearZ * pow((mCascadedMaxFar / cameraData.nearZ), float(i) / N));
             mCascadedZSlices[i-1] += (1.f - mCascadedFrustumFix) * (cameraData.nearZ + (float(i) / N) * (mCascadedMaxFar - cameraData.nearZ));
         }
-
         mCascadedFirstThisFrame = false;
     }
 
@@ -657,12 +651,11 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
 
         mCascadedWidthHeight[startIdx * mCascadedLevelCount + i] = float2(abs(maxX - minX), abs(maxY - minY));
         mCascadedVPMatrix[startIdx * mCascadedLevelCount + i] = math::mul(casProj, casView);
-        if (mCascadedFirstThisFrame)
-            mCascadedPos[i] = center - normalize(lightData.dirW) * abs(minZ);
+            
 
         //Update near far for next level
         near = mCascadedZSlices[i];
-    }
+    }        
 }
 
 bool ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext)
@@ -916,10 +909,11 @@ float ShadowMap::getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect
     return wPix * hPix;
 }
 
-float ShadowMap::getNormalizedPixelSize(uint2 frameDim, float2 widthHeight)
+float ShadowMap::getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height)
 {
-    float wPix = widthHeight.x / frameDim.x;
-    float hPix = widthHeight.y / frameDim.y;
+
+    float wPix = width / frameDim.x;
+    float hPix = height / frameDim.y;
     return wPix * hPix;
 }
 
@@ -949,8 +943,8 @@ void ShadowMap::handleNormalizedPixelSizeBuffer()
         case LightTypeSM::Directional:
             for (uint i = 0; i < mCascadedLevelCount; i++)
             {
-                dirNPS.push_back(
-                    getNormalizedPixelSize(uint2(mShadowMapSizeCascaded), mCascadedWidthHeight[cascadedCount * mCascadedLevelCount + i])
+                float2 wh = mCascadedWidthHeight[cascadedCount * mCascadedLevelCount + i];
+                dirNPS.push_back(getNormalizedPixelSizeOrtho(uint2(mShadowMapSizeCascaded), wh.x, wh.y)
                 );
             }
             cascadedCount++;

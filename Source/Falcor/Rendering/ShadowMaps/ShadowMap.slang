@@ -39,9 +39,9 @@ struct ShadowMap
     uint gShadowMapRes;
     float gCameraNPS;
     float gPoissonDiscRad;    
-    
-    float gCascadedZSlices[CASCADED_SLICE_BUFFER_SIZE]; //Between 4 and 8
-    float3 gCascadedCamPos[CASCADED_SLICE_BUFFER_SIZE]; //Between 4 and 8
+
+    //CASCADED_SLICE_BUFFER_SIZE is either 4 or 8
+    float gCascadedZSlices[CASCADED_SLICE_BUFFER_SIZE]; //Camera Z distance for cascaded level calculation
     
     static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;
     static const uint kCascadedMatOffset = CASCADED_MATRIX_OFFSET;
@@ -372,11 +372,8 @@ struct ShadowMap
         //Get LightDir and Distance
         if (lightType == (uint) LightTypeSM::Directional)
         {
-            
             uint level = getCascadedLevel(sd.posW);
-            uint matBufferIdx = (kCascadedMatOffset + lightIdx * kCascadedLevels) + level;
-            float3 lightPos = gCascadedCamPos[level];
-            distanceToLight = abs((lightPos - sd.posW).y); //TODO Not right;
+            distanceToLight = 1.f;  //Distance is always 1, because the area does not change in an orthographic projection
             toLight = -lightData.dirW;
             lightIdx += kNPSOffsetCasc + level; 
         }
@@ -387,12 +384,11 @@ struct ShadowMap
             toLight /= distanceToLight;
         }
         
-
         const float3 N = sd.frame.N;
         
         //Get the cos theta between normal and vectors
-        float angleCamera = dot(sd.V, N);
-        float angleLight = dot(toLight, N);
+        float angleCamera = max(1e-10f, dot(sd.V, N));
+        float angleLight = max(1e-10f, dot(toLight, N));
         
         float projAreaCam = gCameraNPS * rayDistance * rayDistance;
         float pixelAreaSM = gShadowMapNPSBuffer[lightIdx];
