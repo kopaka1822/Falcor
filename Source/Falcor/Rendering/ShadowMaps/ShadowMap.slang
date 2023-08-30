@@ -5,6 +5,7 @@
 import Scene.Raytracing;
 import Rendering.Lights.LightHelpers;
 import Utils.Sampling.SampleGenerator;
+import Utils.Color.ColorHelpers;
 import ShadowMapTypes; 
 
 //Set Defines if they where not handled on the CPU
@@ -51,6 +52,7 @@ struct ShadowMap
     static const float kCubeEpsilon = 1e-5f;
     static const uint kNPSOffsetSpot = NPS_OFFSET_SPOT;
     static const uint kNPSOffsetCasc = NPS_OFFSET_CASCADED;
+    static const uint kOracleDistFunctionMode = ORACLE_DIST_FUNCTION_MODE;
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] ={float2(-0.94201624, -0.39906216), float2(0.94558609, -0.76890725),
@@ -397,7 +399,42 @@ struct ShadowMap
         return (projSMArea * angleCamera) / (projAreaCam * angleLight);
     }
 
-    //Confidence Function used in https://www.cg.tuwien.ac.at/research/publications/2007/Scherzer-2007-PCS/Scherzer-2007-PCS-Preprint.pdf
+    float getOracleDistanceFunctionFactor(const in BSDFProperties bsdfProperties, const in BSDFSample bsdfSample)
+    {
+        switch (OracleDistFunction(kOracleDistFunctionMode))
+        {
+            case OracleDistFunction::RoughnessLinear:
+            {
+                return lerp(1.f, M_2PI, bsdfProperties.roughness);
+            }
+            case OracleDistFunction::RoughnessSquare:
+            {
+                float alpha = bsdfProperties.roughness * bsdfProperties.roughness;
+                return lerp(1.f, M_2PI, alpha);
+            }
+            case OracleDistFunction::Lobe:
+            {
+                float oDistFac = bsdfSample.isLobe(LobeType::Diffuse) ? M_2PI : 1.f;
+                return oDistFac;
+            }
+            case OracleDistFunction::DiffSpecProp:
+            {
+                float diffusePart = luminance(bsdfProperties.diffuseReflectionAlbedo);
+                float specularPart = luminance(bsdfProperties.specularReflectionAlbedo);
+                float diffuse = 0;
+                if (diffusePart > 0)
+                {
+                    diffuse = diffusePart / (diffusePart + specularPart);
+                }
+                return lerp(1.f, M_2PI, diffuse);
+             }
+             default:;
+        }
+        //default case 
+        return 1.f;
+    }
+    
+    //EXPERIMENTAL Confidence Function used in https://www.cg.tuwien.ac.at/research/publications/2007/Scherzer-2007-PCS/Scherzer-2007-PCS-Preprint.pdf
     float oracleFunction2(uint lightIdx, float3 posW, bool isCube)
     {
         if (isCube)

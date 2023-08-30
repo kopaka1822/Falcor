@@ -62,6 +62,7 @@ public:
 private:
     void parseProperties(const Properties& props);
     void prepareVars();
+    void handleDebugOracleTexture(ShaderVar& var, const RenderData& renderData);
 
     // Internal state
     ref<Scene>                  mpScene;                        ///< Current scene.
@@ -75,15 +76,21 @@ private:
     bool                        mUseEmissiveLight = true;       ///< Disables Emissive Light
     bool                        mUseAlphaTest = true;           ///< Alpha Test
     bool                        mUseSMOracle = true;            ///< Enables Shadow Map Oracle function
-    bool                        mUseOracleLobeDistFactor = true;///< Enables a lobe distance factor that is used in the oracle function
+    bool                        mUseOracleDistFactor = true;///< Enables a lobe distance factor that is used in the oracle function TODO rename
     float                       mOracleCompaireValue = 1.f;     ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea. 
     bool                        mUseHybridSM = false;           ///< Uses the Hybrid Shadow Maps (https://gpuopen.com/fidelityfx-hybrid-shadows/#details)
     uint                        mUseShadowMapBounce = 0;        ///< Use the Shadow Map starting at bounce x. If mMaxBounces + 1 it is disabled
-    bool                        mShowOracleFunc = false;        ///< Shows the Oracle function 
+    bool                        mShowOracleFunc = false;        ///< Shows the Oracle function
+    uint                        mShowOracleFuncLevel = 0;       ///< Oracle function level that is shown
+    int                         mShowOracleShowOnlyLightIdx = -1;///< Only shows the contributions of selected light
+
 
     // Runtime data
     uint                        mFrameCount = 0;                ///< Frame count since scene was loaded.
     bool                        mOptionsChanged = false;
+
+    //Debug Texture
+    std::vector<ref<Texture>> mpOracleDebug;
 
     // Ray tracing program.
     struct

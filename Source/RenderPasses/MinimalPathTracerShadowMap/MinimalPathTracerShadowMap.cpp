@@ -171,7 +171,8 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     mTracer.pProgram->addDefine("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
     mTracer.pProgram->addDefine("SHOW_ORACLE_INFLUENCE", mShowOracleFunc ? "1" : "0");
-    mTracer.pProgram->addDefine("ORACLE_LOBE_DIST_FACTOR", mUseOracleLobeDistFactor ? "1" : "0");
+    mTracer.pProgram->addDefine("USE_ORACLE_DISTANCE_FUNCTION", mUseOracleDistFactor ? "1" : "0");
+    mTracer.pProgram->addDefine("ORACLE_DEBUG_SHOW_LIGHT_IDX", std::to_string(mShowOracleShowOnlyLightIdx));
     mTracer.pProgram->addDefines(mpShadowMap->getDefines());
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
@@ -205,12 +206,21 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     for (auto channel : kInputChannels) bind(channel);
     for (auto channel : kOutputChannels) bind(channel);
 
+    //Bind Debug Texture
+    handleDebugOracleTexture(var, renderData);
+
     // Get dimensions of ray dispatch.
     const uint2 targetDim = renderData.getDefaultTextureDims();
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
 
     // Spawn the rays.
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(targetDim, 1));
+
+    //Copy to out
+    if (mShowOracleFunc)
+    {
+        pRenderContext->copyResource(renderData["color"]->asTexture().get(), mpOracleDebug[mShowOracleFuncLevel].get());
+    }
 
     mFrameCount++;
 }
@@ -244,7 +254,7 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
             {
                 group2.var("Oracle Compaire Value", mOracleCompaireValue, 0.f, 64.f, 0.1f);
                 group2.tooltip("Compaire Value for the Oracle function. Is basically compaired against ShadowMapPixelArea/CameraPixelArea.");
-                group2.checkbox("Use Lobe factor", mUseOracleLobeDistFactor);
+                group2.checkbox("Use Lobe factor", mUseOracleDistFactor);
                 group2.tooltip("Uses a factor that increases the distance if a rough lobe was used (diffuse; specular WIP)"); // TODO change text if specular is implemented
             }
         }
@@ -271,6 +281,12 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
 
         group.checkbox("Show Oracle Function", mShowOracleFunc);
         group.tooltip("Use SM = Red; Use RayTracing/Hybrid SM = green. Shows only the for the first SM bounce", true);
+        if (mShowOracleFunc)
+        {
+            group.var("Show (Oracle) level", mShowOracleFuncLevel, 0u, mMaxBounces, 1u);
+            group.var("Oracle Only Show Light", mShowOracleShowOnlyLightIdx, -1, 100000000, 1);
+            group.tooltip("Only shows the light with the responding index. -1 Shows all lights. >NumLights will be black", true);
+        }
     }
 
     // If rendering options that modify the output have changed, set flag to indicate that.
@@ -361,4 +377,35 @@ void MinimalPathTracerShadowMap::prepareVars()
     // Bind utility classes into shared data.
     auto var = mTracer.pVars->getRootVar();
     mpSampleGenerator->setShaderData(var);
+}
+
+void MinimalPathTracerShadowMap::handleDebugOracleTexture(ShaderVar& var, const RenderData& renderData)
+{
+    if (!mShowOracleFunc)
+    {
+        if (!mpOracleDebug.empty())
+            mpOracleDebug.clear();
+        return;
+    }
+        
+    if (mpOracleDebug.empty() || mpOracleDebug.size() != mMaxBounces)
+    {
+        mpOracleDebug.clear();
+        mpOracleDebug.resize(mMaxBounces+1);
+
+        uint2 dims = renderData.getDefaultTextureDims();
+
+        for (uint i = 0; i <= mMaxBounces; i++)
+        {
+            mpOracleDebug[i] = Texture::create2D(
+                mpDevice, dims.x, dims.y, ResourceFormat::RGBA32Float, 1, 1, nullptr, Resource::BindFlags::UnorderedAccess
+            );
+            mpOracleDebug[i]->setName("MPTShadow::OracleDebug" + std::to_string(i));
+        }
+    }
+
+    for (uint i = 0; i < mpOracleDebug.size(); i++)
+    {
+        var["gOracleDebug"][i] = mpOracleDebug[i];
+    }
 }

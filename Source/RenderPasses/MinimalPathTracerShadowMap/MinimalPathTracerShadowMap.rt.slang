@@ -78,6 +78,7 @@ Texture2D<float4> gViewW; // Optional
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
+RWTexture2D<float4> gOracleDebug[MAX_BOUNCES + 1];
 
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
@@ -94,7 +95,8 @@ static const bool kAlphaTest = ALPHA_TEST;
 static const bool kUseHybridShadowMap = USE_HYBRID_SM;
 static const bool kUseOracle = USE_ORACLE_FUNCTION;
 static const bool kShowOracleRadius = SHOW_ORACLE_INFLUENCE;
-static const bool kUseLobeDistFactor = ORACLE_LOBE_DIST_FACTOR;
+static const bool kUseOracleDistFunction = USE_ORACLE_DISTANCE_FUNCTION;
+static const int kOracleOnlyShowLightIdx = ORACLE_DEBUG_SHOW_LIGHT_IDX;
 
 /** Payload for shadow ray.
 */
@@ -294,21 +296,30 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     {
         gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg, shadow);
     }
-       
-    if (kShowOracleRadius && gUseShadowMap <= pathLength)
-    {
-        if (useNormalSM)
-            return float3(1, 0, 0);
-        else if(kUseHybridShadowMap && !useShadowRay)
-            return float3(0, 0, 1);
-        else
-            return float3(0, 1, 0);
-    }
-        
+
     //Make sure the ray is used if no hybrid shadow mapping is used
     if (!kUseHybridShadowMap)
         useShadowRay |= !useNormalSM;
     
+    if (kShowOracleRadius)
+    {
+        float3 debugValue = float3(0);
+        if (kOracleOnlyShowLightIdx < 0 || kOracleOnlyShowLightIdx == lightIndex)
+        {
+            if (useNormalSM && !useShadowRay)
+                debugValue.x = 1.f;
+            if (kUseHybridShadowMap && !useShadowRay)
+                debugValue.z = 1.f;
+            if (useShadowRay)
+                debugValue.y = 1.f;
+            
+            if(kOracleOnlyShowLightIdx >= 0)
+                debugValue *= invPdf;       //Because the light is not always choosen
+        }
+        
+        gOracleDebug[pathLength][DispatchRaysIndex().xy] = float4(debugValue, oracle);
+    }
+            
     if (useShadowRay)
         shadow = traceShadowRay(origin, ls.dir, ls.distance);
 
@@ -318,6 +329,8 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     // Evaluate contribution.
     return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
 }
+
+
 
 /** Generate a new scatter ray or terminate.
     \param[in] sd Shading data.
@@ -341,11 +354,11 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool i
         rayData.direction = bsdfSample.wo;
         rayData.thp *= bsdfSample.weight;
 
-        //Get the lobe distance factor based on the lobe type (TODO use roughness instead ?)
-        if (kUseLobeDistFactor)
+        ///Handle Oracle Distance function
+        if (kUseOracleDistFunction)
         {
-            rayData.lobeDistFactor = bsdfSample.isLobe(LobeType::Diffuse) ? M_2PI : 1.f;
-
+            let bsdfProperties = mi.getProperties(sd);
+            rayData.lobeDistFactor = gShadowMap.getOracleDistanceFunctionFactor(bsdfProperties, bsdfSample);
         }
         
         return any(rayData.thp > 0.f);

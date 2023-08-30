@@ -18,4 +18,21 @@ FALCOR_ENUM_INFO(LightTypeSM, {
 });
 FALCOR_ENUM_REGISTER(LightTypeSM);
 
+enum class OracleDistFunction : uint32_t
+{
+        None = 0,
+        RoughnessLinear = 1,
+        RoughnessSquare = 2,
+        Lobe = 3,
+        DiffSpecProp = 4,
+};
+FALCOR_ENUM_INFO(OracleDistFunction, {
+    { OracleDistFunction::None, "None" },
+    { OracleDistFunction::RoughnessLinear, "RoughnessLinear" },
+    { OracleDistFunction::RoughnessSquare, "RoughnessSquare" },
+    { OracleDistFunction::Lobe, "Lobe" },
+    { OracleDistFunction::DiffSpecProp, "DiffSpecProp" },
+});
+FALCOR_ENUM_REGISTER(OracleDistFunction);
+
 END_NAMESPACE_FALCOR

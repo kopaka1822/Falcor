@@ -301,6 +301,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("SM_USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
     defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
     defines.add("NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
+    defines.add("ORACLE_DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
     
 
     if (mpScene)
@@ -896,6 +897,9 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     widget.checkbox("Use Poisson Disc Sampling", mUsePoissonDisc);
     widget.tooltip("Use Poisson Disc Sampling, only enabled if rng of the eval function is filled");
     widget.var("Poisson Disc Rad", gPoissonDiscRad, 0.f, 50.f, 0.001f);
+
+    widget.dropdown("Oracle Distance Mode", mOracleDistanceFunctionMode);
+    widget.tooltip("Mode for the distance factor applied on bounces.");
         
 }
 

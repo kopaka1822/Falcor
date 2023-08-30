@@ -144,6 +144,7 @@ private:
     uint mCascadedLevelCount = 4;
     float mCascadedFrustumFix = 0.5f;
     float mCascZMult = 10.f;    //Pushes the z Values apart
+    OracleDistFunction mOracleDistanceFunctionMode = OracleDistFunction::RoughnessSquare;
 
     bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
