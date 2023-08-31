@@ -968,7 +968,7 @@ struct PathTracer
                     if(ls.lightType == (uint)LightType::Analytic && applyShadowMap){
                         float shadow = 0.f;
                         if(kUseHybridShadowMap)
-                            traceShadowRay = !gShadowMap.hybridShadowMap(lightIndex, ray.origin, gScene.getLight(lightIndex), path.sg, shadow);
+                            traceShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, ray.origin, gScene.getLight(lightIndex), path.sg, shadow);
                         else
                             traceShadowRay = !gShadowMap.evalShadowMap(lightIndex, ray.origin, gScene.getLight(lightIndex), path.sg, shadow);
                         visible = shadow > 0.5f;    //TODO allow soft shadows

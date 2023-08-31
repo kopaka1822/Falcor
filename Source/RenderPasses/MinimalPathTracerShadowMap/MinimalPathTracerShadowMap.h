@@ -75,7 +75,7 @@ private:
     bool                        mUseImportanceSampling = true;  ///< Use importance sampling for materials.
     bool                        mUseEmissiveLight = true;       ///< Disables Emissive Light
     bool                        mUseAlphaTest = true;           ///< Alpha Test
-    bool                        mUseSMOracle = true;            ///< Enables Shadow Map Oracle function
+    bool                        mUseSMOracle = false;            ///< Enables Shadow Map Oracle function
     bool                        mUseOracleDistFactor = true;///< Enables a lobe distance factor that is used in the oracle function TODO rename
     float                       mOracleCompaireValue = 1.f;     ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea. 
     bool                        mUseHybridSM = false;           ///< Uses the Hybrid Shadow Maps (https://gpuopen.com/fidelityfx-hybrid-shadows/#details)

@@ -40,7 +40,7 @@
 #include "Utils/Debug/PixelDebug.h"
 #include "Scene/Scene.h"
 
-#include "ShadowMapTypes.slang"
+#include "ShadowMapData.slang"
 
 #include <memory>
 #include <type_traits>
@@ -109,7 +109,7 @@ private:
     std::vector<ref<Texture>>& getShadowMaps() { return mpShadowMaps; }
     ref<Buffer> getViewProjectionBuffer() { return mpVPMatrixBuffer; }
     ref<Buffer> getLightMapBuffer() { return mpLightMapping; }
-    ref<Sampler> getSampler() { return mpShadowSampler; }
+    ref<Sampler> getSampler() { return mpShadowSamplerPoint; }
     float getFarPlane() { return mFar; }
     float getNearPlane() { return mNear; }
     uint getResolution() { return mShadowMapSize; }
@@ -120,6 +120,7 @@ private:
     ref<Scene> mpScene;
     ref<Fbo> mpFbo;
     ref<Fbo> mpFboCube;
+    ref<Fbo> mpFboCascaded;
 
     const uint kStagingBufferCount = 3;
 
@@ -132,7 +133,9 @@ private:
     std::map<RasterizerState::CullMode, ref<RasterizerState>> mFrontCounterClockwiseRS;
 
     // Settings
-    float mNear = 0.01f;
+    ShadowMapType mShadowMapType = ShadowMapType::Variance;
+    OracleDistFunction mOracleDistanceFunctionMode = OracleDistFunction::RoughnessSquare;
+    float mNear = 0.1f;
     float mFar = 30.f;
     bool mUsePCF = false;
     bool mUsePoissonDisc = false;
@@ -143,9 +146,9 @@ private:
     float gPoissonDiscRad = 0.5f;
     uint mCascadedLevelCount = 4;
     float mCascadedFrustumFix = 0.5f;
-    float mCascZMult = 10.f;    //Pushes the z Values apart
-    OracleDistFunction mOracleDistanceFunctionMode = OracleDistFunction::RoughnessSquare;
-
+    float mCascZMult = 2.f;    //Pushes the z Values apart
+    float mExponentialSMConstant = 80.f;
+    
     bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
     bool mFirstFrame = true;
@@ -175,8 +178,11 @@ private:
     ref<Buffer> mpVPMatrixBuffer;
     std::vector<ref<Buffer>> mpVPMatrixStangingBuffer;
     ref<Buffer> mpNormalizedPixelSize;             //Buffer with the normalized pixel size for each ShadowMap
-    ref<Sampler> mpShadowSampler;
-    ref<Texture> mpDepth;
+    ref<Sampler> mpShadowSamplerPoint;
+    ref<Sampler> mpShadowSamplerLinear;
+    ref<Texture> mpDepthCascaded;                  //Depth texture needed for some types of cascaded (can be null)
+    ref<Texture> mpDepthCube;                      //Depth texture needed for the cube map
+    ref<Texture> mpDepth;                          //Depth texture needed for some types of 2D SM (can be null)
     ref<Texture> mpTestTex;
 
     ref<ComputePass> mpReflectTypes;               // Dummy pass needed to create the parameter block
@@ -197,7 +203,8 @@ private:
     };
 
     RasterizerPass mShadowCubePass;
-    RasterizerPass mShadowMiscPass;
+    RasterizerPass mShadowMapPass;
+    RasterizerPass mShadowMapCascadedPass;
 };
 
 }

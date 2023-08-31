@@ -11,6 +11,9 @@ cbuffer CB
     float gFarPlane;
 };
 
+#ifndef SM_EXPONENTIAL_CONSTANT
+#define SM_EXPONENTIAL_CONSTANT 2.33f
+#endif
 
 #ifndef INTERPOLATION_MODE
 #define INTERPOLATION_MODE linear
@@ -68,24 +71,16 @@ bool shadowAlphaTest(ShadowVsOut vsOut, uint triangleIndex)
     return gScene.materials.alphaTest(v, vsOut.materialID, lod);
 }
 
+//
 // Pixel Shaders
-float defaultPixelShader(float3 posW)
-{
-    //Distance between point and light
-    float lightDist = length(posW - gLightPos);
-    //Map to [0,1]
-    lightDist /= gFarPlane;
+//
 
-    return lightDist;
-}
-
-// Pixel Shaders
+// Classic Shadow Maps
 void psMain(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID)
 {
     #if USE_ALPHA_TEST
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
-    //return defaultPixelShader(vsOut.posW);
 }
 
 float psMainCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
@@ -93,5 +88,83 @@ float psMainCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Ta
     #if USE_ALPHA_TEST
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
-    return defaultPixelShader(vsOut.posW);
+    //Distance between point and light
+    float lightDist = length(vsOut.posW - gLightPos);
+    //Map to [0,1]
+    lightDist /= gFarPlane;
+    return lightDist;
+}
+
+//Variance Shadow Maps
+float2 psVariance(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target0
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+    
+    float2 varianceSM = float2(1.f);    
+    varianceSM.x = vsOut.posH.w;        //TODO Convert to [0,1]
+    varianceSM.y = varianceSM.x * varianceSM.x;
+    return varianceSM;
+}
+
+float2 psVarianceCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target0
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+    
+    float2 varianceSM = float2(1.f);
+    varianceSM.x = vsOut.posH.z;
+    varianceSM.y = varianceSM.x * varianceSM.x;
+    return varianceSM;
+}
+
+float2 psVarianceCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target0
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+    
+    float2 varianceSM = float2(1.f);
+    //Distance between point and light
+    float lightDist = length(vsOut.posW - gLightPos);
+    float depth = lightDist / gFarPlane; //Map to [0,1]
+
+    varianceSM.x = depth;
+    varianceSM.y = varianceSM.x * varianceSM.x;
+    return varianceSM;
+}
+
+//Exponential Shadow Maps
+float psExponential(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+
+    //TODO convert posH.w to [0,1]
+    return exp(vsOut.posH.w * SM_EXPONENTIAL_CONSTANT);
+}
+
+float psExponentialCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+    
+    return exp(vsOut.posH.z * SM_EXPONENTIAL_CONSTANT * gFarPlane); //TODO remove far plane
+}
+
+float psExponentialCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+    
+    //Distance between point and light
+    float lightDist = length(vsOut.posW - gLightPos);
+    float depth = lightDist / gFarPlane; //Map to [0,1]
+    const float c = SM_EXPONENTIAL_CONSTANT * gFarPlane; //TODO remove; C is divided by the shadow map far plane
+    return exp(depth * c);
 }

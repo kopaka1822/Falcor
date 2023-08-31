@@ -289,7 +289,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     
     if (kUseHybridShadowMap && !useShadowRay)
     {
-        useShadowRay = !gShadowMap.hybridShadowMap(lightIndex, origin, lightData, sg, shadow);
+        useShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, origin, lightData, sg, shadow);
         useShadowRay &= (!useNormalSM || !kUseOracle); //Disable ray if oracle function was evaluated true
     }
     else if (!useShadowRay && useNormalSM)

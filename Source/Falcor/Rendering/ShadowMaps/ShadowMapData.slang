@@ -35,4 +35,17 @@ FALCOR_ENUM_INFO(OracleDistFunction, {
 });
 FALCOR_ENUM_REGISTER(OracleDistFunction);
 
+enum class ShadowMapType : uint32_t
+{
+        ShadowMap = 0,
+        Variance = 1,
+        Exponential = 2,
+};
+FALCOR_ENUM_INFO(ShadowMapType, {
+    { ShadowMapType::ShadowMap, "ShadowMap" },
+    { ShadowMapType::Variance, "Variance" },
+    { ShadowMapType::Exponential, "Exponential" },
+});
+FALCOR_ENUM_REGISTER(ShadowMapType);
+
 END_NAMESPACE_FALCOR
