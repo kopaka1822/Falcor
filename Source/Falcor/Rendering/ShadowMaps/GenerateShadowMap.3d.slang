@@ -104,7 +104,7 @@ float2 psVariance(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_T
 
     const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
     float2 varianceSM = float2(1.f);    
-    varianceSM.x = (vsOut.posH.w - near)/gFarPlane; //Linear Z in [0,1]
+    varianceSM.x = (vsOut.posH.w - near)/( gFarPlane - near); //Linear Z in [0,1]
     varianceSM.y = varianceSM.x * varianceSM.x;
     return varianceSM;
 }
@@ -146,7 +146,7 @@ float psExponential(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV
 
     //TODO convert posH.w to [0,1]
     const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
-    float linZ = (vsOut.posH.w - near) / gFarPlane;
+float linZ = (vsOut.posH.w - near) / ( gFarPlane - near);
     return exp(linZ * SM_EXPONENTIAL_CONSTANT);
 }
 

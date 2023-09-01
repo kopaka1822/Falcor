@@ -207,7 +207,7 @@ struct ShadowMap
         if (kShadowMapMode == (uint) ShadowMapType::ShadowMap)
             lightDist = projPos.z;
         else
-            lightDist = (projPos.w - kShadowMapNear)/gShadowMapFarPlane;
+        lightDist = (projPos.w - kShadowMapNear) / (gShadowMapFarPlane - kShadowMapNear);
         shadowUV = projPos.xy;
         shadowUV.y *= -1; //Flip 
         shadowUV = shadowUV * 0.5 + 0.5; //UV from [-1,1] to [0,1]
