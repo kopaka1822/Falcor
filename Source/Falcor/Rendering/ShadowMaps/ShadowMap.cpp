@@ -64,6 +64,7 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
     samplerDesc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpShadowSamplerPoint = Sampler::create(mpDevice, samplerDesc);
 
+    //TODO add anisotropy ? Can this be used in ray tracing shaders?
     samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear);
     mpShadowSamplerLinear = Sampler::create(mpDevice, samplerDesc);
 
@@ -435,7 +436,8 @@ DefineList ShadowMap::getDefines() const
     defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
     defines.add("NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
     defines.add("ORACLE_DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
-    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant / mFar)); // TODO better solution
+    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant)); // TODO better solution
+    defines.add("SM_NEAR", std::to_string(mNear)); 
     
 
     if (mpScene)
@@ -449,7 +451,7 @@ DefineList ShadowMap::getDefinesShadowMapGenPass() const
     DefineList defines;
     defines.add("USE_ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
-    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant / mFar)); // TODO better solution
+    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant)); // TODO better solution
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
 
@@ -678,8 +680,7 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
     {
         // Clear depth buffer.
         pRenderContext->clearDsv(mpDepth->getDSV().get(), 1.f, 0);
-        pRenderContext->clearRtv(mpShadowMaps[index]->getRTV(0, 0, 1).get(), float4(0));
-        //TODO Clear Shadow Map?
+        //pRenderContext->clearRtv(mpShadowMaps[index]->getRTV(0, 0, 1).get(), float4(0)); //TODO Should not be necessary?
         // Attach Render Targets
         mpFbo->attachColorTarget(mpShadowMaps[index],0,0,0,1);
         mpFbo->attachDepthStencilTarget(mpDepth);
@@ -698,7 +699,7 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
     float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, float3(0, 1, 0));
     float4x4 projMat = math::perspective(lightData.openingAngle * 2, 1.f, mNear, mFar);
 
-    params.lightPosition = lightData.posW;
+    params.lightPosition = float3(mNear, 0.f,0.f);
     params.farPlane = mFar;
     params.viewProjectionMatrix = math::mul(projMat, viewMat);     
   

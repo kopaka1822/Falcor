@@ -5,10 +5,10 @@ import Utils.Math.MathHelpers;
 
 cbuffer CB
 {
-    float4x4 gviewProjection;
+    float4x4 gviewProjection;   //View Projection
 
-    float3 gLightPos;
-    float gFarPlane;
+    float3 gLightPos;           //Light Position; Near is stored in x for spotlights
+    float gFarPlane;            //Far plane of the shadow map
 };
 
 #ifndef SM_EXPONENTIAL_CONSTANT
@@ -101,9 +101,10 @@ float2 psVariance(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_T
     #if USE_ALPHA_TEST
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
-    
+
+    const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
     float2 varianceSM = float2(1.f);    
-    varianceSM.x = vsOut.posH.w;        //TODO Convert to [0,1]
+    varianceSM.x = (vsOut.posH.w - near)/gFarPlane; //Linear Z in [0,1]
     varianceSM.y = varianceSM.x * varianceSM.x;
     return varianceSM;
 }
@@ -144,7 +145,9 @@ float psExponential(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV
     #endif
 
     //TODO convert posH.w to [0,1]
-    return exp(vsOut.posH.w * SM_EXPONENTIAL_CONSTANT);
+    const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
+    float linZ = (vsOut.posH.w - near) / gFarPlane;
+    return exp(linZ * SM_EXPONENTIAL_CONSTANT);
 }
 
 float psExponentialCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
@@ -153,7 +156,7 @@ float psExponentialCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_Primitive
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
     
-    return exp(vsOut.posH.z * SM_EXPONENTIAL_CONSTANT * gFarPlane); //TODO remove far plane
+    return exp(vsOut.posH.z * SM_EXPONENTIAL_CONSTANT); //TODO remove far plane
 }
 
 float psExponentialCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
@@ -165,6 +168,5 @@ float psExponentialCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) 
     //Distance between point and light
     float lightDist = length(vsOut.posW - gLightPos);
     float depth = lightDist / gFarPlane; //Map to [0,1]
-    const float c = SM_EXPONENTIAL_CONSTANT * gFarPlane; //TODO remove; C is divided by the shadow map far plane
-    return exp(depth * c);
+    return exp(depth * SM_EXPONENTIAL_CONSTANT);
 }

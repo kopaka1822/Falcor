@@ -8,7 +8,7 @@ import Utils.Sampling.SampleGenerator;
 import Utils.Color.ColorHelpers;
 import ShadowMapData;
 
-//Set Defines if they where not handled on the CPU
+//Set important defines if they where not handled on the CPU
 #ifndef NUM_SHADOW_MAPS_CUBE
 #define NUM_SHADOW_MAPS_CUBE 1
 #endif
@@ -29,60 +29,68 @@ import ShadowMapData;
 struct ShadowMap
 {
     SamplerState gShadowSampler;
-    TextureCube<float> gShadowMapCube[NUM_SHADOW_MAPS_CUBE]; //Can be Null
-    Texture2D<float> gShadowMap[NUM_SHADOW_MAPS_MISC]; //Can be Null
-    Texture2DArray<float> gCascadedShadowMap[NUM_SHADOW_MAPS_CASCADE]; //Can be Null
-    TextureCube<float2> gShadowMapVarianceCube[NUM_SHADOW_MAPS_CUBE]; //Can be Null
-    Texture2D<float2> gShadowMapVariance[NUM_SHADOW_MAPS_MISC]; //Can be Null
-    Texture2DArray<float2> gCascadedShadowMapVariance[NUM_SHADOW_MAPS_CASCADE]; //Can be Null
-    StructuredBuffer<uint> gShadowMapIndexMap;
-    StructuredBuffer<float4x4> gShadowMapVPBuffer;
-    StructuredBuffer<float> gShadowMapNPSBuffer;
+    TextureCube<float> gShadowMapCube[NUM_SHADOW_MAPS_CUBE];                        //(Point)ShadowMap with type float. Can be Null
+    Texture2D<float> gShadowMap[NUM_SHADOW_MAPS_MISC];                              //(Spot)ShadowMap with type float. Can be Null
+    Texture2DArray<float> gCascadedShadowMap[NUM_SHADOW_MAPS_CASCADE];              //CascadedShadowMap with type float. Can be Null
+    TextureCube<float2> gShadowMapVarianceCube[NUM_SHADOW_MAPS_CUBE];               //(Point)ShadowMap with type float2. Used in Variance SM. Can be Null
+    Texture2D<float2> gShadowMapVariance[NUM_SHADOW_MAPS_MISC];                     //(Spot)ShadowMap with type float2. Used in Variance SM. Can be Null
+    Texture2DArray<float2> gCascadedShadowMapVariance[NUM_SHADOW_MAPS_CASCADE];     //CascadedShadowMap with type float2. Used in Variance SM. Can be Null
+    StructuredBuffer<uint> gShadowMapIndexMap;                                      //Maps global light index to local buffer index. Only used if kMultipleSMTypes == true
+    StructuredBuffer<float4x4> gShadowMapVPBuffer;                                  //Buffer for the ViewProjection Matrices [Spot | Cascaded]           
+    StructuredBuffer<float> gShadowMapNPSBuffer;                                    //Buffer for the Normalized Pixel Size [Point | Spot | Cascaded]
 
-    float gShadowMapFarPlane;
-    uint gShadowMapRes;
-    float gCameraNPS;
-    float gPoissonDiscRad;
+    float gShadowMapFarPlane;                           //Far plane of the shadow map //TODO move to defines
+    uint gShadowMapRes;                                 //Resolution of the Shadow Map TODO Move to defines
+    float gCameraNPS;                                   //Normalized Pixel Size for the Camera
+    float gPoissonDiscRad; //Radius for Poisson Sampling (TODO add a seperate for cubemaps?; Move to defines)
 
     //CASCADED_SLICE_BUFFER_SIZE is either 4 or 8
-    float gCascadedZSlices[CASCADED_SLICE_BUFFER_SIZE]; //Camera Z distance for cascaded level calculation
+    float gCascadedZSlices[CASCADED_SLICE_BUFFER_SIZE];  //Camera Z distance for cascaded level calculation
     
-    static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;
-    static const uint kShadowMapMode = SHADOW_MAP_MODE;
-    static const uint kCascadedMatOffset = CASCADED_MATRIX_OFFSET;
-    static const uint kCascadedLevels = CASCADED_LEVEL;
-    static const bool kUsePCF = SM_USE_PCF;
-    static const bool kUsePoissonSampling = SM_USE_POISSON_SAMPLING;
-    static const float kCubeEpsilon = 1e-5f;
-    static const uint kNPSOffsetSpot = NPS_OFFSET_SPOT;
-    static const uint kNPSOffsetCasc = NPS_OFFSET_CASCADED;
-    static const uint kOracleDistFunctionMode = ORACLE_DIST_FUNCTION_MODE;
-    static const float kExponentialSMConstant = SM_EXPONENTIAL_CONSTANT;
+    static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;         //Enabled if more than one type is present (e.g. point, spot, cascaded)
+    static const uint kShadowMapMode = SHADOW_MAP_MODE;                     //Mode of the Shadow Map (e.g. normal, variance, exponential)
+    static const uint kCascadedMatOffset = CASCADED_MATRIX_OFFSET;          //Cascaded offset for gShadowMapVPBuffer
+    static const uint kCascadedLevels = CASCADED_LEVEL;                     //Number of Cascaded Levels
+    static const bool kUsePCF = SM_USE_PCF;                                 //Enables PCF (only supported for "normal" SM)
+    static const bool kUsePoissonSampling = SM_USE_POISSON_SAMPLING;        //Enables Statisfied Poisson Sampling (only supported for "normal" SM)
+    static const float kCubeEpsilon = 1e-5f;                                //Epsilon used in CubePointLights as they do not support Bias and Slope Bias
+    static const uint kNPSOffsetSpot = NPS_OFFSET_SPOT;                     //Spotlight offset for gShadowMapNPSBuffer
+    static const uint kNPSOffsetCasc = NPS_OFFSET_CASCADED;                 //Cascaded offset for gShadowMapNPSBuffer
+    static const uint kOracleDistFunctionMode = ORACLE_DIST_FUNCTION_MODE;  //Mode for the Oracle Distance Function
+    static const float kExponentialSMConstant = SM_EXPONENTIAL_CONSTANT;    //Constant for Exponential Shadow Maps
+    static const float kShadowMapNear = SM_NEAR;                            //Near plane for Spot and Directional lights
     
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] =
     {
         float2(-0.94201624, -0.39906216), float2(0.94558609, -0.76890725),
-                                          float2(-0.094184101, -0.92938870), float2(0.34495938, 0.29387760),
-                                          float2(-0.91588581, 0.45771432), float2(-0.81544232, -0.87912464),
-                                          float2(-0.38277543, 0.27676845), float2(0.97484398, 0.75648379),
-                                          float2(0.44323325, -0.97511554), float2(0.53742981, -0.47373420),
-                                          float2(-0.26496911, -0.41893023), float2(0.79197514, 0.19090188),
-                                          float2(-0.24188840, 0.99706507), float2(-0.81409955, 0.91437590),
-                                          float2(0.19984126, 0.78641367), float2(0.14383161, -0.14100790)
+        float2(-0.094184101, -0.92938870), float2(0.34495938, 0.29387760),
+        float2(-0.91588581, 0.45771432), float2(-0.81544232, -0.87912464),
+        float2(-0.38277543, 0.27676845), float2(0.97484398, 0.75648379),
+        float2(0.44323325, -0.97511554), float2(0.53742981, -0.47373420),
+        float2(-0.26496911, -0.41893023), float2(0.79197514, 0.19090188),
+        float2(-0.24188840, 0.99706507), float2(-0.81409955, 0.91437590),
+        float2(0.19984126, 0.78641367), float2(0.14383161, -0.14100790)                                      
     };
-
     static const float3 kPoissonCube[20] =
     {
         float3(1, 1, 1), float3(1, -1, 1), float3(-1, -1, 1), float3(-1, 1, 1),
-                                                     float3(1, 1, -1), float3(1, -1, -1), float3(-1, -1, -1), float3(-1, 1, -1),
-                                                     float3(1, 1, 0), float3(1, -1, 0), float3(-1, -1, 0), float3(-1, 1, 0),
-                                                     float3(1, 0, 1), float3(-1, 0, 1), float3(1, 0, -1), float3(-1, 0, -1),
-                                                     float3(0, 1, 1), float3(0, -1, 1), float3(0, -1, -1), float3(0, 1, -1)
+        float3(1, 1, -1), float3(1, -1, -1), float3(-1, -1, -1), float3(-1, 1, -1),
+        float3(1, 1, 0), float3(1, -1, 0), float3(-1, -1, 0), float3(-1, 1, 0),
+        float3(1, 0, 1), float3(-1, 0, 1), float3(1, 0, -1), float3(-1, 0, -1),
+        float3(0, 1, 1), float3(0, -1, 1), float3(0, -1, -1), float3(0, 1, -1)
     };
 
-    //Gets the shadow value (float case)
+    
+    /** Gets the value from the shadow map depending on type. R32/16 case
+    \param[in] local shadow map texture index.
+    \param[in] texture sample index. z-component is only used in cube-case.
+    \param[in] light type from "LightTypeSM" casted to uint.
+    \param[in] cascaded level. Only used if type == LightTypeSM::Directional.
+    \param[in] used mipmap level.
+    \return value from shadow map.
+    */
     float getShadowValue(uint index, float3 sampleVec, const uint lightType, uint level = 0, float mipLevel = 0.f)
     {
         float sv = 0.f;
@@ -104,7 +112,14 @@ struct ShadowMap
         return sv;
     }
 
-    //Get Shadow Variance Value
+    /** Gets the value from the shadow map depending on type. RG32/16 case
+    \param[in] local shadow map texture index.
+    \param[in] texture sample index. z-component is only used in cube-case.
+    \param[in] light type from "LightTypeSM" casted to uint.
+    \param[in] cascaded level. Only used if type == LightTypeSM::Directional.
+    \param[in] used mipmap level.
+    \return value from shadow map.
+    */
     float2 getShadowVarianceValue(uint index, float3 sampleVec, const uint lightType, uint level = 0, float mipLevel = 0.f)
     {
         //TODO: Get Mip Map level
@@ -126,7 +141,10 @@ struct ShadowMap
         return sv;
     }
 
-    //Gets the Shadow Map Type of the current Shadow Map
+    /** Converts Falcors light type to our Shadow Map type
+    \param[in] light info.
+    \return Shadow Map type.
+    */
     uint getSMLightType(const in LightData lightData)
     {
         uint lightType = 0;
@@ -140,8 +158,11 @@ struct ShadowMap
 
         return lightType;
     }
-
-     //Gets the current cascaded level from the position
+    
+    /** Gets the current cascaded level from the world position
+    \param[in] world position.
+    \return cascaded level between 0 and kCascadedLevels.
+    */
     uint getCascadedLevel(float3 posW)
     {
         float linearZ = abs(mul(gScene.camera.data.viewMat, float4(posW, 1.f)).z);
@@ -152,11 +173,17 @@ struct ShadowMap
                 return level;
             level++;
         }
-        return level;
+        return clamp(level, 0, kCascadedLevels);
     }
     
-    //Gets the total distance to light and the toLight Vector for sampling the cube map
-    bool pointDistanceAndSampleVec(in uint index, in float3 posW, const in LightData lightData, out float3 shadowUV, out float lightDist)
+    /** Converts world Position to the shadow map sample vector and the distance to light
+    \param[in] world position.
+    \param[in] light information.
+    \param[out] shadow map sample vector.
+    \param[out] the distance the shadow map should be compaired to.
+    \return always true.
+    */
+    bool pointDistanceAndSampleVec(in float3 posW, const in LightData lightData, out float3 shadowUV, out float lightDist)
     {
         shadowUV = posW - lightData.posW;
         lightDist = (length(shadowUV) / gShadowMapFarPlane) + kCubeEpsilon;
@@ -164,7 +191,14 @@ struct ShadowMap
         return true;
     }
 
-    //Uses the ViewProjection Matrix to convert WorldSpacePosition to SMLightProjection Space position
+    /** Converts world position to shadow map light projection space.
+    \param[in] local shadow map texture index.
+    \param[in] world position.
+    \param[in] light information.
+    \param[out] shadow map sample vector.
+    \param[out] the distance the shadow map should be compaired to.
+    \return returns if the position is visible from the shadow map.
+    */
     bool spotDistanceAndSampleVec(in uint index, in float3 posW, const in LightData lightData, out float2 shadowUV, out float lightDist)
     {
         float4x4 viewProjectMat = gShadowMapVPBuffer[index];
@@ -173,7 +207,7 @@ struct ShadowMap
         if (kShadowMapMode == (uint) ShadowMapType::ShadowMap)
             lightDist = projPos.z;
         else
-            lightDist = projPos.w;
+            lightDist = (projPos.w - kShadowMapNear)/gShadowMapFarPlane;
         shadowUV = projPos.xy;
         shadowUV.y *= -1; //Flip 
         shadowUV = shadowUV * 0.5 + 0.5; //UV from [-1,1] to [0,1]
@@ -183,7 +217,15 @@ struct ShadowMap
         return true;
     }
 
-    //Get the sample for the Cascaded Shadow Maps. Uses the ViewProjection Matrix to convert WorldSpacePosition to SMLightProjection Space position
+    /** Converts world position to shadow map light projection space.
+    \param[in] local shadow map texture index.
+    \param[in] cascaded level.
+    \param[in] world position.
+    \param[in] light information.
+    \param[out] shadow map sample vector.
+    \param[out] the distance the shadow map should be compaired to.
+    \return returns if the position is visible from the shadow map.
+    */
     bool directionalDistanceAndSampleVec(in uint index, in uint level, in float3 posW, const in LightData lightData, out float2 shadowUV, out float lightDist)
     {
         uint bufferIdx = kCascadedMatOffset + index * kCascadedLevels;
@@ -201,7 +243,14 @@ struct ShadowMap
         return true;
     }
 
-    //Standard shadow test for shadow map
+    /** Standard shadow test for shadow map
+    \param[in] local shadow map texture index.
+    \param[in] cascaded level.
+    \param[in] shadow map sample vector.
+    \param[in] shadow map light type.
+    \param[in] distance value of the current world position. The shadow map value is compaired against this
+    \return 1 -> lit ; 0 -> shadowed
+    */
     float standardShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
     {
         float shadowDist = getShadowValue(index, shadowUV, lightType, level);
@@ -210,7 +259,14 @@ struct ShadowMap
         return 0.f;
     }
     
-    //Evaluates the shadow map for the given light. rng is only used in Poission sampling
+    /** Evaluates the shadow map for the given light. rng is only used in Poission sampling
+    \param[in] analytical light index.
+    \param[in] world position.
+    \param[in] light information.
+    \param[in] falcor random number generator.
+    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
+    \return boolean that indicates if a ray is needed. (Outside of shadow map)
+    */
     bool evalShadowMapClassic(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
     {
         uint index = lightIdx;
@@ -230,7 +286,7 @@ struct ShadowMap
         switch (lightType)
         {
             case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(index, posW, lightData, shadowUV, lightDist);
+                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
                 break;
             case LightTypeSM::Spot:
                 valid = spotDistanceAndSampleVec(index, posW, lightData, shadowUV.xy, lightDist);
@@ -309,7 +365,14 @@ struct ShadowMap
         return true;
     }
 
-    //Return true
+    /** Hybrid Shadow Mapping for the classic shadow map. Evaluates the shadow and tells if a ray should be used. rng is only used in Poission sampling
+    \param[in] analytical light index.
+    \param[in] world position.
+    \param[in] light information.
+    \param[in] falcor random number generator.
+    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
+    \return boolean that indicates if a ray is needed. (Outside of shadow map)
+    */
     bool hybridShadowMapClassic(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
     {
         uint index = lightIdx;
@@ -329,7 +392,7 @@ struct ShadowMap
         switch (lightType)
         {
             case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(index, posW, lightData, shadowUV, lightDist);
+                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
                 break;
             case LightTypeSM::Spot:
                 valid = spotDistanceAndSampleVec(index, posW, lightData, shadowUV.xy, lightDist);
@@ -393,6 +456,14 @@ struct ShadowMap
         return true;
     }
 
+    /** Variance shadow test
+    \param[in] local shadow map texture index.
+    \param[in] cascaded level.
+    \param[in] shadow map sample vector.
+    \param[in] shadow map light type.
+    \param[in] distance value of the current world position. The shadow map value is compaired against this
+    \return 1 -> lit ; 0 -> shadowed
+    */
     float varianceShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
     {
         float2 varianceSV = getShadowVarianceValue(index, shadowUV, lightType, level);
@@ -406,7 +477,15 @@ struct ShadowMap
         
         return pmax;
     }
-    
+
+    /** Variance Shadow Mapping. https://igm.univ-mlv.fr/~biri/Enseignement/MII2/Donnees/variance_shadow_maps.pdf
+    \param[in] analytical light index.
+    \param[in] world position.
+    \param[in] light information.
+    \param[in] falcor random number generator.
+    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
+    \return boolean that indicates if a ray is needed. (Outside of shadow map)
+    */
     bool evalShadowMapVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
     {
         uint index = lightIdx;
@@ -426,7 +505,7 @@ struct ShadowMap
         switch (lightType)
         {
             case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(index, posW, lightData, shadowUV, lightDist);
+                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
                 break;
             case LightTypeSM::Spot:
                 valid = spotDistanceAndSampleVec(index, posW, lightData, shadowUV.xy, lightDist);
@@ -447,15 +526,29 @@ struct ShadowMap
         return true;
     }
 
+    /** Exponential shadow test
+    \param[in] local shadow map texture index.
+    \param[in] cascaded level.
+    \param[in] shadow map sample vector.
+    \param[in] shadow map light type.
+    \param[in] distance value of the current world position. The shadow map value is compaired against this
+    \return 1 -> lit ; 0 -> shadowed
+    */
     float exponentialShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
     {
         float shadowDepth = getShadowValue(index, shadowUV, lightType, level);
         float c = kExponentialSMConstant;
-        if (lightType != (uint) LightTypeSM::Spot)
-            c *= gShadowMapFarPlane;
         return saturate(exp(-lightDist * c) * shadowDepth);
     }
-    
+
+    /** Exponential Shadow Mapping. https://jankautz.com/publications/esm_gi08.pdf
+    \param[in] analytical light index.
+    \param[in] world position.
+    \param[in] light information.
+    \param[in] falcor random number generator.
+    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
+    \return boolean that indicates if a ray is needed. (Outside of shadow map)
+    */
     bool evalShadowMapExponential(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
     {
         uint index = lightIdx;
@@ -475,7 +568,7 @@ struct ShadowMap
         switch (lightType)
         {
             case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(index, posW, lightData, shadowUV, lightDist);
+                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
                 break;
             case LightTypeSM::Spot:
                 valid = spotDistanceAndSampleVec(index, posW, lightData, shadowUV.xy, lightDist);
@@ -495,7 +588,15 @@ struct ShadowMap
         
         return true;
     }
-    
+
+    /** Shadow Map overview function. Calls the corresponding implementation based on the current mode
+    \param[in] analytical light index.
+    \param[in] world position.
+    \param[in] light information.
+    \param[in] falcor random number generator.
+    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
+    \return boolean that indicates if a ray is needed. (Outside of shadow map)
+    */
     bool evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
     {
         switch (ShadowMapType(kShadowMapMode))
@@ -512,6 +613,14 @@ struct ShadowMap
         }
     }
 
+    /** Hybrid Shadow Map overview function. Calls the corresponding implementation based on the current mode
+    \param[in] analytical light index.
+    \param[in] world position.
+    \param[in] light information.
+    \param[in] falcor random number generator.
+    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
+    \return boolean that indicates if a ray is needed. (Outside of shadow map)
+    */
     bool evalHybridShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
     {
         switch (ShadowMapType(kShadowMapMode))
@@ -524,8 +633,13 @@ struct ShadowMap
         }
      }
     
-    //Oracle Funktion for determening if a shadow map should be used
-    //
+    /** Oracle Funktion for determening if a shadow map can be used without quality loss or if a ray should be used instead
+    \param[in] analytical light index.
+    \param[in] light information.
+    \param[in] shading data of the current surface.
+    \param[in] current distance from camera to hit. Can be modified with the oracleDistanceFactor for better results with indirect bounces
+    \return a oracle value that indicates the proportion of the seen camera pixel area to the seen shadow map pixel area
+    */
     float oracleFunction(uint lightIdx, const in LightData lightData, const in ShadingData sd, float rayDistance)
     {
         //Get the right index if multiple shadow map types are used
@@ -569,6 +683,11 @@ struct ShadowMap
         return (projSMArea * angleCamera) / (projAreaCam * angleLight);
     }
 
+     /** Calculate the Oracle distance factor based on the currently selected mode. Should be used on bounces only
+    \param[in] material/bsdf properties.
+    \param[in] current reflection sample.
+    \return a factor the indirect bounce distance should be multiplied with. Used to the oracle function as distance
+    */
     float getOracleDistanceFunctionFactor(const in BSDFProperties bsdfProperties,const in BSDFSample bsdfSample)
     {
         switch (OracleDistFunction(kOracleDistFunctionMode))

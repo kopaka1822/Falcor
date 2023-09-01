@@ -140,14 +140,14 @@ private:
     bool mUsePCF = false;
     bool mUsePoissonDisc = false;
     bool mBiasSettingsChanged = false;
-    int32_t mBias = 16;
-    float mSlopeBias = 0.5f;
+    int32_t mBias = 0;
+    float mSlopeBias = 0.f;
     bool mUseAlphaTest = true;
     float gPoissonDiscRad = 0.5f;
     uint mCascadedLevelCount = 4;
     float mCascadedFrustumFix = 0.5f;
-    float mCascZMult = 2.f;    //Pushes the z Values apart
-    float mExponentialSMConstant = 80.f;
+    float mCascZMult = 3.f;    //Pushes the z Values apart
+    float mExponentialSMConstant = 80.f;    //Value used in the paper
     
     bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
