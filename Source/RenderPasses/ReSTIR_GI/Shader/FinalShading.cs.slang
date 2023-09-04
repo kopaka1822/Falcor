@@ -18,8 +18,8 @@ import PathData;
 #ifndef USE_RTXDI
     #define USE_RTXDI 1
 #endif
-#ifndef USE_RESTIRFG
-    #define USE_RESTIRFG 1
+#ifndef USE_RESTIRGI
+    #define USE_RESTIRGI 1
 #endif
 
 #if USE_REDUCED_RESERVOIR_FORMAT
@@ -34,7 +34,6 @@ StructuredBuffer<GIData> gGISampleData;
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float2> gMVec;
 Texture2D<float4> gView;
-Texture2D<float4> gCausticRadiance;
 Texture2D<float4> gThp;
 RWTexture2D<float4> gOutColor;
 RWTexture2D<float4> gOutEmission;
@@ -162,7 +161,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     
     #endif
 
-    #if USE_RESTIRFG
+    #if USE_RESTIRGI
         //Get reservoir
         bool validIndirectReservoir = true;
         Reservoir r = Reservoir(gReservoir[pixel]);
@@ -198,8 +197,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
             hitTSamples++;
             hitT += distance;
             hitT *= 1.f / hitTSamples;
-        }
-        diffuse += gCausticRadiance[pixel].xyz;        
+        }    
     #endif
         
         color += diffuse + specular;    //Add diffuse and specular parts together
@@ -208,7 +206,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
         color += emission;  //Do this or demodulate it?
 
         //If only RTXDI is used, add the previous calculated light color
-    #if USE_RTXDI && !USE_RESTIRFG
+    #if USE_RTXDI && !USE_RESTIRGI
             float3 fgRadiance = gOutColor[pixel].xyz;
             color += fgRadiance * thp;
             diffuse += fgRadiance * thp;  //TODO do this properly
