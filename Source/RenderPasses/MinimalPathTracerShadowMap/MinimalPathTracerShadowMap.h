@@ -30,6 +30,7 @@
 #include "RenderGraph/RenderPass.h"
 #include "Utils/Sampling/SampleGenerator.h"
 #include "Rendering/ShadowMaps/ShadowMap.h"
+#include "Rendering/Materials/TexLODTypes.slang"  // Using the enum with Mip0, RayCones, etc
 
 using namespace Falcor;
 
@@ -63,6 +64,8 @@ private:
     void parseProperties(const Properties& props);
     void prepareVars();
     void handleDebugOracleTexture(ShaderVar& var, const RenderData& renderData);
+    void setTexLODMode(TexLODMode lodMode);
+    void setRayConeMode(RayConeMode rayConeMode) { mRayConeMode = rayConeMode; }
 
     // Internal state
     ref<Scene>                  mpScene;                        ///< Current scene.
@@ -83,7 +86,8 @@ private:
     bool                        mShowOracleFunc = false;        ///< Shows the Oracle function
     uint                        mShowOracleFuncLevel = 0;       ///< Oracle function level that is shown
     int                         mShowOracleShowOnlyLightIdx = -1;///< Only shows the contributions of selected light
-
+    TexLODMode                  mTexLODMode = TexLODMode::Mip0;  //< Which texture LOD mode to use.
+    RayConeMode                 mRayConeMode = RayConeMode::Combo;  //< Which variant of ray cones to use.
 
     // Runtime data
     uint                        mFrameCount = 0;                ///< Frame count since scene was loaded.

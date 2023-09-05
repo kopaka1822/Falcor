@@ -122,7 +122,6 @@ struct ShadowMap
     */
     float2 getShadowVarianceValue(uint index, float3 sampleVec, const uint lightType, uint level = 0, float mipLevel = 0.f)
     {
-        //TODO: Get Mip Map level
         float2 sv = 0.f;
         switch (lightType)
         {
@@ -464,9 +463,9 @@ struct ShadowMap
     \param[in] distance value of the current world position. The shadow map value is compaired against this
     \return 1 -> lit ; 0 -> shadowed
     */
-    float varianceShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
+    float varianceShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
     {
-        float2 varianceSV = getShadowVarianceValue(index, shadowUV, lightType, level);
+        float2 varianceSV = getShadowVarianceValue(index, shadowUV, lightType, level, mipLevel);
         if (lightDist < varianceSV.x)
             return 1.f;
             
@@ -486,7 +485,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
+    bool evalShadowMapVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel, out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -521,7 +520,7 @@ struct ShadowMap
             return true; //Ray is needed
          
         //Shadow Test with shadow map
-        shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist);
+        shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
         
         return true;
     }
@@ -534,9 +533,9 @@ struct ShadowMap
     \param[in] distance value of the current world position. The shadow map value is compaired against this
     \return 1 -> lit ; 0 -> shadowed
     */
-    float exponentialShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
+    float exponentialShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
     {
-        float shadowDepth = getShadowValue(index, shadowUV, lightType, level);
+        float shadowDepth = getShadowValue(index, shadowUV, lightType, level, mipLevel);
         float c = kExponentialSMConstant;
         return saturate(exp(-lightDist * c) * shadowDepth);
     }
@@ -549,7 +548,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapExponential(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
+    bool evalShadowMapExponential(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -584,7 +583,7 @@ struct ShadowMap
             return true; //Ray is needed
          
         //Shadow Test with shadow map
-        shadow = exponentialShadowTest(index, cascLevel, shadowUV, lightType, lightDist);
+        shadow = exponentialShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
         
         return true;
     }
@@ -594,19 +593,20 @@ struct ShadowMap
     \param[in] world position.
     \param[in] light information.
     \param[in] falcor random number generator.
+    \param[in] mip level.
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
+    bool evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel , out float shadow)
     {
         switch (ShadowMapType(kShadowMapMode))
         {
             case ShadowMapType::ShadowMap:
                 return evalShadowMapClassic(lightIdx, posW, lightData, sg, shadow);
             case ShadowMapType::Variance:
-                return evalShadowMapVariance(lightIdx, posW, lightData, sg, shadow);
+                return evalShadowMapVariance(lightIdx, posW, lightData, sg, mipLevel ,shadow);
             case ShadowMapType::Exponential:
-                return evalShadowMapExponential(lightIdx, posW, lightData, sg, shadow);
+                return evalShadowMapExponential(lightIdx, posW, lightData, sg, mipLevel, shadow);
             default:
                 shadow = 1.f;
                 return false;
@@ -621,7 +621,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalHybridShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
+    bool evalHybridShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mip , out float shadow)
     {
         switch (ShadowMapType(kShadowMapMode))
         {

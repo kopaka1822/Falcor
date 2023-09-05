@@ -40,7 +40,7 @@ namespace
 
     // Ray tracing settings that affect the traversal stack size.
     // These should be set as small as possible.
-    const uint32_t kMaxPayloadSizeBytes = 80u;
+    const uint32_t kMaxPayloadSizeBytes = 88u;
     const uint32_t kMaxRecursionDepth = 2u;
 
     const char kInputViewDir[] = "viewW";
@@ -173,6 +173,8 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     mTracer.pProgram->addDefine("SHOW_ORACLE_INFLUENCE", mShowOracleFunc ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ORACLE_DISTANCE_FUNCTION", mUseOracleDistFactor ? "1" : "0");
     mTracer.pProgram->addDefine("ORACLE_DEBUG_SHOW_LIGHT_IDX", std::to_string(mShowOracleShowOnlyLightIdx));
+    mTracer.pProgram->addDefine("TEX_LOD_MODE", std::to_string(static_cast<uint32_t>(mTexLODMode)));
+    mTracer.pProgram->addDefine("RAY_CONES_MODE", std::to_string(static_cast<uint32_t>(mRayConeMode)));
     mTracer.pProgram->addDefines(mpShadowMap->getDefines());
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
@@ -185,12 +187,17 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     if (!mTracer.pVars) prepareVars();
     FALCOR_ASSERT(mTracer.pVars);
 
+    // Get dimensions of ray dispatch.
+    const uint2 targetDim = renderData.getDefaultTextureDims();
+    FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+
     // Set constants.
     auto var = mTracer.pVars->getRootVar();
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
     var["CB"]["gUseShadowMap"] = mUseShadowMapBounce;
     var["CB"]["gOracleComp"] = mOracleCompaireValue;
+    var["CB"]["gScreenSpacePixelSpreadAngle"] = mpScene->getCamera()->computeScreenSpacePixelSpreadAngle(targetDim.y);
 
     //Set Shadow Map per Iteration Shader Data
     mpShadowMap->setShaderDataAndBindBlock(var, renderData.getDefaultTextureDims());
@@ -208,10 +215,6 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
 
     //Bind Debug Texture
     handleDebugOracleTexture(var, renderData);
-
-    // Get dimensions of ray dispatch.
-    const uint2 targetDim = renderData.getDefaultTextureDims();
-    FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
 
     // Spawn the rays.
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(targetDim, 1));
@@ -243,6 +246,22 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
 
     dirty |= widget.checkbox("Emissive Light", mUseEmissiveLight);
     widget.tooltip("Enable/Disable Emissive Light", true);
+
+    if (auto mode = mTexLODMode; widget.dropdown("Texture LOD mode", mode))
+    {
+        setTexLODMode(mode);
+        dirty = true;
+    }
+    widget.tooltip("The texture level-of-detail mode to use.", true);
+    if (mTexLODMode == TexLODMode::RayCones)
+    {
+        if (auto mode = mRayConeMode; widget.dropdown("Ray cone mode", mode))
+        {
+            setRayConeMode(mode);
+            dirty = true;
+        }
+        widget.tooltip("The variant of ray cones to use.");
+    }
 
     if (auto group = widget.group("Shadow Map Options"))
     {
@@ -408,4 +427,13 @@ void MinimalPathTracerShadowMap::handleDebugOracleTexture(ShaderVar& var, const 
     {
         var["gOracleDebug"][i] = mpOracleDebug[i];
     }
+}
+
+void MinimalPathTracerShadowMap::setTexLODMode(TexLODMode lodMode) {
+    if (lodMode == TexLODMode::Stochastic || lodMode == TexLODMode::RayDiffs)
+    {
+        logWarning("(Minimal Path Tracer) Unsupported Lod Mode");
+        return;
+    }
+    mTexLODMode = lodMode;
 }
