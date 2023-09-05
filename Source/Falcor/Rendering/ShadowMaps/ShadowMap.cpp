@@ -880,7 +880,7 @@ bool ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRen
     }
 
     // generate Mips for shadow map modes that allow filter
-    if (mpDepth)
+    if (mpDepthCascaded)
         mpCascadedShadowMaps[index]->generateMips(pRenderContext);
 
     return true;
