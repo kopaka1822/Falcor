@@ -46,7 +46,8 @@ struct ShadowMap
 
     //CASCADED_SLICE_BUFFER_SIZE is either 4 or 8
     float gCascadedZSlices[CASCADED_SLICE_BUFFER_SIZE];  //Camera Z distance for cascaded level calculation
-    
+
+    //Static Constants
     static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;         //Enabled if more than one type is present (e.g. point, spot, cascaded)
     static const uint kShadowMapMode = SHADOW_MAP_MODE;                     //Mode of the Shadow Map (e.g. normal, variance, exponential)
     static const uint kCascadedMatOffset = CASCADED_MATRIX_OFFSET;          //Cascaded offset for gShadowMapVPBuffer
@@ -59,7 +60,14 @@ struct ShadowMap
     static const uint kOracleDistFunctionMode = ORACLE_DIST_FUNCTION_MODE;  //Mode for the Oracle Distance Function
     static const float kExponentialSMConstant = SM_EXPONENTIAL_CONSTANT;    //Constant for Exponential Shadow Maps
     static const float kShadowMapNear = SM_NEAR;                            //Near plane for Spot and Directional lights
-    
+    static const float kHSMFilteredThreshold = HYBRID_SMFILTERED_THRESHOLD; //Hybrid Shadow Map: Threshold for filtered SM(Variance, Exponential). Ray is needed for [TH, 1.f]
+    static const bool kUseRayOutsideSM = USE_RAY_OUTSIDE_SM;                //Determines if a ray should be used outside of the shadow map
+
+    static const bool kUseHybridShadowMap = USE_HYBRID_SM;
+    static const bool kUseOracle = USE_ORACLE_FUNCTION;
+    static const float kOracleCompValue = ORACLE_COMP_VALUE;
+    static const bool kUseOracleDistFunction = USE_ORACLE_DISTANCE_FUNCTION;
+    static const bool kUseSMMips = USE_SM_MIP;
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] =
@@ -275,12 +283,12 @@ struct ShadowMap
             index = gShadowMapIndexMap[lightIdx];
         }
         
-        shadow = 0.f;
+        shadow = 1.f;
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
         uint cascLevel = getCascadedLevel(posW);
-        
+                
         bool valid = false;
         switch (lightType)
         {
@@ -296,9 +304,9 @@ struct ShadowMap
             default:
                 break;
         }
-        
+                
         if (!valid)
-            return true; //Ray is needed
+            return !kUseRayOutsideSM;   //Outside of shadow map
          
         //Shadow Test with shadow map
         if (!kUsePCF && !kUsePoissonSampling)
@@ -361,7 +369,7 @@ struct ShadowMap
             }
         }
     
-        return true;
+        return true; //No ray needed
     }
 
     /** Hybrid Shadow Mapping for the classic shadow map. Evaluates the shadow and tells if a ray should be used. rng is only used in Poission sampling
@@ -404,7 +412,7 @@ struct ShadowMap
         }
         
         if (!valid)
-            return true; //Ray is needed
+            return !kUseRayOutsideSM;   //Outside of shadow map
 
        
         float maxDist = FLT_MAX; //Maximum distance possible in scene
@@ -450,9 +458,9 @@ struct ShadowMap
 
         //Check if ray tracing is needed or if we can skip
         if ((lightDist > maxDist) && (lightDist < minDist))
-            return false;
+            return false; //inbetween; Ray is needed
         
-        return true;
+        return true;    //No ray needed
     }
 
     /** Variance shadow test
@@ -517,12 +525,62 @@ struct ShadowMap
         }
         
         if (!valid)
-            return true; //Ray is needed
+            return !kUseRayOutsideSM; //Ray is needed
          
         //Shadow Test with shadow map
         shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
         
         return true;
+    }
+
+     /** Variance Shadow Mapping adjusted for Hybrid Shadow Maps. https://igm.univ-mlv.fr/~biri/Enseignement/MII2/Donnees/variance_shadow_maps.pdf
+    \param[in] analytical light index.
+    \param[in] world position.
+    \param[in] light information.
+    \param[in] falcor random number generator.
+    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
+    \return boolean that indicates if a ray is needed. (Outside of shadow map)
+    */
+    bool evalHybridShadowMapVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel, out float shadow)
+    {
+        uint index = lightIdx;
+        //Get the right index if multiple shadow map types are used
+        if (kMultipleSMTypes)
+        {
+            index = gShadowMapIndexMap[lightIdx];
+        }
+        
+        shadow = 0.f;
+        float lightDist = 0.f;
+        float3 shadowUV = float3(0);
+        uint lightType = getSMLightType(lightData);
+        uint cascLevel = getCascadedLevel(posW);
+        
+        bool valid = false;
+        switch (lightType)
+        {
+            case LightTypeSM::Point:
+                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
+                break;
+            case LightTypeSM::Spot:
+                valid = spotDistanceAndSampleVec(index, posW, lightData, shadowUV.xy, lightDist);
+                break;
+            case LightTypeSM::Directional:
+                valid = directionalDistanceAndSampleVec(index, cascLevel, posW, lightData, shadowUV.xy, lightDist);
+                break;
+            default:
+                break;
+        }
+        
+        if (!valid)
+            return !kUseRayOutsideSM;   //Outside of shadow map
+         
+        //Shadow Test with shadow map
+        shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
+        if (shadow != 1 && shadow > kHSMFilteredThreshold)
+            return false;   //Shoot ray
+        
+        return true;        //No ray needed
     }
 
     /** Exponential shadow test
@@ -580,12 +638,63 @@ struct ShadowMap
         }
         
         if (!valid)
-            return true; //Ray is needed
+            return !kUseRayOutsideSM;   //Outside of shadow map
          
         //Shadow Test with shadow map
         shadow = exponentialShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
         
         return true;
+    }
+
+    /** Exponential Shadow Mapping adjusted for hybrid shadow mapping. https://jankautz.com/publications/esm_gi08.pdf
+    \param[in] analytical light index.
+    \param[in] world position.
+    \param[in] light information.
+    \param[in] falcor random number generator.
+    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
+    \return boolean that indicates if a ray is needed. (Outside of shadow map)
+    */
+    bool evalHybridShadowMapExponential(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel , out float shadow)
+    {
+        uint index = lightIdx;
+        //Get the right index if multiple shadow map types are used
+        if (kMultipleSMTypes)
+        {
+            index = gShadowMapIndexMap[lightIdx];
+        }
+        
+        shadow = 0.f;
+        float lightDist = 0.f;
+        float3 shadowUV = float3(0);
+        uint lightType = getSMLightType(lightData);
+        uint cascLevel = getCascadedLevel(posW);
+        
+        bool valid = false;
+        switch (lightType)
+        {
+            case LightTypeSM::Point:
+                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
+                break;
+            case LightTypeSM::Spot:
+                valid = spotDistanceAndSampleVec(index, posW, lightData, shadowUV.xy, lightDist);
+                break;
+            case LightTypeSM::Directional:
+                valid = directionalDistanceAndSampleVec(index, cascLevel, posW, lightData, shadowUV.xy, lightDist);
+                break;
+            default:
+                break;
+        }
+        
+        if (!valid)
+            return !kUseRayOutsideSM;   //Outside of shadow map
+         
+        //Shadow Test with shadow map
+        shadow = exponentialShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
+
+         if (shadow != 1 && shadow > kHSMFilteredThreshold)
+            return false;   //Shoot ray
+        
+        return true;        //No ray needed
     }
 
     /** Shadow Map overview function. Calls the corresponding implementation based on the current mode
@@ -621,12 +730,16 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalHybridShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mip , out float shadow)
+    bool evalHybridShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel, out float shadow)
     {
         switch (ShadowMapType(kShadowMapMode))
         {
             case ShadowMapType::ShadowMap:
                 return hybridShadowMapClassic(lightIdx, posW, lightData, sg, shadow);
+            case ShadowMapType::Variance:
+                return evalHybridShadowMapVariance(lightIdx, posW, lightData, sg, mipLevel ,shadow);
+            case ShadowMapType::Exponential:
+                return evalHybridShadowMapExponential(lightIdx, posW, lightData, sg, mipLevel, shadow);
             default:
                 shadow = 1.f;
                 return false;

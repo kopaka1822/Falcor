@@ -123,6 +123,7 @@ private:
     ref<Fbo> mpFboCascaded;
 
     const uint kStagingBufferCount = 3;
+    const uint kNumberDebugTextures = 16;
 
     uint mShadowMapSize = 1024;
     uint mShadowMapSizeCube = 1024;
@@ -148,7 +149,18 @@ private:
     float mCascadedFrustumFix = 0.5f;
     float mCascZMult = 3.f;    //Pushes the z Values apart
     float mExponentialSMConstant = 80.f;    //Value used in the paper
-    
+    float mHSMFilteredThreshold = 0.2f;     //Threshold for filtered shadow map variants
+    bool mUseRayOutsideOfShadowMap = false;
+    bool mVarianceUseSelfShadowVariant = true;
+
+    bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function
+    bool mUseOracleDistFactor = true; ///< Enables a lobe distance factor that is used in the oracle function TODO rename
+    float mOracleCompaireValue = 1.f; ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea.
+    bool mUseHybridSM = false;        ///< Uses the Hybrid Shadow Maps (https://gpuopen.com/fidelityfx-hybrid-shadows/#details)
+
+    bool mUseShadowMipMaps = true;        ///< Uses mip maps for applyable shadow maps
+
+
     bool mApplyUiSettings = false;
     bool mAlwaysRenderSM = false;
     bool mFirstFrame = true;

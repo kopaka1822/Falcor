@@ -436,9 +436,16 @@ DefineList ShadowMap::getDefines() const
     defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
     defines.add("NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
     defines.add("ORACLE_DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
-    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant)); // TODO better solution
-    defines.add("SM_NEAR", std::to_string(mNear)); 
-    
+    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant));
+    defines.add("SM_NEAR", std::to_string(mNear));
+    defines.add("HYBRID_SMFILTERED_THRESHOLD", std::to_string(mHSMFilteredThreshold));
+    defines.add("USE_RAY_OUTSIDE_SM", mUseRayOutsideOfShadowMap ? "1" : "0");
+
+    defines.add("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
+    defines.add("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
+    defines.add("ORACLE_COMP_VALUE", std::to_string(mOracleCompaireValue));
+    defines.add("USE_ORACLE_DISTANCE_FUNCTION", mOracleDistanceFunctionMode == OracleDistFunction::None ? "0" : "1");
+    defines.add("USE_SM_MIP", mUseShadowMipMaps ? "1" : "0");
 
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
@@ -451,7 +458,8 @@ DefineList ShadowMap::getDefinesShadowMapGenPass() const
     DefineList defines;
     defines.add("USE_ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
-    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant)); // TODO better solution
+    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant));
+    defines.add("SM_VARIANCE_SELFSHADOW", mVarianceUseSelfShadowVariant ? "1" : "0");
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
 
@@ -580,7 +588,7 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
     FALCOR_PROFILE(pRenderContext, "GenShadowMapPoint");
     if (index == 0)
     {
-        mShadowCubePass.pState->getProgram()->addDefine("USE_ALPHA_TEST", mUseAlphaTest ? "1" : "0");
+        mFirstFrame |= mShadowCubePass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass());
     }
 
     // Create Program Vars
@@ -963,7 +971,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     }
 
     //Spot/Directional Lights
-    mShadowMapPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); // Update defines
+    mFirstFrame |= mShadowMapPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); //Update defines
     // Create Program Vars
     if (!mShadowMapPass.pVars)
     {
@@ -979,7 +987,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     }
 
     //Render cascaded
-    mShadowMapCascadedPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); // Update defines
+    mFirstFrame |= mShadowMapCascadedPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); // Update defines
     // Create Program Vars
     if (!mShadowMapCascadedPass.pVars)
     {
@@ -1058,20 +1066,11 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     }
     widget.tooltip("Changes the Shadow Map Type. For types other than Shadow Map, a extra depth texture is needed",true);
 
-
     widget.checkbox("Render every Frame", mAlwaysRenderSM);
     widget.tooltip("Renders all shadow maps every frame");
 
-    // Near Far option
-    static float2 nearFar = float2(mNear, mFar);
-    widget.var("Near/Far", nearFar, 0.0f, 100000.f, 0.001f);
-    widget.tooltip("Changes the Near/Far values used for Point and Spotlights");
-    if (nearFar.x != mNear || nearFar.y != mFar)
-    {
-        mNear = nearFar.x;
-        mFar = nearFar.y;
-        mFirstFrame = true; // Rerender all shadow maps
-    }
+    widget.checkbox("Use Hybrid SM", mUseHybridSM);
+    widget.tooltip("Enables Hybrid Shadow Maps, where the edge of the shadow map is traced", true);
 
     static uint3 resolution = uint3(mShadowMapSize, mShadowMapSizeCube, mShadowMapSizeCascaded);
     widget.var("Shadow Map / Cube / Cascaded Res", resolution, 32u, 16384u, 32u);
@@ -1084,54 +1083,122 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         mShadowResChanged = true;
     }
 
+     widget.dummy("", float2(1.5f)); //Spacing
+
+    //Common options used in all shadow map variants
+    if (auto group = widget.group("Common Settings"))
+    {
+        mRasterDefinesChanged |= group.checkbox("Alpha Test", mUseAlphaTest);
+
+        // Near Far option
+        static float2 nearFar = float2(mNear, mFar);
+        group.var("Near/Far", nearFar, 0.0f, 100000.f, 0.001f);
+        group.tooltip("Changes the Near/Far values used for Point and Spotlights");
+        if (nearFar.x != mNear || nearFar.y != mFar)
+        {
+            mNear = nearFar.x;
+            mFar = nearFar.y;
+            mFirstFrame = true; // Rerender all shadow maps
+        }
+
+         if (group.dropdown("Cull Mode", kShadowMapCullMode, (uint32_t&)mCullMode))
+            mFirstFrame = true; // Render all shadow maps again
+
+         
+
+         group.checkbox("Use Ray Outside of SM", mUseRayOutsideOfShadowMap);
+         group.tooltip("Always uses a ray, when position is outside of the shadow map. Else the area is lit", true);
+    }
+
+    //Type specific UI group
+    switch (mShadowMapType)
+    {
+    case ShadowMapType::ShadowMap:
+    {
+        if (auto group = widget.group("Shadow Map Options")){
+            bool biasChanged = false;
+            biasChanged |= group.var("Bias", mBias, 0, 256, 1);
+            biasChanged |= group.var("Slope Bias", mSlopeBias, 0.f, 50.f, 0.001f);
+
+            if (biasChanged)
+            {
+                classicBias = mBias;
+                classicSlopeBias = mSlopeBias;
+                mBiasSettingsChanged = true;
+            }
+
+            group.checkbox("Use PCF", mUsePCF);
+            group.tooltip("Enable to use Percentage closer filtering");
+            group.checkbox("Use Poisson Disc Sampling", mUsePoissonDisc);
+            group.tooltip("Use Poisson Disc Sampling, only enabled if rng of the eval function is filled");
+            if(mUsePoissonDisc)
+                group.var("Poisson Disc Rad", gPoissonDiscRad, 0.f, 50.f, 0.001f);  //TODO: Seperate in Point and Spot/Dir
+        }
+        break;
+    }
+    case ShadowMapType::Variance:
+    {
+        if (auto group = widget.group("Variance Shadow Map Options"))
+        {
+            group.checkbox("Variance SelfShadow Variant", mVarianceUseSelfShadowVariant);
+            group.tooltip("Uses part of ddx and ddy depth in variance calculation");
+            group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
+            group.tooltip("Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH, 1.f]", true);
+            group.checkbox("Use Mip Maps", mUseShadowMipMaps);
+            group.tooltip("Uses MipMaps for applyable shadow map variants", true);
+        }
+        
+        break;
+    }
+    case ShadowMapType::Exponential:
+    {
+        if (auto group = widget.group("Exponential Shadow Map Options"))
+        {
+            group.var("Exponential Constant", mExponentialSMConstant, 1.f, 160.f, 0.1f);
+            group.tooltip("Constant for exponential shadow map");
+            group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
+            group.tooltip(
+                "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH, 1.f]", true
+            );
+            group.checkbox("Use Mip Maps", mUseShadowMipMaps);
+            group.tooltip("Uses MipMaps for applyable shadow map variants", true);
+        }
+        break;
+    }
+    default:;
+    }
+    
     if (mpCascadedShadowMaps.size() > 0)
     {
         if (auto group = widget.group("CascadedOptions"))
         {
-            if (widget.var("Cacaded Level", mCascadedLevelCount, 1u, 8u, 1u))
+            if (group.var("Cacaded Level", mCascadedLevelCount, 1u, 8u, 1u))
             {
                 mResetShadowMapBuffers = true;
                 mShadowResChanged = true;
             }
-                
-            widget.tooltip("Changes the number of cascaded levels");
-            widget.var("Z Slize Exp influence", mCascadedFrustumFix, 0.f, 1.f, 0.001f);
-            widget.tooltip("Influence of the Exponentenial part in the zSlice calculation. (1-Value) is used for the linear part");
-            widget.var("Z Value Multi", mCascZMult, 1.f, 1000.f, 0.1f);
-            widget.tooltip("Pulls the Z-Values of each cascaded level apart. Is needed as not all Geometry is in the View-Frustum");
 
+            group.tooltip("Changes the number of cascaded levels");
+            group.var("Z Slize Exp influence", mCascadedFrustumFix, 0.f, 1.f, 0.001f);
+            group.tooltip("Influence of the Exponentenial part in the zSlice calculation. (1-Value) is used for the linear part");
+            group.var("Z Value Multi", mCascZMult, 1.f, 1000.f, 0.1f);
+            group.tooltip("Pulls the Z-Values of each cascaded level apart. Is needed as not all Geometry is in the View-Frustum");
         }
     }
-    
 
-    if (widget.dropdown("Cull Mode", kShadowMapCullMode, (uint32_t&)mCullMode))
-        mFirstFrame = true; // Render all shadow maps again
-
-    if (mShadowMapType == ShadowMapType::ShadowMap)
+    if (auto group = widget.group("Oracle Options"))
     {
-        bool biasChanged = false;
-        biasChanged |= widget.var("Shadow Map Bias", mBias, 0, 256, 1);
-        biasChanged |= widget.var("Shadow Slope Bias", mSlopeBias, 0.f, 50.f, 0.001f);
-
-        if (biasChanged)
+        group.checkbox("Use Oracle Function", mUseSMOracle);
+        group.tooltip("Enables the oracle function for Shadow Mapping", true);
+        if (mUseSMOracle)
         {
-            classicBias = mBias;
-            classicSlopeBias = mSlopeBias;
-            mBiasSettingsChanged = true;
+            group.var("Oracle Compaire Value", mOracleCompaireValue, 0.f, 64.f, 0.1f);
+            group.tooltip("Compaire Value for the Oracle function. Is basically compaired against ShadowMapPixelArea/CameraPixelArea.");
+            group.dropdown("Oracle Distance Mode", mOracleDistanceFunctionMode);
+            group.tooltip("Mode for the distance factor applied on bounces.");
         }
-    }
-   
-
-    mRasterDefinesChanged |= widget.checkbox("Alpha Test", mUseAlphaTest);
-    widget.checkbox("Use PCF", mUsePCF);
-    widget.tooltip("Enable to use Percentage closer filtering");
-    widget.checkbox("Use Poisson Disc Sampling", mUsePoissonDisc);
-    widget.tooltip("Use Poisson Disc Sampling, only enabled if rng of the eval function is filled");
-    widget.var("Poisson Disc Rad", gPoissonDiscRad, 0.f, 50.f, 0.001f);
-
-    widget.dropdown("Oracle Distance Mode", mOracleDistanceFunctionMode);
-    widget.tooltip("Mode for the distance factor applied on bounces.");
         
+    }
 }
 
 // Gets the pixel size at distance 1. Assumes every pixel has the same size.

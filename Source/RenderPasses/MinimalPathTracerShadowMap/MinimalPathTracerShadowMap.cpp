@@ -84,7 +84,6 @@ void MinimalPathTracerShadowMap::parseProperties(const Properties& props)
         else if (key == kUseImportanceSampling) mUseImportanceSampling = value;
         else if (key == kUseEmissiveLight) mUseEmissiveLight = value;
         else if (key == kUseAlphaTest) mUseAlphaTest = value;
-        else if (key == kUseHybridSM) mUseHybridSM = value;
         else if (key == kShadowMapBounces) mUseShadowMapBounce = value;
         else logWarning("Unknown property '{}' in MinimalPathTracerShadowMap properties.", key);
     }
@@ -98,7 +97,6 @@ Properties MinimalPathTracerShadowMap::getProperties() const
     props[kUseImportanceSampling] = mUseImportanceSampling;
     props[kUseEmissiveLight] = mUseEmissiveLight;
     props[kUseAlphaTest] = mUseAlphaTest;
-    props[kUseHybridSM] = mUseHybridSM;
     props[kShadowMapBounces] = mUseShadowMapBounce;
     return props;
 }
@@ -168,13 +166,10 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     mTracer.pProgram->addDefine("USE_ENV_LIGHT", mpScene->useEnvLight() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
     mTracer.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
-    mTracer.pProgram->addDefine("SHOW_ORACLE_INFLUENCE", mShowOracleFunc ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_ORACLE_DISTANCE_FUNCTION", mUseOracleDistFactor ? "1" : "0");
-    mTracer.pProgram->addDefine("ORACLE_DEBUG_SHOW_LIGHT_IDX", std::to_string(mShowOracleShowOnlyLightIdx));
     mTracer.pProgram->addDefine("TEX_LOD_MODE", std::to_string(static_cast<uint32_t>(mTexLODMode)));
     mTracer.pProgram->addDefine("RAY_CONES_MODE", std::to_string(static_cast<uint32_t>(mRayConeMode)));
+    mTracer.pProgram->addDefine("SHOW_ORACLE_FUNCTION", mOracleDebugShowFunc ? "1" : "0");
+    mTracer.pProgram->addDefine("ORACLE_DEBUG_LIGHT_IDX", std::to_string(mOracleDebugLightIdx));
     mTracer.pProgram->addDefines(mpShadowMap->getDefines());
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
@@ -196,7 +191,6 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
     var["CB"]["gUseShadowMap"] = mUseShadowMapBounce;
-    var["CB"]["gOracleComp"] = mOracleCompaireValue;
     var["CB"]["gScreenSpacePixelSpreadAngle"] = mpScene->getCamera()->computeScreenSpacePixelSpreadAngle(targetDim.y);
 
     //Set Shadow Map per Iteration Shader Data
@@ -220,9 +214,9 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(targetDim, 1));
 
     //Copy to out
-    if (mShowOracleFunc)
+    if (mOracleDebugShowFunc)
     {
-        pRenderContext->copyResource(renderData["color"]->asTexture().get(), mpOracleDebug[mShowOracleFuncLevel].get());
+        pRenderContext->copyResource(renderData["color"]->asTexture().get(), mpOracleDebug[mOracleDebugFuncLevel].get());
     }
 
     mFrameCount++;
@@ -267,46 +261,26 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
 
     if (auto group = widget.group("Shadow Map Options"))
     {
-        group.checkbox("Use Oracle Function", mUseSMOracle);
-        group.tooltip("Enables the oracle function for Shadow Mapping", true);
-        if (mUseSMOracle)
-        {
-            if (Gui::Group group2 = widget.group("OracleOptions", true)) // TODO add oracle settings if too many factors appear
-            {
-                group2.var("Oracle Compaire Value", mOracleCompaireValue, 0.f, 64.f, 0.1f);
-                group2.tooltip("Compaire Value for the Oracle function. Is basically compaired against ShadowMapPixelArea/CameraPixelArea.");
-                group2.checkbox("Use Lobe factor", mUseOracleDistFactor);
-                group2.tooltip("Uses a factor that increases the distance if a rough lobe was used (diffuse; specular WIP)"); // TODO change text if specular is implemented
-            }
-        }
-        
-
         group.var("Use SM from Bounce", mUseShadowMapBounce, 0u, mMaxBounces + 1, 1u);
         group.tooltip(
             "Tells the renderer, at which bounces the shadow maps should be used. To disable shadow map usage set to \"Max bounces\" + 1 ",
             true
         );
-        if (group.checkbox("Use Hybrid SM", mUseHybridSM))
-        {
-            if (mUseHybridSM)
-                mOracleCompaireValue = 4.f;
-        }
-        group.tooltip("Enables Hybrid Shadow Maps, where the edge of the shadow map is traced", true);
-
-       
-
+        
         if (mpShadowMap)
             mpShadowMap->renderUI(group);
         else
             group.text("Further Shadow Map Options to appear \n when a scene is loaded in.");
 
-        group.checkbox("Show Oracle Function", mShowOracleFunc);
-        group.tooltip("Use SM = Red; Use RayTracing/Hybrid SM = green. Shows only the for the first SM bounce", true);
-        if (mShowOracleFunc)
-        {
-            group.var("Show (Oracle) level", mShowOracleFuncLevel, 0u, mMaxBounces, 1u);
-            group.var("Oracle Only Show Light", mShowOracleShowOnlyLightIdx, -1, 100000000, 1);
-            group.tooltip("Only shows the light with the responding index. -1 Shows all lights. >NumLights will be black", true);
+        if (auto group2 = widget.group("Oracle Debug")) {
+            group2.checkbox("Show Oracle Function", mOracleDebugShowFunc);
+            group2.tooltip("Use SM = Red; Use RayTracing/Hybrid SM = green. Shows only the for the first SM bounce", true);
+            if (mOracleDebugShowFunc)
+            {
+                group2.var("Show (Oracle) level", mOracleDebugFuncLevel, 0u, mMaxBounces, 1u);
+                group2.var("Oracle Only Show Light", mOracleDebugLightIdx, -1, 100000000, 1);
+                group2.tooltip("Only shows the light with the responding index. -1 Shows all lights. >NumLights will be black", true);
+            }
         }
     }
 
@@ -402,7 +376,7 @@ void MinimalPathTracerShadowMap::prepareVars()
 
 void MinimalPathTracerShadowMap::handleDebugOracleTexture(ShaderVar& var, const RenderData& renderData)
 {
-    if (!mShowOracleFunc)
+    if (!mOracleDebugShowFunc)
     {
         if (!mpOracleDebug.empty())
             mpOracleDebug.clear();

@@ -71,7 +71,6 @@ cbuffer CB
     uint        gFrameCount;        // Frame count since scene was loaded.
     uint        gPRNGDimension;     // First available PRNG dimension.
     uint        gUseShadowMap;      // Bounce at which the shadow map should be used
-    float       gOracleComp;       // Oracle Compaire Value
     float       gScreenSpacePixelSpreadAngle; // Spread angle in screen space for ray cones
 }
 
@@ -95,14 +94,10 @@ static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
 static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const float kRayTMax = FLT_MAX;
 static const bool kAlphaTest = ALPHA_TEST;
-static const bool kUseHybridShadowMap = USE_HYBRID_SM;
-static const bool kUseOracle = USE_ORACLE_FUNCTION;
-static const bool kShowOracleRadius = SHOW_ORACLE_INFLUENCE;
-static const bool kUseOracleDistFunction = USE_ORACLE_DISTANCE_FUNCTION;
-static const int kOracleOnlyShowLightIdx = ORACLE_DEBUG_SHOW_LIGHT_IDX;
 static const TexLODMode kTexLODMode = TexLODMode(TEX_LOD_MODE);
 static const RayConeMode kRayConesMode = RayConeMode(RAY_CONES_MODE);
-
+static const bool kDebugOracleFunction = SHOW_ORACLE_FUNCTION;
+static const int kDebugOracleLightIdx = ORACLE_DEBUG_LIGHT_IDX;
 /** Payload for shadow ray.
 */
 struct ShadowRayData
@@ -138,7 +133,7 @@ struct ScatterRayData
         this.origin = float3(0, 0, 0);
         this.direction = float3(0, 0, 0);
         this.lobeDistFactor = 1.f;
-        this.rayCone = {};
+        //this.rayCone = {};
         this.sg = sg;
     }
 };
@@ -341,42 +336,44 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     float oracle = 0.f;
     float oracleMip = 0.f;
     bool useShadowRay = gUseShadowMap > pathLength;
-    if (kUseOracle && !useShadowRay)
+    if (gShadowMap.kUseOracle && !useShadowRay)
     {
         oracle = gShadowMap.oracleFunction(lightIndex, lightData, sd, rayData.distance);
-        oracleMip = gShadowMap.oracleToLOD(oracle);
+        if (gShadowMap.kUseSMMips)
+            oracleMip = gShadowMap.oracleToLOD(oracle);
     }
     
     float shadow;
-    bool useNormalSM = oracle <= gOracleComp;
+    bool useNormalSM = oracle <= gShadowMap.kOracleCompValue;
     
-    if (kUseHybridShadowMap && !useShadowRay)
+    if (gShadowMap.kUseHybridShadowMap && !useShadowRay)
     {
         useShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, origin, lightData, sg, oracleMip, shadow);
-        useShadowRay &= (!useNormalSM || !kUseOracle); //Disable ray if oracle function was evaluated true
+        useShadowRay &= (!useNormalSM || !gShadowMap.kUseOracle); //Disable ray if oracle function was evaluated true
     }
     else if (!useShadowRay && useNormalSM)
     {
-        gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg, oracleMip, shadow);
+        useShadowRay = !gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg, oracleMip, shadow);
     }
 
     //Make sure the ray is used if no hybrid shadow mapping is used
-    if (!kUseHybridShadowMap)
+    if (!gShadowMap.kUseHybridShadowMap)
         useShadowRay |= !useNormalSM;
-    
-    if (kShowOracleRadius)
+
+    //TODO: Move to shadow map parameter block
+    if (kDebugOracleFunction)
     {
         float3 debugValue = float3(0);
-        if (kOracleOnlyShowLightIdx < 0 || kOracleOnlyShowLightIdx == lightIndex)
+        if (kDebugOracleLightIdx < 0 || kDebugOracleLightIdx == lightIndex)
         {
             if (useNormalSM && !useShadowRay)
                 debugValue.x = 1.f;
-            if (kUseHybridShadowMap && !useShadowRay)
+            if (gShadowMap.kUseHybridShadowMap && !useShadowRay)
                 debugValue.z = 1.f;
             if (useShadowRay)
                 debugValue.y = 1.f;
             
-            if(kOracleOnlyShowLightIdx >= 0)
+            if(kDebugOracleLightIdx >= 0)
                 debugValue *= invPdf;       //Because the light is not always choosen
         }
         
@@ -418,7 +415,7 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool i
         rayData.thp *= bsdfSample.weight;
 
         ///Handle Oracle Distance function
-        if (kUseOracleDistFunction)
+        if (gShadowMap.kUseOracleDistFunction)
         {
             let bsdfProperties = mi.getProperties(sd);
             rayData.lobeDistFactor = gShadowMap.getOracleDistanceFunctionFactor(bsdfProperties, bsdfSample);

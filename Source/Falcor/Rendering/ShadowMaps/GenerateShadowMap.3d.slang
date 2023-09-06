@@ -12,11 +12,15 @@ cbuffer CB
 };
 
 #ifndef SM_EXPONENTIAL_CONSTANT
-#define SM_EXPONENTIAL_CONSTANT 2.33f
+#define SM_EXPONENTIAL_CONSTANT 80.f
 #endif
 
 #ifndef INTERPOLATION_MODE
 #define INTERPOLATION_MODE linear
+#endif
+
+#ifndef SM_VARIANCE_SELFSHADOW
+#define SM_VARIANCE_SELFSHADOW 1
 #endif
 
 struct ShadowVsOut
@@ -106,6 +110,14 @@ float2 psVariance(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_T
     float2 varianceSM = float2(1.f);    
     varianceSM.x = (vsOut.posH.w - near)/( gFarPlane - near); //Linear Z in [0,1]
     varianceSM.y = varianceSM.x * varianceSM.x;
+
+    //From https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-8-summed-area-variance-shadow-maps
+    #if SM_VARIANCE_SELFSHADOW
+    float depthX = (ddx(vsOut.posH.w) - near) / (gFarPlane - near);
+    float depthY = (ddy(vsOut.posH.w) - near) / (gFarPlane - near);
+    varianceSM.y += 0.25f * (depthX * depthX + depthY * depthY);
+    #endif //SM_VARIANCE_SELFSHADOW
+    
     return varianceSM;
 }
 
@@ -118,6 +130,14 @@ float2 psVarianceCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID
     float2 varianceSM = float2(1.f);
     varianceSM.x = vsOut.posH.z;
     varianceSM.y = varianceSM.x * varianceSM.x;
+
+    //From https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-8-summed-area-variance-shadow-maps
+    #if SM_VARIANCE_SELFSHADOW
+    float depthX = ddx(vsOut.posH.z);
+    float depthY = ddy(vsOut.posH.z);
+    varianceSM.y += 0.25f * (depthX * depthX + depthY * depthY);
+    #endif //SM_VARIANCE_SELFSHADOW
+    
     return varianceSM;
 }
 
