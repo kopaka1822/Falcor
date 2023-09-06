@@ -125,7 +125,7 @@ private:
     const uint kStagingBufferCount = 3;
 
     uint mShadowMapSize = 1024;
-    uint mShadowMapSizeCube = 512;
+    uint mShadowMapSizeCube = 1024;
     uint mShadowMapSizeCascaded = 2048;
     ResourceFormat mShadowMapFormat = ResourceFormat::D32Float;
     RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;

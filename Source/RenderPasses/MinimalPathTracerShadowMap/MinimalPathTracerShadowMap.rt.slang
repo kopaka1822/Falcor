@@ -122,7 +122,7 @@ struct ScatterRayData
     float   lobeDistFactor; ///< Factor how the lobe affects the distance of the ray 
     float3  direction;      ///< Next path segment direction.
 
-    RayCone rayCone;        ///< Ray cone (2 floats) for texture LOD. 
+    //RayCone rayCone;        ///< Ray cone (2 floats) for texture LOD. TODO add back if fixed
     
     SampleGenerator sg;     ///< Per-ray state for the sample generator (up to 16B).
 
@@ -200,12 +200,10 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayOrigin, const flo
     \param[in] lod Method for computing texture level-of-detail.
     \return ShadingData struct.
 */
-ShadingData loadShadingDataRayConeFirstHit(const HitInfo hit, const float3 rayOrigin, const float3 rayDir, inout RayCone rayCone, out float3 lodLevel)
+ShadingData loadShadingDataRayConeFirstHit(const HitInfo hit, const float3 rayOrigin, const float3 rayDir, inout RayCone rayCone, out float lodLevel)
 {
     VertexData v = {};
     uint materialID = {};
-    //StaticVertexData verts[3];
-    //float coneVal = 0.f;
 #if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_TRIANGLE_MESH)
     if (hit.getType() == HitType::Triangle)
     {
@@ -243,12 +241,7 @@ ShadingData loadShadingDataRayConeFirstHit(const HitInfo hit, const float3 rayOr
     
     float hitT = distance(v.posW, rayOrigin);
     rayCone = rayCone.propagateDistance(hitT);
-    //lodLevel =  v.coneTexLODValue + log2((gScreenSpacePixelSpreadAngle * hitT)/ (abs(dot(-rayDir, v.normalW))));
-    lodLevel.x = rayCone.computeLOD(v.coneTexLODValue, rayDir, v.normalW);
-    lodLevel.y = v.coneTexLODValue + log2(rayCone.getWidth()) - log2(abs(dot(rayDir, v.normalW)));
-    lodLevel.z = log2(abs(dot(rayDir, v.normalW)));
-    //lodLevel = 2.f;
-    //lodLevel = v.coneTexLODValue;
+    lodLevel = rayCone.computeLOD(v.coneTexLODValue, rayDir, v.normalW);    //TODO Fix coneTexLODValue (see comment in LODHelpers.slang)
     let lod = ExplicitLodTextureSampler(lodLevel.x);
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -rayDir, lod);
 
@@ -316,7 +309,7 @@ void traceScatterRay(inout ScatterRayData rayData)
     \param[in,out] sg SampleGenerator object.
     \return Outgoing radiance in view direction.
 */
-float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout ScatterRayData rayData, float mipLevel = 0.f)
+float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout ScatterRayData rayData)
 {
     const uint pathLength = rayData.pathLength;
     const uint lightCount = gScene.getLightCount();
@@ -346,10 +339,12 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 
     //Get orcale function
     float oracle = 0.f;
+    float oracleMip = 0.f;
     bool useShadowRay = gUseShadowMap > pathLength;
     if (kUseOracle && !useShadowRay)
     {
         oracle = gShadowMap.oracleFunction(lightIndex, lightData, sd, rayData.distance);
+        oracleMip = gShadowMap.oracleToLOD(oracle);
     }
     
     float shadow;
@@ -357,12 +352,12 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     
     if (kUseHybridShadowMap && !useShadowRay)
     {
-        useShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, origin, lightData, sg, mipLevel, shadow);
+        useShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, origin, lightData, sg, oracleMip, shadow);
         useShadowRay &= (!useNormalSM || !kUseOracle); //Disable ray if oracle function was evaluated true
     }
     else if (!useShadowRay && useNormalSM)
     {
-        gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg, mipLevel, shadow);
+        gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg, oracleMip, shadow);
     }
 
     //Make sure the ray is used if no hybrid shadow mapping is used
@@ -522,18 +517,18 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 
         const bool isCurveHit = hit.getType() == HitType::Curve;
         float lodLevel = 0.f;
-        RayCone rc = RayCone(0.0f, gScreenSpacePixelSpreadAngle);
+        
 
         // Load shading data.
         ShadingData sd;
-        float3 debug = float3(0);
+        
         if(kTexLODMode == TexLODMode::RayCones){
-            sd = loadShadingDataRayConeFirstHit(hit, primaryRayOrigin, primaryRayDir, rc, debug);
+            RayCone rc = RayCone(0.0f, gScreenSpacePixelSpreadAngle);
+            sd = loadShadingDataRayConeFirstHit(hit, primaryRayOrigin, primaryRayDir, rc, lodLevel);
         }else{
             let sdLod = ExplicitLodTextureSampler(0.f);
             sd = loadShadingData(hit, primaryRayOrigin, primaryRayDir, sdLod);
         }
-        lodLevel = debug.x;
         let lod = ExplicitLodTextureSampler(lodLevel);
         //return float3(debug);
         
@@ -570,7 +565,7 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 
             // Add contribution of direct light from analytic lights.
             // Light probe and mesh lights are handled by the scatter ray hit/miss shaders.
-            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, sg, rayData, lodLevel) : float3(0.f);
+            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, sg, rayData) : float3(0.f);
         }
         
         // Generate scatter ray.
