@@ -144,7 +144,8 @@ private:
     int32_t mBias = 0;
     float mSlopeBias = 0.f;
     bool mUseAlphaTest = true;
-    float gPoissonDiscRad = 0.5f;
+    float mPoissonDiscRad = 0.5f;
+    float mPoissonDiscRadCube = 0.015f;
     uint mCascadedLevelCount = 4;
     float mCascadedFrustumFix = 0.5f;
     float mCascZMult = 3.f;    //Pushes the z Values apart

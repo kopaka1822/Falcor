@@ -440,6 +440,9 @@ DefineList ShadowMap::getDefines() const
     defines.add("SM_NEAR", std::to_string(mNear));
     defines.add("HYBRID_SMFILTERED_THRESHOLD", std::to_string(mHSMFilteredThreshold));
     defines.add("USE_RAY_OUTSIDE_SM", mUseRayOutsideOfShadowMap ? "1" : "0");
+    defines.add("CASCADED_SM_RESOLUTION", std::to_string(mShadowMapSizeCascaded));
+    defines.add("SM_RESOLUTION", std::to_string(mShadowMapSize));
+    defines.add("CUBE_SM_RESOLUTION", std::to_string(mShadowMapSizeCube));
 
     defines.add("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
     defines.add("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
@@ -476,9 +479,9 @@ void ShadowMap::setShaderData(const uint2 frameDim)
 
     // Parameters
     var["gShadowMapFarPlane"] = mFar;
-    var["gShadowMapRes"] = mShadowMapSize;
     var["gCameraNPS"] = getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight)  ,cameraData.aspectRatio);
-    var["gPoissonDiscRad"] = gPoissonDiscRad;
+    var["gPoissonDiscRad"] = mPoissonDiscRad;
+    var["gPoissonDiscRadCube"] = mPoissonDiscRadCube;
     for (uint i = 0; i < mCascadedZSlices.size(); i++)
         var["gCascadedZSlices"][i] = mCascadedZSlices[i];
     
@@ -628,6 +631,11 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
         mShadowCubePass.pState->setFbo(mpFboCube);
         mpScene->rasterize(pRenderContext, mShadowCubePass.pState.get(), mShadowCubePass.pVars.get(), mCullMode);
     }
+
+    /* TODO doesnt work, needs fixing
+    if (mShadowMapType != ShadowMapType::ShadowMap)
+        mpShadowMapsCube[index]->generateMips(pRenderContext);
+    */
 }
 
 float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix)
@@ -1131,8 +1139,17 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip("Enable to use Percentage closer filtering");
             group.checkbox("Use Poisson Disc Sampling", mUsePoissonDisc);
             group.tooltip("Use Poisson Disc Sampling, only enabled if rng of the eval function is filled");
-            if(mUsePoissonDisc)
-                group.var("Poisson Disc Rad", gPoissonDiscRad, 0.f, 50.f, 0.001f);  //TODO: Seperate in Point and Spot/Dir
+            if (mUsePoissonDisc)
+            {
+                if (mpCascadedShadowMaps.size() > 0 || mpShadowMaps.size() > 0)
+                    group.var("Poisson Disc Rad", mPoissonDiscRad, 0.f, 50.f, 0.001f);
+                else if (mpShadowMapsCube.size() > 0)
+                {
+                    group.var("Poisson Disc Rad Cube", mPoissonDiscRadCube, 0.f, 20.f, 0.00001f);
+                }
+                    
+            }
+                
         }
         break;
     }
@@ -1146,6 +1163,8 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip("Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH, 1.f]", true);
             group.checkbox("Use Mip Maps", mUseShadowMipMaps);
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
+            group.checkbox("Use PCF", mUsePCF);
+            group.tooltip("Enable to use Percentage closer filtering");
         }
         
         break;

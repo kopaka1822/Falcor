@@ -40,9 +40,9 @@ struct ShadowMap
     StructuredBuffer<float> gShadowMapNPSBuffer;                                    //Buffer for the Normalized Pixel Size [Point | Spot | Cascaded]
 
     float gShadowMapFarPlane;                           //Far plane of the shadow map //TODO move to defines
-    uint gShadowMapRes;                                 //Resolution of the Shadow Map TODO Move to defines
     float gCameraNPS;                                   //Normalized Pixel Size for the Camera
     float gPoissonDiscRad; //Radius for Poisson Sampling (TODO add a seperate for cubemaps?; Move to defines)
+    float gPoissonDiscRadCube;    
 
     //CASCADED_SLICE_BUFFER_SIZE is either 4 or 8
     float gCascadedZSlices[CASCADED_SLICE_BUFFER_SIZE];  //Camera Z distance for cascaded level calculation
@@ -62,7 +62,10 @@ struct ShadowMap
     static const float kShadowMapNear = SM_NEAR;                            //Near plane for Spot and Directional lights
     static const float kHSMFilteredThreshold = HYBRID_SMFILTERED_THRESHOLD; //Hybrid Shadow Map: Threshold for filtered SM(Variance, Exponential). Ray is needed for [TH, 1.f]
     static const bool kUseRayOutsideSM = USE_RAY_OUTSIDE_SM;                //Determines if a ray should be used outside of the shadow map
-
+    static const uint kCascadedSMRes = CASCADED_SM_RESOLUTION;             //Resolution for Cascaded Shadow Maps
+    static const uint k2DSMRes = SM_RESOLUTION;                            //Resolution for (Spot) Shadow Maps
+    static const uint kCubeSMRes = CUBE_SM_RESOLUTION;                     //Resolution for Cube Shadow Maps
+    
     static const bool kUseHybridShadowMap = USE_HYBRID_SM;
     static const bool kUseOracle = USE_ORACLE_FUNCTION;
     static const float kOracleCompValue = ORACLE_COMP_VALUE;
@@ -105,13 +108,42 @@ struct ShadowMap
         switch (lightType)
         {
             case LightTypeSM::Point:
-                sv = gShadowMapCube[index].SampleLevel(gShadowSampler, sampleVec, mipLevel);
+                sv = gShadowMapCube[index].SampleLevel(gShadowSampler, sampleVec, 0.f);//TODO fix mip level
                 break;
             case LightTypeSM::Spot:
                 sv = gShadowMap[index].SampleLevel(gShadowSampler, sampleVec.xy, mipLevel);
                 break;
             case LightTypeSM::Directional:
                 sv = gCascadedShadowMap[index].SampleLevel(gShadowSampler, float3(sampleVec.xy, level), mipLevel);
+                break;
+            default:
+                break;
+        }
+
+        return sv;
+    }
+
+    /** Gets the gathered shadow value from the shadow map depending on type. Always MIP = 0. R32/16 case
+    \param[in] local shadow map texture index.
+    \param[in] texture sample index. z-component is only used in cube-case.
+    \param[in] light type from "LightTypeSM" casted to uint.
+    \param[in] cascaded level. Only used if type == LightTypeSM::Directional.
+    \param[in] used mipmap level.
+    \return value from shadow map.
+    */
+    float4 getShadowValueGather(uint index, float3 sampleVec, const uint lightType, uint level = 0)
+    {
+        float4 sv = float4(0);
+        switch (lightType)
+        {
+            case LightTypeSM::Point:
+                sv = gShadowMapCube[index].Gather(gShadowSampler, sampleVec);
+                break;
+            case LightTypeSM::Spot:
+                sv = gShadowMap[index].Gather(gShadowSampler, sampleVec.xy);
+                break;
+            case LightTypeSM::Directional:
+                sv = gCascadedShadowMap[index].Gather(gShadowSampler, float3(sampleVec.xy, level));
                 break;
             default:
                 break;
@@ -134,7 +166,7 @@ struct ShadowMap
         switch (lightType)
         {
             case LightTypeSM::Point:
-                sv = gShadowMapVarianceCube[index].SampleLevel(gShadowSampler, sampleVec, mipLevel);
+                sv = gShadowMapVarianceCube[index].SampleLevel(gShadowSampler, sampleVec, 0.f); //TODO fix mip level
                 break;
             case LightTypeSM::Spot:
                 sv = gShadowMapVariance[index].SampleLevel(gShadowSampler, sampleVec.xy, mipLevel);
@@ -146,6 +178,37 @@ struct ShadowMap
                 break;
         }
         return sv;
+    }
+
+    /** Gets the value from the shadow map depending on type. Gather Case. Always uses MIP = 0. RG32/16 case
+    \param[in] local shadow map texture index.
+    \param[in] texture sample index. z-component is only used in cube-case.
+    \param[in] light type from "LightTypeSM" casted to uint.
+    \param[in] cascaded level. Only used if type == LightTypeSM::Directional.
+    \param[in] used mipmap level.
+    \return value from shadow map.
+    */
+    float4 getShadowVarianceValueGather(uint index, float3 sampleVec, const uint lightType, uint level = 0, out float4 greenComponent)
+    {
+        float4 redComp = 0.f;
+        switch (lightType)
+        {
+            case LightTypeSM::Point:
+                redComp = gShadowMapVarianceCube[index].GatherRed(gShadowSampler, sampleVec);
+                greenComponent = gShadowMapVarianceCube[index].GatherGreen(gShadowSampler, sampleVec);
+                break;
+            case LightTypeSM::Spot:
+                redComp = gShadowMapVariance[index].GatherRed(gShadowSampler, sampleVec.xy);
+                greenComponent = gShadowMapVariance[index].GatherGreen(gShadowSampler, sampleVec.xy);
+                break;
+            case LightTypeSM::Directional:
+                redComp = gCascadedShadowMapVariance[index].GatherRed(gShadowSampler, float3(sampleVec.xy, level));
+                greenComponent = gCascadedShadowMapVariance[index].GatherGreen(gShadowSampler, float3(sampleVec.xy, level));
+                break;
+            default:
+                break;
+        }
+        return redComp;
     }
 
     /** Converts Falcors light type to our Shadow Map type
@@ -307,8 +370,9 @@ struct ShadowMap
                 
         if (!valid)
             return !kUseRayOutsideSM;   //Outside of shadow map
-         
+
         //Shadow Test with shadow map
+        shadow = 0.f;
         if (!kUsePCF && !kUsePoissonSampling)
         {
             shadow += standardShadowTest(index, cascLevel, shadowUV, lightType, lightDist);
@@ -320,7 +384,7 @@ struct ShadowMap
                 for (uint k = 0; k < 4; k++)
                 {
                     uint poisIdx = uint(19.9999f * sampleNext1D(sg));
-                    float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRad * 0.25f; //TODO Better solution (angle?) 
+                    float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRadCube; //TODO Better solution (angle?) 
                     shadow += standardShadowTest(index, cascLevel, uv, lightType, lightDist);
                 }
                 shadow *= 0.25f;
@@ -331,7 +395,8 @@ struct ShadowMap
                 {
                     uint poisIdx = uint(15.99999f * sampleNext1D(sg));
                     float3 uv = shadowUV;
-                    uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad) / gShadowMapRes);
+                    const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes :  k2DSMRes;
+                    uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad) / shadowMapRes);
                     shadow += standardShadowTest(index, cascLevel, uv, lightType, lightDist);
                 }
                 shadow *= 0.25f;
@@ -339,33 +404,23 @@ struct ShadowMap
         }
         else //PCF using gather (relatively cheap)
         {
-            if (lightType == (uint) LightTypeSM::Point)
+            float4 shadowVals;
+            float4 w = float4(0.25);
+            float3 gatherUV = shadowUV;
+            const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
+            if (lightType != (uint) LightTypeSM::Point)
             {
-                float4 shadowVals = gShadowMapCube[index].Gather(gShadowSampler, shadowUV);
-                for (uint k = 0; k < 4; k++)
-                {
-                    if (shadowVals[k] > lightDist)
-                        shadow += 1.f;
-                }
-                shadow *= 0.25f;
-            }
-            else
-            {
-                float2 gatherUV = (floor(shadowUV.xy * float(gShadowMapRes) - 0.5) + 1.0f) / float(gShadowMapRes);
-                float4 shadowVals;
-                if (lightType == (uint) LightTypeSM::Spot)
-                    shadowVals = gShadowMap[index].Gather(gShadowSampler, gatherUV);
-                else
-                    shadowVals = gCascadedShadowMap[index].Gather(gShadowSampler, float3(gatherUV, cascLevel));
-                //Interpolation weights
-                float2 f = frac(shadowUV.xy * float(gShadowMapRes) - 0.5f);
+                gatherUV.xy = (floor(shadowUV.xy * float(shadowMapRes) - 0.5) + 1.0f) / float(shadowMapRes);
+                float2 f = frac(shadowUV.xy * float(shadowMapRes) - 0.5f);
                 // (-,+),(+,+)(+,-)(-,-)
-                float4 w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
-                for (uint k = 0; k < 4; k++)
-                {
-                    if (shadowVals[k] > lightDist)
-                        shadow += w[k];
-                }
+                w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
+            }
+            shadowVals = getShadowValueGather(index, gatherUV, lightType, cascLevel);
+
+            for (uint k = 0; k < 4; k++)
+            {
+                if (shadowVals[k] > lightDist)
+                    shadow += w[k];
             }
         }
     
@@ -389,7 +444,7 @@ struct ShadowMap
             index = gShadowMapIndexMap[lightIdx];
         }
         
-        shadow = 0.f;
+        shadow = 1.f;
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
@@ -419,41 +474,53 @@ struct ShadowMap
         float minDist = 0.f;
 
         //get min dist and max dist
-        //if (!kUsePoissonSampling) //Use PCF
-        if (true)
+        shadow = 0.f;
+        float4 shadowVals;
+        float4 w = float4(0.25);
+        if (!kUsePoissonSampling) //Use PCF
         {
-            float4 shadowVals;
-            float4 w = float4(0.25);
-            if (lightType == (uint) LightTypeSM::Point)
+            float3 gatherUV = shadowUV;
+            const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
+            if (lightType != (uint) LightTypeSM::Point)
             {
-                shadowVals = gShadowMapCube[index].Gather(gShadowSampler, shadowUV);
-            }
-            else
-            {
-                float2 gatherUV = (floor(shadowUV.xy * float(gShadowMapRes) - 0.5) + 1.0f) / float(gShadowMapRes);
-                
-                if (lightType == (uint) LightTypeSM::Spot)
-                    shadowVals = gShadowMap[index].Gather(gShadowSampler, gatherUV);
-                else
-                    shadowVals = gCascadedShadowMap[index].Gather(gShadowSampler, float3(gatherUV, cascLevel));
-                
-                float2 f = frac(shadowUV.xy * float(gShadowMapRes) - 0.5f);
+                gatherUV.xy = (floor(shadowUV.xy * float(shadowMapRes) - 0.5) + 1.0f) / float(shadowMapRes);
+                float2 f = frac(shadowUV.xy * float(shadowMapRes) - 0.5f);
                 // (-,+),(+,+)(+,-)(-,-)
                 w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
             }
-                
-            
-            for (uint k = 0; k < 4; k++)
+            shadowVals = getShadowValueGather(index, gatherUV, lightType, cascLevel);
+        }
+        else //Poisson Sampling
+        {
+            if (lightType == (uint) LightTypeSM::Point)
             {
-                float shadowDepth = shadowVals[k];
-                maxDist = min(maxDist, shadowDepth);
-                minDist = max(minDist, shadowDepth);
-                shadow += lightDist <= shadowDepth ? w[k] : 0.f; //Add to shadow in pcf style
+                for (uint k = 0; k < 4; k++)
+                {
+                    uint poisIdx = uint(19.9999f * sampleNext1D(sg));
+                    float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRadCube; //TODO Better solution (angle?) 
+                    shadowVals[k] = getShadowValue(index, uv, lightType, cascLevel);
+                }
+            }
+            else
+            {
+                for (uint k = 0; k < 4; k++)
+                {
+                    uint poisIdx = uint(15.99999f * sampleNext1D(sg));
+                    float3 uv = shadowUV;
+                    const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes :  k2DSMRes;
+                    uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad) / shadowMapRes);
+                    shadowVals[k] = getShadowValue(index, uv, lightType, cascLevel);
+                }
             }
         }
-        else
+
+        //Use all 4 gathered samples for the shadow test
+        for (uint k = 0; k < 4; k++)
         {
-            //TODO implement
+           float shadowDepth = shadowVals[k];
+           maxDist = min(maxDist, shadowDepth);
+           minDist = max(minDist, shadowDepth);
+           shadow += lightDist <= shadowDepth ? w[k] : 0.f; //Add to shadow in pcf style
         }
 
         //Check if ray tracing is needed or if we can skip
@@ -483,6 +550,44 @@ struct ShadowMap
         float pmax = variance / (variance + diff * diff);
         
         return pmax;
+    }
+
+    float varianceShadowTestPCF(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
+    {
+        float3 gatherUV = shadowUV;
+        float4 w = float4(0.25f);
+        const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
+        
+        if (lightType != (uint) LightTypeSM::Point)
+        {
+            gatherUV.xy = (floor(shadowUV.xy * float(shadowMapRes) - 0.5) + 1.0f) / float(shadowMapRes);
+            float2 f = frac(shadowUV.xy * float(shadowMapRes) - 0.5f);
+            // (-,+),(+,+)(+,-)(-,-)
+            w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
+        }
+        
+        float4 variances = float4(0);
+        float4 sv = getShadowVarianceValueGather(index, gatherUV, lightType, level, variances);
+
+        bool allLit = true;
+        for (uint i = 0; i < 4; i++)
+        {
+            if (lightDist >= sv[i])
+                allLit = false;
+        }
+        if (allLit)
+            return 1.f;
+
+        float pMax = 0.f;
+        for (uint i = 0; i < 4; i++)
+        {
+            float variance = variances[i] - (sv[i] * sv[i]);
+
+            float diff = (lightDist - sv[i]);
+            pMax += w[i] * (variance / (variance + diff * diff));
+        }
+       
+        return saturate(pMax);
     }
 
     /** Variance Shadow Mapping. https://igm.univ-mlv.fr/~biri/Enseignement/MII2/Donnees/variance_shadow_maps.pdf
@@ -528,7 +633,10 @@ struct ShadowMap
             return !kUseRayOutsideSM; //Ray is needed
          
         //Shadow Test with shadow map
-        shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
+        if (kUsePCF)
+            shadow = varianceShadowTestPCF(index, cascLevel, shadowUV, lightType, lightDist);
+        else
+            shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
         
         return true;
     }
@@ -845,35 +953,6 @@ struct ShadowMap
         return log2(1.f / (oracle + 1e-10f));
     }
     
-    //EXPERIMENTAL Confidence Function used in https://www.cg.tuwien.ac.at/research/publications/2007/Scherzer-2007-PCS/Scherzer-2007-PCS-Preprint.pdf
-        float oracleFunction2
-        (
-        uint lightIdx, float3 posW, bool isCube)
-    {
-            if (isCube)
-                return 1.f;
-        
-            uint index = lightIdx;
-        //Get the right index if multiple shadow map types are used
-            if (kMultipleSMTypes)
-            {
-                index = gShadowMapIndexMap[lightIdx];
-            }
-        
-            float4x4 viewProjectMat = gShadowMapVPBuffer[index];
-            float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
-            float2 shadowUV = (projPos.xy / projPos.w); //This is actually not necessary for Directional Lights        
-            shadowUV.y *= -1; //Flip 
-            shadowUV = shadowUV * 0.5 + 0.5; //UV from [-1,1] to [0,1]
-            float2 shadowPixelPos = shadowUV * gShadowMapRes;
-            shadowPixelPos -= floor(shadowPixelPos); //Convert to pixel pos [0,1]
-
-        //difference
-            shadowPixelPos = abs(shadowPixelPos - 0.5f);
-        
-            return 1.f - max(shadowPixelPos.x, shadowPixelPos.y) * 2.f; //confidence
-        }
-
-    };
+};
 
 ParameterBlock<ShadowMap> gShadowMap;
