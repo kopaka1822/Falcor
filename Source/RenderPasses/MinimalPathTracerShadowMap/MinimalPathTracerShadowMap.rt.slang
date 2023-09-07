@@ -338,9 +338,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     bool useShadowRay = gUseShadowMap > pathLength;
     if (gShadowMap.kUseOracle && !useShadowRay)
     {
-        oracle = gShadowMap.oracleFunction(lightIndex, lightData, sd, rayData.distance);
-        if (gShadowMap.kUseSMMips)
-            oracleMip = gShadowMap.oracleToLOD(oracle);
+        oracle = gShadowMap.oracleFunction(lightIndex, lightData, sd, rayData.distance, oracleMip);
     }
     
     float shadow;
@@ -348,12 +346,13 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     
     if (gShadowMap.kUseHybridShadowMap && !useShadowRay)
     {
-        useShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, origin, lightData, sg, oracleMip, shadow);
-        useShadowRay &= (!useNormalSM || !gShadowMap.kUseOracle); //Disable ray if oracle function was evaluated true
+        useShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, sd.posW, lightData, sg, oracleMip, shadow);
+        bool validShadowValue = shadow >= 0.f;
+        useShadowRay &= (!useNormalSM || !gShadowMap.kUseOracle || !validShadowValue); //Disable ray if oracle function was evaluated true
     }
     else if (!useShadowRay && useNormalSM)
     {
-        useShadowRay = !gShadowMap.evalShadowMap(lightIndex, origin, lightData, sg, oracleMip, shadow);
+        useShadowRay = !gShadowMap.evalShadowMap(lightIndex, sd.posW, lightData, sg, oracleMip, shadow);
     }
 
     //Make sure the ray is used if no hybrid shadow mapping is used
@@ -364,6 +363,20 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     if (kDebugOracleFunction)
     {
         float3 debugValue = float3(0);
+        /* MIP
+        if(oracleMip < 1.f)
+            debugValue = float3(1,0,0);
+        else if (oracleMip < 2.f)
+            debugValue = float3(0,1,0);
+        else if (oracleMip < 3.f)
+            debugValue = float3(0,0,1);
+        else if (oracleMip < 4.f)
+             debugValue = float3(1,1,0);
+        else if (oracleMip < 5.f)
+            debugValue = float3(0,1,1);
+        else
+            debugValue = float3(1,0,1);
+        */
         if (kDebugOracleLightIdx < 0 || kDebugOracleLightIdx == lightIndex)
         {
             if (useNormalSM && !useShadowRay)
@@ -383,7 +396,8 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     if (useShadowRay)
         shadow = traceShadowRay(origin, ls.dir, ls.distance);
 
-    if(shadow < 0.5f)
+    
+    if(shadow <= 1e-10f)
         return float3(0);
     
     // Evaluate contribution.

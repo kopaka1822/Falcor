@@ -54,13 +54,13 @@ struct ShadowMap
     static const uint kCascadedLevels = CASCADED_LEVEL;                     //Number of Cascaded Levels
     static const bool kUsePCF = SM_USE_PCF;                                 //Enables PCF (only supported for "normal" SM)
     static const bool kUsePoissonSampling = SM_USE_POISSON_SAMPLING;        //Enables Statisfied Poisson Sampling (only supported for "normal" SM)
-    static const float kCubeEpsilon = 1e-5f;                                //Epsilon used in CubePointLights as they do not support Bias and Slope Bias
+    static const float kCubeBias = CUBE_WORLD_BIAS;                         //World space bias for cube shadow maps
     static const uint kNPSOffsetSpot = NPS_OFFSET_SPOT;                     //Spotlight offset for gShadowMapNPSBuffer
     static const uint kNPSOffsetCasc = NPS_OFFSET_CASCADED;                 //Cascaded offset for gShadowMapNPSBuffer
     static const uint kOracleDistFunctionMode = ORACLE_DIST_FUNCTION_MODE;  //Mode for the Oracle Distance Function
     static const float kExponentialSMConstant = SM_EXPONENTIAL_CONSTANT;    //Constant for Exponential Shadow Maps
-    static const float kShadowMapNear = SM_NEAR;                            //Near plane for Spot and Directional lights
-    static const float kHSMFilteredThreshold = HYBRID_SMFILTERED_THRESHOLD; //Hybrid Shadow Map: Threshold for filtered SM(Variance, Exponential). Ray is needed for [TH, 1.f]
+    static const float kShadowMapNear = SM_NEAR;                            //Near plane for Spot and Directional lights                                                       
+    static const float2 kHSMFilteredThreshold = HYBRID_SMFILTERED_THRESHOLD;//Hybrid Shadow Map: Threshold for filtered SM(Variance, Exponential). Ray is needed for [TH.x, TH.y]             
     static const bool kUseRayOutsideSM = USE_RAY_OUTSIDE_SM;                //Determines if a ray should be used outside of the shadow map
     static const uint kCascadedSMRes = CASCADED_SM_RESOLUTION;             //Resolution for Cascaded Shadow Maps
     static const uint k2DSMRes = SM_RESOLUTION;                            //Resolution for (Spot) Shadow Maps
@@ -256,7 +256,8 @@ struct ShadowMap
     bool pointDistanceAndSampleVec(in float3 posW, const in LightData lightData, out float3 shadowUV, out float lightDist)
     {
         shadowUV = posW - lightData.posW;
-        lightDist = (length(shadowUV) / gShadowMapFarPlane) + kCubeEpsilon;
+        lightDist = (length(shadowUV) / gShadowMapFarPlane);
+        lightDist += kCubeBias;
         shadowUV.y *= -1; //Flip
         return true;
     }
@@ -444,7 +445,7 @@ struct ShadowMap
             index = gShadowMapIndexMap[lightIdx];
         }
         
-        shadow = 1.f;
+        shadow = kUseRayOutsideSM ? -1.f : 1.f;     //Make shadow value invalid if a ray should be shot outside of the shadow map
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
@@ -541,15 +542,15 @@ struct ShadowMap
     float varianceShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
     {
         float2 varianceSV = getShadowVarianceValue(index, shadowUV, lightType, level, mipLevel);
-        if (lightDist < varianceSV.x)
+        if (lightDist <= varianceSV.x)
             return 1.f;
             
-        float variance = varianceSV.y - (varianceSV.x * varianceSV.x);
+        float variance = abs(varianceSV.y - (varianceSV.x * varianceSV.x)) + 1e-10f;     //0 Variance can result in black pixels at some points
 
         float diff = (lightDist - varianceSV.x);
         float pmax = variance / (variance + diff * diff);
-        
-        return pmax;
+                        
+        return saturate(pmax);
     }
 
     float varianceShadowTestPCF(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
@@ -658,7 +659,7 @@ struct ShadowMap
             index = gShadowMapIndexMap[lightIdx];
         }
         
-        shadow = 0.f;
+        shadow = kUseRayOutsideSM ? -1.f : 1.f;     //Make shadow value invalid if a ray should be shot outside of the shadow map
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
@@ -685,7 +686,7 @@ struct ShadowMap
          
         //Shadow Test with shadow map
         shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
-        if (shadow != 1 && shadow > kHSMFilteredThreshold)
+        if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
             return false;   //Shoot ray
         
         return true;        //No ray needed
@@ -771,7 +772,7 @@ struct ShadowMap
             index = gShadowMapIndexMap[lightIdx];
         }
         
-        shadow = 0.f;
+        shadow = kUseRayOutsideSM ? -1.f : 1.f;     //Make shadow value invalid if a ray should be shot outside of the shadow map
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
@@ -799,7 +800,7 @@ struct ShadowMap
         //Shadow Test with shadow map
         shadow = exponentialShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
 
-         if (shadow != 1 && shadow > kHSMFilteredThreshold)
+         if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
             return false;   //Shoot ray
         
         return true;        //No ray needed
@@ -859,10 +860,12 @@ struct ShadowMap
     \param[in] light information.
     \param[in] shading data of the current surface.
     \param[in] current distance from camera to hit. Can be modified with the oracleDistanceFactor for better results with indirect bounces
+    \param[out] Optional Mip Level. Written if kUseSMMips == true
     \return a oracle value that indicates the proportion of the seen camera pixel area to the seen shadow map pixel area
     */
-    float oracleFunction(uint lightIdx, const in LightData lightData, const in ShadingData sd, float rayDistance)
+    float oracleFunction(uint lightIdx, const in LightData lightData, const in ShadingData sd, float rayDistance, out float mipLevel)
     {
+        mipLevel = 0.f; //Default value
         //Get the right index if multiple shadow map types are used
         if (kMultipleSMTypes)
         {
@@ -894,16 +897,34 @@ struct ShadowMap
         const float3 N = sd.frame.N;
         
         //Get the cos theta between normal and vectors
-        float angleCamera = max(1e-10f, dot(sd.V, N));
-        float angleLight = max(1e-10f, dot(toLight, N));
+        float angleCamera = abs(dot(sd.V, N));
+        float angleLight = abs(dot(toLight, N));
         
         float projAreaCam = gCameraNPS * rayDistance * rayDistance;
         float pixelAreaSM = gShadowMapNPSBuffer[lightIdx];
         float projSMArea = pixelAreaSM * distanceToLight * distanceToLight;
 
-        return (projSMArea * angleCamera) / (projAreaCam * angleLight);
+        //Calculate MIP
+        if(kUseSMMips){
+            mipLevel = 0.5f * log2(( projAreaCam * angleLight ) / ( projSMArea * angleCamera + 1e-10f) ); 
+        }
+        
+        return ( projSMArea * angleCamera) / ( projAreaCam * angleLight + 1e-10f);  //Divide the projected areas
     }
 
+    /** Oracle Funktion for determening if a shadow map can be used without quality loss or if a ray should be used instead
+    \param[in] analytical light index.
+    \param[in] light information.
+    \param[in] shading data of the current surface.
+    \param[in] current distance from camera to hit. Can be modified with the oracleDistanceFactor for better results with indirect bounces
+    \return a oracle value that indicates the proportion of the seen camera pixel area to the seen shadow map pixel area
+    */
+    float oracleFunction(uint lightIdx, const in LightData lightData, const in ShadingData sd, float rayDistance)
+    {
+        float mipLevel;
+        return oracleFunction(lightIdx, lightData, sd, rayDistance, mipLevel);
+    }
+    
      /** Calculate the Oracle distance factor based on the currently selected mode. Should be used on bounces only
     \param[in] material/bsdf properties.
     \param[in] current reflection sample.
@@ -942,17 +963,7 @@ struct ShadowMap
         }
         //default case 
         return 1.f;
-    }
-
-     /** Calculates the MIP Level from the oracle function
-    \param[in] oracle value.
-    \return Mip level for the shadow map
-    */
-    static const float oracleToLOD(float oracle)
-    {
-        return log2(1.f / (oracle + 1e-10f));
-    }
-    
+    }    
 };
 
 ParameterBlock<ShadowMap> gShadowMap;

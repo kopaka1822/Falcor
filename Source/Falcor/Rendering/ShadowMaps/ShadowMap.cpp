@@ -42,6 +42,13 @@ const Gui::DropdownList kShadowMapCullMode{
     {(uint)RasterizerState::CullMode::Front, "Front"},
     {(uint)RasterizerState::CullMode::Back, "Back"},
 };
+
+const Gui::DropdownList kShadowMapRasterAlphaModeDropdown{
+    {1, "Basic"},
+    {2, "HashedIsotropic"},
+    {3, "HashedAnisotropic"}
+};
+
 } // namespace
 
 ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, mpScene{scene}
@@ -126,7 +133,7 @@ void ShadowMap::prepareShadowMapBuffers()
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::RG32Float : ResourceFormat::RG16Unorm;
         shadowMapBindFlags |= ResourceBindFlags::RenderTarget;
         generateAdditionalDepthTextures = true;
-        genMipMaps = true;
+        genMipMaps = mUseShadowMipMaps;
         break;
     }
     case ShadowMapType::Exponential:
@@ -134,7 +141,7 @@ void ShadowMap::prepareShadowMapBuffers()
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::R32Float : ResourceFormat::R16Float;
         shadowMapBindFlags |= ResourceBindFlags::RenderTarget;
         generateAdditionalDepthTextures = true;
-        genMipMaps = true;
+        genMipMaps = mUseShadowMipMaps;
         break;
     }
     default:    //No special format needed
@@ -438,11 +445,15 @@ DefineList ShadowMap::getDefines() const
     defines.add("ORACLE_DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
     defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant));
     defines.add("SM_NEAR", std::to_string(mNear));
-    defines.add("HYBRID_SMFILTERED_THRESHOLD", std::to_string(mHSMFilteredThreshold));
+    defines.add(
+        "HYBRID_SMFILTERED_THRESHOLD",
+        "float2(" + std::to_string(mHSMFilteredThreshold.x) + "," + std::to_string(mHSMFilteredThreshold.y) + ")"
+    );
     defines.add("USE_RAY_OUTSIDE_SM", mUseRayOutsideOfShadowMap ? "1" : "0");
     defines.add("CASCADED_SM_RESOLUTION", std::to_string(mShadowMapSizeCascaded));
     defines.add("SM_RESOLUTION", std::to_string(mShadowMapSize));
     defines.add("CUBE_SM_RESOLUTION", std::to_string(mShadowMapSizeCube));
+    defines.add("CUBE_WORLD_BIAS", std::to_string(mSMCubeWorldBias));
 
     defines.add("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
     defines.add("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
@@ -463,7 +474,7 @@ DefineList ShadowMap::getDefinesShadowMapGenPass() const
     defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
     defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant));
     defines.add("SM_VARIANCE_SELFSHADOW", mVarianceUseSelfShadowVariant ? "1" : "0");
-    defines.add("_ALPHA_TEST_MODE", "2"); //TODO: Implement properly
+    defines.add("_ALPHA_TEST_MODE", std::to_string(mAlphaMode)); 
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
 
@@ -634,7 +645,7 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
     }
 
     /* TODO doesnt work, needs fixing
-    if (mShadowMapType != ShadowMapType::ShadowMap)
+    if (mShadowMapType != ShadowMapType::ShadowMap && mUseShadowMipMaps)
         mpShadowMapsCube[index]->generateMips(pRenderContext);
     */
 }
@@ -731,7 +742,7 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
         mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]
     );
     //generate Mips for shadow map modes that allow filter
-    if (mpDepth)
+    if (mUseShadowMipMaps)
         mpShadowMaps[index]->generateMips(pRenderContext);
 
     return true;
@@ -897,7 +908,7 @@ bool ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRen
     }
 
     // generate Mips for shadow map modes that allow filter
-    if (mpDepthCascaded)
+    if (mUseShadowMipMaps)
         mpCascadedShadowMaps[index]->generateMips(pRenderContext);
 
     return true;
@@ -1049,6 +1060,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
 {
     static uint classicBias = mBias;
     static float classicSlopeBias = mSlopeBias;
+    static float cubeBias = mSMCubeWorldBias;
     if (widget.dropdown("Shadow Map Type", mShadowMapType))
     {   //If changed, reset all buffers
         mResetShadowMapBuffers = true;
@@ -1061,15 +1073,18 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         case Falcor::ShadowMapType::ShadowMap:
             mBias = classicBias;
             mSlopeBias = classicSlopeBias;
+            mSMCubeWorldBias = cubeBias;
             break;
         case Falcor::ShadowMapType::Variance:
         case Falcor::ShadowMapType::Exponential:
             mBias = 0;
             mSlopeBias = 0.f;
+            mSMCubeWorldBias = 0.f;
             break;
         default:
             mBias = 0;
             mSlopeBias = 0.f;
+            mSMCubeWorldBias = 0.f;
             break;
         }
     }
@@ -1098,6 +1113,12 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     if (auto group = widget.group("Common Settings"))
     {
         mRasterDefinesChanged |= group.checkbox("Alpha Test", mUseAlphaTest);
+        if (mUseAlphaTest)
+        {
+            mRasterDefinesChanged |= group.dropdown("Alpha Test Mode", kShadowMapRasterAlphaModeDropdown, mAlphaMode);
+            group.tooltip("Alpha Mode for the rasterized shadow map");
+        }
+            
 
         // Near Far option
         static float2 nearFar = float2(mNear, mFar);
@@ -1129,12 +1150,21 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             biasChanged |= group.var("Bias", mBias, 0, 256, 1);
             biasChanged |= group.var("Slope Bias", mSlopeBias, 0.f, 50.f, 0.001f);
 
+            if (mpShadowMapsCube.size() > 0)
+            {
+                biasChanged |= group.var("Cube Bias", mSMCubeWorldBias, -10.f, 10.f, 0.0001f);
+                group.tooltip("Bias for Cube shadow maps in World space");
+            }
+
             if (biasChanged)
             {
                 classicBias = mBias;
                 classicSlopeBias = mSlopeBias;
+                cubeBias = mSMCubeWorldBias;
                 mBiasSettingsChanged = true;
             }
+
+            
 
             group.checkbox("Use PCF", mUsePCF);
             group.tooltip("Enable to use Percentage closer filtering");
@@ -1161,8 +1191,10 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             group.checkbox("Variance SelfShadow Variant", mVarianceUseSelfShadowVariant);
             group.tooltip("Uses part of ddx and ddy depth in variance calculation");
             group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
-            group.tooltip("Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH, 1.f]", true);
-            group.checkbox("Use Mip Maps", mUseShadowMipMaps);
+            group.tooltip("Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH.x, TH.y]", true);
+            if (mHSMFilteredThreshold.x > mHSMFilteredThreshold.y)
+                mHSMFilteredThreshold.y = mHSMFilteredThreshold.x;
+            mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
             group.checkbox("Use PCF", mUsePCF);
             group.tooltip("Enable to use Percentage closer filtering");
@@ -1180,7 +1212,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip(
                 "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH, 1.f]", true
             );
-            group.checkbox("Use Mip Maps", mUseShadowMipMaps);
+            mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
         }
         break;

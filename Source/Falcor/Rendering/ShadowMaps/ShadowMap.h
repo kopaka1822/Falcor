@@ -144,13 +144,15 @@ private:
     int32_t mBias = 0;
     float mSlopeBias = 0.f;
     bool mUseAlphaTest = true;
+    uint mAlphaMode = 2;                    //Mode for the alpha test ; 1 = Basic, 2 = HashedIsotropic, 3 = HashedAnisotropic
     float mPoissonDiscRad = 0.5f;
     float mPoissonDiscRadCube = 0.015f;
+    float mSMCubeWorldBias = 0.f;
     uint mCascadedLevelCount = 4;
     float mCascadedFrustumFix = 0.5f;
     float mCascZMult = 3.f;    //Pushes the z Values apart
     float mExponentialSMConstant = 80.f;    //Value used in the paper
-    float mHSMFilteredThreshold = 0.2f;     //Threshold for filtered shadow map variants
+    float2 mHSMFilteredThreshold = float2(0.2f, 0.98f);     //Threshold for filtered shadow map variants
     bool mUseRayOutsideOfShadowMap = false;
     bool mVarianceUseSelfShadowVariant = true;
 
