@@ -463,6 +463,7 @@ DefineList ShadowMap::getDefinesShadowMapGenPass() const
     defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
     defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant));
     defines.add("SM_VARIANCE_SELFSHADOW", mVarianceUseSelfShadowVariant ? "1" : "0");
+    defines.add("_ALPHA_TEST_MODE", "2"); //TODO: Implement properly
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
 
