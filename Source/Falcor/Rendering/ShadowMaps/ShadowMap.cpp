@@ -454,6 +454,8 @@ DefineList ShadowMap::getDefines() const
     defines.add("SM_RESOLUTION", std::to_string(mShadowMapSize));
     defines.add("CUBE_SM_RESOLUTION", std::to_string(mShadowMapSizeCube));
     defines.add("CUBE_WORLD_BIAS", std::to_string(mSMCubeWorldBias));
+    defines.add("CASCADED_STOCHASTIC_BLEND", mCascadedStochasticBlend ? "1" : "0");
+    defines.add("CASCADED_STOCH_BLEND_STR", std::to_string(mCascadedStochasticBlendBand));
 
     defines.add("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
     defines.add("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
@@ -847,7 +849,10 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
             
 
         //Update near far for next level
-        near = mCascadedZSlices[i];
+        if (mCascadedStochasticBlend)
+            near = mCascadedZSlices[i] * mCascadedStochasticBlendBand;
+        else
+            near = mCascadedZSlices[i];
     }        
 }
 
@@ -1229,7 +1234,14 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
                 mResetShadowMapBuffers = true;
                 mShadowResChanged = true;
             }
-
+            group.checkbox("Stochastic Level Blend", mCascadedStochasticBlend);
+            group.tooltip("Enables stochastic level blend. The level is stochastically choosen based on the blend band", true);
+            if (mCascadedStochasticBlend)
+            {
+                group.var("Cascaded Blend Band Strength", mCascadedStochasticBlendBand, 0.0f, 0.5f, 0.001f);
+                group.tooltip("The strength of the blending band that is between cascaded levels", true);
+            }
+            
             group.tooltip("Changes the number of cascaded levels");
             group.var("Z Slize Exp influence", mCascadedFrustumFix, 0.f, 1.f, 0.001f);
             group.tooltip("Influence of the Exponentenial part in the zSlice calculation. (1-Value) is used for the linear part");

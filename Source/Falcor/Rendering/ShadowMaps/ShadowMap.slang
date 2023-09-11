@@ -65,6 +65,8 @@ struct ShadowMap
     static const uint kCascadedSMRes = CASCADED_SM_RESOLUTION;             //Resolution for Cascaded Shadow Maps
     static const uint k2DSMRes = SM_RESOLUTION;                            //Resolution for (Spot) Shadow Maps
     static const uint kCubeSMRes = CUBE_SM_RESOLUTION;                     //Resolution for Cube Shadow Maps
+    static const bool kCascadedStochasticBlend = CASCADED_STOCHASTIC_BLEND;//Stochastic blend between cascaded levels
+    static const float kCascadedStochBlendStr = CASCADED_STOCH_BLEND_STR;  //Strength of the stochastic blend
     
     static const bool kUseHybridShadowMap = USE_HYBRID_SM;
     static const bool kUseOracle = USE_ORACLE_FUNCTION;
@@ -245,6 +247,25 @@ struct ShadowMap
         }
         return clamp(level, 0, kCascadedLevels);
     }
+
+     /** Gets the current cascaded level from the world position. Blends stochasticly between levels depending on kCascadedStochBlendStr
+    \param[in] world position.
+    \param[in] random variable between [0,1].
+    \return cascaded level between 0 and kCascadedLevels.
+    */
+    uint getCascadedLevelStochastic(float3 posW, float random)
+    {
+        float randomOffsetMult = 1.f - kCascadedStochBlendStr * random; //Stoch blend between [0.5, 1]
+        float linearZ = abs(mul(gScene.camera.data.viewMat, float4(posW, 1.f)).z);
+        uint level = 0;
+        for (uint i = 0; i < kCascadedLevels - 1; i++)
+        {
+            if (linearZ < (gCascadedZSlices[i] * randomOffsetMult))
+                return level;
+            level++;
+        }
+        return clamp(level, 0, kCascadedLevels);
+    }
     
     /** Converts world Position to the shadow map sample vector and the distance to light
     \param[in] world position.
@@ -351,7 +372,11 @@ struct ShadowMap
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
-        uint cascLevel = getCascadedLevel(posW);
+        uint cascLevel;
+        if(kCascadedStochasticBlend)
+            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+        else
+            cascLevel = getCascadedLevel(posW);
                 
         bool valid = false;
         switch (lightType)
@@ -449,7 +474,11 @@ struct ShadowMap
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
-        uint cascLevel = getCascadedLevel(posW);
+        uint cascLevel;
+        if(kCascadedStochasticBlend)
+            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+        else
+            cascLevel = getCascadedLevel(posW);
         
         bool valid = false;
         switch (lightType)
@@ -612,7 +641,11 @@ struct ShadowMap
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
-        uint cascLevel = getCascadedLevel(posW);
+        uint cascLevel;
+        if(kCascadedStochasticBlend)
+            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+        else
+            cascLevel = getCascadedLevel(posW);
         
         bool valid = false;
         switch (lightType)
@@ -663,7 +696,11 @@ struct ShadowMap
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
-        uint cascLevel = getCascadedLevel(posW);
+        uint cascLevel;
+        if(kCascadedStochasticBlend)
+            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+        else
+            cascLevel = getCascadedLevel(posW);
         
         bool valid = false;
         switch (lightType)
@@ -685,7 +722,11 @@ struct ShadowMap
             return !kUseRayOutsideSM;   //Outside of shadow map
          
         //Shadow Test with shadow map
-        shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
+        if (kUsePCF)
+            shadow = varianceShadowTestPCF(index, cascLevel, shadowUV, lightType, lightDist);
+        else
+            shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
+            
         if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
             return false;   //Shoot ray
         
@@ -728,7 +769,11 @@ struct ShadowMap
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
-        uint cascLevel = getCascadedLevel(posW);
+        uint cascLevel;
+        if(kCascadedStochasticBlend)
+            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+        else
+            cascLevel = getCascadedLevel(posW);
         
         bool valid = false;
         switch (lightType)
@@ -776,7 +821,11 @@ struct ShadowMap
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
-        uint cascLevel = getCascadedLevel(posW);
+        uint cascLevel;
+        if(kCascadedStochasticBlend)
+            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+        else
+            cascLevel = getCascadedLevel(posW);
         
         bool valid = false;
         switch (lightType)
@@ -894,7 +943,7 @@ struct ShadowMap
             toLight /= distanceToLight;
         }
         
-        const float3 N = sd.frame.N;
+        const float3 N = sd.faceN;
         
         //Get the cos theta between normal and vectors
         float angleCamera = abs(dot(sd.V, N));
@@ -936,16 +985,16 @@ struct ShadowMap
         {
             case OracleDistFunction::RoughnessLinear:
             {
-                    return lerp(1.f, M_2PI, bsdfProperties.roughness);
+                    return lerp(1.f, M_PI, bsdfProperties.roughness);
                 }
             case OracleDistFunction::RoughnessSquare:
             {
                     float alpha = bsdfProperties.roughness * bsdfProperties.roughness;
-                    return lerp(1.f, M_2PI, alpha);
+                    return lerp(1.f, M_PI, alpha);
                 }
             case OracleDistFunction::Lobe:
             {
-                    float oDistFac = bsdfSample.isLobe(LobeType::Diffuse) ? M_2PI : 1.f;
+                    float oDistFac = bsdfSample.isLobe(LobeType::Diffuse) ? M_PI : 1.f;
                     return oDistFac;
                 }
             case OracleDistFunction::DiffSpecProp:
@@ -957,7 +1006,7 @@ struct ShadowMap
                     {
                         diffuse = diffusePart / (diffusePart + specularPart);
                     }
-                    return lerp(1.f, M_2PI, diffuse);
+                    return lerp(1.f, M_PI, diffuse);
                 }
             default:;
         }
