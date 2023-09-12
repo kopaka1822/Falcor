@@ -131,7 +131,7 @@ void ShadowMap::prepareShadowMapBuffers()
     case ShadowMapType::Variance:
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::RG32Float : ResourceFormat::RG16Unorm;
-        shadowMapBindFlags |= ResourceBindFlags::RenderTarget;
+        shadowMapBindFlags |= ResourceBindFlags::RenderTarget | ResourceBindFlags::UnorderedAccess;
         generateAdditionalDepthTextures = true;
         genMipMaps = mUseShadowMipMaps;
         break;
@@ -139,7 +139,15 @@ void ShadowMap::prepareShadowMapBuffers()
     case ShadowMapType::Exponential:
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::R32Float : ResourceFormat::R16Float;
-        shadowMapBindFlags |= ResourceBindFlags::RenderTarget;
+        shadowMapBindFlags |= ResourceBindFlags::RenderTarget | ResourceBindFlags::UnorderedAccess;
+        generateAdditionalDepthTextures = true;
+        genMipMaps = mUseShadowMipMaps;
+        break;
+    }
+    case ShadowMapType::ExponentialVariance:
+    {
+        shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::RGBA32Float : ResourceFormat::RGBA16Float;
+        shadowMapBindFlags |= ResourceBindFlags::RenderTarget | ResourceBindFlags::UnorderedAccess;
         generateAdditionalDepthTextures = true;
         genMipMaps = mUseShadowMipMaps;
         break;
@@ -181,6 +189,8 @@ void ShadowMap::prepareShadowMapBuffers()
             }
 
             auto cubeBindFlags = ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget;
+            if (mShadowMapType != ShadowMapType::ShadowMap)
+                cubeBindFlags |= ResourceBindFlags::UnorderedAccess;
 
             tex = Texture::createCube(
                 mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, shadowMapCubeFormat, 1u, genMipMaps ? Texture::kMaxPossible : 1u, nullptr,
@@ -330,6 +340,9 @@ void ShadowMap::prepareRasterProgramms()
         case ShadowMapType::Exponential:
             desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponentialCube");
             break;
+        case ShadowMapType::ExponentialVariance:
+            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponentialVarianceCube");
+            break;
         }
 
         desc.addTypeConformances(mpScene->getTypeConformances());
@@ -355,6 +368,9 @@ void ShadowMap::prepareRasterProgramms()
             break;
         case ShadowMapType::Exponential:
             desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponential");
+            break;
+        case ShadowMapType::ExponentialVariance:
+            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponentialVariance");
             break;
         }
         
@@ -382,6 +398,9 @@ void ShadowMap::prepareRasterProgramms()
         case ShadowMapType::Exponential:
             desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponentialCascaded");
             break;
+        case ShadowMapType::ExponentialVariance:
+            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponentialVarianceCascaded");
+            break;
         }
 
         desc.addTypeConformances(mpScene->getTypeConformances());
@@ -394,6 +413,8 @@ void ShadowMap::prepareRasterProgramms()
 
 void ShadowMap::prepareProgramms()
 {
+    mpShadowMapParameterBlock.reset();
+
     auto globalTypeConformances = mpScene->getMaterialSystem().getTypeConformances();
     prepareRasterProgramms();
     auto definesPB = getDefines();
@@ -418,6 +439,52 @@ void ShadowMap::prepareProgramms()
 
         setShaderData();
     }
+
+    mpReflectTypes.reset();
+}
+
+void ShadowMap::prepareGaussianBlur() {
+    bool blurChanged = false;
+    // TODO add blur for cascaded and point
+
+    if (mUseGaussianBlur && mShadowMapType != ShadowMapType::ShadowMap)
+    {
+        if (!mpBlurShadowMap && mpShadowMaps.size() > 0)
+        {
+            mpBlurShadowMap = std::make_unique<SMGaussianBlur>(mpDevice);
+            blurChanged = true;
+        }
+        if (!mpBlurCascaded && mpCascadedShadowMaps.size() > 0)
+        {
+            mpBlurCascaded = std::make_unique<SMGaussianBlur>(mpDevice);
+            blurChanged = true;
+        }
+        if (!mpBlurCube && mpShadowMapsCube.size() > 0)
+        {
+            mpBlurCube = std::make_unique<SMGaussianBlur>(mpDevice);
+            blurChanged = true;
+        }
+    }
+    else //Destroy the blur passes that are currently active
+    {
+        if (mpBlurShadowMap)
+        {
+            mpBlurShadowMap.reset();
+            blurChanged = true;
+        }
+        if (mpBlurCascaded)
+        {
+            mpBlurCascaded.reset();
+            blurChanged = true;
+        }
+        if (mpBlurCube)
+        {
+            mpBlurCube.reset();
+            blurChanged = true;
+        }
+    }
+
+    mFirstFrame |= blurChanged; //Rerender if blur settings changed
 }
 
 DefineList ShadowMap::getDefines() const
@@ -443,7 +510,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
     defines.add("NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
     defines.add("ORACLE_DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
-    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant));
+    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mShadowMapType == ShadowMapType::ExponentialVariance ? mEVSMConstant : mExponentialSMConstant));
     defines.add("SM_NEAR", std::to_string(mNear));
     defines.add(
         "HYBRID_SMFILTERED_THRESHOLD",
@@ -474,7 +541,10 @@ DefineList ShadowMap::getDefinesShadowMapGenPass() const
     DefineList defines;
     defines.add("USE_ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
-    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mExponentialSMConstant));
+    defines.add(
+        "SM_EXPONENTIAL_CONSTANT",
+        std::to_string(mShadowMapType == ShadowMapType::ExponentialVariance ? mEVSMConstant : mExponentialSMConstant)
+    );
     defines.add("SM_VARIANCE_SELFSHADOW", mVarianceUseSelfShadowVariant ? "1" : "0");
     defines.add("_ALPHA_TEST_MODE", std::to_string(mAlphaMode)); 
     if (mpScene)
@@ -500,7 +570,22 @@ void ShadowMap::setShaderData(const uint2 frameDim)
         var["gCascadedZSlices"][i] = mCascadedZSlices[i];
     
     // Buffers and Textures
-    if (mShadowMapType == ShadowMapType::Variance)
+    if (mShadowMapType == ShadowMapType::ExponentialVariance)
+    {
+        for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
+        {
+            var["gCubeShadowMapF4"][i] = mpShadowMapsCube[i]; // Can be Nullptr
+        }
+        for (uint32_t i = 0; i < mpShadowMaps.size(); i++)
+        {
+            var["gShadowMapF4"][i] = mpShadowMaps[i]; // Can be Nullptr
+        }
+        for (uint32_t i = 0; i < mpCascadedShadowMaps.size(); i++)
+        {
+            var["gCascadedShadowMapF4"][i] = mpCascadedShadowMaps[i]; // Can be Nullptr
+        }
+    }
+    else if (mShadowMapType == ShadowMapType::Variance)
     {
         for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
         {
@@ -515,7 +600,7 @@ void ShadowMap::setShaderData(const uint2 frameDim)
             var["gCascadedShadowMapVariance"][i] = mpCascadedShadowMaps[i]; // Can be Nullptr
         }
     }
-    else
+    else //Shadow Map Classic; Exponential
     {
         for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
         {
@@ -646,6 +731,11 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
         mpScene->rasterize(pRenderContext, mShadowCubePass.pState.get(), mShadowCubePass.pVars.get(), mCullMode);
     }
 
+    // Blur if it is activated/enabled
+    /*
+    if (mpBlurCube)
+        mpBlurCube->execute(pRenderContext, mpShadowMapsCube[index]);
+    */
     /* TODO doesnt work, needs fixing
     if (mShadowMapType != ShadowMapType::ShadowMap && mUseShadowMipMaps)
         mpShadowMapsCube[index]->generateMips(pRenderContext);
@@ -743,7 +833,12 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
         pRenderContext, mShadowMapPass.pState.get(), mShadowMapPass.pVars.get(), mFrontClockwiseRS[mCullMode],
         mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]
     );
-    //generate Mips for shadow map modes that allow filter
+
+    //Blur if it is activated/enabled
+    if (mpBlurShadowMap)
+        mpBlurShadowMap->execute(pRenderContext, mpShadowMaps[index]);
+
+    // generate Mips for shadow map modes that allow filter
     if (mUseShadowMipMaps)
         mpShadowMaps[index]->generateMips(pRenderContext);
 
@@ -912,6 +1007,10 @@ bool ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRen
         );
     }
 
+    // Blur if it is activated/enabled
+    if (mpBlurCascaded)
+        mpBlurCascaded->execute(pRenderContext, mpCascadedShadowMaps[index]);
+
     // generate Mips for shadow map modes that allow filter
     if (mUseShadowMipMaps)
         mpCascadedShadowMaps[index]->generateMips(pRenderContext);
@@ -932,20 +1031,14 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     if (mAlwaysRenderSM)
         mFirstFrame = true;
 
-    if (mBiasSettingsChanged)
+    if (mTypeChanged)
     {
-        updateRasterizerStates();   //DepthBias is set here
-        mFirstFrame = true; //Re render all SM
-        mBiasSettingsChanged = false;
+        prepareProgramms();
+        mResetShadowMapBuffers = true;
+        mShadowResChanged = true;
+        mBiasSettingsChanged = true;
+        mTypeChanged = false;
     }
-        
-
-    // Rebuild the Shadow Maps
-    if (mResetShadowMapBuffers || mShadowResChanged)
-    {
-        prepareShadowMapBuffers();
-    }
-        
 
     if (mRasterDefinesChanged)
     {
@@ -953,6 +1046,26 @@ bool ShadowMap::update(RenderContext* pRenderContext)
         prepareRasterProgramms();
         mRasterDefinesChanged = false;
     }
+
+    // Rebuild the Shadow Maps
+    if (mResetShadowMapBuffers || mShadowResChanged)
+    {
+        prepareShadowMapBuffers();
+    }
+
+    //Set Bias Settings for normal shadow maps
+    if (mBiasSettingsChanged)
+    {
+        updateRasterizerStates(); // DepthBias is set here
+        mFirstFrame = true;       // Re render all SM
+        mBiasSettingsChanged = false;
+    }
+    
+
+    
+
+    //Handle Blur
+    prepareGaussianBlur();
 
     // Loop over all lights
     const std::vector<ref<Light>>& lights = mpScene->getLights();
@@ -1068,10 +1181,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     static float cubeBias = mSMCubeWorldBias;
     if (widget.dropdown("Shadow Map Type", mShadowMapType))
     {   //If changed, reset all buffers
-        mResetShadowMapBuffers = true;
-        mShadowResChanged = true;
-        mRasterDefinesChanged = true;
-        mBiasSettingsChanged = true;
+        mTypeChanged = true;
         //Change Settings depending on type
         switch (mShadowMapType)
         {
@@ -1193,6 +1303,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Variance Shadow Map Options"))
         {
+            group.checkbox("Enable Blur", mUseGaussianBlur);
             group.checkbox("Variance SelfShadow Variant", mVarianceUseSelfShadowVariant);
             group.tooltip("Uses part of ddx and ddy depth in variance calculation");
             group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
@@ -1211,7 +1322,24 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Exponential Shadow Map Options"))
         {
+            group.checkbox("Enable Blur", mUseGaussianBlur);
             group.var("Exponential Constant", mExponentialSMConstant, 1.f, 160.f, 0.1f);
+            group.tooltip("Constant for exponential shadow map");
+            group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
+            group.tooltip(
+                "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH, 1.f]", true
+            );
+            mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
+            group.tooltip("Uses MipMaps for applyable shadow map variants", true);
+        }
+        break;
+    }
+    case ShadowMapType::ExponentialVariance:
+    {
+        if (auto group = widget.group("Exponential Variance Shadow Map Options"))
+        {
+            group.checkbox("Enable Blur", mUseGaussianBlur);
+            group.var("Exponential Constant", mEVSMConstant, 1.f, 160.f, 0.1f);
             group.tooltip("Constant for exponential shadow map");
             group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
             group.tooltip(
@@ -1248,6 +1376,31 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             group.var("Z Value Multi", mCascZMult, 1.f, 1000.f, 0.1f);
             group.tooltip("Pulls the Z-Values of each cascaded level apart. Is needed as not all Geometry is in the View-Frustum");
         }
+    }
+
+    if (mUseGaussianBlur)
+    {
+        bool blurSettingsChanged = false;
+        if (auto group = widget.group("Gaussian Blur Options"))
+        {
+            if (mpBlurShadowMap)
+            {
+                if (auto group2 = group.group("ShadowMap"))
+                    blurSettingsChanged |= mpBlurShadowMap->renderUI(group2);
+            }
+            if (mpBlurCascaded)
+            {
+                if (auto group2 = group.group("Cascaded"))
+                    blurSettingsChanged |= mpBlurCascaded->renderUI(group2);
+            }
+            if (mpBlurCube)
+            {
+                if (auto group2 = group.group("PointLights"))
+                    blurSettingsChanged |= mpBlurCube->renderUI(group2);
+            }
+        }
+
+        mFirstFrame |= blurSettingsChanged; //Rerender Shadow maps if the blur settings changed
     }
 
     if (auto group = widget.group("Oracle Options"))

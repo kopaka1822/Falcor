@@ -41,6 +41,7 @@
 #include "Scene/Scene.h"
 
 #include "ShadowMapData.slang"
+#include "SMGaussianBlur.h"
 
 #include <memory>
 #include <type_traits>
@@ -92,9 +93,11 @@ private:
     void prepareShadowMapBuffers();
     void prepareRasterProgramms();
     void prepareProgramms();
+    void prepareGaussianBlur();
     void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
     void updateRasterizerStates();
     void handleNormalizedPixelSizeBuffer();
+   
 
     DefineList getDefinesShadowMapGenPass() const;
 
@@ -154,6 +157,7 @@ private:
     bool mCascadedStochasticBlend = true;
     float mCascadedStochasticBlendBand = 0.05f;
     float mExponentialSMConstant = 80.f;    //Value used in the paper
+    float mEVSMConstant = 20.f;                 // Exponential Variance Shadow Map constant. Needs to be lower than the exponential counterpart
     float2 mHSMFilteredThreshold = float2(0.02f, 0.98f);     //Threshold for filtered shadow map variants
     bool mUseRayOutsideOfShadowMap = false;
     bool mVarianceUseSelfShadowVariant = true;
@@ -164,6 +168,7 @@ private:
     bool mUseHybridSM = false;        ///< Uses the Hybrid Shadow Maps (https://gpuopen.com/fidelityfx-hybrid-shadows/#details)
 
     bool mUseShadowMipMaps = true;        ///< Uses mip maps for applyable shadow maps
+    bool mUseGaussianBlur = true;
 
 
     bool mApplyUiSettings = false;
@@ -172,6 +177,7 @@ private:
     bool mResetShadowMapBuffers = false;
     bool mShadowResChanged = false;
     bool mRasterDefinesChanged = false;
+    bool mTypeChanged = false;
 
     //Internal
     std::vector<float4x4> mCascadedVPMatrix;
@@ -183,6 +189,9 @@ private:
     std::vector<float2> mCascadedWidthHeight;
     uint2 mNPSOffsets = uint2(0);   //x = idx first spot; y = idx first cascade
 
+    std::unique_ptr<SMGaussianBlur> mpBlurShadowMap;
+    std::unique_ptr<SMGaussianBlur> mpBlurCascaded;
+    std::unique_ptr<SMGaussianBlur> mpBlurCube;
     
     //std::vector<bool> mIsCubeSM;
     std::vector<LightTypeSM> mPrevLightType;  // Vector to check if the Shadow Map Type is still correct

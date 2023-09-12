@@ -35,6 +35,9 @@ struct ShadowMap
     TextureCube<float2> gShadowMapVarianceCube[NUM_SHADOW_MAPS_CUBE];               //(Point)ShadowMap with type float2. Used in Variance SM. Can be Null
     Texture2D<float2> gShadowMapVariance[NUM_SHADOW_MAPS_MISC];                     //(Spot)ShadowMap with type float2. Used in Variance SM. Can be Null
     Texture2DArray<float2> gCascadedShadowMapVariance[NUM_SHADOW_MAPS_CASCADE];     //CascadedShadowMap with type float2. Used in Variance SM. Can be Null
+    TextureCube<float4> gCubeShadowMapF4[NUM_SHADOW_MAPS_CUBE];                     //(Point)ShadowMap with type float4. Used in Variance SM. Can be Null
+    Texture2D<float4> gShadowMapF4[NUM_SHADOW_MAPS_MISC];                           //(Spot)ShadowMap with type float4. Used in Variance SM. Can be Null
+    Texture2DArray<float4> gCascadedShadowMapF4[NUM_SHADOW_MAPS_CASCADE];           //CascadedShadowMap with type float4. Used in Variance SM. Can be Null
     StructuredBuffer<uint> gShadowMapIndexMap;                                      //Maps global light index to local buffer index. Only used if kMultipleSMTypes == true
     StructuredBuffer<float4x4> gShadowMapVPBuffer;                                  //Buffer for the ViewProjection Matrices [Spot | Cascaded]           
     StructuredBuffer<float> gShadowMapNPSBuffer;                                    //Buffer for the Normalized Pixel Size [Point | Spot | Cascaded]
@@ -164,7 +167,7 @@ struct ShadowMap
     */
     float2 getShadowVarianceValue(uint index, float3 sampleVec, const uint lightType, uint level = 0, float mipLevel = 0.f)
     {
-        float2 sv = 0.f;
+        float2 sv = float2(0.f);
         switch (lightType)
         {
             case LightTypeSM::Point:
@@ -192,7 +195,7 @@ struct ShadowMap
     */
     float4 getShadowVarianceValueGather(uint index, float3 sampleVec, const uint lightType, uint level = 0, out float4 greenComponent)
     {
-        float4 redComp = 0.f;
+        float4 redComp = float4(0.f);
         switch (lightType)
         {
             case LightTypeSM::Point:
@@ -213,6 +216,34 @@ struct ShadowMap
         return redComp;
     }
 
+    /** Gets the value from the shadow map depending on type. RG32/16 case
+    \param[in] local shadow map texture index.
+    \param[in] texture sample index. z-component is only used in cube-case.
+    \param[in] light type from "LightTypeSM" casted to uint.
+    \param[in] cascaded level. Only used if type == LightTypeSM::Directional.
+    \param[in] used mipmap level.
+    \return value from shadow map.
+    */
+    float4 getShadowValueF4(uint index, float3 sampleVec, const uint lightType, uint level = 0, float mipLevel = 0.f)
+    {
+        float4 sv = float4(0.f);
+        switch (lightType)
+        {
+            case LightTypeSM::Point:
+                sv = gCubeShadowMapF4[index].SampleLevel(gShadowSampler, sampleVec, 0.f); //TODO fix mip level
+                break;
+            case LightTypeSM::Spot:
+                sv = gShadowMapF4[index].SampleLevel(gShadowSampler, sampleVec.xy, mipLevel);
+                break;
+            case LightTypeSM::Directional:
+                sv = gCascadedShadowMapF4[index].SampleLevel(gShadowSampler, float3(sampleVec.xy, level), mipLevel);
+                break;
+            default:
+                break;
+        }
+        return sv;
+    }
+    
     /** Converts Falcors light type to our Shadow Map type
     \param[in] light info.
     \return Shadow Map type.
@@ -628,7 +659,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel, out float shadow)
+    bool evalShadowMapVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -671,7 +702,13 @@ struct ShadowMap
             shadow = varianceShadowTestPCF(index, cascLevel, shadowUV, lightType, lightDist);
         else
             shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
-        
+
+        if (hybridSM)
+        {
+            if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
+                return false;   //Shoot ray
+        }
+            
         return true;
     }
 
@@ -683,7 +720,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalHybridShadowMapVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel, out float shadow)
+    bool evalHybridShadowMapVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel, const bool hybridSM , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -727,8 +764,11 @@ struct ShadowMap
         else
             shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
             
-        if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
-            return false;   //Shoot ray
+        if (hybridSM)
+        {
+            if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
+                return false;   //Shoot ray
+        }
         
         return true;        //No ray needed
     }
@@ -756,7 +796,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapExponential(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel , out float shadow)
+    bool evalShadowMapExponential(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -796,11 +836,44 @@ struct ShadowMap
          
         //Shadow Test with shadow map
         shadow = exponentialShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
+
+        if (hybridSM)
+        {
+            if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
+                return false;   //Shoot ray
+        }
         
         return true;
     }
 
-    /** Exponential Shadow Mapping adjusted for hybrid shadow mapping. https://jankautz.com/publications/esm_gi08.pdf
+    /** Exponential Variance shadow test
+    \param[in] local shadow map texture index.
+    \param[in] cascaded level.
+    \param[in] shadow map sample vector.
+    \param[in] shadow map light type.
+    \param[in] distance value of the current world position. The shadow map value is compaired against this
+    \return 1 -> lit ; 0 -> shadowed
+    */
+    float exponentialVarianceShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
+    {
+        float4 sv = getShadowValueF4(index, shadowUV, lightType, level, mipLevel);
+        float cd = exp(lightDist * kExponentialSMConstant);
+        float cdNeg = -exp(-lightDist * kExponentialSMConstant);
+        if (cd <= sv.x || cdNeg <= sv.z)
+            return 1.f;
+        
+        float variancePos = sv.y - (sv.x * sv.x) + 1e-10f;     //0 Variance can result in black pixels at some points
+        float diffPos = (cd - sv.x);
+        float pPosMax = variancePos / (variancePos + diffPos * diffPos);
+
+        float varianceNeg = sv.w - (sv.z * sv.z) + 1e-10f;     //0 Variance can result in black pixels at some points
+        float diffNeg = (cdNeg - sv.z);
+        float pNegMax = varianceNeg / (varianceNeg + diffNeg * diffNeg);
+        
+        return saturate(min(pNegMax,pPosMax));
+    }
+    
+    /** Exponential (Layered) Variance Shadow Mapping. https://dl.acm.org/doi/pdf/10.5555/1375714.1375739
     \param[in] analytical light index.
     \param[in] world position.
     \param[in] light information.
@@ -808,7 +881,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalHybridShadowMapExponential(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel , out float shadow)
+    bool evalShadowMapExponentialVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -817,7 +890,7 @@ struct ShadowMap
             index = gShadowMapIndexMap[lightIdx];
         }
         
-        shadow = kUseRayOutsideSM ? -1.f : 1.f;     //Make shadow value invalid if a ray should be shot outside of the shadow map
+        shadow = 0.f;
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint lightType = getSMLightType(lightData);
@@ -847,14 +920,17 @@ struct ShadowMap
             return !kUseRayOutsideSM;   //Outside of shadow map
          
         //Shadow Test with shadow map
-        shadow = exponentialShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
+        shadow = exponentialVarianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
 
-         if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
-            return false;   //Shoot ray
+        if (hybridSM)
+        {
+            if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
+                return false;   //Shoot ray
+        }
         
-        return true;        //No ray needed
-    }
-
+            return true;
+        }
+    
     /** Shadow Map overview function. Calls the corresponding implementation based on the current mode
     \param[in] analytical light index.
     \param[in] world position.
@@ -871,9 +947,11 @@ struct ShadowMap
             case ShadowMapType::ShadowMap:
                 return evalShadowMapClassic(lightIdx, posW, lightData, sg, shadow);
             case ShadowMapType::Variance:
-                return evalShadowMapVariance(lightIdx, posW, lightData, sg, mipLevel ,shadow);
+                return evalShadowMapVariance(lightIdx, posW, lightData, sg, mipLevel, false ,shadow);
             case ShadowMapType::Exponential:
-                return evalShadowMapExponential(lightIdx, posW, lightData, sg, mipLevel, shadow);
+                return evalShadowMapExponential(lightIdx, posW, lightData, sg, mipLevel, false, shadow);
+            case ShadowMapType::ExponentialVariance:
+                return evalShadowMapExponentialVariance(lightIdx, posW, lightData, sg, mipLevel, false, shadow);
             default:
                 shadow = 1.f;
                 return false;
@@ -895,9 +973,11 @@ struct ShadowMap
             case ShadowMapType::ShadowMap:
                 return hybridShadowMapClassic(lightIdx, posW, lightData, sg, shadow);
             case ShadowMapType::Variance:
-                return evalHybridShadowMapVariance(lightIdx, posW, lightData, sg, mipLevel ,shadow);
+                return evalShadowMapVariance(lightIdx, posW, lightData, sg, mipLevel ,true ,shadow);
             case ShadowMapType::Exponential:
-                return evalHybridShadowMapExponential(lightIdx, posW, lightData, sg, mipLevel, shadow);
+                return evalShadowMapExponential(lightIdx, posW, lightData, sg, mipLevel, true , shadow);
+            case ShadowMapType::ExponentialVariance:
+                return evalShadowMapExponentialVariance(lightIdx, posW, lightData, sg, mipLevel, true, shadow);
             default:
                 shadow = 1.f;
                 return false;

@@ -163,8 +163,7 @@ float psExponential(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV
     #if USE_ALPHA_TEST
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
-
-    //TODO convert posH.w to [0,1]
+    
     const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
 float linZ = (vsOut.posH.w - near) / ( gFarPlane - near);
     return exp(linZ * SM_EXPONENTIAL_CONSTANT);
@@ -176,7 +175,7 @@ float psExponentialCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_Primitive
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
     
-    return exp(vsOut.posH.z * SM_EXPONENTIAL_CONSTANT); //TODO remove far plane
+    return exp(vsOut.posH.z * SM_EXPONENTIAL_CONSTANT); 
 }
 
 float psExponentialCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
@@ -189,4 +188,59 @@ float psExponentialCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) 
     float lightDist = length(vsOut.posW - gLightPos);
     float depth = lightDist / gFarPlane; //Map to [0,1]
     return exp(depth * SM_EXPONENTIAL_CONSTANT);
+}
+
+//Exponential Variance Shadow Maps
+float4 psExponentialVariance(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+
+    const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
+    float linZ = (vsOut.posH.w - near) / ( gFarPlane - near);
+    float cz = linZ * SM_EXPONENTIAL_CONSTANT;
+    float4 evsm = float4(0);
+    evsm.x = exp(cz);           //Moment1
+    evsm.y = evsm.x * evsm.x;   //Moment2
+    evsm.z = -exp(-cz);         //Negative Moment1
+    evsm.w = evsm.z * evsm.z;   //Negative Moment2
+    
+    return evsm;
+}
+
+float4 psExponentialVarianceCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+
+    float cz = vsOut.posH.z * SM_EXPONENTIAL_CONSTANT;
+    float4 evsm = float4(0);
+    evsm.x = exp(cz);           //Moment1
+    evsm.y = evsm.x * evsm.x;   //Moment2
+    evsm.z = -exp(-cz);         //Negative Moment1
+    evsm.w = evsm.z * evsm.z;   //Negative Moment2
+    
+    return evsm;
+}
+
+float4 psExponentialVarianceCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+    
+    //Distance between point and light
+    float lightDist = length(vsOut.posW - gLightPos);
+    float depth = lightDist / gFarPlane; //Map to [0,1]
+
+    float cz = depth * SM_EXPONENTIAL_CONSTANT;
+    float4 evsm = float4(0);
+    evsm.x = exp(cz);           //Moment1
+    evsm.y = evsm.x * evsm.x;   //Moment2
+    evsm.z = -exp(-cz);         //Negative Moment1
+    evsm.w = evsm.z * evsm.z;   //Negative Moment2
+    
+    return evsm;
 }

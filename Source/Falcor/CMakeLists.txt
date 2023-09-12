@@ -299,6 +299,9 @@ target_sources(Falcor PRIVATE
 	Rendering/ShadowMaps/ShadowMap.h
 	Rendering/ShadowMaps/ShadowMap.slang
 	Rendering/ShadowMaps/ShadowMapData.slang
+	Rendering/ShadowMaps/SMGaussianBlur.cs.slang
+	Rendering/ShadowMaps/SMGaussianBlur.cpp
+	Rendering/ShadowMaps/SMGaussianBlur.h
 
     Rendering/Utils/PixelStats.cpp
     Rendering/Utils/PixelStats.cs.slang
