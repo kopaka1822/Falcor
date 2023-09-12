@@ -83,8 +83,8 @@ void SMGaussianBlur::execute(RenderContext* pRenderContext, ref<Texture> pTextur
 
             var["weights"] = mpWeightBuffer;
             if (mArraySize > 1)
-                var["gSrcTex"].setSrv(pTexture->getSRV(0,1,arrayIdx,1));
-                //var["gSrcTex"].setUav(pTexture->getUAV(0, arrayIdx, 1));
+                //var["gSrcTex"].setSrv(pTexture->getSRV(0,1,arrayIdx,1));
+                var["gSrcTex"].setUav(pTexture->getUAV(0, arrayIdx, 1));
             else
                 var["gSrcTex"] = pTexture;
             var["gDstTex"] = mpBlurWorkTexture;

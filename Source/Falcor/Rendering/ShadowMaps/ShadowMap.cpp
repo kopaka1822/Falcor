@@ -732,10 +732,10 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
     }
 
     // Blur if it is activated/enabled
-    /*
+    
     if (mpBlurCube)
         mpBlurCube->execute(pRenderContext, mpShadowMapsCube[index]);
-    */
+    
     /* TODO doesnt work, needs fixing
     if (mShadowMapType != ShadowMapType::ShadowMap && mUseShadowMipMaps)
         mpShadowMapsCube[index]->generateMips(pRenderContext);
