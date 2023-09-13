@@ -56,7 +56,7 @@ class RenderContext;
 class FALCOR_API SMGaussianBlur
 {
 public:
-    SMGaussianBlur(ref<Device> pDevice);
+    SMGaussianBlur(ref<Device> pDevice, bool isCube = false) : mpDevice{pDevice}, mIsCube{isCube} {}
 
     void execute(RenderContext* pRenderContext, ref<Texture> pTexture);
 
@@ -73,9 +73,10 @@ private:
     ResourceFormat mTextureFormat = ResourceFormat::Unknown;
     uint mArraySize = 0;
 
+    bool mIsCube = false;   //Cube is treated specially.
     bool mKernelChanged = true;
-    uint32_t mKernelWidth = 5;
-    float mSigma = 2.0f;
+    uint32_t mKernelWidth = 3;
+    float mSigma = 1.f;
 
     ref<ComputePass> mpHorizontalBlur;
     ref<ComputePass> mpVerticalBlur;

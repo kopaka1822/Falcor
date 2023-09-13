@@ -25,7 +25,12 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-RWTexture2D gSrcTex;
+#ifdef _IS_CUBE
+    RWTexture2D gSrcTex;    //Workaround as TextureCube cannot be bound as an Texture2D for SRV
+#else
+    Texture2D gSrcTex;
+#endif
+
 RWTexture2D gDstTex;
 
 Buffer<float> weights;

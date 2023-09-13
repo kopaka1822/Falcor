@@ -38,11 +38,6 @@ const std::string kShaderModel = "6_5";
 
 } // namespace
 
-SMGaussianBlur::SMGaussianBlur(ref<Device> pDevice) : mpDevice{pDevice}
-{
-    //Move smt here? 
-}
-
 void SMGaussianBlur::execute(RenderContext* pRenderContext, ref<Texture> pTexture) {
 
     FALCOR_PROFILE(pRenderContext, "SM_GausBlur");
@@ -68,6 +63,8 @@ void SMGaussianBlur::execute(RenderContext* pRenderContext, ref<Texture> pTextur
 
                 DefineList defines;
                 defines.add("_HORIZONTAL_BLUR");
+                if(mIsCube)
+                    defines.add("_IS_CUBE");
                 defines.add("_KERNEL_WIDTH", std::to_string(mKernelWidth));
                 defines.add("_TEX_WIDTH", mDimMaxDefineString);
 
@@ -82,9 +79,10 @@ void SMGaussianBlur::execute(RenderContext* pRenderContext, ref<Texture> pTextur
             auto var = mpHorizontalBlur->getRootVar();
 
             var["weights"] = mpWeightBuffer;
-            if (mArraySize > 1)
-                //var["gSrcTex"].setSrv(pTexture->getSRV(0,1,arrayIdx,1));
+            if (mIsCube)
                 var["gSrcTex"].setUav(pTexture->getUAV(0, arrayIdx, 1));
+            else if (mArraySize > 1)
+                var["gSrcTex"].setSrv(pTexture->getSRV(0,1,arrayIdx,1));
             else
                 var["gSrcTex"] = pTexture;
             var["gDstTex"] = mpBlurWorkTexture;

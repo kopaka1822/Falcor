@@ -461,7 +461,7 @@ void ShadowMap::prepareGaussianBlur() {
         }
         if (!mpBlurCube && mpShadowMapsCube.size() > 0)
         {
-            mpBlurCube = std::make_unique<SMGaussianBlur>(mpDevice);
+            mpBlurCube = std::make_unique<SMGaussianBlur>(mpDevice, true);
             blurChanged = true;
         }
     }
@@ -735,8 +735,8 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
 
     // Blur if it is activated/enabled
     
-    //if (mpBlurCube)
-    //    mpBlurCube->execute(pRenderContext, mpShadowMapsCube[index]);
+    if (mpBlurCube)
+        mpBlurCube->execute(pRenderContext, mpShadowMapsCube[index]);
     
     /* TODO doesnt work, needs fixing
     if (mShadowMapType != ShadowMapType::ShadowMap && mUseShadowMipMaps)
