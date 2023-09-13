@@ -81,6 +81,9 @@ public:
     float getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height);    //Ortho case
 
 private:
+    const float kEVSM_ExponentialConstantMax = 42.f;    //Max exponential constant for Exponential Variance Shadow Maps
+    const float kESM_ExponentialConstantMax = 84.f;     //Max exponential constant for Exponential Shadow Maps
+
     struct ShaderParameters
     {
         float4x4 viewProjectionMatrix = float4x4();
@@ -157,7 +160,8 @@ private:
     bool mCascadedStochasticBlend = true;
     float mCascadedStochasticBlendBand = 0.05f;
     float mExponentialSMConstant = 80.f;    //Value used in the paper
-    float mEVSMConstant = 20.f;                 // Exponential Variance Shadow Map constant. Needs to be lower than the exponential counterpart
+    float mEVSMConstant = 20.f;                //Exponential Variance Shadow Map constant. Needs to be lower than the exponential counterpart
+    float mEVSMNegConstant = 5.f;              //Exponential Variance Shadow Map negative constant. Usually lower than the positive counterpart
     float2 mHSMFilteredThreshold = float2(0.02f, 0.98f);     //Threshold for filtered shadow map variants
     bool mUseRayOutsideOfShadowMap = false;
     bool mVarianceUseSelfShadowVariant = true;

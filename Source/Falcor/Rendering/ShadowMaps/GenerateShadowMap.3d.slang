@@ -15,6 +15,10 @@ cbuffer CB
 #define SM_EXPONENTIAL_CONSTANT 80.f
 #endif
 
+#ifndef SM_NEGATIVE_EXPONENTIAL_CONSTANT
+#define SM_NEGATIVE_EXPONENTIAL_CONSTANT 5.f
+#endif
+
 #ifndef INTERPOLATION_MODE
 #define INTERPOLATION_MODE linear
 #endif
@@ -79,6 +83,14 @@ bool shadowAlphaTest(ShadowVsOut vsOut, uint triangleIndex)
 // Pixel Shaders
 //
 
+//Rescales depth from [0,1] to [-1,1]
+float rescaleDepth(float depth){
+    return (2.f * depth) - 1.f;
+}
+float2 rescaleDepth(float2 depth){
+    return (2.f * depth) - 1.f;
+}
+
 // Classic Shadow Maps
 void psMain(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID)
 {
@@ -107,14 +119,15 @@ float2 psVariance(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_T
     #endif
 
     const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
-    float2 varianceSM = float2(1.f);    
-    varianceSM.x = (vsOut.posH.w - near)/( gFarPlane - near); //Linear Z in [0,1]
-    varianceSM.y = varianceSM.x * varianceSM.x;
-
+    float depth = (vsOut.posH.w - near)/(gFarPlane - near); //Linear depth from [0,1]
+    float2 varianceSM = float2(depth, depth * depth);
+    
     //From https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-8-summed-area-variance-shadow-maps
     #if SM_VARIANCE_SELFSHADOW
+    //Get neighbor pixels depth and linearize
     float depthX = (ddx(vsOut.posH.w) - near) / (gFarPlane - near);
     float depthY = (ddy(vsOut.posH.w) - near) / (gFarPlane - near);
+    
     varianceSM.y += 0.25f * (depthX * depthX + depthY * depthY);
     #endif //SM_VARIANCE_SELFSHADOW
     
@@ -147,13 +160,24 @@ float2 psVarianceCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : 
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
     
-    float2 varianceSM = float2(1.f);
     //Distance between point and light
     float lightDist = length(vsOut.posW - gLightPos);
     float depth = lightDist / gFarPlane; //Map to [0,1]
+    
+    float2 varianceSM = float2(depth, depth * depth);
 
-    varianceSM.x = depth;
-    varianceSM.y = varianceSM.x * varianceSM.x;
+    /* Does not seem to work with cube
+    //From https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-8-summed-area-variance-shadow-maps
+    #if SM_VARIANCE_SELFSHADOW
+    float3 neiPosDiffX = ddx(vsOut.posW) - gLightPos;
+    float3 neiPosDiffY = ddy(vsOut.posW)- gLightPos;
+    float2 neiLightDist = float2(length(neiPosDiffX),length(neiPosDiffY));
+    float2 neiDepth = neiLightDist/gFarPlane;
+    
+    varianceSM.y += 0.25f * (neiDepth.x * neiDepth.x + neiDepth.y * neiDepth.y);
+    #endif //SM_VARIANCE_SELFSHADOW
+    */
+    
     return varianceSM;
 }
 
@@ -165,7 +189,8 @@ float psExponential(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV
     #endif
     
     const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
-float linZ = (vsOut.posH.w - near) / ( gFarPlane - near);
+    float linZ = (vsOut.posH.w - near) / ( gFarPlane - near);
+    linZ = rescaleDepth(linZ);
     return exp(linZ * SM_EXPONENTIAL_CONSTANT);
 }
 
@@ -174,8 +199,10 @@ float psExponentialCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_Primitive
     #if USE_ALPHA_TEST
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
+
+    float depth = rescaleDepth(vsOut.posH.z);
     
-    return exp(vsOut.posH.z * SM_EXPONENTIAL_CONSTANT); 
+    return exp(depth * SM_EXPONENTIAL_CONSTANT); 
 }
 
 float psExponentialCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
@@ -187,7 +214,18 @@ float psExponentialCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) 
     //Distance between point and light
     float lightDist = length(vsOut.posW - gLightPos);
     float depth = lightDist / gFarPlane; //Map to [0,1]
+    depth = rescaleDepth(depth);
     return exp(depth * SM_EXPONENTIAL_CONSTANT);
+}
+
+float4 getExponentialVarianceMoments(float depth){
+    float4 evsm;
+    evsm.x = exp(depth * SM_EXPONENTIAL_CONSTANT);              //Moment1
+    evsm.y = evsm.x * evsm.x;                                   //Moment2
+    evsm.z = -exp(-(depth * SM_NEGATIVE_EXPONENTIAL_CONSTANT)); //Negative Moment1
+    evsm.w = evsm.z * evsm.z;                                   //Negative Moment2
+
+    return evsm;
 }
 
 //Exponential Variance Shadow Maps
@@ -199,14 +237,9 @@ float4 psExponentialVariance(ShadowVsOut vsOut, uint triangleIndex : SV_Primitiv
 
     const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
     float linZ = (vsOut.posH.w - near) / ( gFarPlane - near);
-    float cz = linZ * SM_EXPONENTIAL_CONSTANT;
-    float4 evsm = float4(0);
-    evsm.x = exp(cz);           //Moment1
-    evsm.y = evsm.x * evsm.x;   //Moment2
-    evsm.z = -exp(-cz);         //Negative Moment1
-    evsm.w = evsm.z * evsm.z;   //Negative Moment2
+    linZ = rescaleDepth(linZ);           //Convert to [-1,1]
     
-    return evsm;
+    return getExponentialVarianceMoments(linZ);
 }
 
 float4 psExponentialVarianceCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
@@ -215,14 +248,9 @@ float4 psExponentialVarianceCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
 
-    float cz = vsOut.posH.z * SM_EXPONENTIAL_CONSTANT;
-    float4 evsm = float4(0);
-    evsm.x = exp(cz);           //Moment1
-    evsm.y = evsm.x * evsm.x;   //Moment2
-    evsm.z = -exp(-cz);         //Negative Moment1
-    evsm.w = evsm.z * evsm.z;   //Negative Moment2
+    float depth = rescaleDepth(vsOut.posH.z);   //Convert to [-1,1]
     
-    return evsm;
+    return getExponentialVarianceMoments(depth);
 }
 
 float4 psExponentialVarianceCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
@@ -234,13 +262,7 @@ float4 psExponentialVarianceCube(ShadowVsOut vsOut, uint triangleIndex : SV_Prim
     //Distance between point and light
     float lightDist = length(vsOut.posW - gLightPos);
     float depth = lightDist / gFarPlane; //Map to [0,1]
+    depth = rescaleDepth(depth);
 
-    float cz = depth * SM_EXPONENTIAL_CONSTANT;
-    float4 evsm = float4(0);
-    evsm.x = exp(cz);           //Moment1
-    evsm.y = evsm.x * evsm.x;   //Moment2
-    evsm.z = -exp(-cz);         //Negative Moment1
-    evsm.w = evsm.z * evsm.z;   //Negative Moment2
-    
-    return evsm;
+    return getExponentialVarianceMoments(depth);
 }

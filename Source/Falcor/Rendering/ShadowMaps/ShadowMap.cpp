@@ -511,6 +511,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
     defines.add("ORACLE_DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
     defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mShadowMapType == ShadowMapType::ExponentialVariance ? mEVSMConstant : mExponentialSMConstant));
+    defines.add("SM_NEGATIVE_EXPONENTIAL_CONSTANT", std::to_string(mEVSMNegConstant));
     defines.add("SM_NEAR", std::to_string(mNear));
     defines.add(
         "HYBRID_SMFILTERED_THRESHOLD",
@@ -545,6 +546,7 @@ DefineList ShadowMap::getDefinesShadowMapGenPass() const
         "SM_EXPONENTIAL_CONSTANT",
         std::to_string(mShadowMapType == ShadowMapType::ExponentialVariance ? mEVSMConstant : mExponentialSMConstant)
     );
+    defines.add("SM_NEGATIVE_EXPONENTIAL_CONSTANT", std::to_string(mEVSMNegConstant));
     defines.add("SM_VARIANCE_SELFSHADOW", mVarianceUseSelfShadowVariant ? "1" : "0");
     defines.add("_ALPHA_TEST_MODE", std::to_string(mAlphaMode)); 
     if (mpScene)
@@ -733,8 +735,8 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
 
     // Blur if it is activated/enabled
     
-    if (mpBlurCube)
-        mpBlurCube->execute(pRenderContext, mpShadowMapsCube[index]);
+    //if (mpBlurCube)
+    //    mpBlurCube->execute(pRenderContext, mpShadowMapsCube[index]);
     
     /* TODO doesnt work, needs fixing
     if (mShadowMapType != ShadowMapType::ShadowMap && mUseShadowMipMaps)
@@ -1323,7 +1325,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         if (auto group = widget.group("Exponential Shadow Map Options"))
         {
             group.checkbox("Enable Blur", mUseGaussianBlur);
-            group.var("Exponential Constant", mExponentialSMConstant, 1.f, 160.f, 0.1f);
+            group.var("Exponential Constant", mExponentialSMConstant, 1.f, kESM_ExponentialConstantMax, 0.1f);
             group.tooltip("Constant for exponential shadow map");
             group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
             group.tooltip(
@@ -1339,11 +1341,13 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         if (auto group = widget.group("Exponential Variance Shadow Map Options"))
         {
             group.checkbox("Enable Blur", mUseGaussianBlur);
-            group.var("Exponential Constant", mEVSMConstant, 1.f, 160.f, 0.1f);
+            group.var("Exponential Constant", mEVSMConstant, 1.f, kEVSM_ExponentialConstantMax, 0.1f);
             group.tooltip("Constant for exponential shadow map");
+            group.var("Exponential Negative Constant", mEVSMNegConstant, 1.f, kEVSM_ExponentialConstantMax, 0.1f);
+            group.tooltip("Constant for the negative part");
             group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
             group.tooltip(
-                "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH, 1.f]", true
+                "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [x, y]", true
             );
             mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);

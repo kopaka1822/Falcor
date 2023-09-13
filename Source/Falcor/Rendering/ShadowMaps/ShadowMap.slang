@@ -62,6 +62,7 @@ struct ShadowMap
     static const uint kNPSOffsetCasc = NPS_OFFSET_CASCADED;                 //Cascaded offset for gShadowMapNPSBuffer
     static const uint kOracleDistFunctionMode = ORACLE_DIST_FUNCTION_MODE;  //Mode for the Oracle Distance Function
     static const float kExponentialSMConstant = SM_EXPONENTIAL_CONSTANT;    //Constant for Exponential Shadow Maps
+    static const float kEVSMNegConstant = SM_NEGATIVE_EXPONENTIAL_CONSTANT; //Negative Constant used in EVSM
     static const float kShadowMapNear = SM_NEAR;                            //Near plane for Spot and Directional lights                                                       
     static const float2 kHSMFilteredThreshold = HYBRID_SMFILTERED_THRESHOLD;//Hybrid Shadow Map: Threshold for filtered SM(Variance, Exponential). Ray is needed for [TH.x, TH.y]             
     static const bool kUseRayOutsideSM = USE_RAY_OUTSIDE_SM;                //Determines if a ray should be used outside of the shadow map
@@ -591,6 +592,25 @@ struct ShadowMap
         return true;    //No ray needed
     }
 
+    /**ChebyshevUpperBound for Variance Shadow Mapping
+    \param[in] M1 and M2 from Variance Shadow Mapping
+    \param[in] depth of the current position
+    \return shadow value between 1 and 0. 
+    */
+    float ChebyshevUpperBound(float2 moments, float mean, float minVariance)
+    {
+    // Compute variance
+    float variance = moments.y - (moments.x * moments.x);
+    variance = max(variance, minVariance);
+
+    // Compute probabilistic upper bound
+    float d = mean - moments.x;
+    float pMax = variance / (variance + (d * d));
+    
+    // One-tailed Chebyshev
+    return (mean <= moments.x ? 1.0f : pMax);
+    }
+    
     /** Variance shadow test
     \param[in] local shadow map texture index.
     \param[in] cascaded level.
@@ -602,15 +622,9 @@ struct ShadowMap
     float varianceShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
     {
         float2 varianceSV = getShadowVarianceValue(index, shadowUV, lightType, level, mipLevel);
-        if (lightDist <= varianceSV.x)
-            return 1.f;
-            
-        float variance = abs(varianceSV.y - (varianceSV.x * varianceSV.x)) + 1e-10f;     //0 Variance can result in black pixels at some points
 
-        float diff = (lightDist - varianceSV.x);
-        float pmax = variance / (variance + diff * diff);
-                        
-        return saturate(pmax);
+        
+        return ChebyshevUpperBound(varianceSV, lightDist, 1e-10f);
     }
 
     float varianceShadowTestPCF(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
@@ -712,67 +726,6 @@ struct ShadowMap
         return true;
     }
 
-     /** Variance Shadow Mapping adjusted for Hybrid Shadow Maps. https://igm.univ-mlv.fr/~biri/Enseignement/MII2/Donnees/variance_shadow_maps.pdf
-    \param[in] analytical light index.
-    \param[in] world position.
-    \param[in] light information.
-    \param[in] falcor random number generator.
-    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
-    \return boolean that indicates if a ray is needed. (Outside of shadow map)
-    */
-    bool evalHybridShadowMapVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel, const bool hybridSM , out float shadow)
-    {
-        uint index = lightIdx;
-        //Get the right index if multiple shadow map types are used
-        if (kMultipleSMTypes)
-        {
-            index = gShadowMapIndexMap[lightIdx];
-        }
-        
-        shadow = kUseRayOutsideSM ? -1.f : 1.f;     //Make shadow value invalid if a ray should be shot outside of the shadow map
-        float lightDist = 0.f;
-        float3 shadowUV = float3(0);
-        uint lightType = getSMLightType(lightData);
-        uint cascLevel;
-        if(kCascadedStochasticBlend)
-            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
-        else
-            cascLevel = getCascadedLevel(posW);
-        
-        bool valid = false;
-        switch (lightType)
-        {
-            case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
-                break;
-            case LightTypeSM::Spot:
-                valid = spotDistanceAndSampleVec(index, posW, lightData, shadowUV.xy, lightDist);
-                break;
-            case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(index, cascLevel, posW, lightData, shadowUV.xy, lightDist);
-                break;
-            default:
-                break;
-        }
-        
-        if (!valid)
-            return !kUseRayOutsideSM;   //Outside of shadow map
-         
-        //Shadow Test with shadow map
-        if (kUsePCF)
-            shadow = varianceShadowTestPCF(index, cascLevel, shadowUV, lightType, lightDist);
-        else
-            shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
-            
-        if (hybridSM)
-        {
-            if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
-                return false;   //Shoot ray
-        }
-        
-        return true;        //No ray needed
-    }
-
     /** Exponential shadow test
     \param[in] local shadow map texture index.
     \param[in] cascaded level.
@@ -784,8 +737,8 @@ struct ShadowMap
     float exponentialShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
     {
         float shadowDepth = getShadowValue(index, shadowUV, lightType, level, mipLevel);
-        float c = kExponentialSMConstant;
-        return saturate(exp(-lightDist * c) * shadowDepth);
+        float depth = (lightDist * 2.f) - 1.f;
+        return saturate(exp(-depth * kExponentialSMConstant) * shadowDepth);
     }
 
     /** Exponential Shadow Mapping. https://jankautz.com/publications/esm_gi08.pdf
@@ -857,20 +810,15 @@ struct ShadowMap
     float exponentialVarianceShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
     {
         float4 sv = getShadowValueF4(index, shadowUV, lightType, level, mipLevel);
-        float cd = exp(lightDist * kExponentialSMConstant);
-        float cdNeg = -exp(-lightDist * kExponentialSMConstant);
-        if (cd <= sv.x || cdNeg <= sv.z)
-            return 1.f;
+        float depth = (lightDist * 2.f) - 1.f;
+        float2 warpedDepth = float2(exp(depth * kExponentialSMConstant),  -exp(-depth * kEVSMNegConstant));
+        float2 minVariance = float2(0.0001f * kExponentialSMConstant * warpedDepth.x, 0.0001f * kEVSMNegConstant * warpedDepth.y); 
+        minVariance *= minVariance;
         
-        float variancePos = sv.y - (sv.x * sv.x) + 1e-10f;     //0 Variance can result in black pixels at some points
-        float diffPos = (cd - sv.x);
-        float pPosMax = variancePos / (variancePos + diffPos * diffPos);
-
-        float varianceNeg = sv.w - (sv.z * sv.z) + 1e-10f;     //0 Variance can result in black pixels at some points
-        float diffNeg = (cdNeg - sv.z);
-        float pNegMax = varianceNeg / (varianceNeg + diffNeg * diffNeg);
+        float pPosMax = ChebyshevUpperBound(sv.xy, warpedDepth.x, minVariance.x);
+        float pNegMax = ChebyshevUpperBound(sv.zw, warpedDepth.y, minVariance.y);
         
-        return saturate(min(pNegMax,pPosMax));
+        return min(pNegMax,pPosMax);
     }
     
     /** Exponential (Layered) Variance Shadow Mapping. https://dl.acm.org/doi/pdf/10.5555/1375714.1375739
