@@ -77,6 +77,7 @@ struct ShadowMap
     static const float kOracleCompValue = ORACLE_COMP_VALUE;
     static const bool kUseOracleDistFunction = USE_ORACLE_DISTANCE_FUNCTION;
     static const bool kUseSMMips = USE_SM_MIP;
+    static const float kMipBias = SM_MIP_BIAS;      //angle bias used in mip calculation (cos theta^bias)
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] =
@@ -983,7 +984,7 @@ struct ShadowMap
 
         //Calculate MIP
         if(kUseSMMips){
-            mipLevel = 0.5f * log2(( projAreaCam * angleLight ) / ( projSMArea * angleCamera + 1e-10f) ); 
+            mipLevel = 0.5f * log2(( projAreaCam * pow(angleLight,kMipBias) ) / ( projSMArea * pow(angleCamera,kMipBias) + 1e-10f) ); 
         }
         
         return ( projSMArea * angleCamera) / ( projAreaCam * angleLight + 1e-10f);  //Divide the projected areas

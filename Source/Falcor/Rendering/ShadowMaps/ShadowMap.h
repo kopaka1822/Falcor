@@ -172,6 +172,7 @@ private:
     bool mUseHybridSM = false;        ///< Uses the Hybrid Shadow Maps (https://gpuopen.com/fidelityfx-hybrid-shadows/#details)
 
     bool mUseShadowMipMaps = true;        ///< Uses mip maps for applyable shadow maps
+    float mShadowMipBias = 1.7f;          ///< Bias used in mips (cos theta)^bias
     bool mUseGaussianBlur = true;
 
 

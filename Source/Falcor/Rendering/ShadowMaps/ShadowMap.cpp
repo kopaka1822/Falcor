@@ -530,6 +530,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("ORACLE_COMP_VALUE", std::to_string(mOracleCompaireValue));
     defines.add("USE_ORACLE_DISTANCE_FUNCTION", mOracleDistanceFunctionMode == OracleDistFunction::None ? "0" : "1");
     defines.add("USE_SM_MIP", mUseShadowMipMaps ? "1" : "0");
+    defines.add("SM_MIP_BIAS", std::to_string(mShadowMipBias));
 
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
@@ -1314,6 +1315,11 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
                 mHSMFilteredThreshold.y = mHSMFilteredThreshold.x;
             mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
+            if (mUseShadowMipMaps)
+            {
+                group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+                group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
+            }
             group.checkbox("Use PCF", mUsePCF);
             group.tooltip("Enable to use Percentage closer filtering");
         }
@@ -1333,6 +1339,11 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             );
             mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
+            if (mUseShadowMipMaps)
+            {
+                group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+                group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
+            }
         }
         break;
     }
@@ -1351,6 +1362,11 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             );
             mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
+            if (mUseShadowMipMaps)
+            {
+                group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+                group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
+            }
         }
         break;
     }

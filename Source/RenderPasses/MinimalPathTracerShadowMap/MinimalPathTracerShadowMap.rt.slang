@@ -236,8 +236,8 @@ ShadingData loadShadingDataRayConeFirstHit(const HitInfo hit, const float3 rayOr
     
     float hitT = distance(v.posW, rayOrigin);
     rayCone = rayCone.propagateDistance(hitT);
-    lodLevel = rayCone.computeLOD(v.coneTexLODValue, rayDir, v.normalW);    //TODO Fix coneTexLODValue (see comment in LODHelpers.slang)
-    let lod = ExplicitLodTextureSampler(lodLevel.x);
+    lodLevel = rayCone.computeLOD(v.coneTexLODValue, rayDir, v.faceNormalW);    //TODO Fix coneTexLODValue (see comment in LODHelpers.slang)
+    let lod = ExplicitRayConesLodTextureSampler(lodLevel);
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -rayDir, lod);
 
     return sd;
@@ -531,17 +531,16 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         
 
         // Load shading data.
-        ShadingData sd;
+#if TEX_LOD_MODE == 1
+        RayCone rc = RayCone(0.0f, gScreenSpacePixelSpreadAngle);
+        ShadingData sd = loadShadingDataRayConeFirstHit(hit, primaryRayOrigin, primaryRayDir, rc, lodLevel);
+        let lod = ExplicitRayConesLodTextureSampler(lodLevel);
+#else
+
+        let lod = ExplicitLodTextureSampler(0.f);
+        ShadingData sd = loadShadingData(hit, primaryRayOrigin, primaryRayDir, lod);
+#endif
         
-        if(kTexLODMode == TexLODMode::RayCones){
-            RayCone rc = RayCone(0.0f, gScreenSpacePixelSpreadAngle);
-            sd = loadShadingDataRayConeFirstHit(hit, primaryRayOrigin, primaryRayDir, rc, lodLevel);
-        }else{
-            let sdLod = ExplicitLodTextureSampler(0.f);
-            sd = loadShadingData(hit, primaryRayOrigin, primaryRayDir, sdLod);
-        }
-        let lod = ExplicitLodTextureSampler(lodLevel);
-        //return float3(debug);
         
         // Create material instance at shading point.
         let mi = gScene.materials.getMaterialInstance(sd, lod);

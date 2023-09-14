@@ -241,7 +241,7 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
     dirty |= widget.checkbox("Emissive Light", mUseEmissiveLight);
     widget.tooltip("Enable/Disable Emissive Light", true);
 
-    /* TODO enable if ray cones are fixed or ray differentials are implemented
+    //TODO enable if ray cones are fixed or ray differentials are implemented
     if (auto mode = mTexLODMode; widget.dropdown("Texture LOD mode", mode))
     {
         setTexLODMode(mode);
@@ -257,7 +257,7 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
         }
         widget.tooltip("The variant of ray cones to use.");
     }
-    */
+  
 
     if (auto group = widget.group("Shadow Map Options"))
     {
