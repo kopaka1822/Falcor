@@ -146,3 +146,8 @@ bool alphaTest<L:ITextureSampler>(VSOut vsOut, uint triangleIndex, L lod)
     VertexData v = prepareVertexData(vsOut, faceNormal);
     return gScene.materials.alphaTest(v, vsOut.materialID, lod);
 }
+
+bool alphaTestFast<L:ITextureSampler>(float2 texC, uint materialID, L lod)
+{
+    return gScene.materials.alphaTestFast(texC, materialID, lod);
+}

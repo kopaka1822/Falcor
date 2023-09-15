@@ -137,6 +137,23 @@ extension MaterialSystem
         return evalAlphaTest(alpha, alphaThreshold, v.posW);
     }
 
+    // fast test that only needs material id and texC (does basic alpha test, no hashed etc)
+    bool alphaTestFast<L:ITextureSampler>(float2 texC, const uint materialID, L lod)
+    {
+        // Load the material header first and early out if alpha test not supported.
+        const MaterialHeader header = materialData[materialID].header;
+
+        if (header.getAlphaMode() != AlphaMode::Mask) return false;
+
+        // Create IMaterial instance in order to evaluate opacity.
+        let material = getMaterial(materialID);
+
+        float alpha = material.evalOpacity(this, texC, lod);
+        float alphaThreshold = header.getAlphaThreshold();
+
+        return evalBasicAlphaTest(alpha, alphaThreshold);
+    }
+
     /** Perform alpha test at a hit point and return the result.
         This version samples alpha at a fixed level of detail.
         \param[in] v Interpolated vertex data.

@@ -65,4 +65,10 @@ struct PBRTDiffuseMaterial : MaterialBase, IMaterial
         SamplerState s = ms.getTextureSampler(header.getDefaultTextureSamplerID());
         return ms.sampleTexture(data.texBaseColor, s, v.texC, data.baseColor, lod).a;
     }
+
+    float evalOpacity(const MaterialSystem ms, float2 texC, const ITextureSampler lod)
+    {
+        SamplerState s = ms.getTextureSampler(header.getDefaultTextureSamplerID());
+        return ms.sampleTexture(data.texBaseColor, s, texC, data.baseColor, lod).a;
+    }
 };

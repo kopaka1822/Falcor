@@ -73,6 +73,8 @@ interface IMaterial
     */
     float evalOpacity(const MaterialSystem ms, const VertexData v, const ITextureSampler lod);
 
+    float evalOpacity(const MaterialSystem ms, float2 texC, const ITextureSampler lod);
+
     /** Returns volume properties that are homogeneous for the whole volume (do not depend on the hitpoint).
      */
     VolumeProperties getHomogeneousVolumeProperties(const MaterialSystem ms, const uint materialID);

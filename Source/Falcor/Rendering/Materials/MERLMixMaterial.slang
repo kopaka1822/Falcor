@@ -95,4 +95,5 @@ struct MERLMixMaterial : MaterialBase, IMaterial
 
     // Alpha testing is not supported by this material.
     float evalOpacity(const MaterialSystem ms, const VertexData v, const ITextureSampler lod) { return 1.f; }
+    float evalOpacity(const MaterialSystem ms, float2 texC, const ITextureSampler lod) { return 1.f; }
 };

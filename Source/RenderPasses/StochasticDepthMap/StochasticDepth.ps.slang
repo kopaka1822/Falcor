@@ -1,8 +1,47 @@
 import Scene.Raster;
 
-VSOut vsMain(VSIn vIn)
+struct SDOut
 {
-    return defaultVS(vIn);
+    float4 posH : SV_Position;
+    float3 posW : WORLD;
+    nointerpolation uint materialID : MATERIAL_ID;
+    float2 texC : TEXCOORD;
+    float viewDepth : VIEW_DEPTH;
+};
+
+SDOut vsMain(VSIn vIn)
+{
+    //VSOut vOut;
+    SDOut vOut;
+    const GeometryInstanceID instanceID = { vIn.instanceID };
+
+    float4x4 worldMat = gScene.getWorldMatrix(instanceID);
+    float3 posW = mul(worldMat, float4(vIn.pos, 1.f)).xyz;
+    vOut.posW = posW;
+    vOut.viewDepth = length(mul(gScene.camera.data.viewMat, float4(posW, 1.0)).xyz);
+    vOut.posH = mul(gScene.camera.getViewProj(), float4(posW, 1.f));
+
+    //vOut.instanceID = instanceID;
+    vOut.materialID = gScene.getMaterialID(instanceID);
+
+    vOut.texC = vIn.texC;
+    
+    /*vOut.normalW = mul(gScene.getInverseTransposeWorldMatrix(instanceID), vIn.unpack().normal);
+    float4 tangent = vIn.unpack().tangent;
+    vOut.tangentW = float4(mul((float3x3)gScene.getWorldMatrix(instanceID), tangent.xyz), tangent.w);
+
+    // Compute the vertex position in the previous frame.
+    float3 prevPos = vIn.pos;
+    GeometryInstanceData instance = gScene.getGeometryInstance(instanceID);
+    if (instance.isDynamic())
+    {
+        uint prevVertexIndex = gScene.meshes[instance.geometryID].prevVbOffset + vIn.vertexID;
+        prevPos = gScene.prevVertices[prevVertexIndex].position;
+    }
+    float3 prevPosW = mul(gScene.getPrevWorldMatrix(instanceID), float4(prevPos, 1.f)).xyz;
+    vOut.prevPosH = mul(gScene.camera.data.prevViewProjMatNoJitter, float4(prevPosW, 1.f));
+    */
+    return vOut;
 }
 
 //static const uint stratifiedIndices[] = { 0, 1, 17, 137, 697, 2517, 6885, 14893, 26333, 39203, 50643, 58651, 63019, 64839, 65399, 65519, 65535, };
@@ -14,6 +53,8 @@ Texture2D<uint> rayMin; // additional texture for a more precise depth range
 Texture2D<uint> rayMax; // contains float values: use asfloat()
 
 RWTexture2D<uint> counter; // for reservoir sampling
+
+//#define ALPHA 0.375
 
 cbuffer CameraCB
 {
@@ -48,10 +89,12 @@ struct PsOut
 };
 
 // [earlydepthstencil] <- do not force this, it makes it slower
-PsOut psMain(VSOut vsOut, uint triangleIndex : SV_PrimitiveID)
+PsOut psMain(SDOut vsOut, uint triangleIndex : SV_PrimitiveID)
 {
-    if (alphaTest(vsOut, triangleIndex, ImplicitLodTextureSampler()))
+    if (alphaTestFast(vsOut.texC, vsOut.materialID, ImplicitLodTextureSampler()))
         discard;
+    //if (alphaTest(vsOut, triangleIndex, ImplicitLodTextureSampler()))
+    //    discard;
     PsOut output;
 
     // assume that a depth-map of the first layer is available => discard fragments with the same depth
@@ -59,19 +102,23 @@ PsOut psMain(VSOut vsOut, uint triangleIndex : SV_PrimitiveID)
     float firstDepth = depthBuffer[svPos];
     if (vsOut.posH.z <= firstDepth)
         discard;
+
+    //float dist = distance(vsOut.posW.xyz, gScene.camera.getPosition());
+    float dist = vsOut.posH.w;
+    //float dist = vsOut.viewDepth;
     
     // use ray min from texture (can be bigger than depth buffer)
     uint iRayMin = rayMin[svPos];
-    if (iRayMin != 0u && vsOut.posH.w <= asfloat(iRayMin))
+    if (iRayMin != 0u && dist <= asfloat(iRayMin))
         discard;
     
     uint iRayMax = rayMax[svPos];
-    if (iRayMax != 0u && vsOut.posH.w >= asfloat(iRayMax))
+    if (iRayMax != 0u && dist >= asfloat(iRayMax))
         discard; // save bandwidth (cannot depth cull because of linearize...)
     
-    // #if NON_STOCHASTIC_FIRST_LAYER // Potentially, you could create the regular depth map in this same pass by never discarding the first sample
-    // 	if (gl_SampleID == 0) { return; } 
-    // #endif
+     #if NON_STOCHASTIC_FIRST_LAYER // Potentially, you could create the regular depth map in this same pass by never discarding the first sample
+     	if (gl_SampleID == 0) { return; } 
+     #endif
 
     float rng = hash4D(float4(vsOut.posW.xyz, 1.438943289));
     
