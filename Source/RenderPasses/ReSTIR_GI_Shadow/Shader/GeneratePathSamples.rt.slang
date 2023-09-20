@@ -17,10 +17,12 @@ import Utils.Math.PackedFormats;
 import Utils.Math.FormatConversion;
 import Utils.Color.ColorHelpers;
 import Rendering.RTXDI.RTXDI;
+import Rendering.ShadowMaps.ShadowMap;
 
 import Reservoir;
 import PathData;
 import SurfaceDataGI;
+
 
 cbuffer PerFrame
 {
@@ -46,7 +48,7 @@ RWStructuredBuffer<GIData> gGISample;
     RWTexture2D<uint4> gReservoir;
 #endif
 
-EmissiveLightSampler gEmissiveSampler; ///< Emissive light sampler. Only valid when kUseEmissiveLights == true.
+uniform EmissiveLightSampler gEmissiveSampler; ///< Emissive light sampler. Only valid when kUseEmissiveLights == true.
 
 static const bool kNEE = GI_USE_NEE; 
 static const bool kUseAnalyticLights = GI_USE_ANALYTIC; 
@@ -55,6 +57,7 @@ static const bool kMixedLights = GI_USE_ANALYTIC && GI_USE_EMISSIVE;
 static const bool kUseAlphaTest = GI_ALPHA_TEST;
 static const bool kUseMIS = GI_MIS;
 static const bool kRussianRoulette = GI_RUSSIAN_ROULETTE;
+static const bool kUseShadowMap = GI_USE_SHADOW_MAP;
 
 struct TraceData
 {
@@ -86,8 +89,25 @@ struct LightSample
     float3 origin; ///< Ray origin for visibility evaluation (offseted to avoid self-intersection).
     float distance; ///< Ray distance for visibility evaluation (shortened to avoid self-intersection).
     float3 dir; ///< Ray direction for visibility evaluation (normalized).
-    uint lightType; ///< Light type this sample comes from (0 -> analytic; 1 -> emissive).
+    uint packedInfo = 0; ///< Light type this sample comes from (0 -> analytic; 1 -> emissive).
 
+    //analytic or emissive
+    property uint lightType{
+        get { return packedInfo & 0x3; }
+        set { packedInfo = (packedInfo & ~0x3) | (newValue & 0x3); }
+    }
+
+    //shadow map light type 
+    property uint smLightType{
+        get { return (packedInfo & 0xfc) >> 2; }
+        set { packedInfo = (packedInfo & ~0xfc) | (newValue << 2); }
+    }
+    //shadow map light type 
+    property uint lightIndex{
+        get { return packedInfo >> 8; }
+        set { packedInfo = (packedInfo & 0xff) | (newValue << 8); }
+    }
+    
     RayDesc getVisibilityRay()
     {
         return {origin, 0.f, dir, distance};
@@ -96,6 +116,14 @@ struct LightSample
 
 uint index2Dto1D(uint2 idx, uint width){
     return idx.x + width * idx.y;
+}
+
+SMLightData lightSampleToLightData(const in LightSample ls){
+    SMLightData lightData;
+    lightData.posW = ls.origin;
+    lightData.dirW = ls.dir;
+    lightData.type = ls.smLightType;
+    return lightData;
 }
 
 //Load in shading data from hit and direction
@@ -135,6 +163,7 @@ bool generateEmissiveSample(const in ShadingData sd, const bool upperHemisphere,
     float3 toLight = lightPos - ls.origin;
     ls.distance = length(toLight);
     ls.dir = normalize(toLight);
+    ls.lightType = 1;
 
     return any(ls.Li > 0.f);
 }
@@ -159,10 +188,13 @@ bool generateAnalyticLightSample(const in ShadingData sd, inout SampleGenerator 
 
     // Sample local light source.
     AnalyticLightSample lightSample;
-    if (!sampleLight(sd.posW, gScene.getLight(lightIndex), sg, lightSample))
+    LightData lightData = gScene.getLight(lightIndex);
+    if (!sampleLight(sd.posW,lightData , sg, lightSample))
         return false;
 
-        // Setup returned sample.
+    ls.smLightType = getShadowMapLightType(lightData);
+    ls.lightIndex = lightIndex;
+    // Setup returned sample.
     ls.pdf = lightSample.pdf / lightCount;
     ls.Li = lightSample.Li * lightCount;
         // Offset shading position to avoid self-intersection.
@@ -172,6 +204,7 @@ bool generateAnalyticLightSample(const in ShadingData sd, inout SampleGenerator 
     // Do not worry about adjusting the ray length to avoid self-intersections at the light.
     ls.distance = lightSample.distance;
     ls.dir = lightSample.dir;
+    ls.lightType = 0;
 
     return any(ls.Li > 0.f);
 }
@@ -337,6 +370,7 @@ void rayGen()
 
         float3 thp = float3(1.f);
         float3 radiance = float3(0.f);
+        float smDistance = viewDepth; //Distance used in oracle function
         
         
         for (uint i = 0; (i < gBounces) && validSample; i++)
@@ -360,6 +394,10 @@ void rayGen()
             sd = loadShadingData(hitInfo, bsdfSample.wo, lod);
             let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
             let miProperties = mi.getProperties(sd);
+            const float distanceToSample = distance(sd.posW, tRay.Origin);
+            ///Handle Oracle Distance function
+            if (gShadowMap.kUseOracleDistFunction)
+                smDistance += distanceToSample * gShadowMap.getOracleDistanceFunctionFactor(miProperties, bsdfSample);
             
             if (i == 0)
             {
@@ -369,14 +407,14 @@ void rayGen()
                 //Fill GIData for the first hit (the resample point). Radiance is filled in at a later point
                 giData.posW = sd.computeNewRayOrigin();
                 giData.normal = miProperties.guideNormal;
-                float dist = distance(tRay.Origin, sd.posW);
-                giData.jacobianDeterminant = vplAttenuation(dist, gAttenuationRadius) * saturate(dot(miProperties.guideNormal, sd.V));
+                giData.jacobianDeterminant = vplAttenuation(distanceToSample, gAttenuationRadius) * saturate(dot(miProperties.guideNormal, sd.V));
             }
             else if(!kNEE)  //Only use direct emissive hits for the non NEE case
             {
                 radiance += thp * miProperties.emission;
             }
 
+           
             //Get a light sample
             if (kNEE)
             {
@@ -390,17 +428,43 @@ void rayGen()
                     }
                     
                     float3 Lr = mi.eval(sd, ls.dir, traceData.sg) * ls.Li;
+                    bool doShadowTest = true;
                     //Shadow test
                     if (any(Lr > 0))
                     {
-                        ShadowTraceData shadowData;
-                        shadowData.visible = false;
-                        RayDesc shadowRay = ls.getVisibilityRay();
+                        float shadow = 0.f;
+                        if(kUseShadowMap && ls.lightType == 0){
+                            //Fill the shadow map light data struct
+                            SMLightData lightData = lightSampleToLightData(ls);
+                            float oracle = 0.f;
+                            bool useNormalSM = !gShadowMap.kUseHybridShadowMap;
+                            if (gShadowMap.kUseOracle){
+                                oracle = gShadowMap.oracleFunction(ls.lightIndex, lightData, sd, smDistance);
+                                useNormalSM = oracle <= gShadowMap.kOracleCompValue;
+                            }
+                                
+                            if (gShadowMap.kUseHybridShadowMap && !useNormalSM)
+                            {
+                                doShadowTest = !gShadowMap.evalHybridShadowMap(ls.lightIndex, sd.posW, lightData, traceData.sg, 0.f, shadow);
+                            }
+                            else if (useNormalSM)
+                            {
+                                doShadowTest = !gShadowMap.evalShadowMap(ls.lightIndex, sd.posW, lightData, traceData.sg, 0.f, shadow);
+                            }
+                        }
+                   
+                        if(doShadowTest){
+                            ShadowTraceData shadowData;
+                            shadowData.visible = false;
+                            RayDesc shadowRay = ls.getVisibilityRay();
                             
-                        TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 1 /* hitIdx */, rayTypeCount, 1 /* missIdx */, shadowRay, shadowData);
+                            TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 1 /* hitIdx */, rayTypeCount, 1 /* missIdx */, shadowRay, shadowData);
 
-                        if(shadowData.visible)
-                                radiance += Lr * thp;
+                            if(shadowData.visible)
+                                shadow = 1.f;
+                        }
+                        
+                        radiance += Lr * thp * shadow;
                     }
                 }
             }

@@ -139,13 +139,20 @@ void ReSTIR_GI_Shadow::execute(RenderContext* pRenderContext, const RenderData& 
     }
     // Delete RTXDI if it is set and the mode changed
     if (mDirectLightMode != DirectLightingMode::RTXDI && mpRTXDI)
-        mpRTXDI = nullptr;
+        mpRTXDI.reset();
 
     // Prepare used Datas and Buffers
     prepareLighting(pRenderContext);
 
     prepareBuffers(pRenderContext, renderData);
 
+    // Calculate and update the shadow map
+    if (mUseShadowMap)
+    {
+        if (!mpShadowMap->update(pRenderContext))
+            return;
+    }
+        
     // Clear the reservoir
     if (mClearReservoir)
     {
@@ -196,6 +203,16 @@ void ReSTIR_GI_Shadow::renderUI(Gui::Widgets& widget)
 
     if (auto group = widget.group("ReSTIR_GI"))
     {
+        group.checkbox("Enable ShadowMap", mUseShadowMap);
+        if (mUseShadowMap)
+        {
+            if (auto group2 = widget.group("Shadow Map Options"))
+            {
+                if (mpShadowMap)
+                    mpShadowMap->renderUI(group2);
+            }
+        }
+        
         if (auto group2 = widget.group("Initial Sample Options"))
         {
             group2.var("GI Max Bounces", mGIMaxBounces, 1u, 32u, 1u);
@@ -289,6 +306,7 @@ void ReSTIR_GI_Shadow::setScene(RenderContext* pRenderContext, const ref<Scene>&
     mpResamplingPass.reset();
     mpEmissiveLightSampler.reset();
     mpRTXDI.reset();
+    mpShadowMap.reset();
     mClearReservoir = true;
 
     if (mpScene)
@@ -297,6 +315,8 @@ void ReSTIR_GI_Shadow::setScene(RenderContext* pRenderContext, const ref<Scene>&
         {
             logWarning("This render pass only supports triangles. Other types of geometry will be ignored.");
         }
+
+        mpShadowMap = std::make_unique<ShadowMap>(mpDevice, mpScene);
 
         prepareRayTracingShaders(pRenderContext);
     }
@@ -519,8 +539,12 @@ void ReSTIR_GI_Shadow::generatePathSamplesPass(RenderContext* pRenderContext, co
     mFinalGatherSamplePass.pProgram->addDefine("GI_ALPHA_TEST", mAlphaTest ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("GI_MIS", mGIMIS ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("GI_RUSSIAN_ROULETTE", mGIRussianRoulette ? "1" : "0");
+    mFinalGatherSamplePass.pProgram->addDefine("GI_USE_SHADOW_MAP", mUseShadowMap ? "1" : "0");
+
     if (mpRTXDI)
         mFinalGatherSamplePass.pProgram->addDefines(mpRTXDI->getDefines());
+    if (mpShadowMap)
+        mFinalGatherSamplePass.pProgram->addDefines(mpShadowMap->getDefines());
     if (mpEmissiveLightSampler)
         mFinalGatherSamplePass.pProgram->addDefines(mpEmissiveLightSampler->getDefines());
 
@@ -538,6 +562,9 @@ void ReSTIR_GI_Shadow::generatePathSamplesPass(RenderContext* pRenderContext, co
 
     if (mpRTXDI)
         mpRTXDI->setShaderData(var);
+
+    if (mpShadowMap)
+        mpShadowMap->setShaderDataAndBindBlock(var, renderData.getDefaultTextureDims());
 
     if (mpEmissiveLightSampler)
         mpEmissiveLightSampler->setShaderData(var["gEmissiveSampler"]);

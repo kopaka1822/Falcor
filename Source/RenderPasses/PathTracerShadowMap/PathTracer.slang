@@ -564,7 +564,8 @@ struct PathTracer
     bool generateAnalyticLightSample(const PathVertex vertex, inout SampleGenerator sg, out LightSample ls, out uint lightIndex)
     {
         ls = {}; // Default initialization to avoid divergence at returns.
-
+        lightIndex = 0;
+        
         uint lightCount = gScene.getLightCount();
         if (!kUseAnalyticLights || lightCount == 0) return false;
 
@@ -627,7 +628,7 @@ struct PathTracer
 
         float u = sampleNext1D(sg);
 
-        [unroll]
+        //[unroll]
         for (lightType = 0; lightType < 3; ++lightType)
         {
             if (u < p[lightType])
@@ -966,11 +967,12 @@ struct PathTracer
                     bool traceShadowRay = true;
                     bool visible;
                     if(ls.lightType == (uint)LightType::Analytic && applyShadowMap){
+                        SMLightData lightData = getShadowMapLightData(gScene.getLight(lightIndex));
                         float shadow = 0.f;
                         if(kUseHybridShadowMap)
-                            traceShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, ray.origin, gScene.getLight(lightIndex), path.sg, shadow);
+                            traceShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, ray.origin,lightData , path.sg, 0.f, shadow);
                         else
-                            traceShadowRay = !gShadowMap.evalShadowMap(lightIndex, ray.origin, gScene.getLight(lightIndex), path.sg, 0.f, shadow);
+                            traceShadowRay = !gShadowMap.evalShadowMap(lightIndex, ray.origin, lightData, path.sg, 0.f, shadow);
                         visible = shadow > 0.5f;    //TODO allow soft shadows
                     }
 

@@ -50,4 +50,11 @@ FALCOR_ENUM_INFO(ShadowMapType, {
 });
 FALCOR_ENUM_REGISTER(ShadowMapType);
 
+struct SMLightData{
+    float3 posW;
+    uint type;
+    float3 dirW;
+    uint pad;
+};
+
 END_NAMESPACE_FALCOR

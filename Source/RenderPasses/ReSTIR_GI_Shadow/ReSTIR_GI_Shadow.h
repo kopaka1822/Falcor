@@ -34,6 +34,7 @@
 #include "Rendering/Lights/EmissiveUniformSampler.h"
 
 #include "Rendering/RTXDI/RTXDI.h"
+#include "Rendering/ShadowMaps/ShadowMap.h"
 
 using namespace Falcor;
 
@@ -126,6 +127,7 @@ private:
     ref<SampleGenerator> mpSampleGenerator; // GPU Sample Gen
     std::unique_ptr<RTXDI> mpRTXDI;         // Ptr to RTXDI for direct use
     RTXDI::Options mRTXDIOptions;           // Options for RTXDI
+    std::unique_ptr<ShadowMap> mpShadowMap; // Ptr to Shadow Map
 
     EmissiveLightSamplerType mEmissiveType = EmissiveLightSamplerType::LightBVH;
     std::unique_ptr<EmissiveLightSampler> mpEmissiveLightSampler; // Light Sampler
@@ -149,7 +151,7 @@ private:
     bool mAlphaTest = true;
     bool mGINEE = true;                 //Next event estimation in GI
     bool mGIMIS = true;                 //Use Multiple Importance Sampling
-    bool mGIRussianRoulette = true;     //Use Russian Roulette in GI
+    bool mGIRussianRoulette = false;     //Use Russian Roulette in GI
    
 
     // Reservoir
@@ -167,6 +169,9 @@ private:
     float2 mJacobianMinMax = float2(1 / 10.f, 10.f); // Min and Max values that are allowed for the jacobian determinant (Angle/dist too
                                                      // different if lower/higher)
     BiasCorrectionMode mBiasCorrectionMode = BiasCorrectionMode::Basic; // Bias Correction Mode
+
+    //Shadow Map
+    bool mUseShadowMap = true;                       //Use shadow map for NEE shadows
 
     //
     // Buffer and Textures

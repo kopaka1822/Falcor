@@ -6,7 +6,8 @@ import Scene.Raytracing;
 import Rendering.Lights.LightHelpers;
 import Utils.Sampling.SampleGenerator;
 import Utils.Color.ColorHelpers;
-import ShadowMapData;
+__exported import Rendering.ShadowMaps.ShadowMapData;
+__exported import Rendering.ShadowMaps.ShadowMapHelpers;
 
 //Set important defines if they where not handled on the CPU
 #ifndef NUM_SHADOW_MAPS_CUBE
@@ -100,7 +101,6 @@ struct ShadowMap
         float3(0, 1, 1), float3(0, -1, 1), float3(0, -1, -1), float3(0, 1, -1)
     };
 
-    
     /** Gets the value from the shadow map depending on type. R32/16 case
     \param[in] local shadow map texture index.
     \param[in] texture sample index. z-component is only used in cube-case.
@@ -246,23 +246,7 @@ struct ShadowMap
         return sv;
     }
     
-    /** Converts Falcors light type to our Shadow Map type
-    \param[in] light info.
-    \return Shadow Map type.
-    */
-    uint getSMLightType(const in LightData lightData)
-    {
-        uint lightType = 0;
-        //Determine the light type
-        if (lightData.type == uint(LightType::Directional))
-            lightType = (uint) LightTypeSM::Directional;
-        else if (lightData.type == uint(LightType::Point) && lightData.openingAngle > M_PI_4)
-            lightType = (uint) LightTypeSM::Point;
-        else
-            lightType = (uint) LightTypeSM::Spot;
-
-        return lightType;
-    }
+    
     
     /** Gets the current cascaded level from the world position
     \param[in] world position.
@@ -307,7 +291,7 @@ struct ShadowMap
     \param[out] the distance the shadow map should be compaired to.
     \return always true.
     */
-    bool pointDistanceAndSampleVec(in float3 posW, const in LightData lightData, out float3 shadowUV, out float lightDist)
+    bool pointDistanceAndSampleVec(in float3 posW, const in SMLightData lightData, out float3 shadowUV, out float lightDist)
     {
         shadowUV = posW - lightData.posW;
         lightDist = (length(shadowUV) / gShadowMapFarPlane);
@@ -324,7 +308,7 @@ struct ShadowMap
     \param[out] the distance the shadow map should be compaired to.
     \return returns if the position is visible from the shadow map.
     */
-    bool spotDistanceAndSampleVec(in uint index, in float3 posW, const in LightData lightData, out float2 shadowUV, out float lightDist)
+    bool spotDistanceAndSampleVec(in uint index, in float3 posW, const in SMLightData lightData, out float2 shadowUV, out float lightDist)
     {
         float4x4 viewProjectMat = gShadowMapVPBuffer[index];
         float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
@@ -351,7 +335,7 @@ struct ShadowMap
     \param[out] the distance the shadow map should be compaired to.
     \return returns if the position is visible from the shadow map.
     */
-    bool directionalDistanceAndSampleVec(in uint index, in uint level, in float3 posW, const in LightData lightData, out float2 shadowUV, out float lightDist)
+    bool directionalDistanceAndSampleVec(in uint index, in uint level, in float3 posW, const in SMLightData lightData, out float2 shadowUV, out float lightDist)
     {
         uint bufferIdx = kCascadedMatOffset + index * kCascadedLevels;
         float4x4 viewProjectMat = gShadowMapVPBuffer[bufferIdx + level];
@@ -392,7 +376,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapClassic(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
+    bool evalShadowMapClassic(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -404,7 +388,6 @@ struct ShadowMap
         shadow = 1.f;
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
-        uint lightType = getSMLightType(lightData);
         uint cascLevel;
         if(kCascadedStochasticBlend)
             cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
@@ -412,7 +395,7 @@ struct ShadowMap
             cascLevel = getCascadedLevel(posW);
                 
         bool valid = false;
-        switch (lightType)
+        switch (lightData.type)
         {
             case LightTypeSM::Point:
                 valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
@@ -434,17 +417,17 @@ struct ShadowMap
         shadow = 0.f;
         if (!kUsePCF && !kUsePoissonSampling)
         {
-            shadow += standardShadowTest(index, cascLevel, shadowUV, lightType, lightDist);
+            shadow += standardShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist);
         }
         else if (kUsePoissonSampling)
         {
-            if (lightType == (uint) LightTypeSM::Point)
+            if (lightData.type == (uint) LightTypeSM::Point)
             {
                 for (uint k = 0; k < 4; k++)
                 {
                     uint poisIdx = uint(19.9999f * sampleNext1D(sg));
                     float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRadCube; //TODO Better solution (angle?) 
-                    shadow += standardShadowTest(index, cascLevel, uv, lightType, lightDist);
+                    shadow += standardShadowTest(index, cascLevel, uv, lightData.type, lightDist);
                 }
                 shadow *= 0.25f;
             }
@@ -454,9 +437,9 @@ struct ShadowMap
                 {
                     uint poisIdx = uint(15.99999f * sampleNext1D(sg));
                     float3 uv = shadowUV;
-                    const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes :  k2DSMRes;
+                    const uint shadowMapRes = lightData.type == (uint) LightTypeSM::Directional ? kCascadedSMRes :  k2DSMRes;
                     uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad) / shadowMapRes);
-                    shadow += standardShadowTest(index, cascLevel, uv, lightType, lightDist);
+                    shadow += standardShadowTest(index, cascLevel, uv, lightData.type, lightDist);
                 }
                 shadow *= 0.25f;
             }
@@ -466,15 +449,15 @@ struct ShadowMap
             float4 shadowVals;
             float4 w = float4(0.25);
             float3 gatherUV = shadowUV;
-            const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
-            if (lightType != (uint) LightTypeSM::Point)
+            const uint shadowMapRes = lightData.type == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
+            if (lightData.type != (uint) LightTypeSM::Point)
             {
                 gatherUV.xy = (floor(shadowUV.xy * float(shadowMapRes) - 0.5) + 1.0f) / float(shadowMapRes);
                 float2 f = frac(shadowUV.xy * float(shadowMapRes) - 0.5f);
                 // (-,+),(+,+)(+,-)(-,-)
                 w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
             }
-            shadowVals = getShadowValueGather(index, gatherUV, lightType, cascLevel);
+            shadowVals = getShadowValueGather(index, gatherUV, lightData.type, cascLevel);
 
             for (uint k = 0; k < 4; k++)
             {
@@ -494,7 +477,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool hybridShadowMapClassic(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, out float shadow)
+    bool hybridShadowMapClassic(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -506,7 +489,6 @@ struct ShadowMap
         shadow = kUseRayOutsideSM ? -1.f : 1.f;     //Make shadow value invalid if a ray should be shot outside of the shadow map
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
-        uint lightType = getSMLightType(lightData);
         uint cascLevel;
         if(kCascadedStochasticBlend)
             cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
@@ -514,7 +496,7 @@ struct ShadowMap
             cascLevel = getCascadedLevel(posW);
         
         bool valid = false;
-        switch (lightType)
+        switch (lightData.type)
         {
             case LightTypeSM::Point:
                 valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
@@ -543,25 +525,25 @@ struct ShadowMap
         if (!kUsePoissonSampling) //Use PCF
         {
             float3 gatherUV = shadowUV;
-            const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
-            if (lightType != (uint) LightTypeSM::Point)
+            const uint shadowMapRes = lightData.type == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
+            if (lightData.type != (uint) LightTypeSM::Point)
             {
                 gatherUV.xy = (floor(shadowUV.xy * float(shadowMapRes) - 0.5) + 1.0f) / float(shadowMapRes);
                 float2 f = frac(shadowUV.xy * float(shadowMapRes) - 0.5f);
                 // (-,+),(+,+)(+,-)(-,-)
                 w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
             }
-            shadowVals = getShadowValueGather(index, gatherUV, lightType, cascLevel);
+            shadowVals = getShadowValueGather(index, gatherUV, lightData.type, cascLevel);
         }
         else //Poisson Sampling
         {
-            if (lightType == (uint) LightTypeSM::Point)
+            if (lightData.type == (uint) LightTypeSM::Point)
             {
                 for (uint k = 0; k < 4; k++)
                 {
                     uint poisIdx = uint(19.9999f * sampleNext1D(sg));
                     float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRadCube; //TODO Better solution (angle?) 
-                    shadowVals[k] = getShadowValue(index, uv, lightType, cascLevel);
+                    shadowVals[k] = getShadowValue(index, uv, lightData.type, cascLevel);
                 }
             }
             else
@@ -570,9 +552,9 @@ struct ShadowMap
                 {
                     uint poisIdx = uint(15.99999f * sampleNext1D(sg));
                     float3 uv = shadowUV;
-                    const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes :  k2DSMRes;
+                    const uint shadowMapRes = lightData.type == (uint) LightTypeSM::Directional ? kCascadedSMRes :  k2DSMRes;
                     uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad) / shadowMapRes);
-                    shadowVals[k] = getShadowValue(index, uv, lightType, cascLevel);
+                    shadowVals[k] = getShadowValue(index, uv, lightData.type, cascLevel);
                 }
             }
         }
@@ -674,7 +656,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapVariance(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -686,7 +668,6 @@ struct ShadowMap
         shadow = 0.f;
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
-        uint lightType = getSMLightType(lightData);
         uint cascLevel;
         if(kCascadedStochasticBlend)
             cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
@@ -694,7 +675,7 @@ struct ShadowMap
             cascLevel = getCascadedLevel(posW);
         
         bool valid = false;
-        switch (lightType)
+        switch (lightData.type)
         {
             case LightTypeSM::Point:
                 valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
@@ -714,9 +695,9 @@ struct ShadowMap
          
         //Shadow Test with shadow map
         if (kUsePCF)
-            shadow = varianceShadowTestPCF(index, cascLevel, shadowUV, lightType, lightDist);
+            shadow = varianceShadowTestPCF(index, cascLevel, shadowUV, lightData.type, lightDist);
         else
-            shadow = varianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
+            shadow = varianceShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
 
         if (hybridSM)
         {
@@ -750,7 +731,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapExponential(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapExponential(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -762,7 +743,6 @@ struct ShadowMap
         shadow = 0.f;
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
-        uint lightType = getSMLightType(lightData);
         uint cascLevel;
         if(kCascadedStochasticBlend)
             cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
@@ -770,7 +750,7 @@ struct ShadowMap
             cascLevel = getCascadedLevel(posW);
         
         bool valid = false;
-        switch (lightType)
+        switch (lightData.type)
         {
             case LightTypeSM::Point:
                 valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
@@ -789,7 +769,7 @@ struct ShadowMap
             return !kUseRayOutsideSM;   //Outside of shadow map
          
         //Shadow Test with shadow map
-        shadow = exponentialShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
+        shadow = exponentialShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
 
         if (hybridSM)
         {
@@ -830,7 +810,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapExponentialVariance(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapExponentialVariance(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -842,7 +822,6 @@ struct ShadowMap
         shadow = 0.f;
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
-        uint lightType = getSMLightType(lightData);
         uint cascLevel;
         if(kCascadedStochasticBlend)
             cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
@@ -850,7 +829,7 @@ struct ShadowMap
             cascLevel = getCascadedLevel(posW);
         
         bool valid = false;
-        switch (lightType)
+        switch (lightData.type)
         {
             case LightTypeSM::Point:
                 valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
@@ -869,7 +848,7 @@ struct ShadowMap
             return !kUseRayOutsideSM;   //Outside of shadow map
          
         //Shadow Test with shadow map
-        shadow = exponentialVarianceShadowTest(index, cascLevel, shadowUV, lightType, lightDist, mipLevel);
+        shadow = exponentialVarianceShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
 
         if (hybridSM)
         {
@@ -889,7 +868,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel , out float shadow)
+    bool evalShadowMap(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel , out float shadow)
     {
         switch (ShadowMapType(kShadowMapMode))
         {
@@ -915,7 +894,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalHybridShadowMap(uint lightIdx, float3 posW, const in LightData lightData, inout SampleGenerator sg, const float mipLevel, out float shadow)
+    bool evalHybridShadowMap(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel, out float shadow)
     {
         switch (ShadowMapType(kShadowMapMode))
         {
@@ -941,7 +920,7 @@ struct ShadowMap
     \param[out] Optional Mip Level. Written if kUseSMMips == true
     \return a oracle value that indicates the proportion of the seen camera pixel area to the seen shadow map pixel area
     */
-    float oracleFunction(uint lightIdx, const in LightData lightData, const in ShadingData sd, float rayDistance, out float mipLevel)
+    float oracleFunction(uint lightIdx, const in SMLightData lightData, const in ShadingData sd, float rayDistance, out float mipLevel)
     {
         mipLevel = 0.f; //Default value
         //Get the right index if multiple shadow map types are used
@@ -949,16 +928,15 @@ struct ShadowMap
         {
             lightIdx = gShadowMapIndexMap[lightIdx];
         }
-        uint lightType = getSMLightType(lightData);
 
-        if (lightType == (uint) LightTypeSM::Spot)
+        if (lightData.type == (uint) LightTypeSM::Spot)
             lightIdx += kNPSOffsetSpot;
         
         float distanceToLight;
         float3 toLight;
 
         //Get LightDir and Distance
-        if (lightType == (uint) LightTypeSM::Directional)
+        if (lightData.type == (uint) LightTypeSM::Directional)
         {
             uint level = getCascadedLevel(sd.posW);
             distanceToLight = 1.f; //Distance is always 1, because the area does not change in an orthographic projection
@@ -997,7 +975,7 @@ struct ShadowMap
     \param[in] current distance from camera to hit. Can be modified with the oracleDistanceFactor for better results with indirect bounces
     \return a oracle value that indicates the proportion of the seen camera pixel area to the seen shadow map pixel area
     */
-    float oracleFunction(uint lightIdx, const in LightData lightData, const in ShadingData sd, float rayDistance)
+    float oracleFunction(uint lightIdx, const in SMLightData lightData, const in ShadingData sd, float rayDistance)
     {
         float mipLevel;
         return oracleFunction(lightIdx, lightData, sd, rayDistance, mipLevel);
