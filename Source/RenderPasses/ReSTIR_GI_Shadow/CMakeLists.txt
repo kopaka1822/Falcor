@@ -9,7 +9,8 @@ target_sources(ReSTIR_GI_Shadow PRIVATE
 	Shader/ResamplingPass.cs.slang
 	Shader/Reservoir.slang
 	Shader/SurfaceDataGI.slang
-	Shader/TraceTransmissionDelta.rt.slang	
+	Shader/TraceTransmissionDelta.rt.slang
+	Shader/EvalAnalyticDirect.rt.slang		
 )
 
 target_copy_shaders(ReSTIR_GI_Shadow RenderPasses/ReSTIR_GI_Shadow)

@@ -34,6 +34,7 @@ const std::string kTraceTransmissionDeltaShader = "RenderPasses/ReSTIR_GI_Shadow
 const std::string kPathSamplesShader = "RenderPasses/ReSTIR_GI_Shadow/Shader/GeneratePathSamples.rt.slang";
 const std::string kResamplingPassShader = "RenderPasses/ReSTIR_GI_Shadow/Shader/ResamplingPass.cs.slang";
 const std::string kFinalShadingPassShader = "RenderPasses/ReSTIR_GI_Shadow/Shader/FinalShading.cs.slang";
+const std::string kEvalAnalyticDirectShader = "RenderPasses/ReSTIR_GI_Shadow/Shader/EvalAnalyticDirect.rt.slang";
 
 const std::string kShaderModel = "6_5";
 const uint kMaxPayloadBytes = 96u;
@@ -86,7 +87,8 @@ const Gui::DropdownList kBiasCorrectionModeList{
 
 const Gui::DropdownList kDirectLightRenderModeList{
     {(uint)ReSTIR_GI_Shadow::DirectLightingMode::None, "None"},
-    {(uint)ReSTIR_GI_Shadow::DirectLightingMode::RTXDI, "RTXDI"}};
+    {(uint)ReSTIR_GI_Shadow::DirectLightingMode::RTXDI, "RTXDI"},
+    {(uint)ReSTIR_GI_Shadow::DirectLightingMode::EvalAnalytic, "AllAnalytic"}};
 } // namespace
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -165,6 +167,9 @@ void ReSTIR_GI_Shadow::execute(RenderContext* pRenderContext, const RenderData& 
         mpRTXDI->beginFrame(pRenderContext, mScreenRes);
 
     traceTransmissiveDelta(pRenderContext, renderData);
+
+    if (mDirectLightMode == DirectLightingMode::EvalAnalytic)
+        evaluateAnalyticDirectLightPass(pRenderContext, renderData);
 
     generatePathSamplesPass(pRenderContext, renderData);
 
@@ -302,6 +307,7 @@ void ReSTIR_GI_Shadow::setScene(RenderContext* pRenderContext, const ref<Scene>&
 
     mFinalGatherSamplePass = RayTraceProgramHelper::create();
     mTraceTransmissionDelta = RayTraceProgramHelper::create();
+    mEvalAnalyticDirectPass = RayTraceProgramHelper::create();
     mpFinalShadingPass.reset();
     mpResamplingPass.reset();
     mpEmissiveLightSampler.reset();
@@ -394,6 +400,7 @@ void ReSTIR_GI_Shadow::prepareBuffers(RenderContext* pRenderContext, const Rende
         mpViewDirPrev.reset();
         mpRayDist.reset();
         mpThp.reset();
+        mpDirectLight.reset();
     }
 
     // If reservoir format changed reset buffer
@@ -479,6 +486,19 @@ void ReSTIR_GI_Shadow::prepareBuffers(RenderContext* pRenderContext, const Rende
         );
         mpThp->setName("ReSTIR_GI_Shadow::Throughput");
     }
+
+    //Set and reset the direct light texture depending on the direct light mode
+    if (!mpDirectLight && mDirectLightMode == DirectLightingMode::EvalAnalytic)
+    {
+        mpDirectLight = Texture::create2D(
+            mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
+            ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+        );
+        mpDirectLight->setName("ReSTIR_GI_Shadow::DirectLight");
+    }
+    if (mpDirectLight && mDirectLightMode != DirectLightingMode::EvalAnalytic)
+        mpDirectLight.reset();
+
 }
 
 void ReSTIR_GI_Shadow::prepareRayTracingShaders(RenderContext* pRenderContext)
@@ -488,6 +508,7 @@ void ReSTIR_GI_Shadow::prepareRayTracingShaders(RenderContext* pRenderContext)
     // TODO specify the payload bytes for each pass
     mFinalGatherSamplePass.initRTProgramWithShadowTest(mpDevice, mpScene, kPathSamplesShader, kMaxPayloadBytes, globalTypeConformances);
     mTraceTransmissionDelta.initRTProgram(mpDevice, mpScene, kTraceTransmissionDeltaShader, kMaxPayloadBytes, globalTypeConformances);
+    mEvalAnalyticDirectPass.initRTProgram(mpDevice, mpScene, kEvalAnalyticDirectShader, kMaxPayloadBytes, globalTypeConformances);
 }
 
 void ReSTIR_GI_Shadow::traceTransmissiveDelta(RenderContext* pRenderContext, const RenderData& renderData)
@@ -527,9 +548,43 @@ void ReSTIR_GI_Shadow::traceTransmissiveDelta(RenderContext* pRenderContext, con
     mpScene->raytrace(pRenderContext, mTraceTransmissionDelta.pProgram.get(), mTraceTransmissionDelta.pVars, uint3(mScreenRes, 1));
 }
 
+void ReSTIR_GI_Shadow::evaluateAnalyticDirectLightPass(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    FALCOR_PROFILE(pRenderContext, "DirectLight");
+
+    mEvalAnalyticDirectPass.pProgram->addDefine("GI_USE_SHADOW_MAP", mUseShadowMap ? "1" : "0");    //TODO seperate?
+    if (mpShadowMap)
+        mEvalAnalyticDirectPass.pProgram->addDefines(mpShadowMap->getDefines());
+
+    if (!mEvalAnalyticDirectPass.pVars)
+        mEvalAnalyticDirectPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
+
+    FALCOR_ASSERT(mEvalAnalyticDirectPass.pVars);
+
+    auto var = mEvalAnalyticDirectPass.pVars->getRootVar();
+
+    std::string nameBuf = "PerFrame";
+    var[nameBuf]["gFrameCount"] = mFrameCount;
+    var[nameBuf]["gAlphaTest"] = true; // TODO add variable
+
+    if (mpShadowMap)
+        mpShadowMap->setShaderDataAndBindBlock(var, renderData.getDefaultTextureDims());
+
+    var["gVBuffer"] = mpVBuffer;
+    var["gRayDist"] = mpRayDist;
+    var["gView"] = mpViewDir;
+
+    var["gDirectLight"] = mpDirectLight;
+
+    FALCOR_ASSERT(mScreenRes.x > 0 && mScreenRes.y > 0);
+
+    // Trace the photons
+    mpScene->raytrace(pRenderContext, mEvalAnalyticDirectPass.pProgram.get(), mEvalAnalyticDirectPass.pVars, uint3(mScreenRes, 1));
+}
+
 void ReSTIR_GI_Shadow::generatePathSamplesPass(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    FALCOR_PROFILE(pRenderContext, "FinalGatherSample");
+    FALCOR_PROFILE(pRenderContext, "GeneratePathSample");
 
     mFinalGatherSamplePass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
@@ -695,6 +750,7 @@ void ReSTIR_GI_Shadow::finalShadingPass(RenderContext* pRenderContext, const Ren
         if (mpRTXDI)
             defines.add(mpRTXDI->getDefines());
         defines.add("USE_RTXDI", mpRTXDI ? "1" : "0");
+        defines.add("USE_DIRECT_LIGHT", mDirectLightMode == DirectLightingMode::EvalAnalytic ? "1" : "0");
 
         mpFinalShadingPass = ComputePass::create(mpDevice, desc, defines, true);
     }
@@ -703,6 +759,7 @@ void ReSTIR_GI_Shadow::finalShadingPass(RenderContext* pRenderContext, const Ren
     if (mpRTXDI)
         mpFinalShadingPass->getProgram()->addDefines(mpRTXDI->getDefines()); // TODO only set once?
     mpFinalShadingPass->getProgram()->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
+    mpFinalShadingPass->getProgram()->addDefine("USE_DIRECT_LIGHT", mDirectLightMode == DirectLightingMode::EvalAnalytic ? "1" : "0");
     mpFinalShadingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
     mpFinalShadingPass->getProgram()->addDefine("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
@@ -726,6 +783,7 @@ void ReSTIR_GI_Shadow::finalShadingPass(RenderContext* pRenderContext, const Ren
     var["gView"] = mpViewDir;
     var["gVBuffer"] = mpVBuffer;
     var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
+    var["gDirectLight"] = mpDirectLight;
 
     // Bind all Output Channels
     for (uint i = 0; i < kOutputChannels.size(); i++)

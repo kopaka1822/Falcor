@@ -75,7 +75,8 @@ public:
     enum class DirectLightingMode : uint
     {
         None = 0u,
-        RTXDI = 1u
+        RTXDI = 1u,
+        EvalAnalytic = 2u
     };
 
 private:
@@ -94,6 +95,10 @@ private:
     /** Trace Tranmissive and delta materials
      */
     void traceTransmissiveDelta(RenderContext* pRenderContext, const RenderData& renderData);
+
+    /** Pass to evaluate all (direct) analytic lights
+    */
+    void evaluateAnalyticDirectLightPass(RenderContext* pRenderContext, const RenderData& renderData);
 
     /** Trace Scene for final gather hit
      */
@@ -184,6 +189,7 @@ private:
     ref<Texture> mpViewDirPrev;              // Previous View dir
     ref<Texture> mpRayDist;                  // Ray distance (needed for highly specular and transparent materials)
     ref<Texture> mpThp;                      // Throughput
+    ref<Texture> mpDirectLight;              // Texture for direct light over the eval all analytic pass
 
     //
     // Render Passes/Programms
@@ -225,6 +231,7 @@ private:
 
     RayTraceProgramHelper mTraceTransmissionDelta;
     RayTraceProgramHelper mFinalGatherSamplePass;
+    RayTraceProgramHelper mEvalAnalyticDirectPass;
 
     ref<ComputePass> mpResamplingPass;   // Resampling Pass for all resampling modes
     ref<ComputePass> mpFinalShadingPass; // Final Shading Pass

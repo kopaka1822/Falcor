@@ -80,8 +80,7 @@ struct ShadowTraceData
     bool visible;
 };
 
- /** Describes a light sample.
-    */
+ // Describes a light sample.
 struct LightSample
 {
     float3 Li; ///< Incident radiance at the shading point (unshadowed). This is already divided by the pdf.
@@ -89,7 +88,7 @@ struct LightSample
     float3 origin; ///< Ray origin for visibility evaluation (offseted to avoid self-intersection).
     float distance; ///< Ray distance for visibility evaluation (shortened to avoid self-intersection).
     float3 dir; ///< Ray direction for visibility evaluation (normalized).
-    uint packedInfo = 0; ///< Light type this sample comes from (0 -> analytic; 1 -> emissive).
+    uint packedInfo = 0; ///< Packed info. |24B index | 6B SMType | 2B analytic(0) or emissive (1) or invalid(2)
 
     //analytic or emissive
     property uint lightType{

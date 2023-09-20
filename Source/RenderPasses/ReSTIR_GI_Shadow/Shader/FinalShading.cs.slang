@@ -21,6 +21,9 @@ import PathData;
 #ifndef USE_RESTIRGI
     #define USE_RESTIRGI 1
 #endif
+#ifndef USE_DIRECT_LIGHT
+    #define USE_DIRECT_LIGHT 1
+#endif
 
 #if USE_REDUCED_RESERVOIR_FORMAT
     Texture2D<uint2> gReservoir;
@@ -35,6 +38,8 @@ Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float2> gMVec;
 Texture2D<float4> gView;
 Texture2D<float4> gThp;
+Texture2D<float4> gDirectLight; //Is null if USE_DIRECT_LIGHT == 0
+
 RWTexture2D<float4> gOutColor;
 RWTexture2D<float4> gOutEmission;
 RWTexture2D<float4> gOutDiffuseRadiance;
@@ -158,7 +163,8 @@ void main(uint2 pixel : SV_DispatchThreadID)
             hitTSamples++;
             hitT = distance;
         }
-    
+    #elif USE_DIRECT_LIGHT
+        color += gDirectLight[pixel].xyz;
     #endif
 
     #if USE_RESTIRGI
