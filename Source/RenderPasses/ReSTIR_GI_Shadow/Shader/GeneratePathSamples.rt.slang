@@ -88,18 +88,12 @@ struct LightSample
     float3 origin; ///< Ray origin for visibility evaluation (offseted to avoid self-intersection).
     float distance; ///< Ray distance for visibility evaluation (shortened to avoid self-intersection).
     float3 dir; ///< Ray direction for visibility evaluation (normalized).
-    uint packedInfo = 0; ///< Packed info. |24B index | 6B SMType | 2B analytic(0) or emissive (1) or invalid(2)
-
-    //analytic or emissive
-    property uint lightType{
-        get { return packedInfo & 0x3; }
-        set { packedInfo = (packedInfo & ~0x3) | (newValue & 0x3); }
-    }
-
+    uint packedInfo = 0; ///< Packed info. |24B index | 8B SMType
+    
     //shadow map light type 
     property uint smLightType{
-        get { return (packedInfo & 0xfc) >> 2; }
-        set { packedInfo = (packedInfo & ~0xfc) | (newValue << 2); }
+        get { return (packedInfo & 0xff); }
+        set { packedInfo = (packedInfo & ~0xff) | (newValue); }
     }
     //shadow map light type 
     property uint lightIndex{
@@ -107,9 +101,9 @@ struct LightSample
         set { packedInfo = (packedInfo & 0xff) | (newValue << 8); }
     }
     
-    RayDesc getVisibilityRay()
+    RayDesc getVisibilityRay(const float3 posW)
     {
-        return {origin, 0.f, dir, distance};
+        return {posW, 0.f, dir, distance};
     }
 };
 
@@ -162,7 +156,6 @@ bool generateEmissiveSample(const in ShadingData sd, const bool upperHemisphere,
     float3 toLight = lightPos - ls.origin;
     ls.distance = length(toLight);
     ls.dir = normalize(toLight);
-    ls.lightType = 1;
 
     return any(ls.Li > 0.f);
 }
@@ -196,14 +189,13 @@ bool generateAnalyticLightSample(const in ShadingData sd, inout SampleGenerator 
     // Setup returned sample.
     ls.pdf = lightSample.pdf / lightCount;
     ls.Li = lightSample.Li * lightCount;
-        // Offset shading position to avoid self-intersection.
-    ls.origin = computeRayOrigin(sd.posW, dot(sd.faceN, lightSample.dir) >= 0 ? sd.faceN : -sd.faceN);
+    //get the lights position
+    ls.origin = lightSample.posW;
     
     // Analytic lights do not currently have a geometric representation in the scene.
     // Do not worry about adjusting the ray length to avoid self-intersections at the light.
     ls.distance = lightSample.distance;
     ls.dir = lightSample.dir;
-    ls.lightType = 0;
 
     return any(ls.Li > 0.f);
 }
@@ -220,10 +212,11 @@ void selectLightType(out uint lightType, out float pdf, inout SampleGenerator sg
         lightType = 1; //emissive
 }
 
-bool generateLightSample(const in ShadingData sd, inout SampleGenerator sg, out LightSample ls)
+bool generateLightSample(const in ShadingData sd, inout SampleGenerator sg, out bool isEmissive , out LightSample ls)
 {
     ls = { };
-    uint lightType = 2; //Set to invalid type
+    isEmissive = false;
+    uint lightType = 0; //Set to analytic
     float selectionPdf = 1.f;
     if(kMixedLights)
         selectLightType(lightType, selectionPdf, sg);
@@ -233,6 +226,7 @@ bool generateLightSample(const in ShadingData sd, inout SampleGenerator sg, out 
     {
         // Emissive light samplers have an option to exclusively sample the upper hemisphere.
         valid = generateEmissiveSample(sd, true, sg, ls);
+        isEmissive = true;
     }
     if (kUseAnalyticLights && (!kMixedLights || lightType == 0))
     {
@@ -247,7 +241,6 @@ bool generateLightSample(const in ShadingData sd, inout SampleGenerator sg, out 
         return false;
 
     // Account for light type selection.
-    ls.lightType = lightType;
     ls.pdf *= selectionPdf;
     ls.Li /= selectionPdf;
 
@@ -418,9 +411,10 @@ void rayGen()
             if (kNEE)
             {
                 LightSample ls = { };
-                if (generateLightSample(sd, traceData.sg, ls))
+                bool isEmissive = false;
+                if (generateLightSample(sd, traceData.sg,isEmissive, ls))
                 {
-                    if (kUseMIS && ls.lightType == 1) //Emissive
+                    if (kUseMIS && isEmissive) //Emissive
                     {
                         float scatterPdf = mi.evalPdf(sd, ls.dir, true);
                         ls.Li *= evalMIS(1, ls.pdf, 1, scatterPdf);
@@ -432,30 +426,32 @@ void rayGen()
                     if (any(Lr > 0))
                     {
                         float shadow = 0.f;
-                        if(kUseShadowMap && ls.lightType == 0){
+                        if(kUseShadowMap){
                             //Fill the shadow map light data struct
                             SMLightData lightData = lightSampleToLightData(ls);
                             float oracle = 0.f;
+                            float oracleMip = 0.f;
                             bool useNormalSM = !gShadowMap.kUseHybridShadowMap;
                             if (gShadowMap.kUseOracle){
-                                oracle = gShadowMap.oracleFunction(ls.lightIndex, lightData, sd, smDistance);
+                                oracle = gShadowMap.oracleFunction(ls.lightIndex, lightData, sd, smDistance, oracleMip);
                                 useNormalSM = oracle <= gShadowMap.kOracleCompValue;
                             }
                                 
-                            if (gShadowMap.kUseHybridShadowMap && !useNormalSM)
+                            if (gShadowMap.kUseHybridShadowMap)
                             {
-                                doShadowTest = !gShadowMap.evalHybridShadowMap(ls.lightIndex, sd.posW, lightData, traceData.sg, 0.f, shadow);
+                                doShadowTest = !gShadowMap.evalHybridShadowMap(ls.lightIndex, sd.posW, lightData, traceData.sg, oracleMip, shadow) && !useNormalSM;
                             }
-                            else if (useNormalSM)
+                            else if(useNormalSM)
                             {
-                                doShadowTest = !gShadowMap.evalShadowMap(ls.lightIndex, sd.posW, lightData, traceData.sg, 0.f, shadow);
+                                doShadowTest = !gShadowMap.evalShadowMap(ls.lightIndex, sd.posW, lightData, traceData.sg, oracleMip, shadow);
                             }
                         }
                    
                         if(doShadowTest){
+                            shadow = 0.f;
                             ShadowTraceData shadowData;
                             shadowData.visible = false;
-                            RayDesc shadowRay = ls.getVisibilityRay();
+                            RayDesc shadowRay = ls.getVisibilityRay(sd.computeNewRayOrigin());
                             
                             TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 1 /* hitIdx */, rayTypeCount, 1 /* missIdx */, shadowRay, shadowData);
 

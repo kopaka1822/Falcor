@@ -329,9 +329,14 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 
     // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
     const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
-        
-    //Visiblity Test using Shadow Map or Shadow Ray
 
+    float3 Lr = mi.eval(sd, ls.dir, sg) * ls.Li * invPdf;
+
+    //Return preemtively when light is black
+    if(!any(Lr > 0))
+        return 0.f;
+
+     //Visiblity Test using Shadow Map or Shadow Ray
     //Get orcale function
     SMLightData smLightData = getShadowMapLightData(lightData);
     float oracle = 0.f;
@@ -402,7 +407,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
         return float3(0);
     
     // Evaluate contribution.
-    return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
+    return Lr * shadow;
 }
 
 

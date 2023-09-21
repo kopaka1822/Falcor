@@ -334,7 +334,7 @@ bool ReSTIR_GI_Shadow::prepareLighting(RenderContext* pRenderContext)
     // Make sure that the emissive light is up to date
     auto& pLights = mpScene->getLightCollection(pRenderContext);
 
-    if (mpScene->useEmissiveLights())
+    if (mpScene->useEmissiveLights() && !mUseShadowMap)
     {
         // Init light sampler if not set
         if (!mpEmissiveLightSampler)
@@ -589,8 +589,8 @@ void ReSTIR_GI_Shadow::generatePathSamplesPass(RenderContext* pRenderContext, co
     mFinalGatherSamplePass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("GI_USE_NEE", mGINEE ? "1" : "0");
-    mFinalGatherSamplePass.pProgram->addDefine("GI_USE_ANALYTIC", mpScene && mpScene->useAnalyticLights() ? "1" : "0");
-    mFinalGatherSamplePass.pProgram->addDefine("GI_USE_EMISSIVE", mpScene && mpScene->useEmissiveLights() ? "1" : "0");
+    mFinalGatherSamplePass.pProgram->addDefine("GI_USE_ANALYTIC", mpScene->useAnalyticLights() ? "1" : "0");
+    mFinalGatherSamplePass.pProgram->addDefine("GI_USE_EMISSIVE", !mUseShadowMap && mpScene->useEmissiveLights() ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("GI_ALPHA_TEST", mAlphaTest ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("GI_MIS", mGIMIS ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("GI_RUSSIAN_ROULETTE", mGIRussianRoulette ? "1" : "0");

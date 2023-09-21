@@ -44,9 +44,9 @@ struct LightSample
     float3 dir; ///< Ray direction for visibility evaluation (normalized).
     uint lightType = 0; ///< smLightType
         
-    RayDesc getVisibilityRay()
+    RayDesc getVisibilityRay(float3 posW)
     {
-        return {origin, 0.f, dir, distance};
+        return {posW, 0.f, dir, distance};
     }
 };
 
@@ -90,7 +90,7 @@ bool evalAnalyticLight(const in ShadingData sd, inout SampleGenerator sg, const 
     ls.pdf = lightSample.pdf;
     ls.Li = lightSample.Li;
         // Offset shading position to avoid self-intersection.
-    ls.origin = computeRayOrigin(sd.posW, dot(sd.faceN, lightSample.dir) >= 0 ? sd.faceN : -sd.faceN);
+    ls.origin = lightData.posW;
     
     // Analytic lights do not currently have a geometric representation in the scene.
     // Do not worry about adjusting the ray length to avoid self-intersections at the light.
@@ -148,18 +148,18 @@ void rayGen()
     let miProperties = mi.getProperties(sd);
 
     float3 directLightOut = float3(0);
-    for (uint i = 0; i <= gScene.getLightCount(); i++)
+    for (uint i = 0; i < gScene.getLightCount(); i++)
     {
         LightSample ls = { };
         if(evalAnalyticLight(sd, sg, i, ls))
         {
             float3 Lr = mi.eval(sd, ls.dir, sg) * ls.Li; 
-            bool doShadowTest = true;
             //Shadow test
             if (any(Lr > 0))
             {
+                bool doShadowTest = true;
                 float shadow = 0.f;
-                if(kUseShadowMap && ls.lightType == 0){
+                if(kUseShadowMap){
                     //Fill the shadow map light data struct
                     SMLightData lightData = lightSampleToLightData(ls);
                     float oracle = 0.f;
@@ -170,21 +170,22 @@ void rayGen()
                         useNormalSM = oracle <= gShadowMap.kOracleCompValue;
                     }
 
-                    if (gShadowMap.kUseHybridShadowMap && !useNormalSM)
-                        doShadowTest = !gShadowMap.evalHybridShadowMap(i, sd.posW, lightData, sg, oracleMip, shadow);
+                    if (gShadowMap.kUseHybridShadowMap)
+                        doShadowTest = !gShadowMap.evalHybridShadowMap(i, sd.posW, lightData, sg, oracleMip, shadow) && !useNormalSM;
                     else if (useNormalSM)
                         doShadowTest = !gShadowMap.evalShadowMap(i, sd.posW, lightData, sg, oracleMip, shadow);
                 }
-                   
                 if(doShadowTest){
+                    shadow = 0.f;
                     ShadowTraceData shadowData;
                     shadowData.visible = false;
-                    RayDesc shadowRay = ls.getVisibilityRay();
+                    RayDesc shadowRay = ls.getVisibilityRay(sd.computeNewRayOrigin());
                           
                     TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, shadowRay, shadowData);
                     if(shadowData.visible)
                         shadow = 1.f;
                 }
+                                     
                 directLightOut += Lr * shadow;
             }        
         }
