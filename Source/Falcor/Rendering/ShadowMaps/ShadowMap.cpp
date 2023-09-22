@@ -49,6 +49,12 @@ const Gui::DropdownList kShadowMapRasterAlphaModeDropdown{
     {3, "HashedAnisotropic"}
 };
 
+const Gui::DropdownList kShadowMapUpdateModeDropdownList{
+    {(uint)ShadowMap::SMUpdateMode::Static, "Static"},
+    {(uint)ShadowMap::SMUpdateMode::UpdateAll, "UpdateAll"},
+    {(uint)ShadowMap::SMUpdateMode::UpdateOnePerFrame, "OneLightPerFrame"},
+    {(uint)ShadowMap::SMUpdateMode::UpdateInNFrames, "UpdateInNFrames"},
+};
 } // namespace
 
 ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, mpScene{scene}
@@ -78,7 +84,11 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
     // Set RasterizerStateDescription
     updateRasterizerStates();
 
-    mFirstFrame = true;
+    //Update all shadow maps every frame 
+    if (mpScene->hasAnimation())
+        mShadowMapUpdateMode = SMUpdateMode::UpdateAll;     
+
+    mUpdateShadowMap = true;
 }
 
 void ShadowMap::prepareShadowMapBuffers()
@@ -312,7 +322,7 @@ void ShadowMap::prepareShadowMapBuffers()
 
     mResetShadowMapBuffers = false;
     mShadowResChanged = false;
-    mFirstFrame = true;
+    mUpdateShadowMap = true;
 }
 
 void ShadowMap::prepareRasterProgramms()
@@ -484,7 +494,7 @@ void ShadowMap::prepareGaussianBlur() {
         }
     }
 
-    mFirstFrame |= blurChanged; //Rerender if blur settings changed
+    mUpdateShadowMap |= blurChanged; //Rerender if blur settings changed
 }
 
 DefineList ShadowMap::getDefines() const
@@ -693,7 +703,7 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
     FALCOR_PROFILE(pRenderContext, "GenShadowMapPoint");
     if (index == 0)
     {
-        mFirstFrame |= mShadowCubePass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass());
+        mUpdateShadowMap |= mShadowCubePass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass());
     }
 
     // Create Program Vars
@@ -703,7 +713,14 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
     }
 
     auto changes = light->getChanges();
-    bool renderLight = changes == Light::Changes::Active || changes == Light::Changes::Position || mFirstFrame;
+    bool renderLight = false;
+    if (mShadowMapUpdateMode == SMUpdateMode::Static)
+        renderLight =
+            (changes == Light::Changes::Active) || (changes == Light::Changes::Position);
+    else
+        renderLight = mShadowMapUpdateList[1][index];
+
+    renderLight |= mUpdateShadowMap;
 
     if (!renderLight || !light->isActive())
         return;
@@ -785,8 +802,16 @@ float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData
 bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered) {
     FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
     auto changes = light->getChanges();
-    bool renderLight = (changes == Light::Changes::Active) || (changes == Light::Changes::Position) ||
-                       (changes == Light::Changes::Direction) || mFirstFrame;
+    bool renderLight = false;
+
+    //Handle updates
+    if (mShadowMapUpdateMode == SMUpdateMode::Static)
+        renderLight =
+            (changes == Light::Changes::Active) || (changes == Light::Changes::Position) || (changes == Light::Changes::Direction);
+    else
+        renderLight = mShadowMapUpdateList[0][index];
+
+    renderLight |= mUpdateShadowMap;
 
     auto& lightData = light->getData();
 
@@ -819,7 +844,8 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
     ShaderParameters params;
   
     float3 lightTarget = lightData.posW + lightData.dirW;
-    float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, float3(0, 1, 0));
+    const float3 up = abs(lightData.dirW.y) == 1 ? float3(0, 0, 1) : float3(0, 1, 0);
+    float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
     float4x4 projMat = math::perspective(lightData.openingAngle * 2, 1.f, mNear, mFar);
 
     params.lightPosition = float3(mNear, 0.f,0.f);
@@ -1031,9 +1057,6 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     if (mpScene->getActiveLightCount() == 0)
         return true;
 
-    if (mAlwaysRenderSM)
-        mFirstFrame = true;
-
     if (mTypeChanged)
     {
         prepareProgramms();
@@ -1045,7 +1068,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 
     if (mRasterDefinesChanged)
     {
-        mFirstFrame = true;
+        mUpdateShadowMap = true;
         prepareRasterProgramms();
         mRasterDefinesChanged = false;
     }
@@ -1060,12 +1083,11 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     if (mBiasSettingsChanged)
     {
         updateRasterizerStates(); // DepthBias is set here
-        mFirstFrame = true;       // Re render all SM
+        mUpdateShadowMap = true;       // Re render all SM
         mBiasSettingsChanged = false;
     }
-    
 
-    
+    handleShadowMapUpdateMode();
 
     //Handle Blur
     prepareGaussianBlur();
@@ -1112,7 +1134,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     }
 
     //Spot/Directional Lights
-    mFirstFrame |= mShadowMapPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); //Update defines
+    mUpdateShadowMap |= mShadowMapPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); //Update defines
     // Create Program Vars
     if (!mShadowMapPass.pVars)
     {
@@ -1128,7 +1150,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     }
 
     //Render cascaded
-    mFirstFrame |= mShadowMapCascadedPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); // Update defines
+    mUpdateShadowMap |= mShadowMapCascadedPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); // Update defines
     // Create Program Vars
     if (!mShadowMapCascadedPass.pVars)
     {
@@ -1173,7 +1195,7 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 
     handleNormalizedPixelSizeBuffer();
 
-    mFirstFrame = false;
+    mUpdateShadowMap = false;
     return true;
 }
 
@@ -1208,7 +1230,10 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     }
     widget.tooltip("Changes the Shadow Map Type. For types other than Shadow Map, a extra depth texture is needed",true);
 
-    widget.checkbox("Render every Frame", mAlwaysRenderSM);
+    widget.dropdown("Update Mode",kShadowMapUpdateModeDropdownList, (uint&)mShadowMapUpdateMode);
+    widget.tooltip("Specify the update mode for shadow maps");  //TODO add more detail to each mode
+    if (mShadowMapUpdateMode == SMUpdateMode::UpdateInNFrames)
+        widget.var("Update Interval", mUpdateEveryNFrame, 2u, 512u, 1u);
     widget.tooltip("Renders all shadow maps every frame");
 
     widget.checkbox("Use Hybrid SM", mUseHybridSM);
@@ -1246,11 +1271,11 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         {
             mNear = nearFar.x;
             mFar = nearFar.y;
-            mFirstFrame = true; // Rerender all shadow maps
+            mUpdateShadowMap = true; // Rerender all shadow maps
         }
 
          if (group.dropdown("Cull Mode", kShadowMapCullMode, (uint32_t&)mCullMode))
-            mFirstFrame = true; // Render all shadow maps again
+            mUpdateShadowMap = true; // Render all shadow maps again
 
          
 
@@ -1420,7 +1445,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             }
         }
 
-        mFirstFrame |= blurSettingsChanged; //Rerender Shadow maps if the blur settings changed
+        mUpdateShadowMap |= blurSettingsChanged; //Rerender Shadow maps if the blur settings changed
     }
 
     if (auto group = widget.group("Oracle Options"))
@@ -1508,6 +1533,77 @@ void ShadowMap::handleNormalizedPixelSizeBuffer()
         mpDevice, sizeof(float), npsData.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, npsData.data(), false
     );
     mpNormalizedPixelSize->setName("ShadowMap::NPSBuffer");
+}
+
+void ShadowMap::handleShadowMapUpdateMode() {
+    const uint spotSize = mpShadowMaps.size();
+    const uint pointSize = mpShadowMapsCube.size();
+    const uint numLights = spotSize + pointSize;
+    if (mShadowMapUpdateList[0].size() != spotSize || mShadowMapUpdateList[1].size() != pointSize)
+    {
+        mShadowMapUpdateList[0].resize(spotSize);
+        for (auto ul : mShadowMapUpdateList[0])
+            ul = false;
+        mShadowMapUpdateList[1].resize(pointSize);
+        for (auto ul : mShadowMapUpdateList[1])
+            ul = false;
+    }
+        
+    switch (mShadowMapUpdateMode)
+    {
+    case Falcor::ShadowMap::SMUpdateMode::UpdateAll:
+        mUpdateShadowMap = true;
+        break;
+    case Falcor::ShadowMap::SMUpdateMode::UpdateOnePerFrame:
+        {
+            uint lastFrame = mUpdateFrameCounter == 0 ? numLights - 1 : mUpdateFrameCounter - 1;
+            if(lastFrame < spotSize)
+                mShadowMapUpdateList[0][lastFrame] = false;
+            else
+                mShadowMapUpdateList[1][lastFrame - spotSize] = false;
+            if (lastFrame < spotSize)
+                mShadowMapUpdateList[0][mUpdateFrameCounter] = true;
+            else
+                mShadowMapUpdateList[1][mUpdateFrameCounter - spotSize] = true;
+
+            mUpdateFrameCounter = (mUpdateFrameCounter + 1) % numLights;
+        }
+        break;
+    case Falcor::ShadowMap::SMUpdateMode::UpdateInNFrames:
+        {
+            if (numLights <= mUpdateEveryNFrame || mUpdateEveryNFrame < 2)
+                mUpdateShadowMap = true;
+            else
+            {
+                uint updatePerFrame = uint(float(numLights) / float(mUpdateEveryNFrame)) + 1;
+                uint lastFrame = mUpdateFrameCounter == 0 ? numLights - (updatePerFrame + 1) : mUpdateFrameCounter - (updatePerFrame+1);
+                uint upperBound = std::min(numLights, lastFrame + updatePerFrame);
+                for (uint i = lastFrame; i <= upperBound; i++)
+                {
+                    if (i < spotSize)
+                        mShadowMapUpdateList[0][i] = false;
+                    else
+                        mShadowMapUpdateList[1][i - spotSize] = false;
+                }
+                upperBound = std::min(numLights, mUpdateFrameCounter + updatePerFrame);
+                for (uint i = mUpdateFrameCounter; i < upperBound; i++)
+                {
+                    if (i < spotSize)
+                        mShadowMapUpdateList[0][i] = true;
+                    else
+                        mShadowMapUpdateList[1][i - spotSize] = true;
+                }
+                mUpdateFrameCounter = (mUpdateFrameCounter + updatePerFrame);
+                if (mUpdateFrameCounter >= numLights)
+                    mUpdateFrameCounter = 0;
+            }
+            
+        }
+        break;
+    case Falcor::ShadowMap::SMUpdateMode::Static:
+    default:
+        break;
+    }
 }
 
 }

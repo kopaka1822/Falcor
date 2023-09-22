@@ -80,6 +80,14 @@ public:
     float getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect);
     float getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height);    //Ortho case
 
+    enum class SMUpdateMode: uint
+    {
+        Static = 0,                 //Render once
+        UpdateAll = 1,              //Render every frame
+        UpdateOnePerFrame = 2,      //Render one light per frame
+        UpdateInNFrames = 3         //Update all lights in N frames   
+    };
+
 private:
     const float kEVSM_ExponentialConstantMax = 42.f;    //Max exponential constant for Exponential Variance Shadow Maps
     const float kESM_ExponentialConstantMax = 84.f;     //Max exponential constant for Exponential Shadow Maps
@@ -100,7 +108,7 @@ private:
     void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
     void updateRasterizerStates();
     void handleNormalizedPixelSizeBuffer();
-   
+    void handleShadowMapUpdateMode();
 
     DefineList getDefinesShadowMapGenPass() const;
 
@@ -109,6 +117,7 @@ private:
     bool renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix);
     void calcProjViewForCascaded(uint index, const LightData& lightData);
+    
 
     // Getter
     std::vector<ref<Texture>>& getShadowMapsCube() { return mpShadowMapsCube; }
@@ -140,7 +149,7 @@ private:
     std::map<RasterizerState::CullMode, ref<RasterizerState>> mFrontCounterClockwiseRS;
 
     // Settings
-    ShadowMapType mShadowMapType = ShadowMapType::Variance;
+    ShadowMapType mShadowMapType = ShadowMapType::ExponentialVariance;
     OracleDistFunction mOracleDistanceFunctionMode = OracleDistFunction::RoughnessSquare;
     float mNear = 0.1f;
     float mFar = 30.f;
@@ -156,29 +165,31 @@ private:
     float mSMCubeWorldBias = 0.f;
     uint mCascadedLevelCount = 4;
     float mCascadedFrustumFix = 0.5f;
-    float mCascZMult = 3.f;    //Pushes the z Values apart
+    float mCascZMult = 3.f;                     //Pushes the z Values apart
     bool mCascadedStochasticBlend = true;
     float mCascadedStochasticBlendBand = 0.05f;
-    float mExponentialSMConstant = 80.f;    //Value used in the paper
-    float mEVSMConstant = 20.f;                //Exponential Variance Shadow Map constant. Needs to be lower than the exponential counterpart
-    float mEVSMNegConstant = 5.f;              //Exponential Variance Shadow Map negative constant. Usually lower than the positive counterpart
+    float mExponentialSMConstant = 80.f;            //Value used in the paper
+    float mEVSMConstant = 20.f;                     //Exponential Variance Shadow Map constant. Needs to be lower than the exponential counterpart
+    float mEVSMNegConstant = 5.f;                   //Exponential Variance Shadow Map negative constant. Usually lower than the positive counterpart
     float2 mHSMFilteredThreshold = float2(0.02f, 0.98f);     //Threshold for filtered shadow map variants
     bool mUseRayOutsideOfShadowMap = false;
     bool mVarianceUseSelfShadowVariant = true;
 
     bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function
     bool mUseOracleDistFactor = true; ///< Enables a lobe distance factor that is used in the oracle function TODO rename
-    float mOracleCompaireValue = 1.f; ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea.
-    bool mUseHybridSM = false;        ///< Uses the Hybrid Shadow Maps (https://gpuopen.com/fidelityfx-hybrid-shadows/#details)
+    float mOracleCompaireValue = 1.f/9.f; ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea.
+    bool mUseHybridSM = true;        ///< Uses the Hybrid Shadow Maps (https://gpuopen.com/fidelityfx-hybrid-shadows/#details)
 
     bool mUseShadowMipMaps = true;        ///< Uses mip maps for applyable shadow maps
-    float mShadowMipBias = 1.7f;          ///< Bias used in mips (cos theta)^bias
+    float mShadowMipBias = 1.5f;          ///< Bias used in mips (cos theta)^bias
     bool mUseGaussianBlur = true;
 
-
     bool mApplyUiSettings = false;
-    bool mAlwaysRenderSM = false;
-    bool mFirstFrame = true;
+    SMUpdateMode mShadowMapUpdateMode = SMUpdateMode::Static;
+    uint mUpdateFrameCounter = 0;
+    std::vector<bool> mShadowMapUpdateList[2];
+    uint mUpdateEveryNFrame = 2;
+    bool mUpdateShadowMap = true;
     bool mResetShadowMapBuffers = false;
     bool mShadowResChanged = false;
     bool mRasterDefinesChanged = false;
