@@ -164,8 +164,6 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     if (mpRTXDI) mpRTXDI->beginFrame(pRenderContext, mScreenRes);
 
     //RenderPasses
-    handlePhotonCounter(pRenderContext);
-
     traceTransmissiveDelta(pRenderContext, renderData);
 
     getFinalGatherHitPass(pRenderContext, renderData);
@@ -250,6 +248,9 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         changed |= widget.var("Max Bounces", mPhotonMaxBounces, 0u, 32u);
         changed |= widget.var("Max Caustic Bounces", mMaxCausticBounces, 0u, 32u);
         widget.tooltip("Maximum number of diffuse bounces that are allowed for a caustic photon.");
+
+        changed |= widget.checkbox("Caustics", mEnableCausticPhotonCollection);
+        widget.tooltip("If disabled, no caustics are generated"); 
 
         changed |= widget.checkbox("Caustic from Delta lobes only", mGenerationDeltaRejection);
         widget.tooltip("Only stores ");
@@ -529,13 +530,22 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
     }
 
     //Photon
-    if (!mpPhotonCounter){
-        mpPhotonCounter = Buffer::create(mpDevice, sizeof(uint) * 2);
-        mpPhotonCounter->setName("ReSTIR_FG::PhotonCounterGPU");
+    if (!mpPhotonCounter[0])
+    {
+        for (uint i = 0; i < kPhotonCounterCount; i++)
+        {
+            mpPhotonCounter[i] = Buffer::create(mpDevice, sizeof(uint) * 2);
+            mpPhotonCounter[i]->setName("ReSTIR_FG::PhotonCounterGPU" + std::to_string(i));
+        }
+        
     }
-    if (!mpPhotonCounterCPU){
-        mpPhotonCounterCPU = Buffer::create(mpDevice, sizeof(uint) * 2, ResourceBindFlags::None, Buffer::CpuAccess::Read);
-        mpPhotonCounterCPU->setName("ReSTIR_FG::PhotonCounterCPU");
+    if (!mpPhotonCounterCPU[0])
+    {
+        for (uint i = 0; i < kPhotonCounterCount; i++)
+        {
+            mpPhotonCounterCPU[i] = Buffer::create(mpDevice, sizeof(uint) * 2, ResourceBindFlags::None, Buffer::CpuAccess::Read);
+            mpPhotonCounterCPU[i]->setName("ReSTIR_FG::PhotonCounterCPU" + std::to_string(i));
+        }
     }
     for (uint i = 0; i < 2; i++)
     {
@@ -683,7 +693,7 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
     FALCOR_PROFILE(pRenderContext, "PhotonGeneration");
 
     //TODO Clear via Compute pass?
-    pRenderContext->clearUAV(mpPhotonCounter->getUAV().get(), uint4(0));
+    pRenderContext->clearUAV(mpPhotonCounter[mFrameCount % kPhotonCounterCount]->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(mpPhotonAABB[0]->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(mpPhotonAABB[1]->getUAV().get(), uint4(0));
 
@@ -743,7 +753,7 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
         var["gPhotonAABB"][i] = mpPhotonAABB[i];
         var["gPackedPhotonData"][i] = mpPhotonData[i];
      }
-     var["gPhotonCounter"] = mpPhotonCounter;
+     var["gPhotonCounter"] = mpPhotonCounter[mFrameCount % kPhotonCounterCount];
      var["gPhotonCullingMask"] = mpPhotonCullingMask;
 
      // Get dimensions of ray dispatch.
@@ -754,11 +764,13 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
      // Trace the photons
      mpScene->raytrace(pRenderContext, mGeneratePhotonPass.pProgram.get(), mGeneratePhotonPass.pVars, uint3(targetDim, 1));
 
-     pRenderContext->uavBarrier(mpPhotonCounter.get());
+     pRenderContext->uavBarrier(mpPhotonCounter[mFrameCount % kPhotonCounterCount].get());
      pRenderContext->uavBarrier(mpPhotonAABB[0].get());
      pRenderContext->uavBarrier(mpPhotonData[0].get());
      pRenderContext->uavBarrier(mpPhotonAABB[1].get());
      pRenderContext->uavBarrier(mpPhotonData[1].get());
+
+     handlePhotonCounter(pRenderContext);
 
      //Build/Update Acceleration Structure
      uint2 currentPhotons = mFrameCount > 0 ? uint2(float2(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
@@ -769,11 +781,14 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
 void ReSTIR_FG::handlePhotonCounter(RenderContext* pRenderContext)
 {
      // Copy the photonCounter to a CPU Buffer
-     pRenderContext->copyBufferRegion(mpPhotonCounterCPU.get(), 0, mpPhotonCounter.get(), 0, sizeof(uint32_t) * 2);
+     pRenderContext->copyBufferRegion(
+         mpPhotonCounterCPU[mFrameCount % kPhotonCounterCount].get(), 0, mpPhotonCounter[mFrameCount % kPhotonCounterCount].get(), 0,
+         sizeof(uint32_t) * 2
+     );
 
-     void* data = mpPhotonCounterCPU->map(Buffer::MapType::Read);
+     void* data = mpPhotonCounterCPU[mFrameCount % kPhotonCounterCount]->map(Buffer::MapType::Read);
      std::memcpy(&mCurrentPhotonCount, data, sizeof(uint) * 2);
-     mpPhotonCounterCPU->unmap();
+     mpPhotonCounterCPU[mFrameCount % kPhotonCounterCount]->unmap();
 
      // Change Photon dispatch count dynamically.
      if (mUseDynamicePhotonDispatchCount)

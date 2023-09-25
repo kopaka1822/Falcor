@@ -141,6 +141,7 @@ private:
     //Constants
     //
     const ResourceFormat kViewDirFormat = ResourceFormat::RGBA32Float;  //View Dir format
+    static const uint kPhotonCounterCount = 3;
 
     //
     //Pointers
@@ -223,8 +224,8 @@ private:
     ref<Buffer> mpSurfaceBuffer[2];     // Buffer for surface data
     ref<Buffer> mpPhotonAABB[2];        // Photon AABBs for Acceleration Structure building
     ref<Buffer> mpPhotonData[2];        // Additional Photon data (flux, dir)
-    ref<Buffer> mpPhotonCounter;        // Counter for the number of lights
-    ref<Buffer> mpPhotonCounterCPU;     // For showing the current number of photons in the UI
+    ref<Buffer> mpPhotonCounter[kPhotonCounterCount];        // Counter for the number of lights
+    ref<Buffer> mpPhotonCounterCPU[kPhotonCounterCount]; // For showing the current number of photons in the UI
     ref<Texture> mpPhotonCullingMask; // Mask for photon culling
     ref<Texture> mpCausticRadiance;     // Caustic Radiance from the Collection pass
     ref<Texture> mpVBuffer;             //Work copy for VBuffer
