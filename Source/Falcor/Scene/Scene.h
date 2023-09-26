@@ -960,8 +960,9 @@ namespace Falcor
             \param[in] pState Graphics state.
             \param[in] pVars Graphics vars.
             \param[in] cullMode Optional rasterizer cull mode. The default is to cull back-facing primitives.
+            \param[in] meshRenderMode Specifies which meshes should be rasterized
         */
-        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back);
+        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back, RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All );
 
         /** Render the scene using the rasterizer.
             This overload uses the supplied rasterizer states.
@@ -971,8 +972,17 @@ namespace Falcor
             \param[in] pRasterizerStateCW Rasterizer state for meshes with clockwise triangle winding.
             \param[in] pRasterizerStateCCW Rasterizer state for meshes with counter-clockwise triangle winding. Can be the same as for clockwise.
             \param[in] pRasterizerStateDS Rasterizer state for double sided meshes. Same as Cull mode None.
+            \param[in] meshRenderMode Specifies which meshes should be rasterized
         */
-        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW,  const ref<RasterizerState>& pRasterizerStateDS);
+        void rasterize(
+            RenderContext* pRenderContext,
+            GraphicsState* pState,
+            GraphicsVars* pVars,
+            const ref<RasterizerState>& pRasterizerStateCW,
+            const ref<RasterizerState>& pRasterizerStateCCW,
+            const ref<RasterizerState>& pRasterizerStateDS,
+            RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All
+        );
 
         /** Get the required raytracing maximum attribute size for this scene.
             Note: This depends on what types of geometry are used in the scene.
@@ -1230,6 +1240,7 @@ namespace Falcor
             uint32_t count = 0;             ///< Number of draws.
             bool ccw = true;                ///< True if counterclockwise triangle winding.
             bool ignoreWinding = false;     ///< Ignores winding and forces draws without culling (for transparent and double sided mats)
+            bool isDynamic = false;         ///< For Dynamic Meshes if they should be rendered seperatly
             ResourceFormat ibFormat = ResourceFormat::Unknown;  ///< Index buffer format.
         };
 

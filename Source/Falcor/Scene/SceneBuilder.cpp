@@ -2599,6 +2599,7 @@ namespace Falcor
             meshFlags |= mesh.isFrontFaceCW ? (uint32_t)MeshFlags::IsFrontFaceCW : 0;
             meshFlags |= mesh.isDisplaced ? (uint32_t)MeshFlags::IsDisplaced : 0;
             meshFlags |= mesh.isAnimated ? (uint32_t)MeshFlags::IsAnimated : 0;
+            meshFlags |= mesh.isStatic ? (uint32_t)MeshFlags::IsStatic : 0;
             meshData[meshID].flags = meshFlags;
 
             if (mesh.use16BitIndices) mSceneData.has16BitIndices = true;

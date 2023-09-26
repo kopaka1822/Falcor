@@ -106,6 +106,12 @@ void ShadowMap::prepareShadowMapBuffers()
         mpDepthCube.reset();
         mpDepth.reset();
 
+        //Static copys for animations
+        mpShadowMapsCubeStatic.clear();
+        mpShadowMapsStatic.clear();
+        mpDepthCubeStatic.clear();
+        mpDepthStatic.clear();
+
         //Misc
         mpNormalizedPixelSize.reset();
     }
@@ -202,8 +208,9 @@ void ShadowMap::prepareShadowMapBuffers()
             if (mShadowMapType != ShadowMapType::ShadowMap)
                 cubeBindFlags |= ResourceBindFlags::UnorderedAccess;
 
+            //TODO fix mips
             tex = Texture::createCube(
-                mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, shadowMapCubeFormat, 1u, genMipMaps ? Texture::kMaxPossible : 1u, nullptr,
+                mpDevice, mShadowMapSizeCube, mShadowMapSizeCube, shadowMapCubeFormat, 1u, 1u, nullptr,
                 cubeBindFlags
             );
             tex->setName("ShadowMapCube" + std::to_string(countPoint));
@@ -263,6 +270,55 @@ void ShadowMap::prepareShadowMapBuffers()
             mpDevice, mShadowMapSize, mShadowMapSize, mShadowMapFormat, 1u, 1u, nullptr, ResourceBindFlags::DepthStencil
         );
         mpDepth->setName("ShadowMap2DPassDepthHelper");
+    }
+
+    //Create Textures for animated Scenes
+    if (mpScene->hasAnimation())
+    {
+        for (size_t i = 0; i < mpShadowMapsCube.size(); i++)
+        {
+            //Create a copy Texture
+            ref<Texture> tex = Texture::createCube(
+                mpDevice, mpShadowMapsCube[i]->getWidth(), mpShadowMapsCube[i]->getHeight(), mpShadowMapsCube[i]->getFormat(), 1u,
+                1u , nullptr, mpShadowMapsCube[i]->getBindFlags()
+            );
+            tex->setName("ShadowMapCubeStatic" + std::to_string(i));
+            mpShadowMapsCubeStatic.push_back(tex);
+
+            //Create a per face depth texture
+            if (mpDepthCube)
+            {
+                for (uint face = 0; face < 6; face++)
+                {
+                    ref<Texture> depthTex = Texture::create2D(
+                        mpDevice, mpDepthCube->getWidth(), mpDepthCube->getHeight(), mpDepthCube->getFormat(), 1u, 1u, nullptr,
+                        mpDepthCube->getBindFlags()
+                    );
+                    depthTex->setName("ShadowMapCubePassDepthHelperStatic" + std::to_string(i) + "Face" + std::to_string(face));
+                    mpDepthCubeStatic.push_back(depthTex);
+                }
+            }
+        }
+        for (size_t i = 0; i < mpShadowMaps.size(); i++)
+        {
+            // Create a copy Texture
+            ref<Texture> tex = Texture::create2D(
+                mpDevice, mpShadowMaps[i]->getWidth(), mpShadowMaps[i]->getHeight(), mpShadowMaps[i]->getFormat(), 1u,
+                1u, nullptr, mpShadowMaps[i]->getBindFlags()
+            );
+            tex->setName("ShadowMapStatic" + std::to_string(i));
+            mpShadowMapsStatic.push_back(tex);
+
+            // Create a per face depth texture
+            if (mpDepth)
+            {
+                ref<Texture> depthTex = Texture::create2D(
+                    mpDevice, mpDepth->getWidth(), mpDepth->getHeight(), mpDepth->getFormat(), 1u, 1u, nullptr, mpDepth->getBindFlags()
+                );
+                depthTex->setName("ShadowMapPassDepthHelperStatic" + std::to_string(i));
+                mpDepthStatic.push_back(depthTex);
+            }
+        }
     }
 
     //Check if multiple SM types are used
@@ -714,11 +770,16 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
 
     auto changes = light->getChanges();
     bool renderLight = false;
+    if (mUpdateShadowMap)
+        mStaticTexturesReady[1] = false;
+
     if (mShadowMapUpdateMode == SMUpdateMode::Static)
         renderLight =
             (changes == Light::Changes::Active) || (changes == Light::Changes::Position);
+    else if (mShadowMapUpdateMode == SMUpdateMode::UpdateAll)
+        renderLight = true;
     else
-        renderLight = mShadowMapUpdateList[1][index];
+        renderLight = mShadowMapUpdateList[1][index] || !mStaticTexturesReady[1];
 
     renderLight |= mUpdateShadowMap;
 
@@ -733,14 +794,45 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
 
     const float4x4 projMat = math::perspective(float(M_PI_2), 1.f, mNear, mFar); //Is the same for all 6 faces
 
-    pRenderContext->clearRtv(mpShadowMapsCube[index]->getRTV(0, 0, 6).get(), float4(1.f));
+    RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All;
+
+    // Render the static shadow map
+    if (mShadowMapUpdateMode != SMUpdateMode::Static && !mStaticTexturesReady[1])
+        meshRenderMode = RasterizerState::MeshRenderMode::Static;
+    else if (mShadowMapUpdateMode != SMUpdateMode::Static)
+        meshRenderMode = RasterizerState::MeshRenderMode::Dynamic;
+
+
     for (size_t face = 0; face < 6; face++)
     {
-        // Clear depth buffer.
-        pRenderContext->clearDsv(mpDepthCube->getDSV().get(), 1.f, 0);
-        // Attach Render Targets
-        mpFboCube->attachColorTarget(mpShadowMapsCube[index], 0, 0, face, 1);
-        mpFboCube->attachDepthStencilTarget(mpDepthCube);
+        if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
+        {
+            uint cubeDepthIdx = index * 6 + face;
+            // Clear depth buffer.
+            pRenderContext->clearDsv(mpDepthCubeStatic[cubeDepthIdx]->getDSV().get(), 1.f, 0);
+            //  Attach Render Targets
+            mpFboCube->attachColorTarget(mpShadowMapsCubeStatic[index], 0, 0, face, 1);
+            mpFboCube->attachDepthStencilTarget(mpDepthCubeStatic[cubeDepthIdx]);
+        }
+        else if (meshRenderMode == RasterizerState::MeshRenderMode::Dynamic)
+        {
+            uint cubeDepthIdx = index * 6 + face;
+            // Copy the resources
+            pRenderContext->copyResource(mpDepthCube.get(), mpDepthCubeStatic[cubeDepthIdx].get());
+            if (face == 0)
+                pRenderContext->copyResource(mpShadowMapsCube[index].get(), mpShadowMapsCubeStatic[index].get());
+            mpFboCube->attachColorTarget(mpShadowMapsCube[index], 0, 0, face, 1);
+            mpFboCube->attachDepthStencilTarget(mpDepthCube);
+        }
+        else
+        {
+            // Clear depth buffer.
+            pRenderContext->clearDsv(mpDepthCube->getDSV().get(), 1.f, 0);
+            // Attach Render Targets
+            mpFboCube->attachColorTarget(mpShadowMapsCube[index], 0, 0, face, 1);
+            mpFboCube->attachDepthStencilTarget(mpDepthCube);
+        }
+        
 
         params.viewProjectionMatrix = getProjViewForCubeFace(face, lightData, projMat);
 
@@ -748,18 +840,21 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
         setSMShaderVars(vars, params);
 
         mShadowCubePass.pState->setFbo(mpFboCube);
-        mpScene->rasterize(pRenderContext, mShadowCubePass.pState.get(), mShadowCubePass.pVars.get(), mCullMode);
+        mpScene->rasterize(pRenderContext, mShadowCubePass.pState.get(), mShadowCubePass.pVars.get(), mCullMode, meshRenderMode);
     }
 
     // Blur if it is activated/enabled
     
-    if (mpBlurCube)
+    if (mpBlurCube && (meshRenderMode != RasterizerState::MeshRenderMode::Static) )
         mpBlurCube->execute(pRenderContext, mpShadowMapsCube[index]);
     
     /* TODO doesnt work, needs fixing
     if (mShadowMapType != ShadowMapType::ShadowMap && mUseShadowMipMaps)
         mpShadowMapsCube[index]->generateMips(pRenderContext);
     */
+
+     if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
+        mStaticTexturesReady[1] = true;
 }
 
 float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix)
@@ -803,13 +898,17 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
     FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
     auto changes = light->getChanges();
     bool renderLight = false;
+    if (mUpdateShadowMap)
+        mStaticTexturesReady[0] = false;
 
     //Handle updates
     if (mShadowMapUpdateMode == SMUpdateMode::Static)
         renderLight =
             (changes == Light::Changes::Active) || (changes == Light::Changes::Position) || (changes == Light::Changes::Direction);
+    else if (mShadowMapUpdateMode == SMUpdateMode::UpdateAll)
+        renderLight = true;
     else
-        renderLight = mShadowMapUpdateList[0][index];
+        renderLight = mShadowMapUpdateList[0][index] || !mStaticTexturesReady[0];
 
     renderLight |= mUpdateShadowMap;
 
@@ -820,25 +919,69 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
         wasRendered[index] = false;
         return false;
     }
-
     wasRendered[index] = true;
+
+    RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All;
+
+    //Render the static shadow map
+    if (mShadowMapUpdateMode != SMUpdateMode::Static && !mStaticTexturesReady[0])
+        meshRenderMode = RasterizerState::MeshRenderMode::Static;
+    else if (mShadowMapUpdateMode != SMUpdateMode::Static)
+        meshRenderMode = RasterizerState::MeshRenderMode::Dynamic;
 
     //If depth tex is set, Render to RenderTarget
     if (mpDepth)
     {
-        // Clear depth buffer.
-        pRenderContext->clearDsv(mpDepth->getDSV().get(), 1.f, 0);
-        //pRenderContext->clearRtv(mpShadowMaps[index]->getRTV(0, 0, 1).get(), float4(0)); //TODO Should not be necessary?
-        // Attach Render Targets
-        mpFbo->attachColorTarget(mpShadowMaps[index],0,0,0,1);
-        mpFbo->attachDepthStencilTarget(mpDepth);
+        if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
+        {
+            // Clear depth buffer.
+            pRenderContext->clearDsv(mpDepthStatic[index]->getDSV().get(), 1.f, 0);
+            // pRenderContext->clearRtv(mpShadowMaps[index]->getRTV(0, 0, 1).get(), float4(0)); //TODO Should not be necessary?
+            //  Attach Render Targets
+            mpFbo->attachColorTarget(mpShadowMapsStatic[index], 0, 0, 0, 1);
+            mpFbo->attachDepthStencilTarget(mpDepthStatic[index]);
+        }
+        else if (meshRenderMode == RasterizerState::MeshRenderMode::Dynamic)
+        {
+            //Copy the resources
+            pRenderContext->copyResource(mpDepth.get(), mpDepthStatic[index].get());
+            pRenderContext->blit(mpShadowMapsStatic[index]->getSRV(0, 1, 0, 1), mpShadowMaps[index]->getRTV(0, 0, 1));
+            mpFbo->attachColorTarget(mpShadowMaps[index], 0, 0, 0, 1);
+            mpFbo->attachDepthStencilTarget(mpDepth);
+        }
+        else
+        {
+            // Clear depth buffer.
+            pRenderContext->clearDsv(mpDepth->getDSV().get(), 1.f, 0);
+            // pRenderContext->clearRtv(mpShadowMaps[index]->getRTV(0, 0, 1).get(), float4(0)); //TODO Should not be necessary?
+            //  Attach Render Targets
+            mpFbo->attachColorTarget(mpShadowMaps[index], 0, 0, 0, 1);
+            mpFbo->attachDepthStencilTarget(mpDepth);
+        }
+        
     }
     else //Else only render to DepthStencil
     {
-        // Clear depth buffer.
-        pRenderContext->clearDsv(mpShadowMaps[index]->getDSV().get(), 1.f, 0);
-        // Attach Render Targets
-        mpFbo->attachDepthStencilTarget(mpShadowMaps[index]);
+        if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
+        {
+            // Clear depth buffer.
+            pRenderContext->clearDsv(mpShadowMapsStatic[index]->getDSV().get(), 1.f, 0);
+            // Attach Render Targets
+            mpFbo->attachDepthStencilTarget(mpShadowMapsStatic[index]);
+        }
+        else if (meshRenderMode == RasterizerState::MeshRenderMode::Dynamic)
+        {
+            // Copy the resources
+            pRenderContext->copyResource(mpShadowMaps[index].get(), mpShadowMapsStatic[index].get());
+            mpFbo->attachDepthStencilTarget(mpShadowMaps[index]);
+        }
+        else
+        {
+            // Clear depth buffer.
+            pRenderContext->clearDsv(mpShadowMaps[index]->getDSV().get(), 1.f, 0);
+            // Attach Render Targets
+            mpFbo->attachDepthStencilTarget(mpShadowMaps[index]);
+        }
     }
     
     ShaderParameters params;
@@ -860,16 +1003,19 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
     mShadowMapPass.pState->setFbo(mpFbo);
     mpScene->rasterize(
         pRenderContext, mShadowMapPass.pState.get(), mShadowMapPass.pVars.get(), mFrontClockwiseRS[mCullMode],
-        mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]
+        mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode
     );
 
     //Blur if it is activated/enabled
-    if (mpBlurShadowMap)
+    if (mpBlurShadowMap && (meshRenderMode != RasterizerState::MeshRenderMode::Static))
         mpBlurShadowMap->execute(pRenderContext, mpShadowMaps[index]);
 
     // generate Mips for shadow map modes that allow filter
-    if (mUseShadowMipMaps)
+    if (mUseShadowMipMaps && (meshRenderMode != RasterizerState::MeshRenderMode::Static))
         mpShadowMaps[index]->generateMips(pRenderContext);
+
+    if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
+        mStaticTexturesReady[0] = true;
 
     return true;
 }
@@ -1236,6 +1382,18 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         widget.var("Update Interval", mUpdateEveryNFrame, 2u, 512u, 1u);
     widget.tooltip("Renders all shadow maps every frame");
 
+    if (mShadowMapUpdateMode != SMUpdateMode::Static)
+    {
+        bool resetStaticSM = widget.button("Reset Static SM");
+        widget.tooltip("Rerenders all static shadow maps");
+        if (resetStaticSM && mStaticTexturesReady)
+        {
+            mStaticTexturesReady[0] = false;
+            mStaticTexturesReady[1] = false;
+        }
+            
+    }
+
     widget.checkbox("Use Hybrid SM", mUseHybridSM);
     widget.tooltip("Enables Hybrid Shadow Maps, where the edge of the shadow map is traced", true);
 
@@ -1306,8 +1464,6 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
                 cubeBias = mSMCubeWorldBias;
                 mBiasSettingsChanged = true;
             }
-
-            
 
             group.checkbox("Use PCF", mUsePCF);
             group.tooltip("Enable to use Percentage closer filtering");
@@ -1551,9 +1707,6 @@ void ShadowMap::handleShadowMapUpdateMode() {
         
     switch (mShadowMapUpdateMode)
     {
-    case Falcor::ShadowMap::SMUpdateMode::UpdateAll:
-        mUpdateShadowMap = true;
-        break;
     case Falcor::ShadowMap::SMUpdateMode::UpdateOnePerFrame:
         {
             uint lastFrame = mUpdateFrameCounter == 0 ? numLights - 1 : mUpdateFrameCounter - 1;
@@ -1572,7 +1725,7 @@ void ShadowMap::handleShadowMapUpdateMode() {
     case Falcor::ShadowMap::SMUpdateMode::UpdateInNFrames:
         {
             if (numLights <= mUpdateEveryNFrame || mUpdateEveryNFrame < 2)
-                mUpdateShadowMap = true;
+                break;
             else
             {
                 uint updatePerFrame = uint(float(numLights) / float(mUpdateEveryNFrame)) + 1;
@@ -1600,6 +1753,8 @@ void ShadowMap::handleShadowMapUpdateMode() {
             
         }
         break;
+
+    case Falcor::ShadowMap::SMUpdateMode::UpdateAll:
     case Falcor::ShadowMap::SMUpdateMode::Static:
     default:
         break;

@@ -152,7 +152,7 @@ private:
     ShadowMapType mShadowMapType = ShadowMapType::ExponentialVariance;
     OracleDistFunction mOracleDistanceFunctionMode = OracleDistFunction::RoughnessSquare;
     float mNear = 0.1f;
-    float mFar = 30.f;
+    float mFar = 60.f;
     bool mUsePCF = false;
     bool mUsePoissonDisc = false;
     bool mBiasSettingsChanged = false;
@@ -186,6 +186,7 @@ private:
 
     bool mApplyUiSettings = false;
     SMUpdateMode mShadowMapUpdateMode = SMUpdateMode::Static;
+    bool mStaticTexturesReady[2] = {false, false};  //Spot, Cube
     uint mUpdateFrameCounter = 0;
     std::vector<bool> mShadowMapUpdateList[2];
     uint mUpdateEveryNFrame = 2;
@@ -216,6 +217,8 @@ private:
     std::vector<ref<Texture>> mpCascadedShadowMaps; //Cascaded Shadow Maps for Directional Lights
     std::vector<ref<Texture>> mpShadowMapsCube;     // Cube Shadow Maps (Point Lights)
     std::vector<ref<Texture>> mpShadowMaps;         // 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights)
+    std::vector<ref<Texture>> mpShadowMapsCubeStatic;     // Static Cube Shadow Maps. Only used if scene has animations
+    std::vector<ref<Texture>> mpShadowMapsStatic;     // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
     ref<Buffer> mpLightMapping;
     ref<Buffer> mpVPMatrixBuffer;
     std::vector<ref<Buffer>> mpVPMatrixStangingBuffer;
@@ -225,7 +228,8 @@ private:
     ref<Texture> mpDepthCascaded;                  //Depth texture needed for some types of cascaded (can be null)
     ref<Texture> mpDepthCube;                      //Depth texture needed for the cube map
     ref<Texture> mpDepth;                          //Depth texture needed for some types of 2D SM (can be null)
-    ref<Texture> mpTestTex;
+    std::vector<ref<Texture>> mpDepthCubeStatic;   // Static cube depth map copy per shadow map
+    std::vector<ref<Texture>> mpDepthStatic;       // Static 2D depth map copy per shadow map
 
     ref<ComputePass> mpReflectTypes;               // Dummy pass needed to create the parameter block
     ref<ParameterBlock> mpShadowMapParameterBlock; // Parameter Block

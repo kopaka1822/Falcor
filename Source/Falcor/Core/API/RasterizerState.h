@@ -70,6 +70,16 @@ public:
     };
 
     /**
+    * Mesh render mode
+    */
+    enum class MeshRenderMode : uint32_t
+    {
+        All = 0,        ///< Rasterize all meshes
+        Static = 1,     ///< Rasterize static meshes only
+        Dynamic = 2,    ///< Rasterize dynamic meshes
+    };
+
+    /**
      * Rasterizer state descriptor
      */
     class FALCOR_API Desc

@@ -337,12 +337,29 @@ namespace Falcor
         return mpLightCollection;
     }
 
-    void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode)
+    void Scene::rasterize(
+        RenderContext* pRenderContext,
+        GraphicsState* pState,
+        GraphicsVars* pVars,
+        RasterizerState::CullMode cullMode,
+        RasterizerState::MeshRenderMode meshRenderMode
+    )
     {
-        rasterize(pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]);
+        rasterize(
+            pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode],
+            mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode
+        );
     }
 
-    void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW , const ref<RasterizerState>& pRasterizerStateDS)
+    void Scene::rasterize(
+        RenderContext* pRenderContext,
+        GraphicsState* pState,
+        GraphicsVars* pVars,
+        const ref<RasterizerState>& pRasterizerStateCW,
+        const ref<RasterizerState>& pRasterizerStateCCW,
+        const ref<RasterizerState>& pRasterizerStateDS,
+        RasterizerState::MeshRenderMode meshRenderMode
+    )
     {
         FALCOR_PROFILE(pRenderContext, "rasterizeScene");
 
@@ -354,6 +371,14 @@ namespace Falcor
         for (const auto& draw : mDrawArgs)
         {
             FALCOR_ASSERT(draw.count > 0);
+
+            //Skip dynamic meshes if desired
+            if (meshRenderMode == RasterizerState::MeshRenderMode::Dynamic && !draw.isDynamic)
+                continue;
+
+            // Skip static meshes if desired
+            if (meshRenderMode == RasterizerState::MeshRenderMode::Static && draw.isDynamic)
+                continue;
 
             // Set state.
             pState->setVao(draw.ibFormat == ResourceFormat::R16Uint ? mpMeshVao16Bit : mpMeshVao);
@@ -2609,7 +2634,7 @@ namespace Falcor
         mDrawArgs.clear();
 
         // Helper to create the draw-indirect buffer.
-        auto createDrawBuffer = [this](const auto& drawMeshes, bool ccw, bool ignoreWinding, ResourceFormat ibFormat = ResourceFormat::Unknown)
+        auto createDrawBuffer = [this](const auto& drawMeshes, bool ccw, bool ignoreWinding, bool isDynamic ,ResourceFormat ibFormat = ResourceFormat::Unknown)
         {
             if (drawMeshes.size() > 0)
             {
@@ -2620,6 +2645,7 @@ namespace Falcor
                 draw.count = (uint32_t)drawMeshes.size();
                 draw.ccw = ccw;
                 draw.ignoreWinding = ignoreWinding;
+                draw.isDynamic = isDynamic;
                 draw.ibFormat = ibFormat;
                 mDrawArgs.push_back(draw);
             }
@@ -2627,7 +2653,7 @@ namespace Falcor
 
         if (hasIndexBuffer())
         {
-            std::vector<DrawIndexedArguments> drawClockwiseMeshes[2], drawCounterClockwiseMeshes[2], drawDoubleSidedMeshes[2];
+            std::vector<DrawIndexedArguments> drawClockwiseMeshes[4], drawCounterClockwiseMeshes[4], drawDoubleSidedMeshes[4]; //0,1 static ; 2,3 dynamic
 
             uint32_t instanceID = 0;
             for (const auto& instance : mGeometryInstanceData)
@@ -2636,6 +2662,7 @@ namespace Falcor
 
                 const auto& mesh = mMeshDesc[instance.geometryID];
                 bool use16Bit = mesh.use16BitIndices();
+                bool isDynamic = !mesh.isStatic();
                 const auto mat = getMaterial(MaterialID::fromSlang(mesh.materialID));
 
                 DrawIndexedArguments draw;
@@ -2645,6 +2672,7 @@ namespace Falcor
                 draw.BaseVertexLocation = mesh.vbOffset;
                 draw.StartInstanceLocation = instanceID++;
                 int i = use16Bit ? 0 : 1;
+                i += isDynamic ? 2 : 0;
                 if (mat->isDoubleSided() || !mat->isOpaque())
                     drawDoubleSidedMeshes[i].push_back(draw);
                 else if (instance.isWorldFrontFaceCW())
@@ -2653,16 +2681,22 @@ namespace Falcor
                     drawCounterClockwiseMeshes[i].push_back(draw);
             }
 
-            createDrawBuffer(drawClockwiseMeshes[0], false,false, ResourceFormat::R16Uint);
-            createDrawBuffer(drawClockwiseMeshes[1], false, false, ResourceFormat::R32Uint);
-            createDrawBuffer(drawCounterClockwiseMeshes[0], true, false, ResourceFormat::R16Uint);
-            createDrawBuffer(drawCounterClockwiseMeshes[1], true, false, ResourceFormat::R32Uint);
-            createDrawBuffer(drawDoubleSidedMeshes[0], true, true, ResourceFormat::R16Uint);
-            createDrawBuffer(drawDoubleSidedMeshes[1], true, true, ResourceFormat::R32Uint);
+            createDrawBuffer(drawClockwiseMeshes[0], false,false,false, ResourceFormat::R16Uint);
+            createDrawBuffer(drawClockwiseMeshes[1], false, false, false, ResourceFormat::R32Uint);
+            createDrawBuffer(drawClockwiseMeshes[2], false, false, true, ResourceFormat::R16Uint);
+            createDrawBuffer(drawClockwiseMeshes[3], false, false, true, ResourceFormat::R32Uint);
+            createDrawBuffer(drawCounterClockwiseMeshes[0], true, false, false, ResourceFormat::R16Uint);
+            createDrawBuffer(drawCounterClockwiseMeshes[1], true, false, false, ResourceFormat::R32Uint);
+            createDrawBuffer(drawCounterClockwiseMeshes[2], true, false, true, ResourceFormat::R16Uint);
+            createDrawBuffer(drawCounterClockwiseMeshes[3], true, false, true, ResourceFormat::R32Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[0], true, true, false, ResourceFormat::R16Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[1], true, true, false, ResourceFormat::R32Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[2], true, true, true, ResourceFormat::R16Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[3], true, true, true, ResourceFormat::R32Uint);
         }
         else
         {
-            std::vector<DrawArguments> drawClockwiseMeshes, drawCounterClockwiseMeshes, drawDoubleSidedMeshes;
+            std::vector<DrawArguments> drawClockwiseMeshes[2], drawCounterClockwiseMeshes[2], drawDoubleSidedMeshes[2]; //0 Static; 1 Dynamic
 
             uint32_t instanceID = 0;
             for (const auto& instance : mGeometryInstanceData)
@@ -2672,25 +2706,29 @@ namespace Falcor
                 const auto& mesh = mMeshDesc[instance.geometryID];
                 FALCOR_ASSERT(mesh.indexCount == 0);
                 const auto mat = getMaterial(MaterialID::fromSlang(mesh.materialID));
+                bool isDynamic = mesh.isAnimated();
 
                 DrawArguments draw;
                 draw.VertexCountPerInstance = mesh.vertexCount;
                 draw.InstanceCount = 1;
                 draw.StartVertexLocation = mesh.vbOffset;
                 draw.StartInstanceLocation = instanceID++;
-
+                uint i = isDynamic ? 1 : 0;
                 
                 if (mat->isDoubleSided() || !mat->isOpaque())
-                    drawDoubleSidedMeshes.push_back(draw);
+                    drawDoubleSidedMeshes[i].push_back(draw);
                 else if (instance.isWorldFrontFaceCW())
-                    drawClockwiseMeshes.push_back(draw);
+                    drawClockwiseMeshes[i].push_back(draw);
                 else
-                    drawCounterClockwiseMeshes.push_back(draw);
+                    drawCounterClockwiseMeshes[i].push_back(draw);
             }
 
-            createDrawBuffer(drawClockwiseMeshes, false, false);
-            createDrawBuffer(drawCounterClockwiseMeshes, true, false);
-            createDrawBuffer(drawDoubleSidedMeshes, true, true);
+            createDrawBuffer(drawClockwiseMeshes[0], false, false, false);
+            createDrawBuffer(drawCounterClockwiseMeshes[0], true, false, false);
+            createDrawBuffer(drawDoubleSidedMeshes[0], true, true, false);
+            createDrawBuffer(drawClockwiseMeshes[1], false, false, true);
+            createDrawBuffer(drawCounterClockwiseMeshes[1], true, false, true);
+            createDrawBuffer(drawDoubleSidedMeshes[1], true, true, true);
         }
     }
 
