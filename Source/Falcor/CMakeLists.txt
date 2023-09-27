@@ -294,6 +294,7 @@ target_sources(Falcor PRIVATE
     Rendering/RTXDI/SurfaceData.slang
 
 	Rendering/ShadowMaps/GenerateShadowMap.3d.slang
+	Rendering/ShadowMaps/GenerateShadowMap.rt.slang
 	Rendering/ShadowMaps/ReflectTypesForParameterBlock.cs.slang
 	Rendering/ShadowMaps/ShadowMap.cpp
 	Rendering/ShadowMaps/ShadowMap.h

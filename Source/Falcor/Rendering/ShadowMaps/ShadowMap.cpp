@@ -33,9 +33,11 @@ namespace Falcor
 {
 namespace
 {
-const std::string kDepthPassProgramFile = "Rendering/ShadowMaps/GenerateShadowMap.3d.slang";
+const std::string kShadowGenRasterShader = "Rendering/ShadowMaps/GenerateShadowMap.3d.slang";
+const std::string kShadowGenRayShader = "Rendering/ShadowMaps/GenerateShadowMap.rt.slang";
 const std::string kReflectTypesFile = "Rendering/ShadowMaps/ReflectTypesForParameterBlock.cs.slang";
 const std::string kShaderModel = "6_5";
+const uint kRayPayloadMaxSize = 4u;
 
 const Gui::DropdownList kShadowMapCullMode{
     {(uint)RasterizerState::CullMode::None, "None"},
@@ -147,31 +149,40 @@ void ShadowMap::prepareShadowMapBuffers()
     case ShadowMapType::Variance:
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::RG32Float : ResourceFormat::RG16Unorm;
-        shadowMapBindFlags |= ResourceBindFlags::RenderTarget | ResourceBindFlags::UnorderedAccess;
-        generateAdditionalDepthTextures = true;
+        shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
+        generateAdditionalDepthTextures = !mUseRaySMGen;
         genMipMaps = mUseShadowMipMaps;
         break;
     }
     case ShadowMapType::Exponential:
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::R32Float : ResourceFormat::R16Float;
-        shadowMapBindFlags |= ResourceBindFlags::RenderTarget | ResourceBindFlags::UnorderedAccess;
-        generateAdditionalDepthTextures = true;
+        shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
+        generateAdditionalDepthTextures = !mUseRaySMGen;
         genMipMaps = mUseShadowMipMaps;
         break;
     }
     case ShadowMapType::ExponentialVariance:
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::RGBA32Float : ResourceFormat::RGBA16Float;
-        shadowMapBindFlags |= ResourceBindFlags::RenderTarget | ResourceBindFlags::UnorderedAccess;
-        generateAdditionalDepthTextures = true;
+        shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
+        generateAdditionalDepthTextures = !mUseRaySMGen;
         genMipMaps = mUseShadowMipMaps;
         break;
     }
-    default:    //No special format needed
+    case ShadowMapType::ShadowMap: // No special format needed
     {
-        shadowMapFormat = mShadowMapFormat;
-        shadowMapBindFlags |= ResourceBindFlags::DepthStencil;
+        if (mUseRaySMGen)
+        {
+            shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::R32Float : ResourceFormat::R16Float;
+            shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
+        }
+        else
+        {
+            shadowMapFormat = mShadowMapFormat;
+            shadowMapBindFlags |= ResourceBindFlags::DepthStencil;
+        }
+        
     }
     }
 
@@ -205,7 +216,7 @@ void ShadowMap::prepareShadowMapBuffers()
             }
 
             auto cubeBindFlags = ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget;
-            if (mShadowMapType != ShadowMapType::ShadowMap)
+            if (mShadowMapType != ShadowMapType::ShadowMap || mUseRaySMGen)
                 cubeBindFlags |= ResourceBindFlags::UnorderedAccess;
 
             //TODO fix mips
@@ -383,14 +394,14 @@ void ShadowMap::prepareShadowMapBuffers()
 
 void ShadowMap::prepareRasterProgramms()
 {
-    mShadowCubePass.reset();
-    mShadowMapPass.reset();
-    mShadowMapCascadedPass.reset();
+    mShadowCubeRasterPass.reset();
+    mShadowMapRasterPass.reset();
+    mShadowMapCascadedRasterPass.reset();
 
     auto defines = getDefinesShadowMapGenPass();
     // Create Shadow Cube create rasterizer Program.
     {
-        mShadowCubePass.pState = GraphicsState::create(mpDevice);
+        mShadowCubeRasterPass.pState = GraphicsState::create(mpDevice);
         Program::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
 
@@ -398,28 +409,28 @@ void ShadowMap::prepareRasterProgramms()
         switch (mShadowMapType)
         {
         case ShadowMapType::ShadowMap:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psMainCube");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMainCube");
             break;
         case ShadowMapType::Variance:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psVarianceCube");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psVarianceCube");
             break;
         case ShadowMapType::Exponential:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponentialCube");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psExponentialCube");
             break;
         case ShadowMapType::ExponentialVariance:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponentialVarianceCube");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psExponentialVarianceCube");
             break;
         }
 
         desc.addTypeConformances(mpScene->getTypeConformances());
         desc.setShaderModel(kShaderModel);
 
-        mShadowCubePass.pProgram = GraphicsProgram::create(mpDevice, desc, defines);
-        mShadowCubePass.pState->setProgram(mShadowCubePass.pProgram);
+        mShadowCubeRasterPass.pProgram = GraphicsProgram::create(mpDevice, desc, defines);
+        mShadowCubeRasterPass.pState->setProgram(mShadowCubeRasterPass.pProgram);
     }
     // Create Shadow Map 2D create Program
     {
-        mShadowMapPass.pState = GraphicsState::create(mpDevice);
+        mShadowMapRasterPass.pState = GraphicsState::create(mpDevice);
         Program::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
 
@@ -427,28 +438,28 @@ void ShadowMap::prepareRasterProgramms()
         switch (mShadowMapType)
         {
         case ShadowMapType::ShadowMap:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psMain");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMain");
             break;
         case ShadowMapType::Variance:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psVariance");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psVariance");
             break;
         case ShadowMapType::Exponential:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponential");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psExponential");
             break;
         case ShadowMapType::ExponentialVariance:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponentialVariance");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psExponentialVariance");
             break;
         }
         
         desc.addTypeConformances(mpScene->getTypeConformances());
         desc.setShaderModel(kShaderModel);
 
-        mShadowMapPass.pProgram = GraphicsProgram::create(mpDevice, desc, defines);
-        mShadowMapPass.pState->setProgram(mShadowMapPass.pProgram);
+        mShadowMapRasterPass.pProgram = GraphicsProgram::create(mpDevice, desc, defines);
+        mShadowMapRasterPass.pState->setProgram(mShadowMapRasterPass.pProgram);
     }
     // Create Shadow Map 2D create Program
     {
-        mShadowMapCascadedPass.pState = GraphicsState::create(mpDevice);
+        mShadowMapCascadedRasterPass.pState = GraphicsState::create(mpDevice);
         Program::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
 
@@ -456,25 +467,41 @@ void ShadowMap::prepareRasterProgramms()
         switch (mShadowMapType)
         {
         case ShadowMapType::ShadowMap:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psMain");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMain");
             break;
         case ShadowMapType::Variance:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psVarianceCascaded");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psVarianceCascaded");
             break;
         case ShadowMapType::Exponential:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponentialCascaded");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psExponentialCascaded");
             break;
         case ShadowMapType::ExponentialVariance:
-            desc.addShaderLibrary(kDepthPassProgramFile).vsEntry("vsMain").psEntry("psExponentialVarianceCascaded");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psExponentialVarianceCascaded");
             break;
         }
 
         desc.addTypeConformances(mpScene->getTypeConformances());
         desc.setShaderModel(kShaderModel);
 
-        mShadowMapCascadedPass.pProgram = GraphicsProgram::create(mpDevice, desc, defines);
-        mShadowMapCascadedPass.pState->setProgram(mShadowMapCascadedPass.pProgram);
+        mShadowMapCascadedRasterPass.pProgram = GraphicsProgram::create(mpDevice, desc, defines);
+        mShadowMapCascadedRasterPass.pState->setProgram(mShadowMapCascadedRasterPass.pProgram);
     }
+}
+
+void ShadowMap::prepareRayProgramms(const Program::TypeConformanceList& globalTypeConformances)
+{
+    mShadowCubeRayPass = RayTraceProgramHelper::create();
+    mShadowMapRayPass = RayTraceProgramHelper::create();
+    mShadowMapCascadedRayPass = RayTraceProgramHelper::create();
+
+    auto defines = getDefinesShadowMapGenPass(false);
+
+    mShadowCubeRayPass.initRTProgram(mpDevice, mpScene, kShadowGenRayShader, defines, globalTypeConformances);
+    mShadowCubeRayPass.pProgram->addDefine("SMRAY_MODE", std::to_string((uint)LightTypeSM::Point));
+    mShadowMapRayPass.initRTProgram(mpDevice, mpScene, kShadowGenRayShader, defines, globalTypeConformances);
+    mShadowMapRayPass.pProgram->addDefine("SMRAY_MODE", std::to_string((uint)LightTypeSM::Spot));
+    mShadowMapCascadedRayPass.initRTProgram(mpDevice, mpScene, kShadowGenRayShader, defines, globalTypeConformances);
+    mShadowMapCascadedRayPass.pProgram->addDefine("SMRAY_MODE", std::to_string((uint)LightTypeSM::Directional));
 }
 
 void ShadowMap::prepareProgramms()
@@ -483,6 +510,7 @@ void ShadowMap::prepareProgramms()
 
     auto globalTypeConformances = mpScene->getMaterialSystem().getTypeConformances();
     prepareRasterProgramms();
+    prepareRayProgramms(globalTypeConformances);
     auto definesPB = getDefines();
     definesPB.add("SAMPLE_GENERATOR_TYPE", "0");
     // Create dummy Compute pass for Parameter block
@@ -604,7 +632,7 @@ DefineList ShadowMap::getDefines() const
     return defines;
 }
 
-DefineList ShadowMap::getDefinesShadowMapGenPass() const
+DefineList ShadowMap::getDefinesShadowMapGenPass(bool addAlphaModeDefines) const
 {
     DefineList defines;
     defines.add("USE_ALPHA_TEST", mUseAlphaTest ? "1" : "0");
@@ -615,7 +643,8 @@ DefineList ShadowMap::getDefinesShadowMapGenPass() const
     );
     defines.add("SM_NEGATIVE_EXPONENTIAL_CONSTANT", std::to_string(mEVSMNegConstant));
     defines.add("SM_VARIANCE_SELFSHADOW", mVarianceUseSelfShadowVariant ? "1" : "0");
-    defines.add("_ALPHA_TEST_MODE", std::to_string(mAlphaMode)); 
+    if (addAlphaModeDefines)
+        defines.add("_ALPHA_TEST_MODE", std::to_string(mAlphaMode)); 
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
 
@@ -754,18 +783,27 @@ void ShadowMap::setSMShaderVars(ShaderVar& var, ShaderParameters& params)
     var["CB"]["gFarPlane"] = params.farPlane;
 }
 
-void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext)
+void ShadowMap::setSMRayShaderVars(ShaderVar& var, RayShaderParameters& params)
+{
+    var["CB"]["gViewProjection"] = params.viewProjectionMatrix;
+    var["CB"]["gInvViewProjection"] = params.invViewProjectionMatrix;
+    var["CB"]["gLightPos"] = params.lightPosition;
+    var["CB"]["gFarPlane"] = params.farPlane;
+    var["CB"]["gNearPlane"] = params.nearPlane;
+}
+
+void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext)
 {
     FALCOR_PROFILE(pRenderContext, "GenShadowMapPoint");
     if (index == 0)
     {
-        mUpdateShadowMap |= mShadowCubePass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass());
+        mUpdateShadowMap |= mShadowCubeRasterPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass());
     }
 
     // Create Program Vars
-    if (!mShadowCubePass.pVars)
+    if (!mShadowCubeRasterPass.pVars)
     {
-        mShadowCubePass.pVars = GraphicsVars::create(mpDevice, mShadowCubePass.pProgram.get());
+        mShadowCubeRasterPass.pVars = GraphicsVars::create(mpDevice, mShadowCubeRasterPass.pProgram.get());
     }
 
     auto changes = light->getChanges();
@@ -836,11 +874,11 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
 
         params.viewProjectionMatrix = getProjViewForCubeFace(face, lightData, projMat);
 
-        auto vars = mShadowCubePass.pVars->getRootVar();
+        auto vars = mShadowCubeRasterPass.pVars->getRootVar();
         setSMShaderVars(vars, params);
 
-        mShadowCubePass.pState->setFbo(mpFboCube);
-        mpScene->rasterize(pRenderContext, mShadowCubePass.pState.get(), mShadowCubePass.pVars.get(), mCullMode, meshRenderMode);
+        mShadowCubeRasterPass.pState->setFbo(mpFboCube);
+        mpScene->rasterize(pRenderContext, mShadowCubeRasterPass.pState.get(), mShadowCubeRasterPass.pVars.get(), mCullMode, meshRenderMode);
     }
 
     // Blur if it is activated/enabled
@@ -855,6 +893,85 @@ void ShadowMap::renderCubeEachFace(uint index, ref<Light> light, RenderContext* 
 
      if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
         mStaticTexturesReady[1] = true;
+}
+
+void ShadowMap::rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext) {
+     if (index == 0)
+     {
+        mUpdateShadowMap |= mShadowCubeRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false));                // Update defines
+        mUpdateShadowMap |= mShadowCubeRayPass.pProgram->addDefine("SMRAY_TYPE", std::to_string((uint)mShadowMapType)); // SM type define
+        // Create Program Vars
+        if (!mShadowCubeRayPass.pVars)
+        {
+            mShadowCubeRayPass.pProgram->setTypeConformances(mpScene->getTypeConformances());
+            // Create program variables for the current program.
+            // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
+            mShadowCubeRayPass.pVars = RtProgramVars::create(mpDevice, mShadowCubeRayPass.pProgram, mShadowCubeRayPass.pBindingTable);
+        }
+     }
+
+     FALCOR_PROFILE(pRenderContext, "GenShadowMapPoint");
+
+     auto changes = light->getChanges();
+     bool renderLight = false;
+
+     if (mShadowMapUpdateMode == SMUpdateMode::Static)
+        renderLight = (changes == Light::Changes::Active) || (changes == Light::Changes::Position);
+     else if (mShadowMapUpdateMode == SMUpdateMode::UpdateAll)
+        renderLight = true;
+     else
+        renderLight = mShadowMapUpdateList[1][index];
+
+     renderLight |= mUpdateShadowMap;
+
+     if (!renderLight || !light->isActive())
+        return;
+
+     auto& lightData = light->getData();
+
+     RayShaderParameters params;
+     params.lightPosition = lightData.posW;
+     params.farPlane = mFar;
+     params.nearPlane = mNear;
+
+     const float4x4 projMat = math::perspective(float(M_PI_2), 1.f, mNear, mFar); // Is the same for all 6 faces
+
+     for (size_t face = 0; face < 6; face++)
+     {
+        params.viewProjectionMatrix = getProjViewForCubeFace(face, lightData, projMat);
+        params.invViewProjectionMatrix = math::inverse(params.viewProjectionMatrix);
+
+        auto vars = mShadowCubeRayPass.pVars->getRootVar();
+        setSMRayShaderVars(vars, params);
+
+         // Set UAV's
+        switch (mShadowMapType)
+        {
+        case Falcor::ShadowMapType::ShadowMap:
+        case Falcor::ShadowMapType::Exponential:
+            vars["gOutSM"].setUav(mpShadowMapsCube[index]->getUAV(0,face,1));
+            break;
+        case Falcor::ShadowMapType::Variance:
+            vars["gOutSMF2"].setUav(mpShadowMapsCube[index]->getUAV(0, face, 1));
+            break;
+        case Falcor::ShadowMapType::ExponentialVariance:
+            vars["gOutSMF4"].setUav(mpShadowMapsCube[index]->getUAV(0, face, 1));
+            break;
+        }
+        uint2 dispatchDims = uint2(mShadowMapSizeCube);
+
+        mpScene->raytrace(pRenderContext, mShadowCubeRayPass.pProgram.get(), mShadowCubeRayPass.pVars, uint3(dispatchDims, 1));
+     }
+
+     // Blur if it is activated/enabled
+
+     if (mpBlurCube)
+        mpBlurCube->execute(pRenderContext, mpShadowMapsCube[index]);
+
+     /* TODO doesnt work, needs fixing
+     if (mShadowMapType != ShadowMapType::ShadowMap && mUseShadowMipMaps)
+         mpShadowMapsCube[index]->generateMips(pRenderContext);
+     */
 }
 
 float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix)
@@ -894,7 +1011,17 @@ float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData
     return math::mul(projectionMatrix, viewMat);
 }
 
-bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered) {
+bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered) {
+    if (index == 0)
+    {
+        mUpdateShadowMap |= mShadowMapRasterPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); // Update defines
+        // Create Program Vars
+        if (!mShadowMapRasterPass.pVars)
+        {
+            mShadowMapRasterPass.pVars = GraphicsVars::create(mpDevice, mShadowMapRasterPass.pProgram.get());
+        }
+    }
+   
     FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
     auto changes = light->getChanges();
     bool renderLight = false;
@@ -997,12 +1124,12 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
   
     mSpotDirViewProjMat[index] = params.viewProjectionMatrix;
 
-    auto vars = mShadowMapPass.pVars->getRootVar();
+    auto vars = mShadowMapRasterPass.pVars->getRootVar();
     setSMShaderVars(vars, params);
 
-    mShadowMapPass.pState->setFbo(mpFbo);
+    mShadowMapRasterPass.pState->setFbo(mpFbo);
     mpScene->rasterize(
-        pRenderContext, mShadowMapPass.pState.get(), mShadowMapPass.pVars.get(), mFrontClockwiseRS[mCullMode],
+        pRenderContext, mShadowMapRasterPass.pState.get(), mShadowMapRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
         mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode
     );
 
@@ -1016,6 +1143,93 @@ bool ShadowMap::renderSpotLight(uint index, ref<Light> light, RenderContext* pRe
 
     if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
         mStaticTexturesReady[0] = true;
+
+    return true;
+}
+
+bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered) {
+    if (index == 0)
+    {
+        mUpdateShadowMap |= mShadowMapRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false)); // Update defines
+        mUpdateShadowMap |= mShadowMapRayPass.pProgram->addDefine("SMRAY_TYPE", std::to_string((uint)mShadowMapType)); // SM type define
+        // Create Program Vars
+        if (!mShadowMapRayPass.pVars)
+        {
+            mShadowMapRayPass.pProgram->setTypeConformances(mpScene->getTypeConformances());
+            // Create program variables for the current program.
+            // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
+            mShadowMapRayPass.pVars = RtProgramVars::create(mpDevice, mShadowMapRayPass.pProgram, mShadowMapRayPass.pBindingTable);
+        }
+    }
+    FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
+    
+    auto changes = light->getChanges();
+    bool renderLight = false;
+    
+    // Handle updates
+    if (mShadowMapUpdateMode == SMUpdateMode::Static)
+        renderLight =
+            (changes == Light::Changes::Active) || (changes == Light::Changes::Position) || (changes == Light::Changes::Direction);
+    else if (mShadowMapUpdateMode == SMUpdateMode::UpdateAll)
+        renderLight = true;
+    else
+        renderLight = mShadowMapUpdateList[0][index];
+
+    renderLight |= mUpdateShadowMap;
+
+    auto& lightData = light->getData();
+
+    if (!renderLight || !light->isActive())
+    {
+        wasRendered[index] = false;
+        return false;
+    }
+    wasRendered[index] = true;
+
+    RayShaderParameters params;
+
+    float3 lightTarget = lightData.posW + lightData.dirW;
+    const float3 up = abs(lightData.dirW.y) == 1 ? float3(0, 0, 1) : float3(0, 1, 0);
+    float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
+    float4x4 projMat = math::perspective(lightData.openingAngle * 2, 1.f, mNear, mFar);
+
+    params.lightPosition = lightData.posW;
+    params.farPlane = mFar;
+    params.nearPlane = mNear;
+    params.viewProjectionMatrix = math::mul(projMat, viewMat);
+    params.invViewProjectionMatrix = math::inverse(params.viewProjectionMatrix);
+
+    mSpotDirViewProjMat[index] = params.viewProjectionMatrix;
+
+    auto vars = mShadowMapRayPass.pVars->getRootVar();
+    setSMRayShaderVars(vars, params);
+
+    //Set UAV's
+    switch (mShadowMapType)
+    {
+    case Falcor::ShadowMapType::ShadowMap:
+    case Falcor::ShadowMapType::Exponential:
+        vars["gOutSM"] = mpShadowMaps[index];
+        break;
+    case Falcor::ShadowMapType::Variance:
+        vars["gOutSMF2"] = mpShadowMaps[index];
+        break;    
+    case Falcor::ShadowMapType::ExponentialVariance:
+        vars["gOutSMF4"] = mpShadowMaps[index];
+        break;
+    }
+
+    uint2 dispatchDims = uint2(mShadowMapSize);
+
+    mpScene->raytrace(pRenderContext, mShadowMapRayPass.pProgram.get(), mShadowMapRayPass.pVars, uint3(dispatchDims, 1));
+
+    // Blur if it is activated/enabled
+    if (mpBlurShadowMap)
+        mpBlurShadowMap->execute(pRenderContext, mpShadowMaps[index]);
+
+    // generate Mips for shadow map modes that allow filter
+    if (mUseShadowMipMaps)
+        mpShadowMaps[index]->generateMips(pRenderContext);
 
     return true;
 }
@@ -1126,8 +1340,18 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
     }        
 }
 
-bool ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext)
+bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRenderContext)
 {
+    if (index == 0)
+    {
+        mUpdateShadowMap |= mShadowMapCascadedRasterPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); // Update defines
+        // Create Program Vars
+        if (!mShadowMapCascadedRasterPass.pVars)
+        {
+            mShadowMapCascadedRasterPass.pVars = GraphicsVars::create(mpDevice, mShadowMapCascadedRasterPass.pProgram.get());
+        }
+    }
+
     FALCOR_PROFILE(pRenderContext, "GenCascadedShadowMaps");
     auto& lightData = light->getData();
 
@@ -1137,10 +1361,7 @@ bool ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRen
     if ( !light->isActive())
     {
         return false;
-    }
-
-    // Clear depth buffer.
-    
+    } 
 
     //Update viewProj
     calcProjViewForCascaded(index, lightData);
@@ -1171,14 +1392,93 @@ bool ShadowMap::renderCascaded(uint index, ref<Light> light, RenderContext* pRen
         params.farPlane = mFar;
         params.viewProjectionMatrix = mCascadedVPMatrix[casMatIdx + cascLevel];
 
-        auto vars = mShadowMapCascadedPass.pVars->getRootVar();
+        auto vars = mShadowMapCascadedRasterPass.pVars->getRootVar();
         setSMShaderVars(vars, params);
 
         
-        mShadowMapCascadedPass.pState->setFbo(mpFboCascaded);
+        mShadowMapCascadedRasterPass.pState->setFbo(mpFboCascaded);
         mpScene->rasterize(
-            pRenderContext, mShadowMapCascadedPass.pState.get(), mShadowMapCascadedPass.pVars.get(), mFrontClockwiseRS[mCullMode],
+            pRenderContext, mShadowMapCascadedRasterPass.pState.get(), mShadowMapCascadedRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
             mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]
+        );
+    }
+
+    // Blur if it is activated/enabled
+    if (mpBlurCascaded)
+        mpBlurCascaded->execute(pRenderContext, mpCascadedShadowMaps[index]);
+
+    // generate Mips for shadow map modes that allow filter
+    if (mUseShadowMipMaps)
+        mpCascadedShadowMaps[index]->generateMips(pRenderContext);
+
+    return true;
+}
+
+bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRenderContext) {
+    if (index == 0)
+    {
+        mUpdateShadowMap |= mShadowMapCascadedRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false));                 // Update defines
+        mUpdateShadowMap |= mShadowMapCascadedRayPass.pProgram->addDefine("SMRAY_TYPE", std::to_string((uint)mShadowMapType)); // SM type define
+        // Create Program Vars
+        if (!mShadowMapCascadedRayPass.pVars)
+        {
+            mShadowMapCascadedRayPass.pProgram->setTypeConformances(mpScene->getTypeConformances());
+            // Create program variables for the current program.
+            // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
+            mShadowMapCascadedRayPass.pVars =
+                RtProgramVars::create(mpDevice, mShadowMapCascadedRayPass.pProgram, mShadowMapCascadedRayPass.pBindingTable);
+        }
+    }
+
+    FALCOR_PROFILE(pRenderContext, "GenCascadedShadowMaps");
+    auto& lightData = light->getData();
+
+    if (index == 0)
+        mCascadedFirstThisFrame = true;
+
+    if (!light->isActive())
+    {
+        return false;
+    }
+
+    // Update viewProj
+    calcProjViewForCascaded(index, lightData);
+
+    uint casMatIdx = index * mCascadedLevelCount;
+
+    RayShaderParameters params;
+    params.lightPosition = lightData.dirW;
+    params.farPlane = mFar;
+    params.nearPlane = mNear;
+
+    // Render each cascade
+    for (uint cascLevel = 0; cascLevel < mCascadedLevelCount; cascLevel++)
+    {
+        params.viewProjectionMatrix = mCascadedVPMatrix[casMatIdx + cascLevel];
+        params.invViewProjectionMatrix = math::inverse(mCascadedVPMatrix[casMatIdx + cascLevel]);
+
+        auto vars = mShadowMapCascadedRayPass.pVars->getRootVar();
+        setSMRayShaderVars(vars, params);
+
+        // Set UAV's
+        switch (mShadowMapType)
+        {
+        case Falcor::ShadowMapType::ShadowMap:
+        case Falcor::ShadowMapType::Exponential:
+            vars["gOutSM"].setUav(mpCascadedShadowMaps[index]->getUAV(0,cascLevel,1));
+            break;
+        case Falcor::ShadowMapType::Variance:
+            vars["gOutSMF2"].setUav(mpCascadedShadowMaps[index]->getUAV(0, cascLevel, 1));
+            break;
+        case Falcor::ShadowMapType::ExponentialVariance:
+            vars["gOutSMF4"].setUav(mpCascadedShadowMaps[index]->getUAV(0, cascLevel, 1));
+            break;
+        }
+
+        uint2 dispatchDims = uint2(mShadowMapSizeCascaded);
+
+        mpScene->raytrace(
+            pRenderContext, mShadowMapCascadedRayPass.pProgram.get(), mShadowMapCascadedRayPass.pVars, uint3(dispatchDims, 1)
         );
     }
 
@@ -1233,6 +1533,9 @@ bool ShadowMap::update(RenderContext* pRenderContext)
         mBiasSettingsChanged = false;
     }
 
+    if (mRerenderStatic && mShadowMapUpdateMode == SMUpdateMode::Static)
+        mUpdateShadowMap = true;
+
     handleShadowMapUpdateMode();
 
     //Handle Blur
@@ -1276,37 +1579,34 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     // Render all cube lights
     for (size_t i = 0; i < lightRenderListCube.size(); i++)
     {
-        renderCubeEachFace(i, lightRenderListCube[i], pRenderContext);
+        if (mUseRaySMGen)
+            rayGenCubeEachFace(i, lightRenderListCube[i], pRenderContext);
+        else
+            rasterCubeEachFace(i, lightRenderListCube[i], pRenderContext);
     }
 
-    //Spot/Directional Lights
-    mUpdateShadowMap |= mShadowMapPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); //Update defines
-    // Create Program Vars
-    if (!mShadowMapPass.pVars)
-    {
-        mShadowMapPass.pVars = GraphicsVars::create(mpDevice, mShadowMapPass.pProgram.get());
-    }
-    
+    // Spot/Directional Lights
     std::vector<bool> wasRendered(lightRenderListMisc.size());
     bool updateVPBuffer = false;
     // Render all spot / directional lights
     for (size_t i = 0; i < lightRenderListMisc.size(); i++)
     {
-        updateVPBuffer |= renderSpotLight(i, lightRenderListMisc[i], pRenderContext, wasRendered);
+        if (mUseRaySMGen)
+            updateVPBuffer |= rayGenSpotLight(i, lightRenderListMisc[i], pRenderContext, wasRendered);
+        else
+            updateVPBuffer |= rasterSpotLight(i, lightRenderListMisc[i], pRenderContext, wasRendered);
     }
 
     //Render cascaded
-    mUpdateShadowMap |= mShadowMapCascadedPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); // Update defines
-    // Create Program Vars
-    if (!mShadowMapCascadedPass.pVars)
-    {
-        mShadowMapCascadedPass.pVars = GraphicsVars::create(mpDevice, mShadowMapCascadedPass.pProgram.get());
-    }
+    
     updateVPBuffer |= lightRenderListCascaded.size() > 0;
     bool cascFirstThisFrame = true;
     for (size_t i = 0; i < lightRenderListCascaded.size(); i++)
     {
-        updateVPBuffer |= renderCascaded(i, lightRenderListCascaded[i], pRenderContext);
+        if (mUseRaySMGen)
+            updateVPBuffer |= rayGenCascaded(i, lightRenderListCascaded[i], pRenderContext);
+        else
+            updateVPBuffer |= rasterCascaded(i, lightRenderListCascaded[i], pRenderContext);
     }
 
     // Write all ViewProjectionMatrix to the buffer
@@ -1347,6 +1647,8 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 
 void ShadowMap::renderUI(Gui::Widgets& widget)
 {
+    mResetShadowMapBuffers |= widget.checkbox("Generate: Use Ray Tracing", mUseRaySMGen);
+    widget.tooltip("Uses a ray tracing shader to generate the shadow maps");
     static uint classicBias = mBias;
     static float classicSlopeBias = mSlopeBias;
     static float cubeBias = mSMCubeWorldBias;
@@ -1376,23 +1678,32 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     }
     widget.tooltip("Changes the Shadow Map Type. For types other than Shadow Map, a extra depth texture is needed",true);
 
-    widget.dropdown("Update Mode",kShadowMapUpdateModeDropdownList, (uint&)mShadowMapUpdateMode);
-    widget.tooltip("Specify the update mode for shadow maps");  //TODO add more detail to each mode
-    if (mShadowMapUpdateMode == SMUpdateMode::UpdateInNFrames)
-        widget.var("Update Interval", mUpdateEveryNFrame, 2u, 512u, 1u);
-    widget.tooltip("Renders all shadow maps every frame");
-
-    if (mShadowMapUpdateMode != SMUpdateMode::Static)
+    if (mpScene->hasAnimation())
     {
-        bool resetStaticSM = widget.button("Reset Static SM");
-        widget.tooltip("Rerenders all static shadow maps");
-        if (resetStaticSM && mStaticTexturesReady)
+        widget.dropdown("Update Mode", kShadowMapUpdateModeDropdownList, (uint&)mShadowMapUpdateMode);
+        widget.tooltip("Specify the update mode for shadow maps"); // TODO add more detail to each mode
+        if (mShadowMapUpdateMode == SMUpdateMode::UpdateInNFrames)
+            widget.var("Update Interval", mUpdateEveryNFrame, 2u, 512u, 1u);
+        widget.tooltip("Renders all shadow maps every frame");
+
+        if (mShadowMapUpdateMode != SMUpdateMode::Static)
         {
-            mStaticTexturesReady[0] = false;
-            mStaticTexturesReady[1] = false;
+            bool resetStaticSM = widget.button("Reset Static SM");
+            widget.tooltip("Rerenders all static shadow maps");
+            if (resetStaticSM && mStaticTexturesReady)
+            {
+                mStaticTexturesReady[0] = false;
+                mStaticTexturesReady[1] = false;
+            }
         }
-            
     }
+
+    if (mShadowMapUpdateMode == SMUpdateMode::Static)
+    {
+        widget.checkbox("Render every frame", mRerenderStatic);
+        widget.tooltip("Rerenders the shadow map every frame");
+    }
+    
 
     widget.checkbox("Use Hybrid SM", mUseHybridSM);
     widget.tooltip("Enables Hybrid Shadow Maps, where the edge of the shadow map is traced", true);
@@ -1759,6 +2070,31 @@ void ShadowMap::handleShadowMapUpdateMode() {
     default:
         break;
     }
+}
+
+void ShadowMap::RayTraceProgramHelper::initRTProgram(ref<Device> device,ref<Scene> scene, const std::string& shaderName, DefineList& defines, const Program::TypeConformanceList& globalTypeConformances)
+{
+    RtProgram::Desc desc;
+    desc.addShaderModules(scene->getShaderModules());
+    desc.addShaderLibrary(shaderName);
+    desc.setMaxPayloadSize(kRayPayloadMaxSize);
+    desc.setMaxAttributeSize(scene->getRaytracingMaxAttributeSize());
+    desc.setMaxTraceRecursionDepth(1);
+    if (!scene->hasProceduralGeometry())
+        desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
+
+    pBindingTable = RtBindingTable::create(1, 1, scene->getGeometryCount());
+    auto& sbt = pBindingTable;
+    sbt->setRayGen(desc.addRayGen("rayGen", globalTypeConformances)); //TODO globalTypeConformances necessary? 
+    sbt->setMiss(0, desc.addMiss("miss"));
+
+    // TODO: Support more geometry types and more material conformances
+    if (scene->hasGeometryType(Scene::GeometryType::TriangleMesh))
+    {
+        sbt->setHitGroup(0, scene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+    }
+
+    pProgram = RtProgram::create(device, desc, defines);
 }
 
 }

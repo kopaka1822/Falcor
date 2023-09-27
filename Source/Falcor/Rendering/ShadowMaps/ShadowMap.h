@@ -99,22 +99,36 @@ private:
         float3 lightPosition = float3(0, 0, 0);
         float farPlane = 30.f;
     };
+    struct RayShaderParameters
+    {
+        float4x4 viewProjectionMatrix = float4x4();
+        float4x4 invViewProjectionMatrix = float4x4();
+
+        float3 lightPosition = float3(0, 0, 0);
+        float farPlane = 30.f;
+        float nearPlane = 0.1f;
+    };
 
     LightTypeSM getLightType(const ref<Light> light);
     void prepareShadowMapBuffers();
     void prepareRasterProgramms();
+    void prepareRayProgramms(const Program::TypeConformanceList& globalTypeConformances);
     void prepareProgramms();
     void prepareGaussianBlur();
     void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
+    void setSMRayShaderVars(ShaderVar& var, RayShaderParameters& params);
     void updateRasterizerStates();
     void handleNormalizedPixelSizeBuffer();
     void handleShadowMapUpdateMode();
 
-    DefineList getDefinesShadowMapGenPass() const;
+    DefineList getDefinesShadowMapGenPass(bool addAlphaModeDefines = true) const;
 
-    void renderCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
-    bool renderSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
-    bool renderCascaded(uint index, ref<Light> light, RenderContext* pRenderContext);
+    void rasterCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
+    bool rasterSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
+    bool rasterCascaded(uint index, ref<Light> light, RenderContext* pRenderContext);
+    void rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
+    bool rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
+    bool rayGenCascaded(uint index, ref<Light> light, RenderContext* pRenderContext);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix);
     void calcProjViewForCascaded(uint index, const LightData& lightData);
     
@@ -140,6 +154,7 @@ private:
     const uint kStagingBufferCount = 3;
     const uint kNumberDebugTextures = 16;
 
+    bool mUseRaySMGen = false;
     uint mShadowMapSize = 1024;
     uint mShadowMapSizeCube = 1024;
     uint mShadowMapSizeCascaded = 2048;
@@ -149,7 +164,7 @@ private:
     std::map<RasterizerState::CullMode, ref<RasterizerState>> mFrontCounterClockwiseRS;
 
     // Settings
-    ShadowMapType mShadowMapType = ShadowMapType::ExponentialVariance;
+    ShadowMapType mShadowMapType = ShadowMapType::Variance;
     OracleDistFunction mOracleDistanceFunctionMode = OracleDistFunction::RoughnessSquare;
     float mNear = 0.1f;
     float mFar = 60.f;
@@ -185,6 +200,7 @@ private:
     bool mUseGaussianBlur = true;
 
     bool mApplyUiSettings = false;
+    bool mRerenderStatic = false;
     SMUpdateMode mShadowMapUpdateMode = SMUpdateMode::Static;
     bool mStaticTexturesReady[2] = {false, false};  //Spot, Cube
     uint mUpdateFrameCounter = 0;
@@ -248,9 +264,36 @@ private:
         }
     };
 
-    RasterizerPass mShadowCubePass;
-    RasterizerPass mShadowMapPass;
-    RasterizerPass mShadowMapCascadedPass;
+    struct RayTraceProgramHelper
+    {
+        ref<RtProgram> pProgram;
+        ref<RtBindingTable> pBindingTable;
+        ref<RtProgramVars> pVars;
+
+        static const RayTraceProgramHelper create()
+        {
+            RayTraceProgramHelper r;
+            r.pProgram = nullptr;
+            r.pBindingTable = nullptr;
+            r.pVars = nullptr;
+            return r;
+        }
+
+        void initRTProgram(
+            ref<Device> device,
+            ref<Scene> scene,
+            const std::string& shaderName,
+            DefineList& defines,
+            const Program::TypeConformanceList& globalTypeConformances
+        );
+    };
+
+    RasterizerPass mShadowCubeRasterPass;
+    RasterizerPass mShadowMapRasterPass;
+    RasterizerPass mShadowMapCascadedRasterPass;
+    RayTraceProgramHelper mShadowCubeRayPass;
+    RayTraceProgramHelper mShadowMapRayPass;
+    RayTraceProgramHelper mShadowMapCascadedRayPass;
 };
 
 }
