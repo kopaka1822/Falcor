@@ -78,6 +78,7 @@ private:
     bool                        mUseImportanceSampling = true;  ///< Use importance sampling for materials.
     bool                        mUseEmissiveLight = true;       ///< Disables Emissive Light
     bool                        mUseAlphaTest = true;           ///< Alpha Test
+    bool                        mEvalAllAnalyticLights = true;  ///< Evals all analytic lights on hit
    
     uint                        mUseShadowMapBounce = 0;        ///< Use the Shadow Map starting at bounce x. If mMaxBounces + 1 it is disabled
     bool                        mOracleDebugShowFunc = false;   ///< Shows the Oracle function

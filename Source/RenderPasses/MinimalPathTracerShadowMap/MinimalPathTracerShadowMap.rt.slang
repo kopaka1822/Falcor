@@ -88,6 +88,7 @@ static const uint kMaxBounces = MAX_BOUNCES;
 static const bool kComputeDirect = COMPUTE_DIRECT;
 static const bool kUseImportanceSampling = USE_IMPORTANCE_SAMPLING;
 static const bool kUseAnalyticLights = USE_ANALYTIC_LIGHTS;
+static const bool kEvalAllAnalyticLights = EVAL_ALL_ANALYTIC_LIGHTS;
 static const bool kUseEmissiveLights = USE_EMISSIVE_LIGHTS;
 static const bool kUseEnvLight = USE_ENV_LIGHT;
 static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
@@ -297,6 +298,28 @@ void traceScatterRay(inout ScatterRayData rayData)
     TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 }
 
+float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout ScatterRayData rayData)
+{
+    float3 outLi = float3(0);
+    const uint lightCount = gScene.getLightCount();
+        if (lightCount == 0)
+            return outLi;
+    if (kEvalAllAnalyticLights)
+    {
+        for (uint i = 0; i < lightCount; i++)
+        {
+            outLi += evalLights(i, 1.f, sd, mi, sg, rayData);
+        }
+    }
+    else //One random light
+    {
+        // Pick one of the analytic light sources randomly with equal probability.
+        const uint lightIndex = min(uint(sampleNext1D(sg) * lightCount), lightCount - 1);
+        float invPdf = lightCount; // Light selection pdf = 1.0 / lightCount.
+        outLi = evalLights(lightIndex, invPdf, sd, mi, sg, rayData);
+    }
+    return outLi;
+}
 /** Evaluates the direct illumination from analytic lights.
     This function samples Falcor's light list uniformly with one shadow ray.
     \param[in] sd Shading data.
@@ -304,16 +327,9 @@ void traceScatterRay(inout ScatterRayData rayData)
     \param[in,out] sg SampleGenerator object.
     \return Outgoing radiance in view direction.
 */
-float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout ScatterRayData rayData)
+float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout ScatterRayData rayData)
 {
     const uint pathLength = rayData.pathLength;
-    const uint lightCount = gScene.getLightCount();
-    if (lightCount == 0) return float3(0.f);
-
-    // Pick one of the analytic light sources randomly with equal probability.
-    const uint lightIndex = min(uint(sampleNext1D(sg) * lightCount), lightCount - 1);
-    float invPdf = lightCount; // Light selection pdf = 1.0 / lightCount.
-
     // Sample local light source.
     AnalyticLightSample ls;
     LightData lightData = gScene.getLight(lightIndex);
@@ -342,6 +358,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     float oracle = 0.f;
     float oracleMip = 0.f;
     bool useShadowRay = gUseShadowMap > pathLength;
+        
     if (gShadowMap.kUseOracle && !useShadowRay)
     {
         oracle = gShadowMap.oracleFunction(lightIndex, smLightData, sd, rayData.distance, oracleMip);
@@ -401,11 +418,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
             
     if (useShadowRay)
         shadow = traceShadowRay(origin, ls.dir, ls.distance);
-
-    
-    if(shadow <= 1e-10f)
-        return float3(0);
-    
+        
     // Evaluate contribution.
     return Lr * shadow;
 }
@@ -494,6 +507,7 @@ void handleHit(const HitInfo hit, inout ScatterRayData rayData)
     // Add contribution of direct light from analytic lights.
     if (kUseAnalyticLights)
     {
+    
         float3 Lr = evalDirectAnalytic(sd, mi, rayData.sg, rayData);
         rayData.radiance += rayData.thp * Lr;
     }

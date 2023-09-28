@@ -162,6 +162,7 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     mTracer.pProgram->addDefine("COMPUTE_DIRECT", mComputeDirect ? "1" : "0");
     mTracer.pProgram->addDefine("USE_IMPORTANCE_SAMPLING", mUseImportanceSampling ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ANALYTIC_LIGHTS", mpScene->useAnalyticLights() ? "1" : "0");
+    mTracer.pProgram->addDefine("EVAL_ALL_ANALYTIC_LIGHTS", mEvalAllAnalyticLights ? "1" : "0");
     mTracer.pProgram->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() && mUseEmissiveLight ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_LIGHT", mpScene->useEnvLight() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
@@ -240,6 +241,9 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
 
     dirty |= widget.checkbox("Emissive Light", mUseEmissiveLight);
     widget.tooltip("Enable/Disable Emissive Light", true);
+
+    dirty |= widget.checkbox("Eval all Analytic", mEvalAllAnalyticLights);
+    widget.tooltip("Evaluates all analytic lights on hit");
 
     //TODO enable if ray cones are fixed or ray differentials are implemented
     if (auto mode = mTexLODMode; widget.dropdown("Texture LOD mode", mode))
