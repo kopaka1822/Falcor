@@ -366,6 +366,9 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
     
     float shadow;
     bool useNormalSM = oracle <= gShadowMap.kOracleCompValue;
+
+    if(gShadowMap.kUseHybridShadowMap)
+        useShadowRay |= oracle > gShadowMap.kOracleCompUpperBound;
     
     if (gShadowMap.kUseHybridShadowMap && !useShadowRay)
     {

@@ -76,6 +76,7 @@ struct ShadowMap
     static const bool kUseHybridShadowMap = USE_HYBRID_SM;
     static const bool kUseOracle = USE_ORACLE_FUNCTION;
     static const float kOracleCompValue = ORACLE_COMP_VALUE;
+    static const float kOracleCompUpperBound =ORACLE_UPPER_BOUND;
     static const bool kUseOracleDistFunction = USE_ORACLE_DISTANCE_FUNCTION;
     static const bool kUseSMMips = USE_SM_MIP;
     static const float kMipBias = SM_MIP_BIAS;      //angle bias used in mip calculation (cos theta^bias)
@@ -626,7 +627,7 @@ struct ShadowMap
         
         float4 variances = float4(0);
         float4 sv = getShadowVarianceValueGather(index, gatherUV, lightType, level, variances);
-
+       
         bool allLit = true;
         for (uint i = 0; i < 4; i++)
         {
@@ -647,6 +648,38 @@ struct ShadowMap
        
         return saturate(pMax);
     }
+
+    //Variance Hybrid shadow PCF style
+     bool varianceShadowTestHybridPCF(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
+     {
+     float3 gatherUV = shadowUV;
+        const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
+        
+        if (lightType != (uint) LightTypeSM::Point)
+        {
+            gatherUV.xy = (floor(shadowUV.xy * float(shadowMapRes) - 0.5) + 1.0f) / float(shadowMapRes);
+            float2 f = frac(shadowUV.xy * float(shadowMapRes) - 0.5f);
+        }
+        
+        float4 variances = float4(0);
+        float4 sv = getShadowVarianceValueGather(index, gatherUV, lightType, level, variances);
+
+        float maxDist = FLT_MAX; //Maximum distance possible in scene
+        float minDist = 0.f;
+
+        //Use all 4 gathered samples for the shadow test
+        for (uint k = 0; k < 4; k++)
+        {
+           float shadowDepth = sv[k];
+           maxDist = min(maxDist * 1.01, shadowDepth);
+           minDist = max(minDist * 0.99, shadowDepth);
+        }
+        
+        if ((lightDist > maxDist) && (lightDist < minDist))
+            return false; //inbetween; Ray is needed
+        
+        return true;    //No ray needed
+     }
 
     /** Variance Shadow Mapping. https://igm.univ-mlv.fr/~biri/Enseignement/MII2/Donnees/variance_shadow_maps.pdf
     \param[in] analytical light index.
@@ -694,14 +727,17 @@ struct ShadowMap
             return !kUseRayOutsideSM; //Ray is needed
          
         //Shadow Test with shadow map
-        if (kUsePCF)
+        if (kUsePCF && !hybridSM)
             shadow = varianceShadowTestPCF(index, cascLevel, shadowUV, lightData.type, lightDist);
         else
             shadow = varianceShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
 
         if (hybridSM)
         {
-            if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
+            bool pcfAdditionalTest = true;
+            if (kUsePCF)
+                pcfAdditionalTest = varianceShadowTestHybridPCF(index, cascLevel, shadowUV, lightData.type, lightDist);
+            if ((shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y) || !pcfAdditionalTest)
                 return false;   //Shoot ray
         }
             
@@ -950,7 +986,7 @@ struct ShadowMap
             toLight /= distanceToLight;
         }
         
-        const float3 N = sd.faceN;
+        const float3 N = sd.frame.N;    //TODO add option to switch between face and shading normal
         
         //Get the cos theta between normal and vectors
         float angleCamera = abs(dot(sd.V, N));

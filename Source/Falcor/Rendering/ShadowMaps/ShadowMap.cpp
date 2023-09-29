@@ -622,6 +622,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
     defines.add("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
     defines.add("ORACLE_COMP_VALUE", std::to_string(mOracleCompaireValue));
+    defines.add("ORACLE_UPPER_BOUND", std::to_string(mOracleCompaireUpperBound));
     defines.add("USE_ORACLE_DISTANCE_FUNCTION", mOracleDistanceFunctionMode == OracleDistFunction::None ? "0" : "1");
     defines.add("USE_SM_MIP", mUseShadowMipMaps ? "1" : "0");
     defines.add("SM_MIP_BIAS", std::to_string(mShadowMipBias));
@@ -1923,6 +1924,13 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         {
             group.var("Oracle Compaire Value", mOracleCompaireValue, 0.f, 64.f, 0.1f);
             group.tooltip("Compaire Value for the Oracle function. Is basically compaired against ShadowMapPixelArea/CameraPixelArea.");
+            if (mUseHybridSM)
+            {
+                group.var("Oracle Upper Bound", mOracleCompaireUpperBound, mOracleCompaireValue, 2048.f, 0.1f);
+                group.tooltip(
+                    "Upper Bound for the oracle value. If oracle is above this value the shadow test is skipped and an ray is shot."
+                );
+            }
             group.dropdown("Oracle Distance Mode", mOracleDistanceFunctionMode);
             group.tooltip("Mode for the distance factor applied on bounces.");
         }
