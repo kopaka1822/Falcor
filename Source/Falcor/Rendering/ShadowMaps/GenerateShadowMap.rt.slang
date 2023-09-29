@@ -13,12 +13,15 @@ cbuffer CB
     float3 gLightPos;           //Light Position; Near is stored in x for spotlights
     float gFarPlane;            //Far plane of the shadow map
     float gNearPlane;           //Near Plane
+    float2 gJitter;              //Jitter
+    uint gJitterTemporalFilter;//Temporal filter length
 };
 
 static const float kExponentialConstant = SM_EXPONENTIAL_CONSTANT;
 static const float kNegativeExponentialConstant = SM_NEGATIVE_EXPONENTIAL_CONSTANT;
 static const bool kVarianceSelfShadow = SM_VARIANCE_SELFSHADOW;
 static const bool kUseAlphaTest = USE_ALPHA_TEST;
+static const bool kUseJitter = USE_JITTER;
 
 static const LightTypeSM kShadowMapMode = LightTypeSM(SMRAY_MODE);  //Point,Spot,Cascaded,
 static const ShadowMapType kShadowMapType = ShadowMapType(SMRAY_TYPE);  //Classic, Variance, Exponential, Exponential Variance
@@ -106,7 +109,7 @@ void rayGen()
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
-    float2 pixelCenter = pixel + 0.5f;
+    float2 pixelCenter = pixel + 0.5f + gJitter;
     
     float2 relFramePos = pixelCenter/frameDim;
     relFramePos = relFramePos * 2.f - 1.f;  //From [0,1] to [-1,1]
@@ -136,13 +139,76 @@ void rayGen()
         ray.Origin = posWPixelNear.xyz;
         ray.Direction = dir;  
     }
-    
+
+    float4 valuesLastFrame = float4(0); //Only used when jitter is enabled
+    if(kUseJitter){
+        switch(kShadowMapType)
+        {
+            case ShadowMapType::ShadowMap:
+            {
+                valuesLastFrame = float4(gOutSM[pixel], 0, 0, 0);
+                break;
+            }
+            case ShadowMapType::Variance:
+            {
+                valuesLastFrame = float4(gOutSMF2[pixel],0,0);
+                break;
+            }
+            case ShadowMapType::Exponential:
+            {
+                valuesLastFrame = float4(gOutSM[pixel],0,0,0);
+                break;
+            }
+            case ShadowMapType::ExponentialVariance:
+            {
+                valuesLastFrame = gOutSMF4[pixel];
+                break;
+            }
+        }
+    }
 
     TraceData rayData;
     rayData.linZ = 1.f;
     
     TraceRay(gScene.rtAccel, 0, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
+    //Temporal filter
+    if(kUseJitter){
+        //Adjust to history
+        valuesLastFrame *= float(gJitterTemporalFilter - 1);
+        //Store the distance in an shadow map
+        switch(kShadowMapType)
+        {
+            case ShadowMapType::ShadowMap:
+            {
+                gOutSM[pixel] = rayData.linZ * (1.f/gJitterTemporalFilter) + valuesLastFrame.x;
+                break;
+            }
+            case ShadowMapType::Variance:
+            {
+                float varianceDepth = rayData.linZ + (1e-5);
+                float2 shadowValues = float2(rayData.linZ, varianceDepth * varianceDepth);
+                gOutSMF2[pixel] = (shadowValues + valuesLastFrame.xy)/gJitterTemporalFilter;
+                break;
+            }
+            case ShadowMapType::Exponential:
+            {
+                float depth = rescaleDepth(rayData.linZ);
+                float shadowValue =  exp(depth * kExponentialConstant);
+                gOutSM[pixel] = shadowValue * (1.f/gJitterTemporalFilter) + valuesLastFrame.x;
+                break;
+            }
+            case ShadowMapType::ExponentialVariance:
+            {
+                float depth = rescaleDepth(rayData.linZ);
+                gOutSMF4[pixel] = getExponentialVarianceMoments(depth) * (1.f/gJitterTemporalFilter) + valuesLastFrame;
+                break;
+            }
+        }
+        
+        return;
+    }
+    
     //Store the distance in an shadow map
     switch(kShadowMapType)
     {
@@ -153,7 +219,8 @@ void rayGen()
         }
         case ShadowMapType::Variance:
         {
-            gOutSMF2[pixel] = float2(rayData.linZ, rayData.linZ * rayData.linZ);
+            float depth = rayData.linZ + (1e-5);
+            gOutSMF2[pixel] = float2(rayData.linZ, depth * depth);
             break;
         }
         case ShadowMapType::Exponential:

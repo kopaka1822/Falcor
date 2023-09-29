@@ -29,6 +29,10 @@
 #include "Scene/Camera/Camera.h"
 #include "Utils/Math/FalcorMath.h"
 
+#include "Utils/SampleGenerators/DxSamplePattern.h"
+#include "Utils/SampleGenerators/HaltonSamplePattern.h"
+#include "Utils/SampleGenerators/StratifiedSamplePattern.h"
+
 namespace Falcor
 {
 namespace
@@ -56,6 +60,13 @@ const Gui::DropdownList kShadowMapUpdateModeDropdownList{
     {(uint)ShadowMap::SMUpdateMode::UpdateAll, "UpdateAll"},
     {(uint)ShadowMap::SMUpdateMode::UpdateOnePerFrame, "OneLightPerFrame"},
     {(uint)ShadowMap::SMUpdateMode::UpdateInNFrames, "UpdateInNFrames"},
+};
+
+const Gui::DropdownList kJitterModeDropdownList{
+    {(uint)ShadowMap::SamplePattern::None, "None"},
+    {(uint)ShadowMap::SamplePattern::DirectX, "DirectX"},
+    {(uint)ShadowMap::SamplePattern::Halton, "Halton"},
+    {(uint)ShadowMap::SamplePattern::Stratified, "Stratified"},
 };
 } // namespace
 
@@ -791,6 +802,19 @@ void ShadowMap::setSMRayShaderVars(ShaderVar& var, RayShaderParameters& params)
     var["CB"]["gLightPos"] = params.lightPosition;
     var["CB"]["gFarPlane"] = params.farPlane;
     var["CB"]["gNearPlane"] = params.nearPlane;
+
+    //Set Jitter
+    if (mJitterSamplePattern != SamplePattern::None || !mpCPUJitterSampleGenerator)
+    {
+        var["CB"]["gJitter"] = mpCPUJitterSampleGenerator->next(); // Jitter
+        var["CB"]["gJitterTemporalFilter"] = mTemporalFilterLength; // Temporal filter length
+    }
+    else
+    {
+        var["CB"]["gJitter"] = float2(0);  // Disable Jitter
+        var["CB"]["gJitterTemporalFilter"] = 1; //No Filter
+    }
+    
 }
 
 void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext)
@@ -901,6 +925,8 @@ void ShadowMap::rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* 
      {
         mUpdateShadowMap |= mShadowCubeRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false));                // Update defines
         mUpdateShadowMap |= mShadowCubeRayPass.pProgram->addDefine("SMRAY_TYPE", std::to_string((uint)mShadowMapType)); // SM type define
+        mUpdateShadowMap |=
+            mShadowCubeRayPass.pProgram->addDefine("USE_JITTER", mJitterSamplePattern == SamplePattern::None ? "0" : "1"); // Jitter define
         // Create Program Vars
         if (!mShadowCubeRayPass.pVars)
         {
@@ -1153,6 +1179,8 @@ bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRe
     {
         mUpdateShadowMap |= mShadowMapRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false)); // Update defines
         mUpdateShadowMap |= mShadowMapRayPass.pProgram->addDefine("SMRAY_TYPE", std::to_string((uint)mShadowMapType)); // SM type define
+        mUpdateShadowMap |=
+            mShadowMapRayPass.pProgram->addDefine("USE_JITTER", mJitterSamplePattern == SamplePattern::None ? "0" : "1"); // Jitter define
         // Create Program Vars
         if (!mShadowMapRayPass.pVars)
         {
@@ -1204,7 +1232,7 @@ bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRe
 
     auto vars = mShadowMapRayPass.pVars->getRootVar();
     setSMRayShaderVars(vars, params);
-
+    
     //Set UAV's
     switch (mShadowMapType)
     {
@@ -1420,6 +1448,8 @@ bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRen
     {
         mUpdateShadowMap |= mShadowMapCascadedRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false));                 // Update defines
         mUpdateShadowMap |= mShadowMapCascadedRayPass.pProgram->addDefine("SMRAY_TYPE", std::to_string((uint)mShadowMapType)); // SM type define
+        mUpdateShadowMap |=
+            mShadowMapRayPass.pProgram->addDefine("USE_JITTER", mJitterSamplePattern == SamplePattern::None ? "0" : "1"); // Jitter define
         // Create Program Vars
         if (!mShadowMapCascadedRayPass.pVars)
         {
@@ -1536,6 +1566,12 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 
     if (mRerenderStatic && mShadowMapUpdateMode == SMUpdateMode::Static)
         mUpdateShadowMap = true;
+
+    //Create a jitter sample generator
+    if (!mpCPUJitterSampleGenerator)
+    {
+        updateJitterSampleGenerator();
+    }
 
     handleShadowMapUpdateMode();
 
@@ -1916,6 +1952,25 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         mUpdateShadowMap |= blurSettingsChanged; //Rerender Shadow maps if the blur settings changed
     }
 
+    if (auto group = widget.group("Jitter Options"))
+    {
+        bool jitterChanged = group.dropdown("Jitter Sample Mode", kJitterModeDropdownList, (uint&)mJitterSamplePattern);
+        if (mJitterSamplePattern != SamplePattern::None)
+        {
+            if ((mJitterSamplePattern != SamplePattern::DirectX))
+            {
+                jitterChanged |= group.var("Sample Count", mJitterSampleCount, 1u, 1024u, 1u);
+                group.tooltip("Sets the sample count for the jitter generator");
+            }
+            
+            jitterChanged |= group.var("Temporal Filter Strength", mTemporalFilterLength, 1u, 64u, 1u);
+            group.tooltip("Number of frames used for the temporal filter");
+        }
+
+        if (jitterChanged)
+            updateJitterSampleGenerator();
+    }
+
     if (auto group = widget.group("Oracle Options"))
     {
         group.checkbox("Use Oracle Function", mUseSMOracle);
@@ -2076,6 +2131,27 @@ void ShadowMap::handleShadowMapUpdateMode() {
     case Falcor::ShadowMap::SMUpdateMode::UpdateAll:
     case Falcor::ShadowMap::SMUpdateMode::Static:
     default:
+        break;
+    }
+}
+
+void ShadowMap::updateJitterSampleGenerator() {
+    switch (mJitterSamplePattern)
+    {
+    case Falcor::ShadowMap::SamplePattern::None:
+        mpCPUJitterSampleGenerator = HaltonSamplePattern::create(1);    //So a sample generator is intitialized
+        break;
+    case Falcor::ShadowMap::SamplePattern::DirectX:
+        mpCPUJitterSampleGenerator = DxSamplePattern::create();     //Has a fixed sample size of 8
+        break;
+    case Falcor::ShadowMap::SamplePattern::Halton:
+        mpCPUJitterSampleGenerator = HaltonSamplePattern::create(mJitterSampleCount); // So a sample generator is intitialized
+        break;
+    case Falcor::ShadowMap::SamplePattern::Stratified:
+        StratifiedSamplePattern::create(mJitterSampleCount);
+        break;
+    default:
+        FALCOR_UNREACHABLE();
         break;
     }
 }

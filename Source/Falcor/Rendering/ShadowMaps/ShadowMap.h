@@ -88,6 +88,15 @@ public:
         UpdateInNFrames = 3         //Update all lights in N frames   
     };
 
+    //Sample Pattern for Shadow Map Jitter
+    enum class SamplePattern : uint32_t
+    {
+        None,
+        DirectX,
+        Halton,
+        Stratified,
+    };
+
 private:
     const float kEVSM_ExponentialConstantMax = 42.f;    //Max exponential constant for Exponential Variance Shadow Maps
     const float kESM_ExponentialConstantMax = 84.f;     //Max exponential constant for Exponential Shadow Maps
@@ -120,6 +129,7 @@ private:
     void updateRasterizerStates();
     void handleNormalizedPixelSizeBuffer();
     void handleShadowMapUpdateMode();
+    void updateJitterSampleGenerator();
 
     DefineList getDefinesShadowMapGenPass(bool addAlphaModeDefines = true) const;
 
@@ -150,6 +160,7 @@ private:
     ref<Fbo> mpFbo;
     ref<Fbo> mpFboCube;
     ref<Fbo> mpFboCascaded;
+    ref<CPUSampleGenerator> mpCPUJitterSampleGenerator; ///< Sample generator for shadow map jitter
 
     const uint kStagingBufferCount = 3;
     const uint kNumberDebugTextures = 16;
@@ -189,6 +200,12 @@ private:
     float2 mHSMFilteredThreshold = float2(0.02f, 0.98f);     //Threshold for filtered shadow map variants
     bool mUseRayOutsideOfShadowMap = false;
     bool mVarianceUseSelfShadowVariant = true;
+
+    //Shadow Map Jitter
+    SamplePattern mJitterSamplePattern = SamplePattern::None;     //Sets the CPU Jitter generator
+    uint mTemporalFilterLength = 10;                        //Temporal filter strength  
+    uint mJitterSampleCount = 16;                           //Number of Jitter samples 
+
 
     bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function
     bool mUseOracleDistFactor = true; ///< Enables a lobe distance factor that is used in the oracle function TODO rename
