@@ -80,6 +80,7 @@ struct ShadowMap
     static const bool kUseOracleDistFunction = USE_ORACLE_DISTANCE_FUNCTION;
     static const bool kUseSMMips = USE_SM_MIP;
     static const float kMipBias = SM_MIP_BIAS;      //angle bias used in mip calculation (cos theta^bias)
+    static const bool kRoundVarianceValue = VARIANCE_ROUND_SHADOW_VALUE;
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] =
@@ -725,7 +726,9 @@ struct ShadowMap
         
         if (!valid)
             return !kUseRayOutsideSM; //Ray is needed
-         
+
+
+        bool useShadow = true;
         //Shadow Test with shadow map
         if (kUsePCF && !hybridSM)
             shadow = varianceShadowTestPCF(index, cascLevel, shadowUV, lightData.type, lightDist);
@@ -733,15 +736,24 @@ struct ShadowMap
             shadow = varianceShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
 
         if (hybridSM)
-        {
+        {               
             bool pcfAdditionalTest = true;
             if (kUsePCF)
                 pcfAdditionalTest = varianceShadowTestHybridPCF(index, cascLevel, shadowUV, lightData.type, lightDist);
             if ((shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y) || !pcfAdditionalTest)
-                return false;   //Shoot ray
+                useShadow =  false;   //Shoot ray
         }
+
+        //Clamp Shadow Value depending on the threshold
+        if(shadow <= kHSMFilteredThreshold.x)
+            shadow = 0.0;
+        else if (shadow >= kHSMFilteredThreshold.y)
+            shadow = 1.f;
+
+        if(kRoundVarianceValue)
+            shadow = round(shadow);
             
-        return true;
+        return useShadow;
     }
 
     /** Exponential shadow test

@@ -637,6 +637,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("USE_ORACLE_DISTANCE_FUNCTION", mOracleDistanceFunctionMode == OracleDistFunction::None ? "0" : "1");
     defines.add("USE_SM_MIP", mUseShadowMipMaps ? "1" : "0");
     defines.add("SM_MIP_BIAS", std::to_string(mShadowMipBias));
+    defines.add("VARIANCE_ROUND_SHADOW_VALUE", mRoundVarianceValue ? "1" : "0");
 
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
@@ -1836,6 +1837,8 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         if (auto group = widget.group("Variance Shadow Map Options"))
         {
             group.checkbox("Enable Blur", mUseGaussianBlur);
+            group.checkbox("Round Shadow Value", mRoundVarianceValue);
+            group.tooltip("Rounds the variance shadow value to 0 or 1. Prevents some light leaking with the cost of soft shadows");
             group.checkbox("Variance SelfShadow Variant", mVarianceUseSelfShadowVariant);
             group.tooltip("Uses part of ddx and ddy depth in variance calculation");
             group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);

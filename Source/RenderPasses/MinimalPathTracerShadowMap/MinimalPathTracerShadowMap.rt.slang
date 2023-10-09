@@ -421,7 +421,7 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
             
     if (useShadowRay)
         shadow = traceShadowRay(origin, ls.dir, ls.distance);
-        
+
     // Evaluate contribution.
     return Lr * shadow;
 }

@@ -200,6 +200,7 @@ private:
     float2 mHSMFilteredThreshold = float2(0.02f, 0.98f);     //Threshold for filtered shadow map variants
     bool mUseRayOutsideOfShadowMap = false;
     bool mVarianceUseSelfShadowVariant = true;
+    bool mRoundVarianceValue = true;                //Rounds the variance value to 0 or 1
 
     //Shadow Map Jitter
     SamplePattern mJitterSamplePattern = SamplePattern::None;     //Sets the CPU Jitter generator
@@ -210,10 +211,10 @@ private:
     bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function
     bool mUseOracleDistFactor = true; ///< Enables a lobe distance factor that is used in the oracle function TODO rename
     float mOracleCompaireValue = 1.f/9.f; ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea.
-    float mOracleCompaireUpperBound = 4.f;  ///< Hybrid mode only. If oracle is over this value, shoot an ray
+    float mOracleCompaireUpperBound = 32.f;  ///< Hybrid mode only. If oracle is over this value, shoot an ray
     bool mUseHybridSM = true;        ///< Uses the Hybrid Shadow Maps (https://gpuopen.com/fidelityfx-hybrid-shadows/#details)
 
-    bool mUseShadowMipMaps = true;        ///< Uses mip maps for applyable shadow maps
+    bool mUseShadowMipMaps = false;        ///< Uses mip maps for applyable shadow maps
     float mShadowMipBias = 1.5f;          ///< Bias used in mips (cos theta)^bias
     bool mUseGaussianBlur = true;
 
