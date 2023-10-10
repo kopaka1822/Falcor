@@ -2151,7 +2151,7 @@ void ShadowMap::updateJitterSampleGenerator() {
         mpCPUJitterSampleGenerator = HaltonSamplePattern::create(mJitterSampleCount); // So a sample generator is intitialized
         break;
     case Falcor::ShadowMap::SamplePattern::Stratified:
-        StratifiedSamplePattern::create(mJitterSampleCount);
+        mpCPUJitterSampleGenerator = StratifiedSamplePattern::create(mJitterSampleCount);
         break;
     default:
         FALCOR_UNREACHABLE();
