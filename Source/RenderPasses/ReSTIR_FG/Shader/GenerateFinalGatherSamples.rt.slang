@@ -96,7 +96,7 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
 }
 
 #if CULLING_ALT_VERSION
-//Alternative Version to fill the culling grid. Only marks the cells 
+//Alternative Version to fill the culling grid. Only marks the cells. Generally slower than the other version
 void cullingGetArrayOfCells(float3 position, float radius, inout uint arrCounter, out int3 outCells[16])
 {
     float3 cell = (position.xyz * gHashScaleFactor);
