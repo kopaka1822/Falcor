@@ -266,3 +266,43 @@ float4 psExponentialVarianceCube(ShadowVsOut vsOut, uint triangleIndex : SV_Prim
 
     return getExponentialVarianceMoments(depth);
 }
+
+float4 getFourMoments(float z){
+    float z2 = z*z;
+    float z3 = z2 * z;
+    float z4 = z3 * z;
+    return float4(z,z2,z3,z4);
+}
+
+float4 psMSM(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+
+    const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
+    float linZ = (vsOut.posH.w - near) / ( gFarPlane - near);
+    
+    return getFourMoments(linZ);
+}
+
+float4 psMSMCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+        
+    return getFourMoments(vsOut.posH.z);
+}
+float4 psMSMCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
+{
+    #if USE_ALPHA_TEST
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+    #endif
+
+    //Distance between point and light
+    float lightDist = length(vsOut.posW - gLightPos);
+    float depth = lightDist / gFarPlane; //Map to [0,1]
+
+    return getFourMoments(depth);
+}

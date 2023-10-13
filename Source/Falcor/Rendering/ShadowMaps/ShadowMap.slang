@@ -72,6 +72,8 @@ struct ShadowMap
     static const uint kCubeSMRes = CUBE_SM_RESOLUTION;                     //Resolution for Cube Shadow Maps
     static const bool kCascadedStochasticBlend = CASCADED_STOCHASTIC_BLEND;//Stochastic blend between cascaded levels
     static const float kCascadedStochBlendStr = CASCADED_STOCH_BLEND_STR;  //Strength of the stochastic blend
+    static const float kMSMDepthBias = MSM_DEPTH_BIAS * 0.001f;            //Depth bias for the moment shadow map
+    static const float kMSMMomentBias = MSM_MOMENT_BIAS * 0.001f;          //Moment bias for the moment shadow map
     
     static const bool kUseHybridShadowMap = USE_HYBRID_SM;
     static const bool kUseOracle = USE_ORACLE_FUNCTION;
@@ -904,9 +906,185 @@ struct ShadowMap
                 return false;   //Shoot ray
         }
         
-            return true;
+        return true;
+    }
+
+    //From https://github.com/TheRealMJP/Shadows
+    float msmHamburger(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
+    {
+        float4 moments = getShadowValueF4(index, shadowUV, lightType, level, mipLevel);
+        //Bias input data to avoid artifacts
+        float4 b = lerp(moments, float4(0.5f), kMSMMomentBias);
+        float3 z;
+        z[0] = lightDist - kMSMDepthBias;
+
+        // Compute a Cholesky factorization of the Hankel matrix B storing only non-
+        // trivial entries or related products
+        float L32D22 = mad(-b[0], b[1], b[2]);
+        float D22 = mad(-b[0], b[0], b[1]);
+        float squaredDepthVariance = mad(-b[1], b[1], b[3]);
+        float D33D22 = dot(float2(squaredDepthVariance, -L32D22), float2(D22, L32D22));
+        float InvD22 = 1.0f / D22;
+        float L32 = L32D22 * InvD22;
+
+        // Obtain a scaled inverse image of bz = (1,z[0],z[0]*z[0])^T
+        float3 c = float3(1.0f, z[0], z[0] * z[0]);
+
+        // Forward substitution to solve L*c1=bz
+        c[1] -= b.x;
+        c[2] -= b.y + L32 * c[1];
+
+        // Scaling to solve D*c2=c1
+        c[1] *= InvD22;
+        c[2] *= D22 / D33D22;
+
+        // Backward substitution to solve L^T*c3=c2
+        c[1] -= L32 * c[2];
+        c[0] -= dot(c.yz, b.xy);
+
+        // Solve the quadratic equation c[0]+c[1]*z+c[2]*z^2 to obtain solutions
+        // z[1] and z[2]
+        float p = c[1] / c[2];
+        float q = c[0] / c[2];
+        float D = (p * p * 0.25f) - q;
+        float r = sqrt(D);
+        z[1] =- p * 0.5f - r;
+        z[2] =- p * 0.5f + r;
+
+        // Compute the shadow intensity by summing the appropriate weights
+        float4 switchVal = (z[2] < z[0]) ? float4(z[1], z[0], 1.0f, 1.0f) :
+                          ((z[1] < z[0]) ? float4(z[0], z[1], 0.0f, 1.0f) :
+                          float4(0.0f,0.0f,0.0f,0.0f));
+        float quotient = (switchVal[0] * z[2] - b[0] * (switchVal[0] + z[2]) + b[1])/((z[2] - switchVal[1]) * (z[0] - z[1]));
+        float shadowIntensity = switchVal[2] + switchVal[3] * quotient;
+        return 1.0f - saturate(shadowIntensity);
+    }
+
+    //From https://github.com/TheRealMJP/Shadows
+    float msmHausdorff(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
+    {
+        float4 moments = getShadowValueF4(index, shadowUV, lightType, level, mipLevel);
+        //Bias input data to avoid artifacts
+        float4 b = lerp(moments, float4(0.5f), kMSMMomentBias);
+        float3 z;
+        z[0] = lightDist - kMSMDepthBias ;
+
+        // Compute a Cholesky factorization of the Hankel matrix B storing only non-
+        // trivial entries or related products
+        float L32D22 = mad(-b[0], b[1], b[2]);
+        float D22 = mad(-b[0], b[0], b[1]);
+        float squaredDepthVariance = mad(-b[1], b[1], b[3]);
+        float D33D22 = dot(float2(squaredDepthVariance, -L32D22), float2(D22, L32D22));
+        float InvD22 = 1.0f / D22;
+        float L32 = L32D22 * InvD22;
+
+        // Obtain a scaled inverse image of bz=(1,z[0],z[0]*z[0])^T
+        float3 c = float3(1.0f, z[0], z[0] * z[0]);
+
+        // Forward substitution to solve L*c1=bz
+        c[1] -= b.x;
+        c[2] -= b.y + L32 * c[1];
+
+        // Scaling to solve D*c2=c1
+        c[1] *= InvD22;
+        c[2] *= D22 / D33D22;
+
+        // Backward substitution to solve L^T*c3=c2
+        c[1] -= L32 * c[2];
+        c[0] -= dot(c.yz, b.xy);
+
+        // Solve the quadratic equation c[0]+c[1]*z+c[2]*z^2 to obtain solutions z[1]
+        // and z[2]
+        float p = c[1] / c[2];
+        float q = c[0] / c[2];
+        float D = ((p * p) / 4.0f) - q;
+        float r = sqrt(D);
+        z[1] =- (p / 2.0f) - r;
+        z[2] =- (p / 2.0f) + r;
+
+        float shadowIntensity = 1.0f;
+
+        // Use a solution made of four deltas if the solution with three deltas is invalid
+        if(z[1] < 0.0f || z[2] > 1.0f)
+        {
+            float zFree = ((b[2] - b[1]) * z[0] + b[2] - b[3]) / ((b[1] - b[0]) * z[0] + b[1] - b[2]);
+            float w1Factor = (z[0] > zFree) ? 1.0f : 0.0f;
+            shadowIntensity = (b[1] - b[0] + (b[2] - b[0] - (zFree + 1.0f) * (b[1] - b[0])) * (zFree - w1Factor - z[0])
+                                                    /(z[0] * (z[0] - zFree))) / (zFree - w1Factor) + 1.0f - b[0];
         }
+        // Use the solution with three deltas
+        else{
+            float4 switchVal = (z[2] < z[0]) ? float4(z[1], z[0], 1.0f, 1.0f) :
+                              ((z[1] < z[0]) ? float4(z[0], z[1], 0.0f, 1.0f) :
+                              float4(0.0f, 0.0f, 0.0f, 0.0f));
+            float quotient = (switchVal[0] * z[2] - b[0] * (switchVal[0] + z[2]) + b[1]) / ((z[2] - switchVal[1]) * (z[0] - z[1]));
+            shadowIntensity = switchVal[2] + switchVal[3] * quotient;
+        }
+
+        return 1.0f - saturate(shadowIntensity);
+    }
     
+    bool evalShadowMapMSM(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
+    {
+        uint index = lightIdx;
+        //Get the right index if multiple shadow map types are used
+        if (kMultipleSMTypes)
+        {
+            index = gShadowMapIndexMap[lightIdx];
+        }
+        
+        shadow = 0.f;
+        float lightDist = 0.f;
+        float3 shadowUV = float3(0);
+        uint cascLevel;
+        if(kCascadedStochasticBlend)
+            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+        else
+            cascLevel = getCascadedLevel(posW);
+        
+        bool valid = false;
+        switch (lightData.type)
+        {
+            case LightTypeSM::Point:
+                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
+                break;
+            case LightTypeSM::Spot:
+                valid = spotDistanceAndSampleVec(index, posW, lightData, shadowUV.xy, lightDist);
+                break;
+            case LightTypeSM::Directional:
+                valid = directionalDistanceAndSampleVec(index, cascLevel, posW, lightData, shadowUV.xy, lightDist);
+                break;
+            default:
+                break;
+        }
+        
+        if (!valid)
+            return !kUseRayOutsideSM;   //Outside of shadow map
+
+        //Shadow Test with shadow map
+        if(ShadowMapType(kShadowMapMode) == ShadowMapType::MSMHamburger)
+            shadow = msmHamburger(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
+        else
+            shadow = msmHausdorff(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
+            
+        bool useShadow = true;
+        if (hybridSM)
+        {
+            if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
+                useShadow = false;   //Shoot ray
+        }
+
+        //Clamp Shadow Value depending on the threshold
+        if(shadow <= kHSMFilteredThreshold.x)
+            shadow = 0.0;
+        else if (shadow >= kHSMFilteredThreshold.y)
+            shadow = 1.f;
+
+        if(kRoundVarianceValue)
+            shadow = round(shadow);
+            
+        return useShadow;
+    }
     /** Shadow Map overview function. Calls the corresponding implementation based on the current mode
     \param[in] analytical light index.
     \param[in] world position.
@@ -928,6 +1106,9 @@ struct ShadowMap
                 return evalShadowMapExponential(lightIdx, posW, lightData, sg, mipLevel, false, shadow);
             case ShadowMapType::ExponentialVariance:
                 return evalShadowMapExponentialVariance(lightIdx, posW, lightData, sg, mipLevel, false, shadow);
+            case ShadowMapType::MSMHamburger:
+            case ShadowMapType::MSMHausdorff:
+                return evalShadowMapMSM(lightIdx, posW, lightData, sg, mipLevel, false, shadow);
             default:
                 shadow = 1.f;
                 return false;
@@ -954,6 +1135,9 @@ struct ShadowMap
                 return evalShadowMapExponential(lightIdx, posW, lightData, sg, mipLevel, true , shadow);
             case ShadowMapType::ExponentialVariance:
                 return evalShadowMapExponentialVariance(lightIdx, posW, lightData, sg, mipLevel, true, shadow);
+            case ShadowMapType::MSMHamburger:
+            case ShadowMapType::MSMHausdorff:
+                return evalShadowMapMSM(lightIdx, posW, lightData, sg, mipLevel, true, shadow);
             default:
                 shadow = 1.f;
                 return false;

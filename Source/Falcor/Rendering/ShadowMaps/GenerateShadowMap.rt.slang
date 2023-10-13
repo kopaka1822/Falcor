@@ -54,6 +54,12 @@ float4 getExponentialVarianceMoments(float depth){
     return evsm;
 }
 
+float4 getFourMoments(float z){
+    float z2 = z * z;
+    float z3 = z2 * z;
+    float z4 = z3 * z;
+    return float4(z,z2,z3,z4);
+}
 [shader("miss")]
 void miss(inout TraceData rayData : SV_RayPayload)
 {
@@ -145,6 +151,7 @@ void rayGen()
         switch(kShadowMapType)
         {
             case ShadowMapType::ShadowMap:
+            case ShadowMapType::Exponential:
             {
                 valuesLastFrame = float4(gOutSM[pixel], 0, 0, 0);
                 break;
@@ -154,12 +161,9 @@ void rayGen()
                 valuesLastFrame = float4(gOutSMF2[pixel],0,0);
                 break;
             }
-            case ShadowMapType::Exponential:
-            {
-                valuesLastFrame = float4(gOutSM[pixel],0,0,0);
-                break;
-            }
             case ShadowMapType::ExponentialVariance:
+            case ShadowMapType::MSMHamburger:
+            case ShadowMapType::MSMHausdorff:
             {
                 valuesLastFrame = gOutSMF4[pixel];
                 break;
@@ -204,6 +208,12 @@ void rayGen()
                 gOutSMF4[pixel] = getExponentialVarianceMoments(depth) * (1.f/gJitterTemporalFilter) + valuesLastFrame;
                 break;
             }
+            case ShadowMapType::MSMHamburger:
+            case ShadowMapType::MSMHausdorff:
+            {
+                gOutSMF4[pixel] = getFourMoments(rayData.linZ) * (1.f/gJitterTemporalFilter) + valuesLastFrame;
+                break;
+            }
         }
         
         return;
@@ -233,6 +243,12 @@ void rayGen()
         {
             float depth = rescaleDepth(rayData.linZ);
             gOutSMF4[pixel] = getExponentialVarianceMoments(depth);
+            break;
+        }
+        case ShadowMapType::MSMHamburger:
+        case ShadowMapType::MSMHausdorff:
+        {
+            gOutSMF4[pixel] = getFourMoments(rayData.linZ);
             break;
         }
     }

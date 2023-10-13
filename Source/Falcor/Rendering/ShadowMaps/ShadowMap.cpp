@@ -174,6 +174,8 @@ void ShadowMap::prepareShadowMapBuffers()
         break;
     }
     case ShadowMapType::ExponentialVariance:
+    case ShadowMapType::MSMHamburger:
+    case ShadowMapType::MSMHausdorff:
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::RGBA32Float : ResourceFormat::RGBA16Float;
         shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
@@ -431,6 +433,10 @@ void ShadowMap::prepareRasterProgramms()
         case ShadowMapType::ExponentialVariance:
             desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psExponentialVarianceCube");
             break;
+        case ShadowMapType::MSMHamburger:
+        case ShadowMapType::MSMHausdorff:
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMSMCube");
+            break;
         }
 
         desc.addTypeConformances(mpScene->getTypeConformances());
@@ -460,6 +466,10 @@ void ShadowMap::prepareRasterProgramms()
         case ShadowMapType::ExponentialVariance:
             desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psExponentialVariance");
             break;
+        case ShadowMapType::MSMHamburger:
+        case ShadowMapType::MSMHausdorff:
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMSM");
+            break;
         }
         
         desc.addTypeConformances(mpScene->getTypeConformances());
@@ -488,6 +498,10 @@ void ShadowMap::prepareRasterProgramms()
             break;
         case ShadowMapType::ExponentialVariance:
             desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psExponentialVarianceCascaded");
+            break;
+        case ShadowMapType::MSMHamburger:
+        case ShadowMapType::MSMHausdorff:
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMSMCascaded");
             break;
         }
 
@@ -622,6 +636,8 @@ DefineList ShadowMap::getDefines() const
         "HYBRID_SMFILTERED_THRESHOLD",
         "float2(" + std::to_string(mHSMFilteredThreshold.x) + "," + std::to_string(mHSMFilteredThreshold.y) + ")"
     );
+    defines.add("MSM_DEPTH_BIAS", std::to_string(mMSMDepthBias));
+    defines.add("MSM_MOMENT_BIAS", std::to_string(mMSMMomentBias));
     defines.add("USE_RAY_OUTSIDE_SM", mUseRayOutsideOfShadowMap ? "1" : "0");
     defines.add("CASCADED_SM_RESOLUTION", std::to_string(mShadowMapSizeCascaded));
     defines.add("SM_RESOLUTION", std::to_string(mShadowMapSize));
@@ -681,53 +697,45 @@ void ShadowMap::setShaderData(const uint2 frameDim)
         var["gCascadedZSlices"][i] = mCascadedZSlices[i];
     
     // Buffers and Textures
-    if (mShadowMapType == ShadowMapType::ExponentialVariance)
+    switch (mShadowMapType)
     {
-        for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
+    case Falcor::ShadowMapType::ShadowMap:
+    case Falcor::ShadowMapType::Exponential:
         {
-            var["gCubeShadowMapF4"][i] = mpShadowMapsCube[i]; // Can be Nullptr
+            for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
+                var["gShadowMapCube"][i] = mpShadowMapsCube[i]; // Can be Nullptr
+            for (uint32_t i = 0; i < mpShadowMaps.size(); i++)
+                var["gShadowMap"][i] = mpShadowMaps[i]; // Can be Nullptr
+            for (uint32_t i = 0; i < mpCascadedShadowMaps.size(); i++)
+                var["gCascadedShadowMap"][i] = mpCascadedShadowMaps[i]; // Can be Nullptr
         }
-        for (uint32_t i = 0; i < mpShadowMaps.size(); i++)
+        break;
+    case Falcor::ShadowMapType::Variance:
         {
-            var["gShadowMapF4"][i] = mpShadowMaps[i]; // Can be Nullptr
+            for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
+                var["gShadowMapVarianceCube"][i] = mpShadowMapsCube[i]; // Can be Nullptr
+            for (uint32_t i = 0; i < mpShadowMaps.size(); i++)
+                var["gShadowMapVariance"][i] = mpShadowMaps[i]; // Can be Nullptr
+            for (uint32_t i = 0; i < mpCascadedShadowMaps.size(); i++)
+                var["gCascadedShadowMapVariance"][i] = mpCascadedShadowMaps[i]; // Can be Nullptr
         }
-        for (uint32_t i = 0; i < mpCascadedShadowMaps.size(); i++)
+        break;
+    case Falcor::ShadowMapType::ExponentialVariance:
+    case Falcor::ShadowMapType::MSMHamburger:
+    case Falcor::ShadowMapType::MSMHausdorff:
         {
-            var["gCascadedShadowMapF4"][i] = mpCascadedShadowMaps[i]; // Can be Nullptr
+            for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
+                var["gCubeShadowMapF4"][i] = mpShadowMapsCube[i]; // Can be Nullptr
+            for (uint32_t i = 0; i < mpShadowMaps.size(); i++)
+                var["gShadowMapF4"][i] = mpShadowMaps[i]; // Can be Nullptr
+            for (uint32_t i = 0; i < mpCascadedShadowMaps.size(); i++)
+                var["gCascadedShadowMapF4"][i] = mpCascadedShadowMaps[i]; // Can be Nullptr
         }
+        break;
+    default:
+        break;
     }
-    else if (mShadowMapType == ShadowMapType::Variance)
-    {
-        for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
-        {
-            var["gShadowMapVarianceCube"][i] = mpShadowMapsCube[i]; // Can be Nullptr
-        }
-        for (uint32_t i = 0; i < mpShadowMaps.size(); i++)
-        {
-            var["gShadowMapVariance"][i] = mpShadowMaps[i]; // Can be Nullptr
-        }
-        for (uint32_t i = 0; i < mpCascadedShadowMaps.size(); i++)
-        {
-            var["gCascadedShadowMapVariance"][i] = mpCascadedShadowMaps[i]; // Can be Nullptr
-        }
-    }
-    else //Shadow Map Classic; Exponential
-    {
-        for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
-        {
-            var["gShadowMapCube"][i] = mpShadowMapsCube[i]; // Can be Nullptr
-        }
-        for (uint32_t i = 0; i < mpShadowMaps.size(); i++)
-        {
-            var["gShadowMap"][i] = mpShadowMaps[i]; // Can be Nullptr
-        }
-        for (uint32_t i = 0; i < mpCascadedShadowMaps.size(); i++)
-        {
-            var["gCascadedShadowMap"][i] = mpCascadedShadowMaps[i]; // Can be Nullptr
-        }
-    }
-    
-
+     
     var["gShadowMapNPSBuffer"] = mpNormalizedPixelSize; //Can be Nullptr on init
     var["gShadowMapVPBuffer"] = mpVPMatrixBuffer; // Can be Nullptr
     var["gShadowMapIndexMap"] = mpLightMapping;   // Can be Nullptr
@@ -983,6 +991,8 @@ void ShadowMap::rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* 
             vars["gOutSMF2"].setUav(mpShadowMapsCube[index]->getUAV(0, face, 1));
             break;
         case Falcor::ShadowMapType::ExponentialVariance:
+        case Falcor::ShadowMapType::MSMHamburger:
+        case Falcor::ShadowMapType::MSMHausdorff:
             vars["gOutSMF4"].setUav(mpShadowMapsCube[index]->getUAV(0, face, 1));
             break;
         }
@@ -1245,6 +1255,8 @@ bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRe
         vars["gOutSMF2"] = mpShadowMaps[index];
         break;    
     case Falcor::ShadowMapType::ExponentialVariance:
+    case Falcor::ShadowMapType::MSMHamburger:
+    case Falcor::ShadowMapType::MSMHausdorff:
         vars["gOutSMF4"] = mpShadowMaps[index];
         break;
     }
@@ -1503,6 +1515,8 @@ bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRen
             vars["gOutSMF2"].setUav(mpCascadedShadowMaps[index]->getUAV(0, cascLevel, 1));
             break;
         case Falcor::ShadowMapType::ExponentialVariance:
+        case Falcor::ShadowMapType::MSMHamburger:
+        case Falcor::ShadowMapType::MSMHausdorff:
             vars["gOutSMF4"].setUav(mpCascadedShadowMaps[index]->getUAV(0, cascLevel, 1));
             break;
         }
@@ -1901,6 +1915,31 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             }
         }
         break;
+    }
+    case ShadowMapType::MSMHamburger:
+    case ShadowMapType::MSMHausdorff:
+    {
+        if (auto group = widget.group("Moment Shadow Maps Options"))
+        {
+            group.var("Depth Bias (x1000)", mMSMDepthBias, 0.f, 10.f, 0.0001f);
+            group.tooltip("Depth bias subtracted from the depth value the moment shadow map is tested against");
+            group.var("Moment Bias (x1000)", mMSMMomentBias, 0.f, 10.f, 0.0001f);
+            group.tooltip("Moment bias which pulls all values a bit to 0.5");
+            group.checkbox("Enable Blur", mUseGaussianBlur);
+            group.checkbox("Round Shadow Value", mRoundVarianceValue);
+            group.tooltip("Rounds the shadow value to 0 or 1. Prevents some light leaking with the cost of soft shadows");
+            group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
+            group.tooltip(
+                "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [x, y]", true
+            );
+            mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
+            group.tooltip("Uses MipMaps for applyable shadow map variants", true);
+            if (mUseShadowMipMaps)
+            {
+                group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+                group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
+            }
+        }
     }
     default:;
     }

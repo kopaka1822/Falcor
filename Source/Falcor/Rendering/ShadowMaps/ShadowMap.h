@@ -230,6 +230,8 @@ private:
     bool mShadowResChanged = false;
     bool mRasterDefinesChanged = false;
     bool mTypeChanged = false;
+    float mMSMDepthBias = 0.0f;
+    float mMSMMomentBias = 0.003f;
 
     //Internal
     std::vector<float4x4> mCascadedVPMatrix;
