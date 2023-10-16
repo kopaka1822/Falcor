@@ -72,6 +72,9 @@ cbuffer CB
     uint        gPRNGDimension;     // First available PRNG dimension.
     uint        gUseShadowMap;      // Bounce at which the shadow map should be used
     float       gScreenSpacePixelSpreadAngle; // Spread angle in screen space for ray cones
+
+    uint        gOracleDebugIdx;        //Index currently used for oracle debug
+    uint        _pad;              
 }
 
 // Inputs
@@ -80,7 +83,7 @@ Texture2D<float4> gViewW; // Optional
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
-RWTexture2D<float4> gOracleDebug[MAX_BOUNCES + 1];
+RWTexture2D<float4> gOracleDebug;
 
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
@@ -385,38 +388,39 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
     if (!gShadowMap.kUseHybridShadowMap)
         useShadowRay |= !useNormalSM;
 
-    //TODO: Move to shadow map parameter block
     if (kDebugOracleFunction)
     {
-        float3 debugValue = float3(0);
-        /* //MIP
-        if(oracleMip < 1.f)
-            debugValue = float3(1,0,0);
-        else if (oracleMip < 2.f)
-            debugValue = float3(0,1,0);
-        else if (oracleMip < 3.f)
-            debugValue = float3(0,0,1);
-        else if (oracleMip < 4.f)
-             debugValue = float3(1,1,0);
-        else if (oracleMip < 5.f)
-            debugValue = float3(0,1,1);
-        else
-            debugValue = float3(1,0,1);
-        */
-        if (kDebugOracleLightIdx < 0 || kDebugOracleLightIdx == lightIndex)
-        {
-            if (useNormalSM && !useShadowRay)
-                debugValue.x = 1.f;
-            if (gShadowMap.kUseHybridShadowMap && !useShadowRay)
-                debugValue.z = 1.f;
-            if (useShadowRay)
-                debugValue.y = 1.f;
+        if(gOracleDebugIdx == pathLength){
+            float3 debugValue = float3(0);
+            /* //MIP
+            if(oracleMip < 1.f)
+                debugValue = float3(1,0,0);
+            else if (oracleMip < 2.f)
+                debugValue = float3(0,1,0);
+            else if (oracleMip < 3.f)
+                debugValue = float3(0,0,1);
+            else if (oracleMip < 4.f)
+                 debugValue = float3(1,1,0);
+            else if (oracleMip < 5.f)
+                debugValue = float3(0,1,1);
+            else
+                debugValue = float3(1,0,1);
+            */
+            if (kDebugOracleLightIdx < 0 || kDebugOracleLightIdx == lightIndex)
+            {
+                if (useNormalSM && !useShadowRay)
+                    debugValue.x = 1.f;
+                if (gShadowMap.kUseHybridShadowMap && !useShadowRay)
+                    debugValue.z = 1.f;
+                if (useShadowRay)
+                    debugValue.y = 1.f;
             
-            if(kDebugOracleLightIdx >= 0)
-                debugValue *= invPdf;       //Because the light is not always choosen
-        }
+                if(kDebugOracleLightIdx >= 0)
+                    debugValue *= invPdf;       //Because the light is not always choosen
+            }
         
-        gOracleDebug[pathLength][DispatchRaysIndex().xy] = float4(debugValue, oracle);
+            gOracleDebug[DispatchRaysIndex().xy] = float4(debugValue, oracle);
+        }
     }
             
     if (useShadowRay)

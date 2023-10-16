@@ -193,6 +193,7 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
     var["CB"]["gUseShadowMap"] = mUseShadowMapBounce;
     var["CB"]["gScreenSpacePixelSpreadAngle"] = mpScene->getCamera()->computeScreenSpacePixelSpreadAngle(targetDim.y);
+    var["CB"]["gOracleDebugIdx"] = mOracleDebugFuncLevel;
 
     //Set Shadow Map per Iteration Shader Data
     mpShadowMap->setShaderDataAndBindBlock(var, renderData.getDefaultTextureDims());
@@ -217,7 +218,8 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     //Copy to out
     if (mOracleDebugShowFunc)
     {
-        pRenderContext->copyResource(renderData["color"]->asTexture().get(), mpOracleDebug[mOracleDebugFuncLevel].get());
+        pRenderContext->copyResource(renderData["color"]->asTexture().get(), mpOracleDebug.get());
+        pRenderContext->clearTexture(mpOracleDebug.get());
     }
 
     mFrameCount++;
@@ -265,24 +267,24 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
 
     if (auto group = widget.group("Shadow Map Options"))
     {
-        group.var("Use SM from Bounce", mUseShadowMapBounce, 0u, mMaxBounces + 1, 1u);
+        dirty |= group.var("Use SM from Bounce", mUseShadowMapBounce, 0u, mMaxBounces + 1, 1u);
         group.tooltip(
             "Tells the renderer, at which bounces the shadow maps should be used. To disable shadow map usage set to \"Max bounces\" + 1 ",
             true
         );
         
         if (mpShadowMap)
-            mpShadowMap->renderUI(group);
+            dirty |= mpShadowMap->renderUI(group);
         else
             group.text("Further Shadow Map Options to appear \n when a scene is loaded in.");
 
         if (auto group2 = widget.group("Oracle Debug")) {
-            group2.checkbox("Show Oracle Function", mOracleDebugShowFunc);
+            dirty |= group2.checkbox("Show Oracle Function", mOracleDebugShowFunc);
             group2.tooltip("Use SM = Red; Use RayTracing/Hybrid SM = green. Shows only the for the first SM bounce", true);
             if (mOracleDebugShowFunc)
             {
-                group2.var("Show (Oracle) level", mOracleDebugFuncLevel, 0u, mMaxBounces, 1u);
-                group2.var("Oracle Only Show Light", mOracleDebugLightIdx, -1, 100000000, 1);
+                dirty |= group2.slider("Show (Oracle) level", mOracleDebugFuncLevel, 0u, mMaxBounces);
+                dirty |= group2.slider("Oracle Only Show Light", mOracleDebugLightIdx, -1, int(mpScene->getLightCount()) - 1);
                 group2.tooltip("Only shows the light with the responding index. -1 Shows all lights. >NumLights will be black", true);
             }
         }
@@ -382,32 +384,26 @@ void MinimalPathTracerShadowMap::handleDebugOracleTexture(ShaderVar& var, const 
 {
     if (!mOracleDebugShowFunc)
     {
-        if (!mpOracleDebug.empty())
-            mpOracleDebug.clear();
+        if (mpOracleDebug)
+        {
+            mpOracleDebug.reset();
+            var["gOracleDebug"] = mpOracleDebug;
+        }
+           
         return;
     }
         
-    if (mpOracleDebug.empty() || mpOracleDebug.size() != mMaxBounces)
+    if (!mpOracleDebug)
     {
-        mpOracleDebug.clear();
-        mpOracleDebug.resize(mMaxBounces+1);
-
         uint2 dims = renderData.getDefaultTextureDims();
+        mpOracleDebug = Texture::create2D( mpDevice, dims.x, dims.y, ResourceFormat::RGBA32Float, 1, 1, nullptr, Resource::BindFlags::UnorderedAccess);
 
-        for (uint i = 0; i <= mMaxBounces; i++)
-        {
-            mpOracleDebug[i] = Texture::create2D(
-                mpDevice, dims.x, dims.y, ResourceFormat::RGBA32Float, 1, 1, nullptr, Resource::BindFlags::UnorderedAccess
-            );
-            mpOracleDebug[i]->setName("MPTShadow::OracleDebug" + std::to_string(i));
-        }
+        mpOracleDebug->setName("MPTShadow::OracleDebug");
     }
 
-    for (uint i = 0; i < mpOracleDebug.size(); i++)
-    {
-        var["gOracleDebug"][i] = mpOracleDebug[i];
+    var["gOracleDebug"] = mpOracleDebug;
+
     }
-}
 
 void MinimalPathTracerShadowMap::setTexLODMode(TexLODMode lodMode) {
     if (lodMode == TexLODMode::Stochastic || lodMode == TexLODMode::RayDiffs)

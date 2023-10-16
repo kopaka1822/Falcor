@@ -63,7 +63,8 @@ public:
     // Renders and updates the shadow maps if necessary
     bool update(RenderContext* pRenderContext);
 
-    void renderUI(Gui::Widgets& widget);
+    //Shadow map render UI, returns a boolean if the renderer should be refreshed
+    bool renderUI(Gui::Widgets& widget);
 
     // Returns a define List with all the defines. Need to be called once per frame to update defines
     DefineList getDefines() const;

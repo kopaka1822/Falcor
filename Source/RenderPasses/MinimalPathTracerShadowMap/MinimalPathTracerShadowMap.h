@@ -92,7 +92,7 @@ private:
     bool                        mOptionsChanged = false;
 
     //Debug Texture
-    std::vector<ref<Texture>> mpOracleDebug;
+    ref<Texture> mpOracleDebug;
 
     // Ray tracing program.
     struct

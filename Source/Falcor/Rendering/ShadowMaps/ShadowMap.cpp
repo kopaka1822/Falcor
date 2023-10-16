@@ -1697,8 +1697,10 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     return true;
 }
 
-void ShadowMap::renderUI(Gui::Widgets& widget)
+bool ShadowMap::renderUI(Gui::Widgets& widget)
 {
+    bool dirty = false;
+
     mResetShadowMapBuffers |= widget.checkbox("Generate: Use Ray Tracing", mUseRaySMGen);
     widget.tooltip("Uses a ray tracing shader to generate the shadow maps");
     static uint classicBias = mBias;
@@ -1727,6 +1729,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             mSMCubeWorldBias = 0.f;
             break;
         }
+        dirty = true;
     }
     widget.tooltip("Changes the Shadow Map Type. For types other than Shadow Map, a extra depth texture is needed",true);
 
@@ -1757,7 +1760,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     }
     
 
-    widget.checkbox("Use Hybrid SM", mUseHybridSM);
+    dirty |= widget.checkbox("Use Hybrid SM", mUseHybridSM);
     widget.tooltip("Enables Hybrid Shadow Maps, where the edge of the shadow map is traced", true);
 
     static uint3 resolution = uint3(mShadowMapSize, mShadowMapSizeCube, mShadowMapSizeCascaded);
@@ -1769,6 +1772,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
         mShadowMapSizeCube = resolution.y;
         mShadowMapSizeCascaded = resolution.z;
         mShadowResChanged = true;
+        dirty = true;
     }
 
      widget.dummy("", float2(1.5f)); //Spacing
@@ -1800,7 +1804,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
 
          
 
-         group.checkbox("Use Ray Outside of SM", mUseRayOutsideOfShadowMap);
+         dirty |= group.checkbox("Use Ray Outside of SM", mUseRayOutsideOfShadowMap);
          group.tooltip("Always uses a ray, when position is outside of the shadow map. Else the area is lit", true);
     }
 
@@ -1828,17 +1832,19 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
                 mBiasSettingsChanged = true;
             }
 
-            group.checkbox("Use PCF", mUsePCF);
+            dirty |= biasChanged;
+
+            dirty |= group.checkbox("Use PCF", mUsePCF);
             group.tooltip("Enable to use Percentage closer filtering");
-            group.checkbox("Use Poisson Disc Sampling", mUsePoissonDisc);
+            dirty |= group.checkbox("Use Poisson Disc Sampling", mUsePoissonDisc);
             group.tooltip("Use Poisson Disc Sampling, only enabled if rng of the eval function is filled");
             if (mUsePoissonDisc)
             {
                 if (mpCascadedShadowMaps.size() > 0 || mpShadowMaps.size() > 0)
-                    group.var("Poisson Disc Rad", mPoissonDiscRad, 0.f, 50.f, 0.001f);
+                    dirty |= group.var("Poisson Disc Rad", mPoissonDiscRad, 0.f, 50.f, 0.001f);
                 else if (mpShadowMapsCube.size() > 0)
                 {
-                    group.var("Poisson Disc Rad Cube", mPoissonDiscRadCube, 0.f, 20.f, 0.00001f);
+                    dirty |= group.var("Poisson Disc Rad Cube", mPoissonDiscRadCube, 0.f, 20.f, 0.00001f);
                 }
                     
             }
@@ -1850,12 +1856,12 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Variance Shadow Map Options"))
         {
-            group.checkbox("Enable Blur", mUseGaussianBlur);
-            group.checkbox("Round Shadow Value", mRoundVarianceValue);
+            dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
+            dirty |= group.checkbox("Round Shadow Value", mRoundVarianceValue);
             group.tooltip("Rounds the variance shadow value to 0 or 1. Prevents some light leaking with the cost of soft shadows");
-            group.checkbox("Variance SelfShadow Variant", mVarianceUseSelfShadowVariant);
+            dirty |= group.checkbox("Variance SelfShadow Variant", mVarianceUseSelfShadowVariant);
             group.tooltip("Uses part of ddx and ddy depth in variance calculation");
-            group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
+            dirty |= group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
             group.tooltip("Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH.x, TH.y]", true);
             if (mHSMFilteredThreshold.x > mHSMFilteredThreshold.y)
                 mHSMFilteredThreshold.y = mHSMFilteredThreshold.x;
@@ -1863,10 +1869,11 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
             if (mUseShadowMipMaps)
             {
-                group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+                dirty |= group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
                 group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
             }
-            group.checkbox("Use PCF", mUsePCF);
+
+            dirty |= group.checkbox("Use PCF", mUsePCF);
             group.tooltip("Enable to use Percentage closer filtering");
         }
         
@@ -1876,10 +1883,10 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Exponential Shadow Map Options"))
         {
-            group.checkbox("Enable Blur", mUseGaussianBlur);
-            group.var("Exponential Constant", mExponentialSMConstant, 1.f, kESM_ExponentialConstantMax, 0.1f);
+            dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
+            dirty |= group.var("Exponential Constant", mExponentialSMConstant, 1.f, kESM_ExponentialConstantMax, 0.1f);
             group.tooltip("Constant for exponential shadow map");
-            group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
+            dirty |= group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
             group.tooltip(
                 "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH, 1.f]", true
             );
@@ -1887,7 +1894,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
             if (mUseShadowMipMaps)
             {
-                group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+                dirty |= group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
                 group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
             }
         }
@@ -1897,12 +1904,12 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Exponential Variance Shadow Map Options"))
         {
-            group.checkbox("Enable Blur", mUseGaussianBlur);
-            group.var("Exponential Constant", mEVSMConstant, 1.f, kEVSM_ExponentialConstantMax, 0.1f);
+            dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
+            dirty |= group.var("Exponential Constant", mEVSMConstant, 1.f, kEVSM_ExponentialConstantMax, 0.1f);
             group.tooltip("Constant for exponential shadow map");
-            group.var("Exponential Negative Constant", mEVSMNegConstant, 1.f, kEVSM_ExponentialConstantMax, 0.1f);
+            dirty |= group.var("Exponential Negative Constant", mEVSMNegConstant, 1.f, kEVSM_ExponentialConstantMax, 0.1f);
             group.tooltip("Constant for the negative part");
-            group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
+            dirty |= group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
             group.tooltip(
                 "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [x, y]", true
             );
@@ -1910,7 +1917,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
             if (mUseShadowMipMaps)
             {
-                group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+                dirty |= group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
                 group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
             }
         }
@@ -1921,14 +1928,14 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Moment Shadow Maps Options"))
         {
-            group.var("Depth Bias (x1000)", mMSMDepthBias, 0.f, 10.f, 0.0001f);
+            dirty |= group.var("Depth Bias (x1000)", mMSMDepthBias, 0.f, 10.f, 0.0001f);
             group.tooltip("Depth bias subtracted from the depth value the moment shadow map is tested against");
-            group.var("Moment Bias (x1000)", mMSMMomentBias, 0.f, 10.f, 0.0001f);
+            dirty |= group.var("Moment Bias (x1000)", mMSMMomentBias, 0.f, 10.f, 0.0001f);
             group.tooltip("Moment bias which pulls all values a bit to 0.5");
-            group.checkbox("Enable Blur", mUseGaussianBlur);
-            group.checkbox("Round Shadow Value", mRoundVarianceValue);
+            dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
+            dirty |= group.checkbox("Round Shadow Value", mRoundVarianceValue);
             group.tooltip("Rounds the shadow value to 0 or 1. Prevents some light leaking with the cost of soft shadows");
-            group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
+            dirty |= group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
             group.tooltip(
                 "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [x, y]", true
             );
@@ -1936,7 +1943,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
             if (mUseShadowMipMaps)
             {
-                group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+                dirty |= group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
                 group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
             }
         }
@@ -1957,14 +1964,14 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip("Enables stochastic level blend. The level is stochastically choosen based on the blend band", true);
             if (mCascadedStochasticBlend)
             {
-                group.var("Cascaded Blend Band Strength", mCascadedStochasticBlendBand, 0.0f, 0.5f, 0.001f);
+                dirty |= group.var("Cascaded Blend Band Strength", mCascadedStochasticBlendBand, 0.0f, 0.5f, 0.001f);
                 group.tooltip("The strength of the blending band that is between cascaded levels", true);
             }
             
             group.tooltip("Changes the number of cascaded levels");
-            group.var("Z Slize Exp influence", mCascadedFrustumFix, 0.f, 1.f, 0.001f);
+            dirty |= group.var("Z Slize Exp influence", mCascadedFrustumFix, 0.f, 1.f, 0.001f);
             group.tooltip("Influence of the Exponentenial part in the zSlice calculation. (1-Value) is used for the linear part");
-            group.var("Z Value Multi", mCascZMult, 1.f, 1000.f, 0.1f);
+            dirty |= group.var("Z Value Multi", mCascZMult, 1.f, 1000.f, 0.1f);
             group.tooltip("Pulls the Z-Values of each cascaded level apart. Is needed as not all Geometry is in the View-Frustum");
         }
     }
@@ -1991,6 +1998,7 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
             }
         }
 
+        dirty |= blurSettingsChanged;
         mUpdateShadowMap |= blurSettingsChanged; //Rerender Shadow maps if the blur settings changed
     }
 
@@ -2015,24 +2023,29 @@ void ShadowMap::renderUI(Gui::Widgets& widget)
 
     if (auto group = widget.group("Oracle Options"))
     {
-        group.checkbox("Use Oracle Function", mUseSMOracle);
+        dirty |= group.checkbox("Use Oracle Function", mUseSMOracle);
         group.tooltip("Enables the oracle function for Shadow Mapping", true);
         if (mUseSMOracle)
         {
-            group.var("Oracle Compaire Value", mOracleCompaireValue, 0.f, 64.f, 0.1f);
+            dirty |= group.var("Oracle Compaire Value", mOracleCompaireValue, 0.f, 64.f, 0.1f);
             group.tooltip("Compaire Value for the Oracle function. Is basically compaired against ShadowMapPixelArea/CameraPixelArea.");
             if (mUseHybridSM)
             {
-                group.var("Oracle Upper Bound", mOracleCompaireUpperBound, mOracleCompaireValue, 2048.f, 0.1f);
+                dirty |= group.var("Oracle Upper Bound", mOracleCompaireUpperBound, mOracleCompaireValue, 2048.f, 0.1f);
                 group.tooltip(
                     "Upper Bound for the oracle value. If oracle is above this value the shadow test is skipped and an ray is shot."
                 );
             }
-            group.dropdown("Oracle Distance Mode", mOracleDistanceFunctionMode);
+            dirty |= group.dropdown("Oracle Distance Mode", mOracleDistanceFunctionMode);
             group.tooltip("Mode for the distance factor applied on bounces.");
         }
         
     }
+
+    dirty |= mRasterDefinesChanged;
+    dirty |= mResetShadowMapBuffers;
+
+    return dirty;
 }
 
 // Gets the pixel size at distance 1. Assumes every pixel has the same size.
