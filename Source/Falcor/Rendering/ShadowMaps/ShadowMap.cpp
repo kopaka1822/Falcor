@@ -653,7 +653,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("USE_ORACLE_DISTANCE_FUNCTION", mOracleDistanceFunctionMode == OracleDistFunction::None ? "0" : "1");
     defines.add("USE_SM_MIP", mUseShadowMipMaps ? "1" : "0");
     defines.add("SM_MIP_BIAS", std::to_string(mShadowMipBias));
-    defines.add("VARIANCE_ROUND_SHADOW_VALUE", mRoundVarianceValue ? "1" : "0");
+    defines.add("MIN_SHADOW_VALUE_FILTERED", mUseMinShadowValue ? std::to_string(mMinShadowValueVal) : "-1.f");
 
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
@@ -1857,10 +1857,12 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
         if (auto group = widget.group("Variance Shadow Map Options"))
         {
             dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
-            dirty |= group.checkbox("Round Shadow Value", mRoundVarianceValue);
-            group.tooltip("Rounds the variance shadow value to 0 or 1. Prevents some light leaking with the cost of soft shadows");
+            dirty |= group.checkbox("Use Min Shadow Value", mUseMinShadowValue);
+            group.tooltip("Enables a minimum allowed shadow value. Every shadow value gets reduced to 0. Prevents some light leaking with the cost of reducing the soft shadow effect");
+            dirty |= group.var("Min Shadow Value", mMinShadowValueVal, 0.f , 1.f, 0.0001f);
+            group.tooltip("Minimal Shadow Value");
             dirty |= group.checkbox("Variance SelfShadow Variant", mVarianceUseSelfShadowVariant);
-            group.tooltip("Uses part of ddx and ddy depth in variance calculation");
+            group.tooltip("Uses part of ddx and ddy depth in variance calculation. Should not be used with Blur!. Only enabled in rasterize shadow map mode.");
             dirty |= group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
             group.tooltip("Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH.x, TH.y]", true);
             if (mHSMFilteredThreshold.x > mHSMFilteredThreshold.y)
@@ -1933,8 +1935,13 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             dirty |= group.var("Moment Bias (x1000)", mMSMMomentBias, 0.f, 10.f, 0.0001f);
             group.tooltip("Moment bias which pulls all values a bit to 0.5");
             dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
-            dirty |= group.checkbox("Round Shadow Value", mRoundVarianceValue);
-            group.tooltip("Rounds the shadow value to 0 or 1. Prevents some light leaking with the cost of soft shadows");
+            dirty |= group.checkbox("Use Min Shadow Value", mUseMinShadowValue);
+            group.tooltip(
+                "Enables a minimum allowed shadow value. Every shadow value gets reduced to 0. Prevents some light leaking with the cost "
+                "of reducing the soft shadow effect"
+            );
+            dirty |= group.var("Min Shadow Value", mMinShadowValueVal, 0.f, 1.f, 0.0001f);
+            group.tooltip("Minimal Shadow Value");
             dirty |= group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
             group.tooltip(
                 "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [x, y]", true

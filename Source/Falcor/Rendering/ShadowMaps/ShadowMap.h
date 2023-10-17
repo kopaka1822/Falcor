@@ -200,8 +200,9 @@ private:
     float mEVSMNegConstant = 5.f;                   //Exponential Variance Shadow Map negative constant. Usually lower than the positive counterpart
     float2 mHSMFilteredThreshold = float2(0.02f, 0.98f);     //Threshold for filtered shadow map variants
     bool mUseRayOutsideOfShadowMap = false;
-    bool mVarianceUseSelfShadowVariant = true;
-    bool mRoundVarianceValue = true;                //Rounds the variance value to 0 or 1
+    bool mVarianceUseSelfShadowVariant = false;
+    bool mUseMinShadowValue = false;                //Sets if there should be a minimum shadow value
+    float mMinShadowValueVal = 0.4f;                //The min allowed shadow value, else it is set to 0
 
     //Shadow Map Jitter
     SamplePattern mJitterSamplePattern = SamplePattern::None;     //Sets the CPU Jitter generator

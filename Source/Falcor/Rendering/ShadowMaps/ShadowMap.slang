@@ -82,7 +82,7 @@ struct ShadowMap
     static const bool kUseOracleDistFunction = USE_ORACLE_DISTANCE_FUNCTION;
     static const bool kUseSMMips = USE_SM_MIP;
     static const float kMipBias = SM_MIP_BIAS;      //angle bias used in mip calculation (cos theta^bias)
-    static const bool kRoundVarianceValue = VARIANCE_ROUND_SHADOW_VALUE;
+    static const float kMinShadowValue = MIN_SHADOW_VALUE_FILTERED;
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] =
@@ -752,8 +752,8 @@ struct ShadowMap
         else if (shadow >= kHSMFilteredThreshold.y)
             shadow = 1.f;
 
-        if(kRoundVarianceValue)
-            shadow = round(shadow);
+        if(kMinShadowValue > 0)
+            shadow = shadow < kMinShadowValue ? 0.0f : shadow;
             
         return useShadow;
     }
@@ -1073,15 +1073,15 @@ struct ShadowMap
             if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
                 useShadow = false;   //Shoot ray
         }
-
-        //Clamp Shadow Value depending on the threshold
-        if(shadow <= kHSMFilteredThreshold.x)
+        
+        //Clamp Shadow Value depending on the threshold        
+        if(shadow < kHSMFilteredThreshold.x)
             shadow = 0.0;
-        else if (shadow >= kHSMFilteredThreshold.y)
+        else if (shadow > kHSMFilteredThreshold.y)
             shadow = 1.f;
-
-        if(kRoundVarianceValue)
-            shadow = round(shadow);
+        
+        if(kMinShadowValue > 0)
+            shadow = shadow < kMinShadowValue ? 0.0f : shadow;
             
         return useShadow;
     }

@@ -419,7 +419,7 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
                     debugValue *= invPdf;       //Because the light is not always choosen
             }
         
-            gOracleDebug[DispatchRaysIndex().xy] = float4(debugValue, oracle);
+            gOracleDebug[DispatchRaysIndex().xy] = float4(debugValue, shadow);
         }
     }
             
