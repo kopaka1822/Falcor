@@ -647,13 +647,16 @@ DefineList ShadowMap::getDefines() const
     defines.add("CASCADED_STOCH_BLEND_STR", std::to_string(mCascadedStochasticBlendBand));
 
     defines.add("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
+    defines.add("USE_SM_MIP", mUseShadowMipMaps ? "1" : "0");
+    defines.add("SM_MIP_BIAS", std::to_string(mShadowMipBias));
+    defines.add("MIN_SHADOW_VALUE_FILTERED", mUseMinShadowValue ? std::to_string(mMinShadowValueVal) : "-1.f");
     defines.add("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
     defines.add("ORACLE_COMP_VALUE", std::to_string(mOracleCompaireValue));
     defines.add("ORACLE_UPPER_BOUND", std::to_string(mOracleCompaireUpperBound));
     defines.add("USE_ORACLE_DISTANCE_FUNCTION", mOracleDistanceFunctionMode == OracleDistFunction::None ? "0" : "1");
-    defines.add("USE_SM_MIP", mUseShadowMipMaps ? "1" : "0");
-    defines.add("SM_MIP_BIAS", std::to_string(mShadowMipBias));
-    defines.add("MIN_SHADOW_VALUE_FILTERED", mUseMinShadowValue ? std::to_string(mMinShadowValueVal) : "-1.f");
+    defines.add("USE_ORACLE_FOR_DIRECT", mOracleIgnoreDirect ? "1" : "0");
+    defines.add("USE_ORACLE_FOR_DIRECT_ROUGHNESS", std::to_string(mOracleIgnoreDirectRoughness));
+    
 
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
@@ -2045,8 +2048,18 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             }
             dirty |= group.dropdown("Oracle Distance Mode", mOracleDistanceFunctionMode);
             group.tooltip("Mode for the distance factor applied on bounces.");
+
+            if (mUseHybridSM)
+            {
+                dirty |= group.checkbox("Ignore Oracle on direct hit", mOracleIgnoreDirect);
+                group.tooltip("Ignores the oracle on direct and very specular hits");
+                if (mOracleIgnoreDirect)
+                {
+                    dirty |= group.var("Ignore Oracle Roughness", mOracleIgnoreDirectRoughness, 0.f, 1.f, 0.0001f);
+                    group.tooltip("The roughness that defines the very specular hits for the ignore oracle function");
+                }                 
+            }
         }
-        
     }
 
     dirty |= mRasterDefinesChanged;

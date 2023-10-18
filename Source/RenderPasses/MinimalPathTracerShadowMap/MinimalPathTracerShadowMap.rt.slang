@@ -120,7 +120,7 @@ struct ScatterRayData
     float3  origin;         ///< Next path segment origin.
     float   lobeDistFactor; ///< Factor how the lobe affects the distance of the ray 
     float3  direction;      ///< Next path segment direction.
-
+    bool    useOracle;      ///< Enables Oracle
     //RayCone rayCone;        ///< Ray cone (2 floats) for texture LOD. TODO add back if fixed
     
     SampleGenerator sg;     ///< Per-ray state for the sample generator (up to 16B).
@@ -137,6 +137,7 @@ struct ScatterRayData
         this.origin = float3(0, 0, 0);
         this.direction = float3(0, 0, 0);
         this.lobeDistFactor = 1.f;
+        this.useOracle = true;
         //this.rayCone = {};
         this.sg = sg;
     }
@@ -362,7 +363,7 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
     float oracleMip = 0.f;
     bool useShadowRay = gUseShadowMap > pathLength;
         
-    if (gShadowMap.kUseOracle && !useShadowRay)
+    if (rayData.useOracle && !useShadowRay)
     {
         oracle = gShadowMap.oracleFunction(lightIndex, smLightData, sd, rayData.distance, oracleMip);
     }
@@ -377,7 +378,7 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
     {
         useShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, sd.posW, smLightData, sg, oracleMip, shadow);
         bool validShadowValue = shadow >= 0.f;
-        useShadowRay &= (!useNormalSM || !gShadowMap.kUseOracle || !validShadowValue); //Disable ray if oracle function was evaluated true
+        useShadowRay &= (!useNormalSM || !rayData.useOracle || !validShadowValue); //Disable ray if oracle function was evaluated true
     }
     else if (!useShadowRay && useNormalSM)
     {
@@ -408,7 +409,9 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
             */
             if (kDebugOracleLightIdx < 0 || kDebugOracleLightIdx == lightIndex)
             {
-                if (useNormalSM && !useShadowRay)
+                if (!rayData.useOracle && gShadowMap.kUseOracle)
+                    debugValue.x = 0.225f;
+                else if (useNormalSM && !useShadowRay)
                     debugValue.x = 1.f;
                 if (gShadowMap.kUseHybridShadowMap && !useShadowRay)
                     debugValue.z = 1.f;
@@ -454,12 +457,19 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool i
         rayData.direction = bsdfSample.wo;
         rayData.thp *= bsdfSample.weight;
 
-        ///Handle Oracle Distance function
-        if (gShadowMap.kUseOracleDistFunction)
-        {
+        if(gShadowMap.kUseOracle){
             let bsdfProperties = mi.getProperties(sd);
-            rayData.lobeDistFactor = gShadowMap.getOracleDistanceFunctionFactor(bsdfProperties, bsdfSample);
+            ///Handle Oracle Distance function
+            if (gShadowMap.kUseOracleDistFunction)
+            {
+                rayData.lobeDistFactor = gShadowMap.getOracleDistanceFunctionFactor(bsdfProperties, bsdfSample);
+            }
+
+            if(!rayData.useOracle && gShadowMap.kUseOracleForDirect){
+                rayData.useOracle = bsdfProperties.roughness >= gShadowMap.kUseOracleForDirectRoughness ? true : rayData.useOracle;
+            }
         }
+        
         
         return any(rayData.thp > 0.f);
     }
@@ -594,6 +604,8 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         // Prepare ray payload.
         ScatterRayData rayData = ScatterRayData(sg);
         rayData.distance = distance(gScene.camera.data.posW, sd.posW);  //set the currently traveled distance
+        //Set Oracle statuse
+        rayData.useOracle = gShadowMap.kUseOracle && !(gShadowMap.kUseHybridShadowMap && gShadowMap.kUseOracleForDirect);
         
         if (kComputeDirect)
         {

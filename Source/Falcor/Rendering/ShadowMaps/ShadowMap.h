@@ -101,6 +101,7 @@ public:
 private:
     const float kEVSM_ExponentialConstantMax = 42.f;    //Max exponential constant for Exponential Variance Shadow Maps
     const float kESM_ExponentialConstantMax = 84.f;     //Max exponential constant for Exponential Shadow Maps
+    const uint  kStagingBufferCount = 3;                // Number of staging buffers for GPU CPU
 
     struct ShaderParameters
     {
@@ -156,103 +157,140 @@ private:
     uint getCountShadowMapsCube() const { return mpShadowMapsCube.size(); }
     uint getCountShadowMaps() const { return mpShadowMaps.size(); }
 
-    ref<Device> mpDevice;
-    ref<Scene> mpScene;
-    ref<Fbo> mpFbo;
-    ref<Fbo> mpFboCube;
-    ref<Fbo> mpFboCascaded;
+    //Internal Refs
+    ref<Device> mpDevice;                               ///< Graphics device
+    ref<Scene> mpScene;                                 ///< Scene                          
     ref<CPUSampleGenerator> mpCPUJitterSampleGenerator; ///< Sample generator for shadow map jitter
 
-    const uint kStagingBufferCount = 3;
-    const uint kNumberDebugTextures = 16;
+    //FBOs
+    ref<Fbo> mpFbo;
+    ref<Fbo> mpFboCube;
+    ref<Fbo> mpFboCascaded;  
 
-    bool mUseRaySMGen = false;
-    uint mShadowMapSize = 1024;
-    uint mShadowMapSizeCube = 1024;
-    uint mShadowMapSizeCascaded = 2048;
-    ResourceFormat mShadowMapFormat = ResourceFormat::D32Float;
-    RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;
+    //Additional Cull states
     std::map<RasterizerState::CullMode, ref<RasterizerState>> mFrontClockwiseRS;
     std::map<RasterizerState::CullMode, ref<RasterizerState>> mFrontCounterClockwiseRS;
 
-    // Settings
-    ShadowMapType mShadowMapType = ShadowMapType::Variance;
-    OracleDistFunction mOracleDistanceFunctionMode = OracleDistFunction::RoughnessSquare;
+    //****************//
+    //*** Settings ***//
+    //****************//
+
+    // Common Settings
+    bool mUseRaySMGen = false;                                  //Generate Shadow Map with Ray Tracing
+    ShadowMapType mShadowMapType = ShadowMapType::Variance;     //Type
+
+    uint mShadowMapSize = 1024;
+    uint mShadowMapSizeCube = 1024;
+    uint mShadowMapSizeCascaded = 2048;
+
+    ResourceFormat mShadowMapFormat = ResourceFormat::D32Float;                 //Format D32 (F32 for most) and [untested] D16 (Unorm 16 for most) are supported
+    RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;      //Cull mode. Double Sided Materials are not culled
+
     float mNear = 0.1f;
     float mFar = 60.f;
+
     bool mUsePCF = false;
     bool mUsePoissonDisc = false;
-    bool mBiasSettingsChanged = false;
-    int32_t mBias = 0;
-    float mSlopeBias = 0.f;
-    bool mUseAlphaTest = true;
-    uint mAlphaMode = 3;                    //Mode for the alpha test ; 1 = Basic, 2 = HashedIsotropic, 3 = HashedAnisotropic
     float mPoissonDiscRad = 0.5f;
     float mPoissonDiscRadCube = 0.015f;
-    float mSMCubeWorldBias = 0.f;
+
+    bool mUseAlphaTest = true;
+    uint mAlphaMode = 3; // Mode for the alpha test ; 1 = Basic, 2 = HashedIsotropic, 3 = HashedAnisotropic
+
+    bool mUseRayOutsideOfShadowMap = false;
+
+    bool mUseShadowMipMaps = false; ///< Uses mip maps for applyable shadow maps
+    float mShadowMipBias = 1.5f;    ///< Bias used in mips (cos theta)^bias
+
+    //Cascaded
     uint mCascadedLevelCount = 4;
     float mCascadedFrustumFix = 0.5f;
-    float mCascZMult = 3.f;                     //Pushes the z Values apart
+    float mCascZMult = 3.f; // Pushes the z Values apart
     bool mCascadedStochasticBlend = true;
     float mCascadedStochasticBlendBand = 0.05f;
-    float mExponentialSMConstant = 80.f;            //Value used in the paper
-    float mEVSMConstant = 20.f;                     //Exponential Variance Shadow Map constant. Needs to be lower than the exponential counterpart
-    float mEVSMNegConstant = 5.f;                   //Exponential Variance Shadow Map negative constant. Usually lower than the positive counterpart
-    float2 mHSMFilteredThreshold = float2(0.02f, 0.98f);     //Threshold for filtered shadow map variants
-    bool mUseRayOutsideOfShadowMap = false;
-    bool mVarianceUseSelfShadowVariant = false;
-    bool mUseMinShadowValue = false;                //Sets if there should be a minimum shadow value
-    float mMinShadowValueVal = 0.4f;                //The min allowed shadow value, else it is set to 0
 
-    //Shadow Map Jitter
-    SamplePattern mJitterSamplePattern = SamplePattern::None;     //Sets the CPU Jitter generator
-    uint mTemporalFilterLength = 10;                        //Temporal filter strength  
-    uint mJitterSampleCount = 16;                           //Number of Jitter samples 
+    // Hybrid Shadow Maps
+    bool mUseHybridSM = true; ///< Uses the Hybrid Shadow Maps; For "Classic" Shadow Maps based on: https://gpuopen.com/fidelityfx-hybrid-shadows/#details
+    float2 mHSMFilteredThreshold = float2(0.02f, 0.98f); // Threshold for filtered shadow map variants
 
-
-    bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function
-    bool mUseOracleDistFactor = true; ///< Enables a lobe distance factor that is used in the oracle function TODO rename
-    float mOracleCompaireValue = 1.f/9.f; ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea.
-    float mOracleCompaireUpperBound = 32.f;  ///< Hybrid mode only. If oracle is over this value, shoot an ray
-    bool mUseHybridSM = true;        ///< Uses the Hybrid Shadow Maps (https://gpuopen.com/fidelityfx-hybrid-shadows/#details)
-
-    bool mUseShadowMipMaps = false;        ///< Uses mip maps for applyable shadow maps
-    float mShadowMipBias = 1.5f;          ///< Bias used in mips (cos theta)^bias
-    bool mUseGaussianBlur = true;
-
-    bool mApplyUiSettings = false;
+    //Animated Light
     bool mRerenderStatic = false;
     SMUpdateMode mShadowMapUpdateMode = SMUpdateMode::Static;
-    bool mStaticTexturesReady[2] = {false, false};  //Spot, Cube
+    bool mStaticTexturesReady[2] = {false, false}; // Spot, Cube
     uint mUpdateFrameCounter = 0;
     std::vector<bool> mShadowMapUpdateList[2];
     uint mUpdateEveryNFrame = 2;
     bool mUpdateShadowMap = true;
+
+    //Shadow Map
+    bool mBiasSettingsChanged = false;
+    int32_t mBias = 0;
+    float mSlopeBias = 0.f;
+    float mSMCubeWorldBias = 0.f;
+   
+    //Exponential
+    float mExponentialSMConstant = 80.f;            //Value used in the paper
+    float mEVSMConstant = 20.f;                     //Exponential Variance Shadow Map constant. Needs to be lower than the exponential counterpart
+    float mEVSMNegConstant = 5.f;                   //Exponential Variance Shadow Map negative constant. Usually lower than the positive counterpart
+
+    //Variance and MSM
+    bool mVarianceUseSelfShadowVariant = false;
+
+    bool mUseMinShadowValue = false; // Sets if there should be a minimum shadow value
+    float mMinShadowValueVal = 0.4f; // The min allowed shadow value, else it is set to 0
+
+    float mMSMDepthBias = 0.0f;     //Depth Bias (x1000)
+    float mMSMMomentBias = 0.003f;  //Moment Bias (x1000)
+
+    //Jitter And Blur
+    SamplePattern mJitterSamplePattern = SamplePattern::None; // Sets the CPU Jitter generator
+    uint mTemporalFilterLength = 10;                          // Temporal filter strength
+    uint mJitterSampleCount = 16;                             // Number of Jitter samples
+
+    bool mUseGaussianBlur = true;
+
+    //Oracle
+    bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function
+    bool mUseOracleDistFactor = true; ///< Enables a lobe distance factor that is used in the oracle function 
+    OracleDistFunction mOracleDistanceFunctionMode = OracleDistFunction::RoughnessSquare;   //Distance functions used in Oracle
+   
+    float mOracleCompaireValue = 1.f/9.f; ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea.
+    float mOracleCompaireUpperBound = 32.f;  ///< Hybrid mode only. If oracle is over this value, shoot an ray
+
+    bool mOracleIgnoreDirect = true;            ///< Skip the Oracle function for direct hits and very specular (under the rougness thrs. below)
+    float mOracleIgnoreDirectRoughness = 0.085f;  ///< Roughness threshold for which hits are counted as very specular 
+   
+    //UI
+    bool mApplyUiSettings = false;
     bool mResetShadowMapBuffers = false;
     bool mShadowResChanged = false;
     bool mRasterDefinesChanged = false;
     bool mTypeChanged = false;
-    float mMSMDepthBias = 0.0f;
-    float mMSMMomentBias = 0.003f;
-
+    
+    //
     //Internal
+    //
+
+    //Cascaded
     std::vector<float4x4> mCascadedVPMatrix;
     uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
-    bool mMultipleSMTypes = false;
     float mCascadedMaxFar = 1000000.f;
     bool mCascadedFirstThisFrame = true;
     std::vector<float> mCascadedZSlices;
     std::vector<float2> mCascadedWidthHeight;
-    uint2 mNPSOffsets = uint2(0);   //x = idx first spot; y = idx first cascade
 
+    //Misc
+    bool mMultipleSMTypes = false;
+    uint2 mNPSOffsets = uint2(0);   //x = idx first spot; y = idx first cascade
+    std::vector<float4x4> mSpotDirViewProjMat;      //Spot matrices
+    std::vector<LightTypeSM> mPrevLightType;   // Vector to check if the Shadow Map Type is still correct
+
+    //Blur 
     std::unique_ptr<SMGaussianBlur> mpBlurShadowMap;
     std::unique_ptr<SMGaussianBlur> mpBlurCascaded;
     std::unique_ptr<SMGaussianBlur> mpBlurCube;
-    
-    //std::vector<bool> mIsCubeSM;
-    std::vector<LightTypeSM> mPrevLightType;  // Vector to check if the Shadow Map Type is still correct
-    std::vector<float4x4> mSpotDirViewProjMat;
 
+    //Textures and Buffers
     std::vector<ref<Texture>> mpCascadedShadowMaps; //Cascaded Shadow Maps for Directional Lights
     std::vector<ref<Texture>> mpShadowMapsCube;     // Cube Shadow Maps (Point Lights)
     std::vector<ref<Texture>> mpShadowMaps;         // 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights)
@@ -262,17 +300,21 @@ private:
     ref<Buffer> mpVPMatrixBuffer;
     std::vector<ref<Buffer>> mpVPMatrixStangingBuffer;
     ref<Buffer> mpNormalizedPixelSize;             //Buffer with the normalized pixel size for each ShadowMap
-    ref<Sampler> mpShadowSamplerPoint;
-    ref<Sampler> mpShadowSamplerLinear;
     ref<Texture> mpDepthCascaded;                  //Depth texture needed for some types of cascaded (can be null)
     ref<Texture> mpDepthCube;                      //Depth texture needed for the cube map
     ref<Texture> mpDepth;                          //Depth texture needed for some types of 2D SM (can be null)
     std::vector<ref<Texture>> mpDepthCubeStatic;   // Static cube depth map copy per shadow map
     std::vector<ref<Texture>> mpDepthStatic;       // Static 2D depth map copy per shadow map
 
+    //Samplers
+    ref<Sampler> mpShadowSamplerPoint;
+    ref<Sampler> mpShadowSamplerLinear;
+
+    //Parameter block
     ref<ComputePass> mpReflectTypes;               // Dummy pass needed to create the parameter block
     ref<ParameterBlock> mpShadowMapParameterBlock; // Parameter Block
 
+    //Render Passes
     struct RasterizerPass
     {
         ref<GraphicsState> pState = nullptr;

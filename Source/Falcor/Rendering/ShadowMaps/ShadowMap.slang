@@ -76,13 +76,16 @@ struct ShadowMap
     static const float kMSMMomentBias = MSM_MOMENT_BIAS * 0.001f;          //Moment bias for the moment shadow map
     
     static const bool kUseHybridShadowMap = USE_HYBRID_SM;
+    static const bool kUseSMMips = USE_SM_MIP;
+    static const float kMipBias = SM_MIP_BIAS;      //angle bias used in mip calculation (cos theta^bias)
+    static const float kMinShadowValue = MIN_SHADOW_VALUE_FILTERED;
+
     static const bool kUseOracle = USE_ORACLE_FUNCTION;
     static const float kOracleCompValue = ORACLE_COMP_VALUE;
     static const float kOracleCompUpperBound =ORACLE_UPPER_BOUND;
     static const bool kUseOracleDistFunction = USE_ORACLE_DISTANCE_FUNCTION;
-    static const bool kUseSMMips = USE_SM_MIP;
-    static const float kMipBias = SM_MIP_BIAS;      //angle bias used in mip calculation (cos theta^bias)
-    static const float kMinShadowValue = MIN_SHADOW_VALUE_FILTERED;
+    static const bool kUseOracleForDirect = USE_ORACLE_FOR_DIRECT;
+    static const float kUseOracleForDirectRoughness = USE_ORACLE_FOR_DIRECT_ROUGHNESS;
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] =
