@@ -57,7 +57,8 @@ enum class GenerationFlags // : uint32_t
 
 
 static const uint2 kPhotonBufferSize = uint2(PHOTON_BUFFER_SIZE_GLOBAL, PHOTON_BUFFER_SIZE_CAUSTIC);
-static const uint kUsePhotonCulling = USE_PHOTON_CULLING;
+static const bool kUsePhotonCulling = USE_PHOTON_CULLING;
+static const bool kUseCausticCulling = USE_CAUSTIC_CULLING;
 static const uint kRayFlagTerminatedMiss = 1;
 static const uint kRayFlagTerminatedHit = 2;
 
@@ -386,7 +387,7 @@ void rayGen()
         {
             uint photonType = storeAsCaustic ? 1 : 0; //Global = 0 or caustic = 1
             bool storePhoton = true;
-            if ((kUsePhotonCulling))
+            if (kUsePhotonCulling && (kUseCausticCulling || photonType == 0))
                 storePhoton = cullingTest(photonPos);
             if(storePhoton){
                 uint photonIndex = 0;

@@ -91,6 +91,13 @@ namespace
         {(uint)ReSTIR_FG::DirectLightingMode::None, "None"},
         {(uint)ReSTIR_FG::DirectLightingMode::RTXDI, "RTXDI"}
     };
+
+    const Gui::DropdownList kCausticCollectionModeList{
+        {(uint)ReSTIR_FG::CausticCollectionMode::All, "All"},
+        {(uint)ReSTIR_FG::CausticCollectionMode::None, "None"},
+        {(uint)ReSTIR_FG::CausticCollectionMode::GreaterOne, "GreaterOne"},
+        {(uint)ReSTIR_FG::CausticCollectionMode::Temporal, "Temporal"}
+    };
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -203,83 +210,96 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
 
     if (auto group = widget.group("Specular Trace Options"))
     {
-        widget.var("Specular/Transmissive Bounces", mTraceMaxBounces, 0u, 32u, 1u);
-        widget.tooltip("Number of specular/transmissive bounces. 0 -> direct hit only");
-        widget.checkbox("Require Diffuse Part", mTraceRequireDiffuseMat);
-        widget.tooltip("Requires a diffuse part in addition to delta lobes");
+        group.var("Specular/Transmissive Bounces", mTraceMaxBounces, 0u, 32u, 1u);
+        group.tooltip("Number of specular/transmissive bounces. 0 -> direct hit only");
+        group.checkbox("Require Diffuse Part", mTraceRequireDiffuseMat);
+        group.tooltip("Requires a diffuse part in addition to delta lobes");
     }
 
     if (auto group = widget.group("PhotonMapper")) {
-        changed |= widget.checkbox("Enable dynamic photon dispatch", mUseDynamicePhotonDispatchCount);
-        widget.tooltip("Changed the number of dispatched photons dynamically. Tries to fill the photon buffer");
+        changed |= group.checkbox("Enable dynamic photon dispatch", mUseDynamicePhotonDispatchCount);
+        group.tooltip("Changed the number of dispatched photons dynamically. Tries to fill the photon buffer");
         if (mUseDynamicePhotonDispatchCount)
         {
-            changed |= widget.var("Max dispatched", mPhotonDynamicDispatchMax, mPhotonYExtent, 4000000u);
-            widget.tooltip("Maximum number the dispatch can be increased to");
-            changed |= widget.var("Guard Percentage", mPhotonDynamicGuardPercentage, 0.0f, 1.f, 0.001f);
-            widget.tooltip(
+            changed |= group.var("Max dispatched", mPhotonDynamicDispatchMax, mPhotonYExtent, 4000000u);
+            group.tooltip("Maximum number the dispatch can be increased to");
+            changed |= group.var("Guard Percentage", mPhotonDynamicGuardPercentage, 0.0f, 1.f, 0.001f);
+            group.tooltip(
                 "If current fill rate is under PhotonBufferSize * (1-pGuard), the values are accepted. Reduces the changes every frame"
             );
-            changed |= widget.var("Percentage Change", mPhotonDynamicChangePercentage, 0.01f, 10.f, 0.01f);
-            widget.tooltip(
+            changed |= group.var("Percentage Change", mPhotonDynamicChangePercentage, 0.01f, 10.f, 0.01f);
+            group.tooltip(
                 "Increase/Decrease percentage from the Buffer Size. With current value a increase/decrease of :" +
                 std::to_string(mPhotonDynamicChangePercentage * mNumMaxPhotons[0]) + "is expected"
             );
-            widget.text("Dispatched Photons: " + std::to_string(mNumDispatchedPhotons));
+            group.text("Dispatched Photons: " + std::to_string(mNumDispatchedPhotons));
         }
         else
         {
             uint dispatchedPhotons = mNumDispatchedPhotons;
-            bool disPhotonChanged = widget.var("Dispatched Photons", dispatchedPhotons, mPhotonYExtent, 9984000u, (float)mPhotonYExtent);
+            bool disPhotonChanged = group.var("Dispatched Photons", dispatchedPhotons, mPhotonYExtent, 9984000u, (float)mPhotonYExtent);
             if (disPhotonChanged)
                 mNumDispatchedPhotons = (uint)(dispatchedPhotons / mPhotonYExtent) * mPhotonYExtent;
         }
 
          // Buffer size
-        widget.text("Photons: " + std::to_string(mCurrentPhotonCount[0]) + " / " + std::to_string(mNumMaxPhotons[0]));
-        widget.text("Caustic photons: " + std::to_string(mCurrentPhotonCount[1]) + " / " + std::to_string(mNumMaxPhotons[1]));
-        widget.var("Photon Buffer Size", mNumMaxPhotonsUI, 100u, 100000000u, 100);
-        widget.tooltip("First -> Global, Second -> Caustic");
-        mChangePhotonLightBufferSize = widget.button("Apply", true);
+        group.text("Photons: " + std::to_string(mCurrentPhotonCount[0]) + " / " + std::to_string(mNumMaxPhotons[0]));
+        group.text("Caustic photons: " + std::to_string(mCurrentPhotonCount[1]) + " / " + std::to_string(mNumMaxPhotons[1]));
+        group.var("Photon Buffer Size", mNumMaxPhotonsUI, 100u, 100000000u, 100);
+        group.tooltip("First -> Global, Second -> Caustic");
+        mChangePhotonLightBufferSize = group.button("Apply", true);
 
-        changed |= widget.var("Light Store Probability", mPhotonRejection, 0.f, 1.f, 0.0001f);
-        widget.tooltip("Probability a photon light is stored on diffuse hit. Flux is scaled up appropriately");
+        changed |= group.var("Light Store Probability", mPhotonRejection, 0.f, 1.f, 0.0001f);
+        group.tooltip("Probability a photon light is stored on diffuse hit. Flux is scaled up appropriately");
 
-        changed |= widget.var("Max Bounces", mPhotonMaxBounces, 0u, 32u);
-        changed |= widget.var("Max Caustic Bounces", mMaxCausticBounces, 0u, 32u);
-        widget.tooltip("Maximum number of diffuse bounces that are allowed for a caustic photon.");
+        changed |= group.var("Max Bounces", mPhotonMaxBounces, 0u, 32u);
+        changed |= group.var("Max Caustic Bounces", mMaxCausticBounces, 0u, 32u);
+        group.tooltip("Maximum number of diffuse bounces that are allowed for a caustic photon.");
 
-        changed |= widget.checkbox("Caustics", mEnableCausticPhotonCollection);
-        widget.tooltip("If disabled, no caustics are generated"); 
-
-        changed |= widget.checkbox("Caustic from Delta lobes only", mGenerationDeltaRejection);
-        widget.tooltip("Only stores ");
-        if (mGenerationDeltaRejection)
+        if (auto causticGroup = group.group("Caustic Settings", true))
         {
-            widget.checkbox("Delta Lobes require diffuse parts", mGenerationDeltaRejectionRequireDiffPart);
-            widget.tooltip("Requires a nonzero diffuse part for diffuse surfaces");
+            changed |= causticGroup.checkbox("Caustic from Delta lobes only", mGenerationDeltaRejection);
+            causticGroup.tooltip("Only stores ");
+            if (mGenerationDeltaRejection)
+            {
+                causticGroup.checkbox("Delta Lobes require diffuse parts", mGenerationDeltaRejectionRequireDiffPart);
+                causticGroup.tooltip("Caustics requires a nonzero diffuse part for diffuse surfaces");
+            }
+
+            changed |= causticGroup.dropdown("Caustic Collection Mode", kCausticCollectionModeList, (uint32_t&)mCausticCollectMode);
+            causticGroup.tooltip(
+                "Collection Mode for Caustics \n All: Normal Collection \n GreaterOne: Radiance is only written if count>1. Adds Bias \n "
+                "Mask: WIP"
+            );
+
+            if (mCausticCollectMode == CausticCollectionMode::Temporal)
+            {
+                changed |= causticGroup.var("Caustic Temporal History Limit", mCausticTemporalFilterHistoryLimit, 1u, 512u, 1u);
+                causticGroup.tooltip("History Limit for the Temporal Caustic Filter");
+            }
         }
-                    
-        bool radiusChanged = widget.var("Collection Radius", mPhotonCollectionRadiusStart, 0.00001f, 1000.f, 0.00001f,false);
+
+        bool radiusChanged = group.var("Collection Radius", mPhotonCollectionRadiusStart, 0.00001f, 1000.f, 0.00001f, false);
         mPhotonCollectionRadiusStart.y = std::min(mPhotonCollectionRadiusStart.y, mPhotonCollectionRadiusStart.x);
-        widget.tooltip("Photon Radii for final gather and caustic collecton. First->Global, Second->Caustic");
+        group.tooltip("Photon Radii for final gather and caustic collecton. First->Global, Second->Caustic");
         if (radiusChanged)
             mPhotonCollectRadius = mPhotonCollectionRadiusStart;
 
-        changed |= widget.checkbox("Use Photon Culling", mUsePhotonCulling);
-        widget.tooltip("Enabled culling of photon based on a hash grid. Photons are only stored on cells that are collected");
+        changed |= group.checkbox("Use Photon Culling", mUsePhotonCulling);
+        group.tooltip("Enabled culling of photon based on a hash grid. Photons are only stored on cells that are collected");
         if (mUsePhotonCulling)
         {
-            if (auto groupCulling = widget.group("CullingSettings",true))
+            if (auto groupCulling = group.group("CullingSettings", true))
             {
-                widget.checkbox("Use fixed Culling Cell radius", mCullingUseFixedRadius);
-                widget.tooltip("Use a fixed radius for the culling cell. Only used from the point where [Global Radius < Hash Radius]");
+                groupCulling.checkbox("Use Caustic Culling", mUseCausticCulling);
+                groupCulling.tooltip("Enables Photon Culling for Caustic Photons");
+                groupCulling.checkbox("Use fixed Culling Cell radius", mCullingUseFixedRadius);
+                groupCulling.tooltip("Use a fixed radius for the culling cell. Only used from the point where [Global Radius < Hash Radius]"
+                );
                 if (mCullingUseFixedRadius)
-                    changed |= widget.var("Hash Cell Radius", mCullingCellRadius, 0.0001f, 10000.f, 0.0001f);
-                bool rebuildBuffer = widget.var("Culling Size Bytes", mCullingHashBufferSizeBits, 10u, 27u);
-                widget.tooltip("Size of the culling buffer (2^x) and effective hash bytes used");
-                widget.checkbox("Use alternative Cell marking", mUseAlternativeCulling);
-                widget.tooltip("Use the alternative version, where only used cells are marked");
+                    changed |= groupCulling.var("Hash Cell Radius", mCullingCellRadius, 0.0001f, 10000.f, 0.0001f);
+                bool rebuildBuffer = groupCulling.var("Culling Size Bytes", mCullingHashBufferSizeBits, 10u, 27u);
+                groupCulling.tooltip("Size of the culling buffer (2^x) and effective hash bytes used");
 
                 if (rebuildBuffer)
                     mpPhotonCullingMask.reset();
@@ -293,55 +313,57 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("ReSTIR_FG"))
         {
-            changed |= widget.dropdown("ResamplingMode", kResamplingModeList, (uint&)mResamplingMode);
+            changed |= group.dropdown("ResamplingMode", kResamplingModeList, (uint&)mResamplingMode);
 
-            changed |= widget.dropdown("BiasCorrection", kBiasCorrectionModeList, (uint&)mBiasCorrectionMode);
+            changed |= group.dropdown("BiasCorrection", kBiasCorrectionModeList, (uint&)mBiasCorrectionMode);
 
-            changed |= widget.var("Depth Threshold", mRelativeDepthThreshold, 0.0f, 1.0f, 0.0001f);
-            widget.tooltip("Relative depth threshold. 0.1 = within 10% of current depth (linZ)");
+            changed |= group.var("Depth Threshold", mRelativeDepthThreshold, 0.0f, 1.0f, 0.0001f);
+            group.tooltip("Relative depth threshold. 0.1 = within 10% of current depth (linZ)");
 
-            changed |= widget.var("Normal Threshold", mNormalThreshold, 0.0f, 1.0f, 0.0001f);
-            widget.tooltip("Maximum cosine of angle between normals. 1 = Exactly the same ; 0 = disabled");
+            changed |= group.var("Normal Threshold", mNormalThreshold, 0.0f, 1.0f, 0.0001f);
+            group.tooltip("Maximum cosine of angle between normals. 1 = Exactly the same ; 0 = disabled");
 
-            changed |= widget.var("Material Threshold", mMaterialThreshold, 0.0f, 1.0f, 0.0001f);
-            widget.tooltip("Maximum absolute difference between the Diffuse probabilitys of the surfaces. 1 = Disabled ; 0 = Same surface");
+            changed |= group.var("Material Threshold", mMaterialThreshold, 0.0f, 1.0f, 0.0001f);
+            group.tooltip("Maximum absolute difference between the Diffuse probabilitys of the surfaces. 1 = Disabled ; 0 = Same surface");
 
-            changed |= widget.var("Jacobian Min/Max", mJacobianMinMax, 0.0f, 1000.f, 0.01f);
-            widget.tooltip("Min and Max values for the jacobian determinant. If smaller/higher the Reservoirs will not be combined");
+            changed |= group.var("Jacobian Min/Max", mJacobianMinMax, 0.0f, 1000.f, 0.01f);
+            group.tooltip("Min and Max values for the jacobian determinant. If smaller/higher the Reservoirs will not be combined");
 
-            if (auto group2 = widget.group("Temporal Options"))
+            if (auto group2 = group.group("Temporal Options"))
             {
-                changed |= widget.var("Temporal age", mTemporalMaxAge, 0u, 512u);
-                widget.tooltip("Temporal age a sample should have");
+                changed |= group2.var("Temporal age", mTemporalMaxAge, 0u, 512u);
+                group2.tooltip("Temporal age a sample should have");
             }
 
-            if (auto group2 = widget.group("Spartial Options"))
+            if (auto group2 = group.group("Spartial Options"))
             {
-                changed |=
-                    widget.var("Spartial Samples", mSpartialSamples, 0u, 8u);
-                widget.tooltip("Number of spartial samples");
+                changed |= group2.var("Spartial Samples", mSpartialSamples, 0u, 8u);
+                group2.tooltip("Number of spartial samples");
 
-                changed |= widget.var("Disocclusion Sample Boost", mDisocclusionBoostSamples, 0u, 8u);
-                widget.tooltip(
+                changed |= group2.var("Disocclusion Sample Boost", mDisocclusionBoostSamples, 0u, 8u);
+                group2.tooltip(
                     "Number of spartial samples if no temporal surface was found. Needs to be bigger than \"Spartial Samples\" + 1 to have "
                     "an effect"
                 );
 
-                changed |= widget.var("Sampling Radius", mSamplingRadius, 0.0f, 200.f);
-                widget.tooltip("Radius for the Spartial Samples");
+                changed |= group2.var("Sampling Radius", mSamplingRadius, 0.0f, 200.f);
+                group2.tooltip("Radius for the Spartial Samples");
             }
 
-            changed |= widget.var("Sample Attenuation Radius", mSampleRadiusAttenuation, 0.0f, 500.f, 0.001f);
-            widget.tooltip(
+            changed |= group.var("Sample Attenuation Radius", mSampleRadiusAttenuation, 0.0f, 500.f, 0.001f);
+            group.tooltip(
                 "The radius that is used for the non-linear sample attenuation(2/(d^2+r^2+d*sqrt(d^2+r^2))). At r=0 this leads to the "
                 "normal 1/d^2"
             );
 
-            mRebuildReservoirBuffer |= widget.checkbox("Use reduced Reservoir format", mUseReducedReservoirFormat);
-            widget.tooltip("If enabled uses RG32_UINT instead of RGBA32_UINT. In reduced format the targetPDF and M only have 16 bits while the weight still has full precision");
+            mRebuildReservoirBuffer |= group.checkbox("Use reduced Reservoir format", mUseReducedReservoirFormat);
+            group.tooltip(
+                "If enabled uses RG32_UINT instead of RGBA32_UINT. In reduced format the targetPDF and M only have 16 bits while the "
+                "weight still has full precision"
+            );
 
-            mClearReservoir = widget.button("Clear Reservoirs");
-            widget.tooltip("Clears the reservoirs");
+            mClearReservoir = group.button("Clear Reservoirs");
+            group.tooltip("Clears the reservoirs");
         }
     }
 
@@ -349,7 +371,7 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("RTXDI"))
         {
-            bool rtxdiChanged = mpRTXDI->renderUI(widget);
+            bool rtxdiChanged = mpRTXDI->renderUI(group);
             if (rtxdiChanged)
                 mRTXDIOptions = mpRTXDI->getOptions();
             changed |= rtxdiChanged;
@@ -430,9 +452,9 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
             mpReservoirBuffer[i].reset();
             mpFGSampelDataBuffer[i].reset();
             mpSurfaceBuffer[i].reset();
+            mpCausticRadiance[i].reset();
         }
         mpFinalGatherSampleHitData.reset();
-        mpCausticRadiance.reset();
         mpVBuffer.reset();
         mpViewDir.reset();
         mpViewDirPrev.reset();
@@ -487,12 +509,25 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         mpFinalGatherSampleHitData->setName("ReSTIR_FG::FGHitData");
     }
 
-    if (!mpCausticRadiance)
+    if (!mpCausticRadiance[0])
     {
-        mpCausticRadiance = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
+        mpCausticRadiance[0] = Texture::create2D(
+            mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
                                               ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
-        mpCausticRadiance->setName("ReSTIR_FG::CausticRadiance");
+        mpCausticRadiance[0]->setName("ReSTIR_FG::CausticRadiance");
     }
+
+    if (mCausticCollectMode == CausticCollectionMode::Temporal && !mpCausticRadiance[1])
+    {
+        mpCausticRadiance[1] = Texture::create2D(
+            mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
+            ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+        );
+        mpCausticRadiance[1]->setName("ReSTIR_FG::CausticRadianceTemporal");
+    }
+
+    if (mpCausticRadiance[1] && (mCausticCollectMode != CausticCollectionMode::Temporal))
+        mpCausticRadiance[1].reset();
 
     if (!mpVBuffer)
     {
@@ -645,7 +680,7 @@ void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const Rende
 
     mFinalGatherSamplePass.pProgram->addDefine("USE_PHOTON_CULLING", mUsePhotonCulling ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
-    mFinalGatherSamplePass.pProgram->addDefine("CULLING_ALT_VERSION", mUseAlternativeCulling ? "1" : "0");
+    mFinalGatherSamplePass.pProgram->addDefine("USE_CAUSTIC_CULLING", (mCausticCollectMode != CausticCollectionMode::None) && mUseCausticCulling ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
     if (mpRTXDI) mFinalGatherSamplePass.pProgram->addDefines(mpRTXDI->getDefines());
         
@@ -702,6 +737,7 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
     mGeneratePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE_GLOBAL", std::to_string(mNumMaxPhotons[0]));
     mGeneratePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE_CAUSTIC", std::to_string(mNumMaxPhotons[1]));
     mGeneratePhotonPass.pProgram->addDefine("USE_PHOTON_CULLING", mUsePhotonCulling ? "1" : "0");
+    mGeneratePhotonPass.pProgram->addDefine("USE_CAUSTIC_CULLING", mUseCausticCulling ? "1" : "0");
 
     
     if (!mGeneratePhotonPass.pVars)
@@ -733,7 +769,7 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
     uint flags = 0;
     if (mPhotonUseAlphaTest) flags |= 0x01;
     if (mPhotonAdjustShadingNormal) flags |= 0x02;
-    if (mEnableCausticPhotonCollection) flags |= 0x04;
+    if (mCausticCollectMode != CausticCollectionMode::None) flags |= 0x04;
     if (mGenerationDeltaRejection) flags |= 0x08;
     if (mGenerationDeltaRejectionRequireDiffPart) flags |= 0x10;
     if (!mpScene->useEmissiveLights()) flags |= 0x20; // Analytic lights collect flag
@@ -827,6 +863,7 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      //Defines TODO add
      mCollectPhotonPass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefine("MODE_FINAL_GATHER", finalGatherRenderMode ? "1" : "0");
+     mCollectPhotonPass.pProgram->addDefine("CAUSTIC_COLLECTION_MODE", std::to_string((uint)mCausticCollectMode));
 
      if (!mCollectPhotonPass.pVars)
         mCollectPhotonPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
@@ -839,6 +876,29 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      var[nameBuf]["gFrameCount"] = mFrameCount;
      var[nameBuf]["gPhotonRadius"] = mPhotonCollectRadius;
      var[nameBuf]["gAttenuationRadius"] = mSampleRadiusAttenuation;
+
+     //Set Temporal Constant Buffer if necessary
+     if (mCausticCollectMode == CausticCollectionMode::Temporal)
+     {
+        nameBuf = "TemporalFilter";
+        var[nameBuf]["gTemporalFilterHistoryLimit"] = mCausticTemporalFilterHistoryLimit;
+        var[nameBuf]["gDepthThreshold"] = mRelativeDepthThreshold;
+        var[nameBuf]["gNormalThreshold"] = mNormalThreshold;
+        var[nameBuf]["gMatThreshold"] = mMaterialThreshold;
+
+        //Bind necessary buffer and textures
+        //Temporal Indices
+        uint idxCurr = mFrameCount % 2;
+        uint idxPrev = (mFrameCount + 1) % 2;
+
+        var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
+        
+        var["gSurface"] = mpSurfaceBuffer[idxCurr];
+        var["gSurfacePrev"] = mpSurfaceBuffer[idxPrev];
+
+        var["gCausticPrev"] = mpCausticRadiance[idxPrev];
+        var["gCausticOut"] = mpCausticRadiance[idxCurr];
+     }
 
      // Bind reservoir and light buffer depending on the boost buffer
      var["gReservoir"] = mpReservoirBuffer[mFrameCount % 2];
@@ -856,8 +916,9 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
 
      if (finalGatherRenderMode)
         var["gColor"] = renderData[kOutputColor]->asTexture();
-     else
-        var["gCausticOut"] = mpCausticRadiance;
+     else if (mCausticCollectMode != CausticCollectionMode::Temporal)
+        var["gCausticOut"] = mpCausticRadiance[0];
+
 
      mpPhotonAS->bindTlas(var, "gPhotonAS");
 
@@ -1012,7 +1073,9 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      var["gVBuffer"] = mpVBuffer;
      var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
 
-     var["gCausticRadiance"] = mpCausticRadiance;
+     uint causticRadianceIdx = mCausticCollectMode == CausticCollectionMode::Temporal ? mFrameCount % 2 : 0;
+
+     var["gCausticRadiance"] = mpCausticRadiance[causticRadianceIdx];
 
      //Bind all Output Channels
      for (uint i = 0; i < kOutputChannels.size(); i++)

@@ -12,12 +12,24 @@ import Utils.Math.FormatConversion;
 import Utils.Color.ColorHelpers;
 
 import Reservoir;
+import SurfaceDataFG;
 import FinalGatherData;
 
 //For syntax highlighting purposes
 #ifndef MODE_FINAL_GATHER
     #define MODE_FINAL_GATHER 0
 #endif
+
+//For syntax highlighting purposes
+#ifndef CAUSTIC_COLLECTION_MODE
+    #define CAUSTIC_COLLECTION_MODE 3
+#endif
+
+//Collection Mode defines
+#define CAUSTIC_COLLECT_MODE_ALL 0
+#define CAUSTIC_COLLECT_MODE_NONE 1
+#define CAUSTIC_COLLECT_MODE_GREATERONE 2
+#define CAUSTIC_COLLECT_MODE_TEMPORAL 3
 
 cbuffer PerFrame
 {
@@ -26,12 +38,26 @@ cbuffer PerFrame
     float gAttenuationRadius;   //Radius for the distance attenuation
 }
 
+//Constant settings for the temporal filter. Can be null
+cbuffer TemporalFilter{
+    uint gTemporalFilterHistoryLimit;
+    float gDepthThreshold;              //Depth Threshold
+    float gNormalThreshold;             //Normal Threshold
+    float gMatThreshold;                //Material Threshold
+}
+
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gView;
 Texture2D<PackedHitInfo> gFinalGatherHit;
 StructuredBuffer<AABB> gPhotonAABB[2];
 StructuredBuffer<uint4> gPackedPhotonData[2];
+
+//Inputs Temporal Caustic Filter (can be null)
+Texture2D<float2> gMVec;
+StructuredBuffer<PackedSurfaceDataFG> gSurface;
+StructuredBuffer<PackedSurfaceDataFG>gSurfacePrev;
+Texture2D<float4> gCausticPrev;
 
 // Outputs
 RWTexture2D<float4> gColor;
@@ -49,19 +75,23 @@ RWTexture2D<float4> gCausticOut;
 //Acceleration Structure
 RaytracingAccelerationStructure gPhotonAS;
 
+
+//Constant defines
+static const bool kCollectCaustics = CAUSTIC_COLLECTION_MODE != CAUSTIC_COLLECT_MODE_NONE;
+
 /** Payload for ray (48B).
 */
 struct RayData
 {
     float3 radiance; ///< Accumulated outgoing radiance from path.
-    uint pad; ///< free space.
+    uint countPhotons; ///< Counts the photons
     PackedHitInfo packedHitInfo; ///< Hit info from vBuffer; Up to 16B
 
     SampleGenerator sg; ///< Per-ray state for the sample generator (up to 16B).
   
     __init(){
         this.radiance = float3(0);
-        this.pad = 0;
+        this.countPhotons = 0;
     }
 };
 
@@ -84,6 +114,17 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
 uint index2Dto1D(uint2 idx, uint width)
 {
     return idx.x + width * idx.y;
+}
+
+SurfaceFG getSurface(uint2 idx, bool prev, uint frameWidth, float3 view)
+{
+    PackedSurfaceDataFG surfaceData;
+    if (prev)
+        surfaceData = gSurfacePrev[index2Dto1D(idx, frameWidth)];
+    else
+        surfaceData = gSurface[index2Dto1D(idx, frameWidth)];
+    
+    return SurfaceFG(surfaceData, view);  
 }
 
 [shader("miss")]
@@ -113,10 +154,10 @@ void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_In
         return;
     }
 
-    
-        
-    
     //Photon contribution
+    #if (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_GREATERONE)
+    rayData.countPhotons++;
+    #endif
     uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
     let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
     let bsdfProperties = bsdf.getProperties(sd);
@@ -202,12 +243,48 @@ void rayGen()
     float3 causticRadiance = float3(0);
 
     //Collect Caustic Photon
-    if (valid)
+    if (valid && kCollectCaustics)
     {
         TraceRay(gPhotonAS, rayFlags, 2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         float w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
+        #if (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_GREATERONE)
+        if(rayData.countPhotons > 1)
+        #endif
         causticRadiance += w * rayData.radiance;
     }
+
+    //Temporal Caustic Filter
+    #if (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_TEMPORAL)
+    //Get Motion Vector and get reprojected pixel
+    float2 motionOffset = gMVec[launchIndex] * float2(launchDim);
+    float2 prevIdxF = motionOffset + float2(launchIndex);
+    float2 rndOffset = sampleNext2D(rayData.sg) - 0.5f;
+    prevIdxF += rndOffset;
+    int2 tempIndex = int2(round(prevIdxF));
+
+    uint history = 1;
+    if (tempIndex.x >= 0 && tempIndex.y >= 0 && tempIndex.x < launchDim.x && tempIndex.y < launchDim.y)
+    {
+        //Load Surfaces
+        SurfaceFG currentSurface = getSurface(launchIndex, false, launchDim.x, ray.Direction);
+        SurfaceFG prevSurface = getSurface(tempIndex, false, launchDim.x, ray.Direction);
+        
+        if (currentSurface.isValidNeighbor(prevSurface, gDepthThreshold, gNormalThreshold, gMatThreshold))
+        {
+            //Because the caustic image can be RGBA16F, we need to store the history as float. As values are in a low range this should not introduce any errors
+            float4 prev = gCausticPrev[tempIndex];
+            history = min(gTemporalFilterHistoryLimit, uint(round(prev.w)) + history);
+            prev.xyz *= max(0, (history - 1));
+            causticRadiance += prev.xyz;
+            causticRadiance /= max(1u, history);
+        }
+    }
+    
+    gCausticOut[launchIndex] = float4(causticRadiance, float(history));
+    
+    #elif !MODE_FINAL_GATHER //END Caustic mode temporal; Store Caustic tex if not Final Gather mode
+    gCausticOut[launchIndex] = float4(causticRadiance, 1.f);
+    #endif
     
     rayData.radiance = float3(0);
     rayData.packedHitInfo = gFinalGatherHit[launchIndex];
@@ -284,7 +361,7 @@ void rayGen()
     gReservoir[launchIndex] = r.pack();
 #endif //USE_REDUCED_RESERVOIR_FORMAT
     gFGSampleData[index2Dto1D(launchIndex, launchDim.x)] = fgData;
-    gCausticOut[launchIndex] = float4(causticRadiance, 1.f);
+    
 
 #endif //!(MODE_FINAL_GATHER)
 }

@@ -85,6 +85,14 @@ public:
         RTXDI = 1u
     };
 
+    enum class CausticCollectionMode : uint
+    {
+        All = 0u,
+        None = 1u,
+        GreaterOne = 2u,
+        Temporal = 3u
+    };
+
 private:
     /** Prepares the samplers etc needed for lighting. Returns true if lighting has changed
      */
@@ -199,15 +207,16 @@ private:
     bool mChangePhotonLightBufferSize = false;
     bool mPhotonUseAlphaTest = true;
     bool mPhotonAdjustShadingNormal = true;
-    bool mEnableCausticPhotonCollection = true;
     bool mGenerationDeltaRejection = true;
     bool mGenerationDeltaRejectionRequireDiffPart = false;
+    CausticCollectionMode mCausticCollectMode = CausticCollectionMode::All;
+    uint mCausticTemporalFilterHistoryLimit = 120;
 
     bool mUsePhotonCulling = true;
+    bool mUseCausticCulling = true;                                 //Enable Culling for caustics
     uint mCullingHashBufferSizeBits = 20;                           //Number of Culling Hash bits
     bool mCullingUseFixedRadius = true;
     float mCullingCellRadius = 0.1f;                                //Radius used for the culling cells
-    bool mUseAlternativeCulling = false;
 
     const uint kDynamicPhotonDispatchInitValue = 500224; // Start with 500 thousand photons
     bool mUseDynamicePhotonDispatchCount = true;  // Dynamically change the number of photons to fit the max photon number
@@ -227,7 +236,7 @@ private:
     ref<Buffer> mpPhotonCounter[kPhotonCounterCount];        // Counter for the number of lights
     ref<Buffer> mpPhotonCounterCPU[kPhotonCounterCount]; // For showing the current number of photons in the UI
     ref<Texture> mpPhotonCullingMask; // Mask for photon culling
-    ref<Texture> mpCausticRadiance;     // Caustic Radiance from the Collection pass
+    ref<Texture> mpCausticRadiance[2];     // Caustic Radiance from the Collection pass
     ref<Texture> mpVBuffer;             //Work copy for VBuffer
     ref<Texture> mpViewDir;             //View dir tex (needed for highly specular and transparent materials)
     ref<Texture> mpViewDirPrev;         //Previous View dir

@@ -54,6 +54,7 @@ RWTexture2D<uint> gPhotonCullingMask;
 #endif
 
 static const bool kUsePhotonCulling = USE_PHOTON_CULLING;
+static const bool kUseCausticPhotons = USE_CAUSTIC_CULLING; 
 
 struct TraceData
 {
@@ -95,90 +96,7 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
     return sd;
 }
 
-#if CULLING_ALT_VERSION
-//Alternative Version to fill the culling grid. Only marks the cells. Generally slower than the other version
-void cullingGetArrayOfCells(float3 position, float radius, inout uint arrCounter, out int3 outCells[16])
-{
-    float3 cell = (position.xyz * gHashScaleFactor);
-    float radInScale = radius * gHashScaleFactor;
-    float3 cellFloor = floor(cell);
-    int3 startCell = int3(cellFloor);
-    float3 relCellPos = abs(cell - cellFloor);
-    //Get offset direction
-    int3 offsetCell;
-    offsetCell.x = relCellPos.x < 0.5 ? -1 : 1;
-    offsetCell.y = relCellPos.y < 0.5 ? -1 : 1;
-    offsetCell.z = relCellPos.z < 0.5 ? -1 : 1;
-
-    const int3 cellPattern[7] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1), int3(1, 1, 0), int3(1, 0, 1), int3(0, 1, 1), int3(1, 1, 1) };
-    int3 cellSet = int3(0);
-    
-    //Fill the cell array
-    outCells[arrCounter] = startCell; // Cell 0
-    arrCounter++;
-
-    //Go through the first 3 cells (either x,y or z set)
-    [unroll]
-    for (uint i = 0; i < 3; i++)
-    {
-        int3 tmpCell = int3(floor(cell + radInScale * float3(offsetCell * cellPattern[i])));
-        bool skip = (tmpCell.x == startCell.x) && (tmpCell.y == startCell.y) && (tmpCell.z == startCell.z);
-        if (!skip)
-        {
-            outCells[arrCounter] = tmpCell;
-            arrCounter++;
-            cellSet[i] = 1;
-        }
-    }
-    //Go through cell 3-6 (two axis set)
-    [unroll]
-    for (uint i = 3; i < 6; i++)
-    {
-        int3 shouldBeSet = cellSet * cellPattern[i];
-        if (shouldBeSet.x + shouldBeSet.y + shouldBeSet.z >= 2)
-        {
-            outCells[arrCounter] = int3(floor(cell + radInScale * float3(offsetCell * cellPattern[i])));
-            arrCounter++;
-        }
-    }
-    //Case all 3 axis set
-    if (cellSet.x + cellSet.y + cellSet.z == 3)
-    {
-        outCells[arrCounter] = int3(floor(cell + radInScale * float3(offsetCell * cellPattern[6])));
-        arrCounter++;
-    }
-}
-
-//Culling with Global and Caustic collection pos. hitPos1 -> Global, hitPos2 -> Caustic, 
-void photonCulling(float3 hitPos1, float3 hitPos2)
-{
-    uint counter = 0;
-    int3 cells[16]; //Possible cells
-    cullingGetArrayOfCells(hitPos1, gCollectionRadius.x, counter, cells);
-    cullingGetArrayOfCells(hitPos2, gCollectionRadius.y, counter, cells);
-
-
-    uint hashes[16];
-    [unroll]
-    for (uint i = 0; i < 16; i++)
-    {
-        if (i < counter) //Abort if we have written all cells
-        {
-            hashes[i] = hash(cells[i]) & (gHashSize - 1); //calculateHash TODO: Test other hashes
-        }
-    }
-    //Insert them into the hash buffer
-    [unroll]
-    for (uint i = 0; i < 16; i++)
-    {
-        if (i < counter) //Abort if we have written all cells
-        {
-            gPhotonCullingMask[ReSTIR_LinearIndexToZCurve(hashes[i])] = 1;
-        }
-    }
-}
-#else //CULLING_ALT_VER
-void cullingGetArrayOfCells(float3 position, float radius, uint startIdx , out int3 outCells[16]){
+void cullingGetArrayOfCells(float3 position, float radius, out int3 outCells[8]){
     float3 cell = (position.xyz * gHashScaleFactor);
     float radInScale = radius * gHashScaleFactor;
     float3 cellFloor = floor(cell);
@@ -190,30 +108,28 @@ void cullingGetArrayOfCells(float3 position, float radius, uint startIdx , out i
     offsetCell.z = relCellPos.z < 0.5 ? -1 : 1;
 
     //Fill the cell array
-    outCells[startIdx] = int3(cellFloor);
-    outCells[startIdx + 1] = int3(floor(cell + radInScale * float3(offsetCell.x, 0, 0)));
-    outCells[startIdx + 2] = int3(floor(cell + radInScale * float3(offsetCell.x, offsetCell.y, 0)));
-    outCells[startIdx + 3] = int3(floor(cell + radInScale * float3(offsetCell.x, offsetCell.y, offsetCell.z)));
-    outCells[startIdx + 4] = int3(floor(cell + radInScale * float3(offsetCell.x, 0, offsetCell.z)));
-    outCells[startIdx + 5] = int3(floor(cell + radInScale * float3(0, offsetCell.y, 0)));
-    outCells[startIdx + 6] = int3(floor(cell + radInScale * float3(0, offsetCell.y, offsetCell.z)));
-    outCells[startIdx + 7] = int3(floor(cell + radInScale * float3(0, 0, offsetCell.z)));
+    outCells[0] = int3(cellFloor);
+    outCells[1] = int3(floor(cell + radInScale * float3(offsetCell.x, 0, 0)));
+    outCells[2] = int3(floor(cell + radInScale * float3(offsetCell.x, offsetCell.y, 0)));
+    outCells[3] = int3(floor(cell + radInScale * float3(offsetCell.x, offsetCell.y, offsetCell.z)));
+    outCells[4] = int3(floor(cell + radInScale * float3(offsetCell.x, 0, offsetCell.z)));
+    outCells[5] = int3(floor(cell + radInScale * float3(0, offsetCell.y, 0)));
+    outCells[6] = int3(floor(cell + radInScale * float3(0, offsetCell.y, offsetCell.z)));
+    outCells[7] = int3(floor(cell + radInScale * float3(0, 0, offsetCell.z)));
 }
 
-void photonCulling(float3 hitPos1, float3 hitPos2){
+void photonCulling(float3 hitPos, float radius){
     //Get the 7 nearest neighbors (photon can still be in it)
-    int3 cells[16];
-    cullingGetArrayOfCells(hitPos1, gCollectionRadius.x, 0, cells);
-    cullingGetArrayOfCells(hitPos2, gCollectionRadius.y, 8, cells);
+    int3 cells[8];
+    cullingGetArrayOfCells(hitPos, radius, cells);
 
     //Insert them into the hash buffer
     [unroll]
-    for(uint i=0; i<16; i++){
+    for(uint i=0; i<8; i++){
         uint h = hash(cells[i]) & (gHashSize - 1);    //calculateHash TODO: Test other hashes
         gPhotonCullingMask[ReSTIR_LinearIndexToZCurve(h)] = 1;
     }
 }
-#endif//CULLING_ALT_VER
 
 [shader("miss")]
 void miss(inout TraceData rayData : SV_RayPayload)
@@ -330,7 +246,9 @@ void rayGen()
     
             if (kUsePhotonCulling)
             {
-                photonCulling(hitPos, sd.posW);
+                photonCulling(hitPos,gCollectionRadius.x);
+                if(kUseCausticPhotons)
+                    photonCulling(sd.posW, gCollectionRadius.y);
             }
         }
 
