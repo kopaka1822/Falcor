@@ -4,6 +4,7 @@ target_sources(ReSTIR_FG PRIVATE
 	ReSTIR_FG.cpp
     ReSTIR_FG.h
 	Shader/CollectPhotons.rt.slang
+	Shader/DirectAnalytic.cs.slang
 	Shader/FinalGatherData.slang
 	Shader/FinalShading.cs.slang
 	Shader/GenerateFinalGatherSamples.rt.slang

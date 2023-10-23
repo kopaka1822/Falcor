@@ -78,11 +78,11 @@ public:
         ReSTIRFG = 1u,
     };
 
-    //TODO add analytic/ random mode
     enum class DirectLightingMode : uint
     {
         None = 0u,
-        RTXDI = 1u
+        RTXDI = 1u,
+        AnalyticDirect = 2u,
     };
 
     enum class CausticCollectionMode : uint
@@ -119,7 +119,7 @@ private:
 
     /** Generate Photon lights
      */
-    void generatePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData, bool clearBuffers = true);
+    void generatePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData, bool secondPass = false);
 
     /** Handles the Photon Counter 
     */
@@ -136,6 +136,10 @@ private:
     /** Final Shading
     */
     void finalShadingPass(RenderContext* pRenderContext, const RenderData& renderData);
+
+    /** Direct Analytic as an alternative to ReSTIR if the scene only a handful of analytic lights
+    */
+    void directAnalytic(RenderContext* pRenderContext, const RenderData& renderData);
 
     /** Copies the view direction for the previous view texture that is used next frame
     */
@@ -175,6 +179,10 @@ private:
     //Specular Trace Options
     uint mTraceMaxBounces = 10;                                          //Number of Specular/Transmissive bounces allowed
     bool mTraceRequireDiffuseMat = true;                            //Requires a diffuse part in addition to delta lobes
+
+    //Light
+    bool mMixedLights = false;                                      //True if analytic and emissive lights are in the scene
+    float mPhotonAnalyticRatio = 0.5f;                              //Analytic photon distribution ratio in a mixed light case. E.g. 0.3 -> 30% analytic, 70% emissive
 
     //Reservoir
     bool mUseReducedReservoirFormat = false;                        //Use a reduced reservoir format TODO: Add
@@ -276,4 +284,5 @@ private:
 
     ref<ComputePass> mpResamplingPass;                  // Resampling Pass for all resampling modes
     ref<ComputePass> mpFinalShadingPass;                // Final Shading Pass
+    ref<ComputePass> mpDirectAnalyticPass;              // Direct Analytic as an alternative to ReSTIR
 };

@@ -37,6 +37,7 @@ namespace
     const std::string kCollectPhotonsShader = "RenderPasses/ReSTIR_FG/Shader/CollectPhotons.rt.slang";
     const std::string kResamplingPassShader = "RenderPasses/ReSTIR_FG/Shader/ResamplingPass.cs.slang";
     const std::string kFinalShadingPassShader = "RenderPasses/ReSTIR_FG/Shader/FinalShading.cs.slang";
+    const std::string kDirectAnalyticPassShader = "RenderPasses/ReSTIR_FG/Shader/DirectAnalytic.cs.slang";
 
     const std::string kShaderModel = "6_5";
     const uint kMaxPayloadBytes = 96u;
@@ -89,7 +90,9 @@ namespace
 
     const Gui::DropdownList kDirectLightRenderModeList{
         {(uint)ReSTIR_FG::DirectLightingMode::None, "None"},
-        {(uint)ReSTIR_FG::DirectLightingMode::RTXDI, "RTXDI"}
+        {(uint)ReSTIR_FG::DirectLightingMode::RTXDI, "RTXDI"},
+        {(uint)ReSTIR_FG::DirectLightingMode::AnalyticDirect, "AnalyticDirect"}
+
     };
 
     const Gui::DropdownList kCausticCollectionModeList{
@@ -176,6 +179,8 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     getFinalGatherHitPass(pRenderContext, renderData);
 
     generatePhotonsPass(pRenderContext, renderData);
+    if (mMixedLights)
+        generatePhotonsPass(pRenderContext, renderData, true);  //Secound pass. Always Analytic
 
     //Direct light resampling
     if (mpRTXDI) mpRTXDI->update(pRenderContext, pMotionVectors, mpViewDir, mpViewDirPrev);
@@ -192,9 +197,12 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
 
         copyViewTexture(pRenderContext, renderData);
     }
-        
 
     if (mpRTXDI) mpRTXDI->endFrame(pRenderContext);
+
+    //Add Direct Light at the end if this mode is enabled
+    if (mDirectLightMode == DirectLightingMode::AnalyticDirect)
+        directAnalytic(pRenderContext, renderData);
 
     mReservoirValid = true;
     mFrameCount++;
@@ -205,6 +213,10 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
     bool changed = false;
 
     widget.dropdown("Direct Light Mode", kDirectLightRenderModeList, (uint&)mDirectLightMode);
+    widget.tooltip(
+        "None: Direct Light is not calculated \n RTXDI: Optimized ReSTIR is used for direct light \n AnalyticDirect: All analytic lights "
+        "are directly evaluated (Emissive light is ignored)"
+    );
 
     widget.dropdown("(Indirect) Render Mode", kRenderModeList, (uint&)mRenderMode);
 
@@ -217,6 +229,11 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
     }
 
     if (auto group = widget.group("PhotonMapper")) {
+        if (mMixedLights)
+        {
+            changed |= group.var("Mixed Analytic Ratio", mPhotonAnalyticRatio, 0.f, 1.f , 0.01f);
+            group.tooltip("Analytic photon distribution ratio in a mixed light case. E.g. 0.3 -> 30% analytic, 70% emissive");
+        }
         changed |= group.checkbox("Enable dynamic photon dispatch", mUseDynamicePhotonDispatchCount);
         group.tooltip("Changed the number of dispatched photons dynamically. Tries to fill the photon buffer");
         if (mUseDynamicePhotonDispatchCount)
@@ -409,6 +426,11 @@ bool ReSTIR_FG::prepareLighting(RenderContext* pRenderContext)
     bool lightingChanged = false;
     // Make sure that the emissive light is up to date
     auto& pLights = mpScene->getLightCollection(pRenderContext);
+
+    bool emissiveUsed = mpScene->useEmissiveLights();
+    bool analyticUsed = mpScene->useAnalyticLights();
+
+    mMixedLights = emissiveUsed && analyticUsed;
 
     if (mpScene->useEmissiveLights())
     {
@@ -724,13 +746,36 @@ void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const Rende
         pRenderContext->uavBarrier(mpPhotonCullingMask.get());
 }
 
-void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData, bool clearBuffers) {
-    FALCOR_PROFILE(pRenderContext, "PhotonGeneration");
+void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData, bool secondPass) {
+
+    std::string passName = mMixedLights ? (secondPass ? "PhotonGenAnalytic" : "PhotonGenEmissive") : "PhotonGeneration";
+    FALCOR_PROFILE(pRenderContext, passName);
 
     //TODO Clear via Compute pass?
-    pRenderContext->clearUAV(mpPhotonCounter[mFrameCount % kPhotonCounterCount]->getUAV().get(), uint4(0));
-    pRenderContext->clearUAV(mpPhotonAABB[0]->getUAV().get(), uint4(0));
-    pRenderContext->clearUAV(mpPhotonAABB[1]->getUAV().get(), uint4(0));
+    if (!secondPass)
+    {
+        pRenderContext->clearUAV(mpPhotonCounter[mFrameCount % kPhotonCounterCount]->getUAV().get(), uint4(0));
+        pRenderContext->clearUAV(mpPhotonAABB[0]->getUAV().get(), uint4(0));
+        pRenderContext->clearUAV(mpPhotonAABB[1]->getUAV().get(), uint4(0));
+    }
+
+    // Get dimensions of ray dispatch.
+    uint dispatchedPhotons = mNumDispatchedPhotons;
+    bool traceScene = true;
+    if (mMixedLights)
+    {
+        float dispatchedF = float(dispatchedPhotons);
+        dispatchedF *= secondPass ? mPhotonAnalyticRatio : 1.f - mPhotonAnalyticRatio;
+        dispatchedPhotons = uint(dispatchedF);
+        if (dispatchedPhotons == 0)
+            traceScene = false;
+    }
+
+    uint photonXExtent = std::max(1u, dispatchedPhotons / mPhotonYExtent);  //Divide total count by Y Extent
+    photonXExtent += 32u - (photonXExtent % 32);                            //Round up to a multiple of 32
+    const uint2 targetDim = uint2(photonXExtent, mPhotonYExtent);
+    FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+
 
     // Defines
     mGeneratePhotonPass.pProgram->addDefine("USE_EMISSIVE_LIGHT", mpScene->useEmissiveLights() ? "1" : "0");
@@ -772,7 +817,7 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
     if (mCausticCollectMode != CausticCollectionMode::None) flags |= 0x04;
     if (mGenerationDeltaRejection) flags |= 0x08;
     if (mGenerationDeltaRejectionRequireDiffPart) flags |= 0x10;
-    if (!mpScene->useEmissiveLights()) flags |= 0x20; // Analytic lights collect flag
+    if (!mpScene->useEmissiveLights() || secondPass) flags |= 0x20; // Analytic lights collect flag
 
     nameBuf = "CB";
     var[nameBuf]["gMaxRecursion"] = mPhotonMaxBounces;
@@ -792,13 +837,9 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
      var["gPhotonCounter"] = mpPhotonCounter[mFrameCount % kPhotonCounterCount];
      var["gPhotonCullingMask"] = mpPhotonCullingMask;
 
-     // Get dimensions of ray dispatch.
-     uint dispatchedPhotons = mNumDispatchedPhotons;
-     const uint2 targetDim = uint2(std::max(1u, dispatchedPhotons / mPhotonYExtent), mPhotonYExtent);
-     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
-
      // Trace the photons
-     mpScene->raytrace(pRenderContext, mGeneratePhotonPass.pProgram.get(), mGeneratePhotonPass.pVars, uint3(targetDim, 1));
+     if (traceScene)
+        mpScene->raytrace(pRenderContext, mGeneratePhotonPass.pProgram.get(), mGeneratePhotonPass.pVars, uint3(targetDim, 1));
 
      pRenderContext->uavBarrier(mpPhotonCounter[mFrameCount % kPhotonCounterCount].get());
      pRenderContext->uavBarrier(mpPhotonAABB[0].get());
@@ -806,12 +847,17 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
      pRenderContext->uavBarrier(mpPhotonAABB[1].get());
      pRenderContext->uavBarrier(mpPhotonData[1].get());
 
-     handlePhotonCounter(pRenderContext);
+     if (!mMixedLights || mMixedLights && secondPass)
+     {
+        handlePhotonCounter(pRenderContext);
 
-     //Build/Update Acceleration Structure
-     uint2 currentPhotons = mFrameCount > 0 ? uint2(float2(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
-     std::vector<uint64_t> photonBuildSize = { std::min(mNumMaxPhotons[0], currentPhotons[0]), std::min(mNumMaxPhotons[1], currentPhotons[1])};
-     mpPhotonAS->update(pRenderContext, photonBuildSize);
+        // Build/Update Acceleration Structure
+        uint2 currentPhotons = mFrameCount > 0 ? uint2(float2(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
+        std::vector<uint64_t> photonBuildSize = {
+            std::min(mNumMaxPhotons[0], currentPhotons[0]), std::min(mNumMaxPhotons[1], currentPhotons[1])};
+        mpPhotonAS->update(pRenderContext, photonBuildSize);
+     }
+    
 }
 
 void ReSTIR_FG::handlePhotonCounter(RenderContext* pRenderContext)
@@ -1071,7 +1117,6 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      var["gThp"] = mpThp;
      var["gView"] = mpViewDir;
      var["gVBuffer"] = mpVBuffer;
-     var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
 
      uint causticRadianceIdx = mCausticCollectMode == CausticCollectionMode::Temporal ? mFrameCount % 2 : 0;
 
@@ -1096,6 +1141,57 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      const uint2 targetDim = renderData.getDefaultTextureDims();
      FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
      mpFinalShadingPass->execute(pRenderContext, uint3(targetDim, 1));
+}
+
+void ReSTIR_FG::directAnalytic(RenderContext* pRenderContext, const RenderData& renderData) {
+     FALCOR_PROFILE(pRenderContext, "DirectLight(Analytic)");
+
+     // Create pass
+     if (!mpDirectAnalyticPass)
+     {
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kDirectAnalyticPassShader).csEntry("main").setShaderModel(kShaderModel);
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
+        defines.add(getValidResourceDefines(kOutputChannels, renderData));
+        defines.add(getValidResourceDefines(kInputChannels, renderData));
+       
+        mpDirectAnalyticPass = ComputePass::create(mpDevice, desc, defines, true);
+     }
+     FALCOR_ASSERT(mpDirectAnalyticPass);
+
+     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
+     mpDirectAnalyticPass->getProgram()->addDefines(getValidResourceDefines(kOutputChannels, renderData));
+
+     // Set variables
+     auto var = mpDirectAnalyticPass->getRootVar();
+
+     mpScene->setRaytracingShaderData(pRenderContext, var, 1); // Set scene data
+     mpSampleGenerator->setShaderData(var);                    // Sample generator
+
+     var["gThp"] = mpThp;
+     var["gView"] = mpViewDir;
+     var["gVBuffer"] = mpVBuffer;
+
+     // Bind all Output Channels
+     for (uint i = 0; i < kOutputChannels.size(); i++)
+     {
+        if (renderData[kOutputChannels[i].name])
+            var[kOutputChannels[i].texname] = renderData[kOutputChannels[i].name]->asTexture();
+     }
+
+     // Uniform
+     std::string uniformName = "PerFrame";
+     var[uniformName]["gFrameCount"] = mFrameCount;
+
+     // Execute
+     const uint2 targetDim = renderData.getDefaultTextureDims();
+     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+     mpDirectAnalyticPass->execute(pRenderContext, uint3(targetDim, 1));
 }
 
 void ReSTIR_FG::copyViewTexture(RenderContext* pRenderContext, const RenderData& renderData) {

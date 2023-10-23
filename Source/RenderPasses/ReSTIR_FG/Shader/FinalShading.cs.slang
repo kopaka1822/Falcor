@@ -32,7 +32,6 @@ import FinalGatherData;
 StructuredBuffer<FGData> gFGSampleData;
 
 Texture2D<PackedHitInfo> gVBuffer;
-Texture2D<float2> gMVec;
 Texture2D<float4> gView;
 Texture2D<float4> gCausticRadiance;
 Texture2D<float4> gThp;
