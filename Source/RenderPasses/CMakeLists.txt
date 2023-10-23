@@ -1,6 +1,7 @@
 add_subdirectory(AccumulatePass)
 add_subdirectory(BlitPass)
 add_subdirectory(BSDFViewer)
+add_subdirectory(CameraPath)
 add_subdirectory(DebugPasses)
 add_subdirectory(DLSSPass)
 add_subdirectory(ErrorMeasurePass)
