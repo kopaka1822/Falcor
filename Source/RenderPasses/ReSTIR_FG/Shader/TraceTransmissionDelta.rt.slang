@@ -113,6 +113,7 @@ void rayGen()
     traceData.sg = SampleGenerator(launchIndex, gFrameCount + 7 * 13);
     let lod = ExplicitLodTextureSampler(0.f);
     float3 originPos = gScene.camera.getPosition();  //For ray dist
+    uint wasTracedMask = 0;
     
     for (uint i = 0; i <= gMaxBounces; i++)
     {
@@ -132,8 +133,13 @@ void rayGen()
             // For specular an approximate shading model with a single specular lobe is used.
             const float NdotV = saturate(dot(bsdfProperties.guideNormal, sd.V));
             const float ggxAlpha = bsdfProperties.roughness * bsdfProperties.roughness;
-            specularReflectance = approxSpecularIntegralGGX(bsdfProperties.specularReflectionAlbedo, ggxAlpha, NdotV);
-            specularReflectance = max(kDemodulateMinReflectance, specularReflectance);
+            if(bsdfProperties.isTransmissive)
+                specularReflectance = float3(1);
+            else
+            {
+                specularReflectance = approxSpecularIntegralGGX(bsdfProperties.specularReflectionAlbedo, ggxAlpha, NdotV);
+                specularReflectance = max(kDemodulateMinReflectance, specularReflectance);
+            }
         }
 
         if (i == gMaxBounces)
@@ -166,6 +172,7 @@ void rayGen()
         hitInfo = HitInfo(traceData.packedHitInfo);
         viewDir = -bsdfSample.wo;
         originPos = sd.posW;
+        wasTracedMask = 1;
     }
 
 
@@ -173,7 +180,7 @@ void rayGen()
     gOutVBuffer[launchIndex] = hitInfo.getData();
     gOutViewDir[launchIndex] = float4(viewDir, 1);
     gOutRayDist[launchIndex] = rayDist;
-    gOutThp[launchIndex] = float4(thp, 1);
+    gOutThp[launchIndex] = float4(thp, wasTracedMask);
     if (is_valid(gOutDiffuseReflectance)) gOutDiffuseReflectance[launchIndex] = float4(diffuseReflectance, 1.f);
     if (is_valid(gOutSpecularReflectance)) gOutSpecularReflectance[launchIndex] = float4(specularReflectance, 1.f);
 }

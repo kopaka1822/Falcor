@@ -27,6 +27,7 @@
  **************************************************************************/
 #include "ReSTIR_FG.h"
 #include "RenderGraph/RenderPassHelpers.h"
+#include "RenderGraph/RenderPassStandardFlags.h"
 
 namespace
 {
@@ -145,6 +146,15 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     if(!mpScene)    //Return on empty scene
         return;
 
+    auto& dict = renderData.getDictionary();
+    if (mOptionsChanged)
+    {
+        auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
+        dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
+        mSPPMFramesCameraStill = 0;
+        mOptionsChanged = false;
+    }
+
     const auto& pMotionVectors = renderData[kInputMotionVectors]->asTexture();
 
     //Init RTXDI if it is enabled
@@ -203,6 +213,21 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     //Add Direct Light at the end if this mode is enabled
     if (mDirectLightMode == DirectLightingMode::AnalyticDirect)
         directAnalytic(pRenderContext, renderData);
+
+    //SPPM
+    if (mUseSPPM)
+    {
+        if (is_set(mpScene->getUpdates(), Scene::UpdateFlags::CameraMoved))
+        {
+            mSPPMFramesCameraStill = 0;
+            mPhotonCollectRadius = mPhotonCollectionRadiusStart;
+        }
+
+        float itF = static_cast<float>(mSPPMFramesCameraStill);
+        mPhotonCollectRadius *= sqrt((itF + mSPPMAlpha) / (itF + 1.0f));
+
+        mSPPMFramesCameraStill++;
+    }
 
     mReservoirValid = true;
     mFrameCount++;
@@ -273,6 +298,25 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         changed |= group.var("Max Caustic Bounces", mMaxCausticBounces, 0u, 32u);
         group.tooltip("Maximum number of diffuse bounces that are allowed for a caustic photon.");
 
+        bool radiusChanged = group.var("Collection Radius", mPhotonCollectionRadiusStart, 0.00001f, 1000.f, 0.00001f, false);
+        mPhotonCollectionRadiusStart.y = std::min(mPhotonCollectionRadiusStart.y, mPhotonCollectionRadiusStart.x);
+        group.tooltip("Photon Radii for final gather and caustic collecton. First->Global, Second->Caustic");
+        if (radiusChanged)
+            mPhotonCollectRadius = mPhotonCollectionRadiusStart;
+
+
+        changed |= group.checkbox("Enable SPPM", mUseSPPM);
+        group.tooltip("Stochastic Progressive Photon Mapping. Radius is reduced by a fixed sequence every frame. It is advised to use SPPM only for Offline Rendering");
+        if (mUseSPPM)
+        {
+            group.var("SPPM Alpha", mSPPMAlpha, 0.001f, 1.f, 0.001f);
+            group.text(
+                "Current Radius: Global = " + std::to_string(mPhotonCollectRadius.x) +
+                "; Caustic = " + std::to_string(mPhotonCollectRadius.y)
+            );
+        }
+            
+
         if (auto causticGroup = group.group("Caustic Settings", true))
         {
             changed |= causticGroup.checkbox("Caustic from Delta lobes only", mGenerationDeltaRejection);
@@ -295,12 +339,6 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                 causticGroup.tooltip("History Limit for the Temporal Caustic Filter");
             }
         }
-
-        bool radiusChanged = group.var("Collection Radius", mPhotonCollectionRadiusStart, 0.00001f, 1000.f, 0.00001f, false);
-        mPhotonCollectionRadiusStart.y = std::min(mPhotonCollectionRadiusStart.y, mPhotonCollectionRadiusStart.x);
-        group.tooltip("Photon Radii for final gather and caustic collecton. First->Global, Second->Caustic");
-        if (radiusChanged)
-            mPhotonCollectRadius = mPhotonCollectionRadiusStart;
 
         changed |= group.checkbox("Use Photon Culling", mUsePhotonCulling);
         group.tooltip("Enabled culling of photon based on a hash grid. Photons are only stored on cells that are collected");
@@ -394,6 +432,8 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
             changed |= rtxdiChanged;
         }
     }
+
+    mOptionsChanged |= changed;
 }
 
 void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) {

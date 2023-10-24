@@ -175,6 +175,7 @@ private:
     RenderMode mRenderMode = RenderMode::ReSTIRFG;
     ResamplingMode mResamplingMode = ResamplingMode::SpartioTemporal;
     DirectLightingMode mDirectLightMode = DirectLightingMode::RTXDI;
+    bool mOptionsChanged = false;
 
     //Specular Trace Options
     uint mTraceMaxBounces = 10;                                          //Number of Specular/Transmissive bounces allowed
@@ -232,6 +233,9 @@ private:
     float mPhotonDynamicGuardPercentage = 0.08f;  // Determines how much space of the buffer is used to guard against buffer overflows
     float mPhotonDynamicChangePercentage = 0.05f; // The percentage the buffer is increased/decreased per frame
 
+    bool mUseSPPM = false;
+    float2 mSPPMAlpha = float2(2.f / 3.f);
+    uint mSPPMFramesCameraStill = 0;
     //
     // Buffer and Textures
     //

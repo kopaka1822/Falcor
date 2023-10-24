@@ -115,7 +115,9 @@ void main(uint2 pixel : SV_DispatchThreadID)
     HitInfo hitInfo = HitInfo(packedHitInfo);
     if (hitInfo.isValid())
     {
-        float3 thp = gThp[pixel].xyz;
+        float4 thpTex = gThp[pixel];
+        float3 thp = thpTex.xyz;
+        bool wasTraced = thpTex.w > 0.5;
         let lod = ExplicitLodTextureSampler(0.f);
         
     
@@ -130,6 +132,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
         // Variables for RTXDI and ReSTIRFG
         float3 diffuse = { };
         float3 specular = { };
+        float3 caustic =  { };
         float distance = 1.f;
         float3 dir = { };
         float3 Li = { };
@@ -198,10 +201,10 @@ void main(uint2 pixel : SV_DispatchThreadID)
             hitT += distance;
             hitT *= 1.f / hitTSamples;
         }
-        diffuse += gCausticRadiance[pixel].xyz;        
+        caustic = gCausticRadiance[pixel].xyz;        
     #endif
         
-        color += diffuse + specular;    //Add diffuse and specular parts together
+        color += diffuse + specular + caustic;    //Add diffuse and specular parts together
         color *= thp;                   //Use the throughput
         emission += bsdfProperties.emission; //Emission
         color += emission;  //Do this or demodulate it?
@@ -214,8 +217,17 @@ void main(uint2 pixel : SV_DispatchThreadID)
     #endif
 
          // Use sum of reflection/transmission albedo as they are denoised together.
-        diffuseIllumination = (diffuse * thp) / diffuseReflectance;
-        specularIllumination = (specular * thp) / specularReflectance;
+        if(wasTraced){
+            float3 combined = (diffuse + specular) * thp;
+            diffuseIllumination = (caustic * thp) / diffuseReflectance;
+            specularIllumination = combined / specularReflectance;
+        }
+        else
+        {
+            diffuseIllumination = ((diffuse + caustic) * thp) / diffuseReflectance;
+            specularIllumination = (specular * thp) / specularReflectance;
+        }
+            
     }
     else
     {
