@@ -12,6 +12,7 @@ def render_graph_ReSTIR_FG():
     g.add_edge('VBufferRT.vbuffer', 'ReSTIR_FG.vbuffer')
     g.add_edge('ReSTIR_FG.color', 'AccumulatePass.input')
     g.mark_output('ToneMapper.dst')
+    g.mark_output('AccumulatePass.output')
     return g
 
 ReSTIR_FG = render_graph_ReSTIR_FG()

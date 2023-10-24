@@ -12,6 +12,7 @@ def render_graph_ReSTIR_GI():
     g.add_edge('VBufferRT.vbuffer', 'ReSTIR_GI.vbuffer')
     g.add_edge('VBufferRT.mvec', 'ReSTIR_GI.mvec')
     g.mark_output('ToneMapper.dst')
+    g.mark_output('AccumulatePass.output')
     return g
 
 ReSTIR_GI = render_graph_ReSTIR_GI()
