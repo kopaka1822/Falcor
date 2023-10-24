@@ -63,12 +63,13 @@ private:
     void startPath();
     void pathFrame();
     bool storeCameraPath(std::filesystem::path& path);
-    bool loadCameraPathFromFile(std::filesystem::path& path);
+    bool loadCameraPathFromFile(const std::filesystem::path& path);
+    void smoothCameraPath();
 
-    void recordUI(Gui::Widgets& widget);
     void pathUI(Gui::Widgets & widget);
 
-    const size_t kMaxSearchedFrames = 240;
+    const size_t kMaxSearchedFrames = 512;
+    const size_t kMinSmoothSize = 30;
     FileDialogFilterVec kCamPathFileFilters = {FileDialogFilter("fcp", "Faclor Camera Path File")};
 
     ref<Scene> mpScene;     ///< Scene Reference Pointer
@@ -77,7 +78,9 @@ private:
     Clock mClock;           ///< Local Time Clock for the Camera animation
 
     std::vector<CamPathData> mCameraPath; ///< The currently loaded in camera path
+    std::vector<CamPathData> mCameraPathBackup; ///< Backup of Camera Path that is used for smoothing
 
+    std::string mStatus = "Camera Path Pass";       ///< Current Status for user feedback
     bool mUseCameraPath = false;    ///<Go along the camera path
     bool mRecordCameraPath = false; ///<Record path mode
     size_t mCurrentPathFrame = 0;   ///< Currently read frame
@@ -87,4 +90,10 @@ private:
     double mNextFrameTime = 0.0;           ///<Time for the next node
 
     double mClockTimeScale = 1.0;       ///< Time scale for the clock
+
+    //Smoothing
+    bool mSmoothTarget = true;
+    bool mSmoothPosition = false;
+    uint mSmoothFilterSize = 5;
+    float mGaussSigma = 1.0f;
 };

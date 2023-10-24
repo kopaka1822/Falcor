@@ -57,8 +57,17 @@ void CameraPath::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
 {
     mpScene = pScene;
     mpCamera = mpScene->getCamera();
-    //TODO look for camera path data file in same dir as the scene
 
+    //Look in model path for camera path files
+    std::string modelPath = mpScene->getPath().parent_path().string();     //Directory path
+    for (const auto& entry : std::filesystem::directory_iterator(modelPath))
+    {
+        if (entry.path().extension() == ".fcp")
+        {
+            if (loadCameraPathFromFile(entry.path()))
+                break;
+        }
+    }
 
     mClock.setTime(0); // Reset Time on scene load in
 }
@@ -82,12 +91,19 @@ void CameraPath::execute(RenderContext* pRenderContext, const RenderData& render
 void CameraPath::renderUI(Gui::Widgets& widget)
 {
     //Info Block
+    widget.text(mStatus);
     widget.text("Loaded Path Nodes: " + std::to_string(mCameraPath.size()));
 
+    widget.dummy("", float2(1, 10));
 
     if (mRecordCameraPath)
     {
-        recordUI(widget);
+        if (widget.button("Stop Recording"))
+        {
+            mRecordCameraPath = false;
+            mStatus = "Successfully recoreded path with " + std::to_string(mCameraPath.size()) + "nodes";
+        }
+           
         return;
     }
 
@@ -122,23 +138,38 @@ void CameraPath::renderUI(Gui::Widgets& widget)
             loadCameraPathFromFile(loadPath);
         }
     }
-}
 
-void CameraPath::recordUI(Gui::Widgets& widget)
-{
-    widget.text("Recording ...");
-    if (widget.button("Stop Recording"))
-        mRecordCameraPath = false;
+    if (auto group = widget.group("Smooth Path"))
+    {
+        group.text("Smooth the Camera Path with a Gaussian Filter");
+        group.checkbox("Smooth Target", mSmoothTarget);
+        group.checkbox("Smooth Position", mSmoothPosition);
+        group.var("Filter Size", mSmoothFilterSize, 1u, 1025u, 2u);
+        group.slider("Sigma", mGaussSigma, 0.001f, mSmoothFilterSize / 2.f);
+        if (group.button("Apply Smoothing"))
+            smoothCameraPath();
+        if (group.button("Load Backup"))
+        {
+            if (mCameraPathBackup.size() == mCameraPath.size())
+            {
+                mCameraPath = mCameraPathBackup;
+                mStatus = "Backup loaded successfully";
+            }
+            else
+                mStatus = "Backup loading failed";
+                
+        }
+    }
 }
 
 void CameraPath::pathUI(Gui::Widgets& widget)
 {
-    widget.text("Following the Path ...");
     widget.text("Current Node: " + std::to_string(mCurrentPathFrame));
 
-    if (auto group = widget.group("Time Settings", true))
+    if (auto group = widget.group("Clock", true))
     {
-        if (widget.var("Speed Scale", mClockTimeScale, 0.001, 100.0, 0.001f))
+        group.text("Current Time: " + std::to_string(mClock.getTime()));
+        if (group.var("Speed Scale", mClockTimeScale, 0.001, 100.0, 0.001f))
         {
             mClock.setTimeScale(mClockTimeScale);
         }
@@ -149,6 +180,7 @@ void CameraPath::pathUI(Gui::Widgets& widget)
             {
                 mClock.play();
                 mCurrentPathFrame = mCurrentPauseFrame;
+                mStatus = "Following the path ...";
             }
                 
 
@@ -160,18 +192,20 @@ void CameraPath::pathUI(Gui::Widgets& widget)
             {
                 mClock.pause();
                 mCurrentPauseFrame = mCurrentPathFrame;
+                mStatus = "Clock paused!";
             }
                 
         }
     }
 
-    widget.separator(4);
+    widget.dummy("", float2(1, 10));
 
     if (widget.button("Stop"))
         mUseCameraPath = false;
 }
 
 void CameraPath::startRecording() {
+    mStatus = "Recording ...";
     mCameraPath.clear();
     mCameraPath.resize(0);
     mRecordedFrames = 0;
@@ -197,16 +231,18 @@ void CameraPath::recordFrame() {
     //Update time
     mRecordedFrames++;
     mLastFrameTime = currentTime;
+
 }
 
 void CameraPath::startPath() {
     if (mCameraPath.size() <= 1)
     {
-        reportError("Camera Path empty, could not start!");
+        mStatus = "Camera Path empty, could not start!";
+        reportError(mStatus);
         return;
     }
         
-
+    mStatus = "Following the Path ...";
     mCurrentPathFrame = 0;
     mLastFrameTime = 0;
     mNextFrameTime = mCameraPath[0].deltaT;
@@ -228,6 +264,9 @@ void CameraPath::pathFrame() {
         return;
     }
 
+    size_t startFrame = mCurrentPathFrame;
+    double startFrameTime = mLastFrameTime;
+
     //Find the current node
     for (uint i = 0; i < kMaxSearchedFrames; i++)
     {
@@ -235,8 +274,10 @@ void CameraPath::pathFrame() {
         if (mCurrentPathFrame >= mCameraPath.size() - 1)
         {
             mCurrentPathFrame = 0;
+            startFrame = 0;
             mClock.setTime(0);
-            mLastFrameTime = 0;
+            mLastFrameTime = 0.0;
+            startFrameTime = 0.0;
             mNextFrameTime = mCameraPath[1].deltaT;
             break;
         }
@@ -251,12 +292,13 @@ void CameraPath::pathFrame() {
         mCurrentPathFrame++;
     }
 
-    double dT = currentTime - mLastFrameTime;
+    double dT = currentTime - startFrameTime;
 
-    float lerpVal = dT / std::max(1e-15, mNextFrameTime - mLastFrameTime);
+    float lerpVal = dT / std::max(1e-15, mNextFrameTime - startFrameTime);
+    lerpVal = std::clamp(lerpVal, 0.f, 1.f);
 
     //Set the Camera values to the lerp of the next two nodes
-    const CamPathData& n1 = mCameraPath[mCurrentPathFrame];
+    const CamPathData& n1 = mCameraPath[startFrame];
     const CamPathData& n2 = mCameraPath[mCurrentPathFrame + 1];
     float3 position = math::lerp(n1.position, n2.position, lerpVal);
     float3 target = math::lerp(n1.target, n2.target, lerpVal);
@@ -274,7 +316,8 @@ std::string float3VecToString(float3 vec) {
 bool CameraPath::storeCameraPath(std::filesystem::path& path) {
     if (mCameraPath.size() <= 1)
     {
-        reportError("Camera Path empty, could not store!");
+        mStatus = "Camera Path empty, could not store!";
+        reportError(mStatus);
         return false;
     }
            
@@ -282,7 +325,8 @@ bool CameraPath::storeCameraPath(std::filesystem::path& path) {
 
     if (!file)
     {
-        reportError("Could not store file at " + path.string());
+        mStatus = "Could not store file at " + path.string();
+        reportError(mStatus);
         return false;
     }
 
@@ -298,16 +342,18 @@ bool CameraPath::storeCameraPath(std::filesystem::path& path) {
     }
     file.close();
 
+    mStatus = "File successfully stored at: " + path.string();
     return true;
 }
 
-bool CameraPath::loadCameraPathFromFile(std::filesystem::path& path) {
+bool CameraPath::loadCameraPathFromFile(const std::filesystem::path& path) {
 
     std::ifstream file(path.string());
 
     if (!file.is_open())
     {
-        reportError("Could not open file");
+        mStatus = "Could not open file";
+        reportError(mStatus);
         return false;
     }
 
@@ -326,7 +372,8 @@ bool CameraPath::loadCameraPathFromFile(std::filesystem::path& path) {
 
         if (valuesStr.size() != 7)
         {
-            reportError("CameraPath file format error!");
+            mStatus = "CameraPath file format error!";
+            reportError(mStatus);
             return false;
         }
 
@@ -345,12 +392,85 @@ bool CameraPath::loadCameraPathFromFile(std::filesystem::path& path) {
 
     if (readData.size() <= 1)
     {
-        reportError("Read Camera Path too small, ignored");
+        mStatus = "Read Camera Path too small, ignored";
+        reportError(mStatus);
         return false;
     }
 
     mCameraPath = readData;
     mRecordedFrames = mCameraPath.size() - 1;
 
+    mStatus = "File with " + std::to_string(mRecordedFrames) + " nodes successfully loaded";
     return true;
+}
+
+float getCoefficient(float sigma, float x)
+{
+    float sigmaSquared = sigma * sigma;
+    float p = -(x * x) / (2 * sigmaSquared);
+    float e = std::exp(p);
+
+    float a = std::sqrt(2 * (float)M_PI) * sigma;
+    return e / a;
+}
+
+void CameraPath::smoothCameraPath() {
+    if (mCameraPath.size() < kMinSmoothSize)
+    {
+        mStatus = "Smooth error !Path to short, needs at least " + std::to_string(kMinSmoothSize) + " nodes."; 
+        reportError(mStatus);
+        return;
+    }
+
+    if (!mSmoothTarget && !mSmoothPosition)
+    {
+        mStatus = "Smooth error! At least one smooth variable needs to be choosen!";
+        reportError(mStatus);
+        return;
+    }
+
+    //Create backup
+    mCameraPathBackup = mCameraPath;
+
+    //Get the gaussian weights
+    uint32_t center = mSmoothFilterSize / 2;
+    float sum = 0;
+    std::vector<float> weights(center + 1);
+    for (uint32_t i = 0; i <= center; i++)
+    {
+        weights[i] = getCoefficient(mGaussSigma, (float)i);
+        sum += (i == 0) ? weights[i] : 2 * weights[i];
+    }
+
+    //Normalize weights
+    for (uint32_t i = 0; i <= center; i++)
+        weights[i] = weights[i] / sum;
+
+    //Loop over the camera path
+    const int offset = -int(center);
+    std::vector<CamPathData> smoothedData;
+    smoothedData.reserve(mCameraPath.size());
+
+    for (int i = 0; i < mCameraPath.size(); i++)
+    {
+        CamPathData filtered;
+        filtered.position = mSmoothPosition ? float3(0) : mCameraPath[i].position;
+        filtered.target = mSmoothTarget ? float3(0) : mCameraPath[i].target;
+        filtered.deltaT = mCameraPath[i].deltaT;
+        for (int j = 0; j < int(mSmoothFilterSize); j++)
+        {
+            int idx = std::clamp(i + offset + j, 0, int(mCameraPath.size() - 1));
+            int weightIdx = std::abs(offset + j);
+            if (mSmoothPosition)
+                filtered.position += mCameraPath[idx].position * weights[weightIdx];
+            if (mSmoothTarget)
+                filtered.target += mCameraPath[idx].target * weights[weightIdx];
+        }
+        smoothedData.push_back(filtered);
+    }
+
+    //Copy Vector
+    mCameraPath = smoothedData;
+
+    mStatus = "Gaussian Smoothing successfully applied";
 }
