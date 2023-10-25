@@ -217,7 +217,7 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     //SPPM
     if (mUseSPPM)
     {
-        if (is_set(mpScene->getUpdates(), Scene::UpdateFlags::CameraMoved))
+        if (is_set(mpScene->getUpdates(), Scene::UpdateFlags::CameraMoved) || mSPPMFramesCameraStill == 0)
         {
             mSPPMFramesCameraStill = 0;
             mPhotonCollectRadius = mPhotonCollectionRadiusStart;
@@ -314,6 +314,7 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                 "Current Radius: Global = " + std::to_string(mPhotonCollectRadius.x) +
                 "; Caustic = " + std::to_string(mPhotonCollectRadius.y)
             );
+            changed |= group.button("Reset", true);
         }
             
 

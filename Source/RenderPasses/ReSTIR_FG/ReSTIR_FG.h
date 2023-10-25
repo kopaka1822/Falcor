@@ -219,10 +219,10 @@ private:
     bool mGenerationDeltaRejection = true;
     bool mGenerationDeltaRejectionRequireDiffPart = false;
     CausticCollectionMode mCausticCollectMode = CausticCollectionMode::All;
-    uint mCausticTemporalFilterHistoryLimit = 120;
+    uint mCausticTemporalFilterHistoryLimit = 60;
 
     bool mUsePhotonCulling = true;
-    bool mUseCausticCulling = true;                                 //Enable Culling for caustics
+    bool mUseCausticCulling = false;                                 //Enable Culling for caustics
     uint mCullingHashBufferSizeBits = 20;                           //Number of Culling Hash bits
     bool mCullingUseFixedRadius = true;
     float mCullingCellRadius = 0.1f;                                //Radius used for the culling cells
