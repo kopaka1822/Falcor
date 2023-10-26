@@ -180,6 +180,7 @@ private:
     //Specular Trace Options
     uint mTraceMaxBounces = 10;                                          //Number of Specular/Transmissive bounces allowed
     bool mTraceRequireDiffuseMat = true;                            //Requires a diffuse part in addition to delta lobes
+    float mTraceRoughnessCutoff = 0.7f;                             //If diffuse part is required, dont trace if the roughness is too high
 
     //Light
     bool mMixedLights = false;                                      //True if analytic and emissive lights are in the scene

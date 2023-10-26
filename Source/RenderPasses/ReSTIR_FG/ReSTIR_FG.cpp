@@ -251,6 +251,11 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         group.tooltip("Number of specular/transmissive bounces. 0 -> direct hit only");
         group.checkbox("Require Diffuse Part", mTraceRequireDiffuseMat);
         group.tooltip("Requires a diffuse part in addition to delta lobes");
+        if (mTraceRequireDiffuseMat)
+        {
+            group.var("Roughness Cutoff", mTraceRoughnessCutoff, 0.0f, 1.0f, 0.01f);
+            group.tooltip("Materials with roughness over this threshold are still considered diffuse");
+        }
     }
 
     if (auto group = widget.group("PhotonMapper")) {
@@ -701,6 +706,7 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     FALCOR_PROFILE(pRenderContext, "TraceDeltaTransmissive");
 
     mTraceTransmissionDelta.pProgram->addDefines(getValidResourceDefines(kOutputChannels, renderData));
+    mTraceTransmissionDelta.pProgram->addDefine("TRACE_TRANS_SPEC_ROUGH_CUTOFF", std::to_string(mTraceRoughnessCutoff));
 
     if (!mTraceTransmissionDelta.pVars)
         mTraceTransmissionDelta.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
