@@ -970,9 +970,9 @@ struct PathTracer
                         SMLightData lightData = getShadowMapLightData(gScene.getLight(lightIndex));
                         float shadow = 0.f;
                         if(kUseHybridShadowMap)
-                            traceShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, ray.origin,lightData , path.sg, 0.f, shadow);
+                            traceShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, ray.origin,lightData , sampleNext4D(path.sg), 0.f, shadow);
                         else
-                            traceShadowRay = !gShadowMap.evalShadowMap(lightIndex, ray.origin, lightData, path.sg, 0.f, shadow);
+                            traceShadowRay = !gShadowMap.evalShadowMap(lightIndex, ray.origin, lightData, sampleNext4D(path.sg), 0.f, shadow);
                         visible = shadow > 0.5f;    //TODO allow soft shadows
                     }
 

@@ -376,13 +376,13 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
     
     if (gShadowMap.kUseHybridShadowMap && !useShadowRay)
     {
-        useShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, sd.posW, smLightData, sg, oracleMip, shadow);
+        useShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, sd.posW, smLightData, sampleNext4D(sg), oracleMip, shadow);
         bool validShadowValue = shadow >= 0.f;
         useShadowRay &= (!useNormalSM || !rayData.useOracle || !validShadowValue); //Disable ray if oracle function was evaluated true
     }
     else if (!useShadowRay && useNormalSM)
     {
-        useShadowRay = !gShadowMap.evalShadowMap(lightIndex, sd.posW, smLightData, sg, oracleMip, shadow);
+        useShadowRay = !gShadowMap.evalShadowMap(lightIndex, sd.posW, smLightData, sampleNext4D(sg), oracleMip, shadow);
     }
 
     //Make sure the ray is used if no hybrid shadow mapping is used

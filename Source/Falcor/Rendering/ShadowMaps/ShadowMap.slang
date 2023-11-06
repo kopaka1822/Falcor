@@ -4,7 +4,6 @@
 
 import Scene.Raytracing;
 import Rendering.Lights.LightHelpers;
-import Utils.Sampling.SampleGenerator;
 import Utils.Color.ColorHelpers;
 __exported import Rendering.ShadowMaps.ShadowMapData;
 __exported import Rendering.ShadowMaps.ShadowMapHelpers;
@@ -253,8 +252,6 @@ struct ShadowMap
         return sv;
     }
     
-    
-    
     /** Gets the current cascaded level from the world position
     \param[in] world position.
     \return cascaded level between 0 and kCascadedLevels.
@@ -383,7 +380,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapClassic(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, out float shadow)
+    bool evalShadowMapClassic(uint lightIdx, float3 posW, const in SMLightData lightData, float4 random, out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -396,8 +393,8 @@ struct ShadowMap
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint cascLevel;
-        if(kCascadedStochasticBlend)
-            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+        if(kCascadedStochasticBlend && !kUsePoissonSampling)
+            cascLevel = getCascadedLevelStochastic(posW, random.x);
         else
             cascLevel = getCascadedLevel(posW);
                 
@@ -432,7 +429,7 @@ struct ShadowMap
             {
                 for (uint k = 0; k < 4; k++)
                 {
-                    uint poisIdx = uint(19.9999f * sampleNext1D(sg));
+                    uint poisIdx = uint(19.9999f * random[k]);
                     float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRadCube; //TODO Better solution (angle?) 
                     shadow += standardShadowTest(index, cascLevel, uv, lightData.type, lightDist);
                 }
@@ -442,7 +439,7 @@ struct ShadowMap
             {
                 for (uint k = 0; k < 4; k++)
                 {
-                    uint poisIdx = uint(15.99999f * sampleNext1D(sg));
+                    uint poisIdx = uint(15.99999f * random[k]);
                     float3 uv = shadowUV;
                     const uint shadowMapRes = lightData.type == (uint) LightTypeSM::Directional ? kCascadedSMRes :  k2DSMRes;
                     uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad) / shadowMapRes);
@@ -484,7 +481,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool hybridShadowMapClassic(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, out float shadow)
+    bool hybridShadowMapClassic(uint lightIdx, float3 posW, const in SMLightData lightData, float4 random, out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -498,7 +495,7 @@ struct ShadowMap
         float3 shadowUV = float3(0);
         uint cascLevel;
         if(kCascadedStochasticBlend)
-            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+            cascLevel = getCascadedLevelStochastic(posW, random.x);
         else
             cascLevel = getCascadedLevel(posW);
         
@@ -548,7 +545,7 @@ struct ShadowMap
             {
                 for (uint k = 0; k < 4; k++)
                 {
-                    uint poisIdx = uint(19.9999f * sampleNext1D(sg));
+                    uint poisIdx = uint(19.9999f * random[k]);
                     float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRadCube; //TODO Better solution (angle?) 
                     shadowVals[k] = getShadowValue(index, uv, lightData.type, cascLevel);
                 }
@@ -557,7 +554,7 @@ struct ShadowMap
             {
                 for (uint k = 0; k < 4; k++)
                 {
-                    uint poisIdx = uint(15.99999f * sampleNext1D(sg));
+                    uint poisIdx = uint(15.99999f * random[k]);
                     float3 uv = shadowUV;
                     const uint shadowMapRes = lightData.type == (uint) LightTypeSM::Directional ? kCascadedSMRes :  k2DSMRes;
                     uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad) / shadowMapRes);
@@ -695,7 +692,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapVariance(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapVariance(uint lightIdx, float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -709,7 +706,7 @@ struct ShadowMap
         float3 shadowUV = float3(0);
         uint cascLevel;
         if(kCascadedStochasticBlend)
-            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+            cascLevel = getCascadedLevelStochastic(posW, random);
         else
             cascLevel = getCascadedLevel(posW);
         
@@ -784,7 +781,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapExponential(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapExponential(uint lightIdx, float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -798,7 +795,7 @@ struct ShadowMap
         float3 shadowUV = float3(0);
         uint cascLevel;
         if(kCascadedStochasticBlend)
-            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+            cascLevel = getCascadedLevelStochastic(posW, random);
         else
             cascLevel = getCascadedLevel(posW);
         
@@ -863,7 +860,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapExponentialVariance(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapExponentialVariance(uint lightIdx, float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -877,7 +874,7 @@ struct ShadowMap
         float3 shadowUV = float3(0);
         uint cascLevel;
         if(kCascadedStochasticBlend)
-            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+            cascLevel = getCascadedLevelStochastic(posW, random);
         else
             cascLevel = getCascadedLevel(posW);
         
@@ -1027,7 +1024,7 @@ struct ShadowMap
         return 1.0f - saturate(shadowIntensity);
     }
     
-    bool evalShadowMapMSM(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapMSM(uint lightIdx, float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightIdx;
         //Get the right index if multiple shadow map types are used
@@ -1041,7 +1038,7 @@ struct ShadowMap
         float3 shadowUV = float3(0);
         uint cascLevel;
         if(kCascadedStochasticBlend)
-            cascLevel = getCascadedLevelStochastic(posW, sampleNext1D(sg));
+            cascLevel = getCascadedLevelStochastic(posW, random);
         else
             cascLevel = getCascadedLevel(posW);
         
@@ -1097,21 +1094,21 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMap(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel , out float shadow)
+    bool evalShadowMap(uint lightIdx, float3 posW, const in SMLightData lightData, float4 random, const float mipLevel , out float shadow)
     {
         switch (ShadowMapType(kShadowMapMode))
         {
             case ShadowMapType::ShadowMap:
-                return evalShadowMapClassic(lightIdx, posW, lightData, sg, shadow);
+                return evalShadowMapClassic(lightIdx, posW, lightData, random, shadow);
             case ShadowMapType::Variance:
-                return evalShadowMapVariance(lightIdx, posW, lightData, sg, mipLevel, false ,shadow);
+                return evalShadowMapVariance(lightIdx, posW, lightData, random.x, mipLevel, false ,shadow);
             case ShadowMapType::Exponential:
-                return evalShadowMapExponential(lightIdx, posW, lightData, sg, mipLevel, false, shadow);
+                return evalShadowMapExponential(lightIdx, posW, lightData, random.x, mipLevel, false, shadow);
             case ShadowMapType::ExponentialVariance:
-                return evalShadowMapExponentialVariance(lightIdx, posW, lightData, sg, mipLevel, false, shadow);
+                return evalShadowMapExponentialVariance(lightIdx, posW, lightData, random.x, mipLevel, false, shadow);
             case ShadowMapType::MSMHamburger:
             case ShadowMapType::MSMHausdorff:
-                return evalShadowMapMSM(lightIdx, posW, lightData, sg, mipLevel, false, shadow);
+                return evalShadowMapMSM(lightIdx, posW, lightData, random.x, mipLevel, false, shadow);
             default:
                 shadow = 1.f;
                 return false;
@@ -1126,21 +1123,21 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalHybridShadowMap(uint lightIdx, float3 posW, const in SMLightData lightData, inout SampleGenerator sg, const float mipLevel, out float shadow)
+    bool evalHybridShadowMap(uint lightIdx, float3 posW, const in SMLightData lightData, float4 random, const float mipLevel, out float shadow)
     {
         switch (ShadowMapType(kShadowMapMode))
         {
             case ShadowMapType::ShadowMap:
-                return hybridShadowMapClassic(lightIdx, posW, lightData, sg, shadow);
+                return hybridShadowMapClassic(lightIdx, posW, lightData, random, shadow);
             case ShadowMapType::Variance:
-                return evalShadowMapVariance(lightIdx, posW, lightData, sg, mipLevel ,true ,shadow);
+                return evalShadowMapVariance(lightIdx, posW, lightData, random.x, mipLevel ,true ,shadow);
             case ShadowMapType::Exponential:
-                return evalShadowMapExponential(lightIdx, posW, lightData, sg, mipLevel, true , shadow);
+                return evalShadowMapExponential(lightIdx, posW, lightData, random.x, mipLevel, true , shadow);
             case ShadowMapType::ExponentialVariance:
-                return evalShadowMapExponentialVariance(lightIdx, posW, lightData, sg, mipLevel, true, shadow);
+                return evalShadowMapExponentialVariance(lightIdx, posW, lightData, random.x, mipLevel, true, shadow);
             case ShadowMapType::MSMHamburger:
             case ShadowMapType::MSMHausdorff:
-                return evalShadowMapMSM(lightIdx, posW, lightData, sg, mipLevel, true, shadow);
+                return evalShadowMapMSM(lightIdx, posW, lightData, random.x, mipLevel, true, shadow);
             default:
                 shadow = 1.f;
                 return false;

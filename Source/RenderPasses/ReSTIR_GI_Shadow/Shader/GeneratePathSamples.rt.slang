@@ -439,11 +439,11 @@ void rayGen()
                                 
                             if (gShadowMap.kUseHybridShadowMap)
                             {
-                                doShadowTest = !gShadowMap.evalHybridShadowMap(ls.lightIndex, sd.posW, lightData, traceData.sg, oracleMip, shadow) && !useNormalSM;
+                                doShadowTest = !gShadowMap.evalHybridShadowMap(ls.lightIndex, sd.posW, lightData, sampleNext4D(traceData.sg), oracleMip, shadow) && !useNormalSM;
                             }
                             else if(useNormalSM)
                             {
-                                doShadowTest = !gShadowMap.evalShadowMap(ls.lightIndex, sd.posW, lightData, traceData.sg, oracleMip, shadow);
+                                doShadowTest = !gShadowMap.evalShadowMap(ls.lightIndex, sd.posW, lightData, sampleNext4D(traceData.sg), oracleMip, shadow);
                             }
                         }
                    
