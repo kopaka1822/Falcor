@@ -102,7 +102,6 @@ void main(uint2 pixel : SV_DispatchThreadID)
     float3 emission = { };
     float3 diffuseIllumination = { };
     float3 specularIllumination = { };
-    float3 resuidualIllumination = { };
     float hitT = 1.f;
     uint hitTSamples = 0;
     
@@ -206,7 +205,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
         
         color += diffuse + specular + caustic;    //Add diffuse and specular parts together
         color *= thp;                   //Use the throughput
-        emission += bsdfProperties.emission; //Emission
+        emission += bsdfProperties.emission * thp; //Emission
         color += emission;  //Do this or demodulate it?
 
         //If only RTXDI is used, add the previous calculated light color

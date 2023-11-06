@@ -33,6 +33,7 @@ RWTexture2D<float4> gOutSpecularReflectance;
 #define is_valid(name) (is_valid_##name != 0)
 
 static const float kDemodulateMinReflectance = 0.01f;
+static const float kRoughnessCutoff = TRACE_TRANS_SPEC_ROUGH_CUTOFF;
 
 struct TraceData
 {
@@ -151,7 +152,7 @@ void rayGen()
             break;
 
         bool isTransmission = bsdfSample.isLobe(LobeType::Transmission);
-        bool hasDiffuseParts = gRequDiffParts ?  luminance(bsdfProperties.diffuseReflectionAlbedo) > 0 : true;
+        bool hasDiffuseParts = gRequDiffParts ? any(bsdfProperties.diffuseReflectionAlbedo > 0) || bsdfProperties.roughness > kRoughnessCutoff : true;
         //bool isDiffuse = bsdfSample.isLobe(LobeType::Diffuse) && !isTransmission;
         bool isDiffuse = bsdfSample.isLobe(LobeType::NonDeltaReflection) && hasDiffuseParts;
 
