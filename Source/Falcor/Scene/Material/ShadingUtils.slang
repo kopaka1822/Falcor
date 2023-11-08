@@ -211,6 +211,7 @@ bool isValidHemisphereTransmission(const ShadingData sd, const ShadingFrame sf, 
 */
 bool isValidHemisphereReflectionOrTransmission(const ShadingData sd, const ShadingFrame sf, const float3 wiLocal, const float3 woLocal, const float3 wo, const bool fullSphere = false)
 {
+    return true;
     const bool isTransmission = wiLocal.z * woLocal.z < 0.f;
 
     // Check that wi/wo are in the upper/lower hemisphere around the shading normal.
