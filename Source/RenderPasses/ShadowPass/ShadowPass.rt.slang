@@ -66,14 +66,14 @@ cbuffer CB
 
 //Defines for syntax highlighting
 #ifndef SIMPLIFIED_SHADING
-#define SIMPLIFIED_SHADING 1
+#define SIMPLIFIED_SHADING 0
 #endif
 
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
 static const uint kShadowMode = SP_SHADOW_MODE;
 static const bool kRayAlphaTest = ALPHA_TEST;
-static const bool kNormalTest = SP_NORMAL_TEST;
+static const float kAmbientFactor = SP_AMBIENT;
 
 /** Payload for shadow ray.
 */
@@ -125,7 +125,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
 
     toLight = ls.dir;
     Li = ls.Li * shadow;
-    return true;
+    return any(Li > 0);
 }
 
 /** Adjusts the normal of the supplied shading frame to reduce black pixels due to back-facing view direction.
@@ -157,6 +157,7 @@ float3 simplifiedShading(const float3 posW, const float3 N,const float3 viewDir 
     const float NdotH = saturate(dot(N, H));
     const float LdotH = saturate(dot(toLight, H));
 
+    //Disable delta lobes
     roughness = max(roughness, 0.08);
     
     //DGF Microfaset BRDF
@@ -173,7 +174,7 @@ float3 simplifiedShading(const float3 posW, const float3 N,const float3 viewDir 
     
     //Mix diffuse and specular BRDF
     float3 brdf = max(0.f, lerp(specularBRDF, diffuseBRDF, diffuseProb));
-    return max(0.f, brdf);
+    return max(0.f, specularBRDF + diffuseBRDF);
 }
 
 [shader("miss")]
@@ -232,8 +233,13 @@ void rayGen()
         float3 Li, toLight;
         if(!sampleLight(posW, normalW, faceNormalW, i, toLight, Li))
             continue;
+            
         color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, toLight) * Li;
     }
+
+    //Ambient Color
+    color += kAmbientFactor * diffuse;
+    
 #else
     float2 texCoord = gTexCoord[pixel];
     uint4 materialInfo = gMaterialInfo[pixel];
@@ -262,13 +268,18 @@ void rayGen()
     uint validLights = 0;
     for(uint i=0 ; i<lightCount; i++){
         float3 Li, toLight;
-        if(!sampleLight(sd.posW, bsdfProperties.guideNormal , sd.getOrientedFaceNormal(), i, toLight, Li))
+        if(!sampleLight(sd.posW, bsdfProperties.guideNormal, sd.getOrientedFaceNormal(), i, toLight, Li))
             continue;
 
         color += mi.eval(sd, toLight, sg) * Li;
-        //color += mi.evalPdf(sd, toLight);
     }
+
+    //Ambient Factor
+    color += kAmbientFactor * bsdfProperties.diffuseReflectionAlbedo;
 #endif
+
     
+
+
     gColor[pixel] = float4(color, 1.f);
 }

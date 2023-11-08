@@ -165,7 +165,7 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
     mShadowTracer.pProgram->addDefine("SP_SHADOW_MODE", std::to_string(uint32_t(mShadowMode)));
     mShadowTracer.pProgram->addDefine("SIMPLIFIED_SHADING", mUseSimplifiedShading ? "1" : "0");
     mShadowTracer.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
-    mShadowTracer.pProgram->addDefine("SP_NORMAL_TEST", mNormalTest ? "1" : "0");
+    mShadowTracer.pProgram->addDefine("SP_AMBIENT", std::to_string(mAmbientFactor));
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
 
     //Prepare Vars
@@ -238,8 +238,7 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
         }
     }
         
-    changed |= widget.checkbox("Light Normal Test", mNormalTest);
-    widget.tooltip("Test if the surface is shaded using the normal. Requires a texture access to the normal texture");
+    changed |= widget.var("Ambient Factor", mAmbientFactor,0.0f, 1.f, 0.01f);
 
     if (mShadowMode != SPShadowMode::RayTraced && mpShadowMap)
     {

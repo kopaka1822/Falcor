@@ -62,8 +62,8 @@ private:
 
     //Configuration
     bool mUseAlphaTest = true; ///< Alpha Test for ray tracing
-    bool mNormalTest = false;   ///< Abort early if the surface is not shaded
     bool mUseSimplifiedShading = false;     ///< Option to switch shading
+    float mAmbientFactor = 0.1f; //<Ambient light factor
     bool mOptionsChanged = false;
     SPShadowMode mShadowMode = SPShadowMode::Hybrid;
 
