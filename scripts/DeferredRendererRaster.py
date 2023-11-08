@@ -12,7 +12,10 @@ def render_graph_DeferredRenderer():
     g.add_edge('GBufferRaster.normW', 'ShadowPass.normalW')
     g.add_edge('GBufferRaster.tangentW', 'ShadowPass.tangentW')
     g.add_edge('GBufferRaster.texC', 'ShadowPass.texCoord')
-    g.add_edge('GBufferRaster.mtlData', 'ShadowPass.MaterialInfor')
+    g.add_edge('GBufferRaster.mtlData', 'ShadowPass.MaterialInfo')
+    g.add_edge('GBufferRaster.texGrads', 'ShadowPass.texGrads')
+    g.add_edge('GBufferRaster.diffuseOpacity', 'ShadowPass.diffuse')
+    g.add_edge('GBufferRaster.specRough', 'ShadowPass.specularRoughness')
     g.mark_output('ToneMapper.dst')
     return g
 

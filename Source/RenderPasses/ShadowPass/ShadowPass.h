@@ -57,10 +57,13 @@ private:
     std::unique_ptr<ShadowMap> mpShadowMap; ///< Shadow Map
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
     uint mFrameCount = 0;
-    
+    bool mSimplifiedShadingValid = false;
+    bool mComplexShadingValid = false;
+
     //Configuration
     bool mUseAlphaTest = true; ///< Alpha Test for ray tracing
     bool mNormalTest = false;   ///< Abort early if the surface is not shaded
+    bool mUseSimplifiedShading = false;     ///< Option to switch shading
     bool mOptionsChanged = false;
     SPShadowMode mShadowMode = SPShadowMode::Hybrid;
 

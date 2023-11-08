@@ -41,10 +41,19 @@ namespace
     const ChannelList kInputChannels = {
         {"posW", "gPosW", "World Position"},
         {"normalW", "gNormalW", "World Normal"},
-        {"tangentW", "gTangentW", "Tangent"},
-        {"texCoord", "gTexCoord", "Texture Coordinate"},
         {"faceNormalW", "gFaceNormalW", "Face Normal"},
-        {"MaterialInfor", "gMaterialInfo", "Material"},
+    };
+
+    const ChannelList kOptionalInputsShading = {
+        {"tangentW", "gTangentW", "Tangent", true},
+        {"texCoord", "gTexCoord", "Texture Coordinate", true},
+        {"texGrads", "gTexGrads", "Texture Gradients (LOD)", true},
+        {"MaterialInfo", "gMaterialInfo", "Material", true},
+    };
+
+    const ChannelList kOptionalInputsSimplifiedShading = {
+        {"diffuse", "gDiffuse", "Diffuse Reflection", true},
+        {"specularRoughness", "gSpecRough", "Specular Reflection (xyz) and Roughness (w)", true},
     };
 
     const ChannelList kOutputChannels = {
@@ -77,6 +86,8 @@ RenderPassReflection ShadowPass::reflect(const CompileData& compileData)
 
     // Define our input/output channels.
     addRenderPassInputs(reflector, kInputChannels);
+    addRenderPassInputs(reflector, kOptionalInputsShading);
+    addRenderPassInputs(reflector, kOptionalInputsSimplifiedShading);
     addRenderPassOutputs(reflector, kOutputChannels);
 
     return reflector;
@@ -120,16 +131,42 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
     if (!mpShadowMap->update(pRenderContext))
         return;
 
+    // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
+    // I/O Resources could change at any time
+    bool ioChanged = false;
+    ioChanged |= mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOptionalInputsShading, renderData));
+    ioChanged |= mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOptionalInputsSimplifiedShading, renderData));
+
+    // Check which shading model should be used
+    if (ioChanged)
+    {
+        auto checkResources = [&](const ChannelList& list)
+        {
+            bool valid = true;
+            for (const auto& desc : list)
+                valid &= renderData[desc.name] != nullptr;
+            return valid;
+        };
+        mSimplifiedShadingValid = checkResources(kOptionalInputsSimplifiedShading);
+        mComplexShadingValid = checkResources(kOptionalInputsShading);
+
+        if (!mComplexShadingValid && !mSimplifiedShadingValid)
+            throw RuntimeError(
+                "ShadowPass : Not enough input texture for shading. Either all Simplified or Complex Shading inputs need to be set!"
+            );
+
+        if (mSimplifiedShadingValid && !mComplexShadingValid)
+            mUseSimplifiedShading = true;
+        else if (mComplexShadingValid)
+            mUseSimplifiedShading = false;
+    }
+
     //Add defines
     mShadowTracer.pProgram->addDefine("SP_SHADOW_MODE", std::to_string(uint32_t(mShadowMode)));
+    mShadowTracer.pProgram->addDefine("SIMPLIFIED_SHADING", mUseSimplifiedShading ? "1" : "0");
     mShadowTracer.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     mShadowTracer.pProgram->addDefine("SP_NORMAL_TEST", mNormalTest ? "1" : "0");
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
-    
-
-    // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
-    // TODO: This should be moved to a more general mechanism using Slang.
-    mShadowTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));
 
     //Prepare Vars
     if (!mShadowTracer.pVars)
@@ -158,7 +195,12 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
             var[desc.texname] = renderData.getTexture(desc.name);
         }
     };
+
     for (auto channel : kInputChannels)
+        bind(channel);
+    for (auto channel : kOptionalInputsShading)
+        bind(channel);
+    for (auto channel : kOptionalInputsSimplifiedShading)
         bind(channel);
     for (auto channel : kOutputChannels)
         bind(channel);
@@ -174,6 +216,28 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
     if (mShadowMode != SPShadowMode::ShadowMap)
         changed |= widget.checkbox("Ray Alpha Test", mUseAlphaTest);
 
+    //Shading Model
+    if (mSimplifiedShadingValid && mComplexShadingValid)
+    {
+        changed |= widget.checkbox("Use Simplified Shading", mUseSimplifiedShading);
+        widget.tooltip(
+            "Change the used shading model. For better overall performance please only bind the input textures for one shading model"
+        );
+    }
+    else
+    {
+        if (mComplexShadingValid)
+            widget.text("Complex Shading Model in use");
+        else if (mSimplifiedShadingValid)
+            widget.text("Simplified Shading Model in use");
+        else
+        {
+            widget.text("Not enough resources bound for either shading model! (Not updated in RenderGraphEditor)");
+            widget.text("Simplified Model: diffuse , specularRoughness");
+            widget.text("Complex Model: tangentW, texCoords, texGrads, MaterialInfo");
+        }
+    }
+        
     changed |= widget.checkbox("Light Normal Test", mNormalTest);
     widget.tooltip("Test if the surface is shaded using the normal. Requires a texture access to the normal texture");
 
@@ -194,6 +258,10 @@ void ShadowPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
 
     //Set new scene
     mpScene = pScene;
+
+    //Reset Shading
+    mComplexShadingValid = false;
+    mSimplifiedShadingValid = false;
 
     //Create Ray Tracing pass
     if (mpScene)
