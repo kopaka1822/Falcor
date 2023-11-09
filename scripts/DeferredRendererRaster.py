@@ -16,6 +16,7 @@ def render_graph_DeferredRenderer():
     g.add_edge('GBufferRaster.texGrads', 'ShadowPass.texGrads')
     g.add_edge('GBufferRaster.diffuseOpacity', 'ShadowPass.diffuse')
     g.add_edge('GBufferRaster.specRough', 'ShadowPass.specularRoughness')
+    g.add_edge('GBufferRaster.emissive', 'ShadowPass.emissive')
     g.mark_output('ToneMapper.dst')
     return g
 

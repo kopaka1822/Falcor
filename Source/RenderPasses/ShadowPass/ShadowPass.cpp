@@ -59,6 +59,7 @@ namespace
 
     const ChannelList kOutputChannels = {
         {"color", "gColor", "(Shadowed) Color for the direct light", false, ResourceFormat::RGBA16Float},
+        {"debug", "gDebug", "Debug Image", true, ResourceFormat::RGBA16Float},
     };
 
 } // namespace
@@ -138,6 +139,7 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
     ioChanged |= mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOptionalInputsShading, renderData));
     ioChanged |= mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOptionalInputsSimplifiedShading, renderData));
     mShadowTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));    //Emissive is the only optional channel (only used in simplified shading)
+    mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOutputChannels, renderData));   //Debug out images
 
     // Check which shading model should be used
     if (ioChanged)

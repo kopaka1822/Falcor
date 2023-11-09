@@ -59,6 +59,7 @@ Texture2D<float4> gSpecRough;
 
 //Outputs
 RWTexture2D<float4> gColor;
+RWTexture2D<float4> gDebug;
 
 cbuffer CB
 {
@@ -88,7 +89,7 @@ struct ShadowRayData
 };
 
 //Calculates the shadowed Li for a given light
-bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uint lightIdx, out float3 toLight, out float3 Li){
+bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uint lightIdx, out float3 toLight, out float3 Li, inout float3 debug){
     Li = float3(0);
     toLight = float3(0);
     //Sample the light
@@ -100,6 +101,9 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
     //Quick check if point is shaded
     float NdotL = dot(N, ls.dir);
     if(NdotL <= 0)
+        return false;
+
+    if(all(ls.Li <= 0))
         return false;
         
     //Shadow test
@@ -126,6 +130,12 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
         TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
         shadow = rayData.visible ? 1.f : 0.f;                
+    }
+
+    if (is_valid(gDebug))
+    {
+        debug.x += useRay && kShadowMode != (uint) SPShadowMode::ShadowMap ? 1.f : 0.f;
+        debug.y += any(ls.Li > 0) ? shadow : 0.f;
     }
 
     toLight = ls.dir;
@@ -234,6 +244,10 @@ void rayGen()
     
     float3 color = float3(0.f);
     float3 emissive = float3(0.f);
+    float3 debugOut = float3(0.f);
+
+    const uint lightCount = gScene.getLightCount();
+        
     if (valid)
     {
     #if SIMPLIFIED_SHADING
@@ -248,14 +262,15 @@ void rayGen()
 
         adjustShadingNormal(view, faceNormalW, normalW);
     
-         //Loop over all lights
-        const uint lightCount = gScene.getLightCount();
-        uint validLights = 0;
+        //Loop over all lights
         for(uint i=0 ; i<lightCount; i++){
             float3 Li, toLight;
-            if(!sampleLight(posW, normalW, faceNormalW, i, toLight, Li))
+            if(!sampleLight(posW, normalW, faceNormalW, i, toLight, Li, debugOut))
                 continue;
-            
+
+            //Check if point can be shaded
+            if(dot(faceNormalW, toLight) <= 0)
+                continue;
             color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, toLight) * Li;
         }
 
@@ -299,14 +314,11 @@ void rayGen()
         let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = mi.getProperties(sd);
     
-        float useRayTest = 0.f;
         //Loop over all lights
-        const uint lightCount = gScene.getLightCount();
-        uint validLights = 0;
         for (uint i = 0; i < lightCount; i++)
         {
             float3 Li, toLight;
-            if (!sampleLight(sd.posW, bsdfProperties.guideNormal, sd.getOrientedFaceNormal(), i, toLight, Li))
+            if (!sampleLight(sd.posW, bsdfProperties.guideNormal, sd.getOrientedFaceNormal(), i, toLight, Li, debugOut))
                 continue;
 
             color += mi.eval(sd, toLight, sg) * Li;
@@ -333,6 +345,9 @@ void rayGen()
         //Add emissive after shading
         if (kUseEmissive)
             color += kEmissiveFactor * emissive;
+
+        if(is_valid(gDebug))
+            debugOut /= lightCount;
     }
     else if(kUseEnvMap)
     {
@@ -340,4 +355,6 @@ void rayGen()
     }
     
     gColor[pixel] = float4(color, 1.f);
+    if (is_valid(gDebug))
+        gDebug[pixel] = float4(debugOut,1.f);
 }
