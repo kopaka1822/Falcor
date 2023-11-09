@@ -177,9 +177,9 @@ private:
 
     // Common Settings
     bool mUseRaySMGen = false;                                  //Generate Shadow Map with Ray Tracing
-    ShadowMapType mShadowMapType = ShadowMapType::Variance;     //Type
+    ShadowMapType mShadowMapType = ShadowMapType::MSMHamburger;     //Type
 
-    uint mShadowMapSize = 1024;
+    uint mShadowMapSize = 2048;
     uint mShadowMapSizeCube = 1024;
     uint mShadowMapSizeCascaded = 2048;
 
@@ -206,7 +206,7 @@ private:
     uint mCascadedLevelCount = 4;
     float mCascadedFrustumFix = 0.5f;
     float mCascZMult = 3.f; // Pushes the z Values apart
-    bool mCascadedStochasticBlend = true;
+    bool mCascadedStochasticBlend = false;
     float mCascadedStochasticBlendBand = 0.05f;
 
     // Hybrid Shadow Maps
@@ -247,7 +247,7 @@ private:
     uint mTemporalFilterLength = 10;                          // Temporal filter strength
     uint mJitterSampleCount = 16;                             // Number of Jitter samples
 
-    bool mUseGaussianBlur = true;
+    bool mUseGaussianBlur = false;
 
     //Oracle
     bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function
