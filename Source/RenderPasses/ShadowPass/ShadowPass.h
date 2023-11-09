@@ -64,6 +64,9 @@ private:
     bool mUseAlphaTest = true; ///< Alpha Test for ray tracing
     bool mUseSimplifiedShading = false;     ///< Option to switch shading
     float mAmbientFactor = 0.1f; //<Ambient light factor
+    float mEnvMapFactor = 1.0f; //< Env Map factor
+    float mEmissiveFactor = 1.f; //< Emissive Factor
+
     bool mOptionsChanged = false;
     SPShadowMode mShadowMode = SPShadowMode::Hybrid;
 

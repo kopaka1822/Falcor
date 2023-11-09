@@ -45,6 +45,7 @@ import ShadowPassData;
 Texture2D<float4> gPosW;
 Texture2D<float4> gNormalW;
 Texture2D<float4> gFaceNormalW;
+Texture2D<float4> gEmissive;   //Optional
 
 //Optional Inputs Complex Shading
 Texture2D<float4> gTangentW;
@@ -66,7 +67,7 @@ cbuffer CB
 
 //Defines for syntax highlighting
 #ifndef SIMPLIFIED_SHADING
-#define SIMPLIFIED_SHADING 0
+#define SIMPLIFIED_SHADING 1
 #endif
 
 // Static configuration based on defines set from the host.
@@ -74,6 +75,10 @@ cbuffer CB
 static const uint kShadowMode = SP_SHADOW_MODE;
 static const bool kRayAlphaTest = ALPHA_TEST;
 static const float kAmbientFactor = SP_AMBIENT;
+static const float kEnvMapFactor = SP_ENV_FACTOR;
+static const float kEmissiveFactor = SP_EMISSIVE;
+static const bool kUseEnvMap= USE_ENV_MAP;
+static const bool kUseEmissive = USE_EMISSIVE;
 
 /** Payload for shadow ray.
 */
@@ -177,6 +182,19 @@ float3 simplifiedShading(const float3 posW, const float3 N,const float3 viewDir 
     return max(0.f, specularBRDF + diffuseBRDF);
 }
 
+float roughnessToLod(float roughness)
+{
+    float nEnvLods = log2(float(gScene.envMap.getDimensions().x));
+    float maxEnvLod = max(nEnvLods - 4.0, 0.0);
+    return saturate(roughness) * maxEnvLod;
+}
+
+// limit maximal intensity of rough materials (avoids bright sparkles)
+float roughnessToIntensity(float roughness)
+{
+    return saturate(1.0 / (roughness + 0.1));
+}
+
 [shader("miss")]
 void miss(inout ShadowRayData rayData)
 {
@@ -204,7 +222,9 @@ void rayGen()
     uint2 frameDim = DispatchRaysDimensions().xy;
 
     //Load the texture info for shading
-    float3 posW = gPosW[pixel].xyz;
+    float4 posTex = gPosW[pixel];
+    float3 posW = posTex.xyz;
+    bool valid = posTex.w > 0;
     float3 normalW = gNormalW[pixel].xyz;
     float3 faceNormalW = gFaceNormalW[pixel].xyz;
     float4 tangentW = gTangentW[pixel];
@@ -213,73 +233,111 @@ void rayGen()
     float3 view = -gScene.camera.computeRayPinhole(pixel, frameDim).dir;
     
     float3 color = float3(0.f);
-    
-#if SIMPLIFIED_SHADING
-    float3 diffuse = gDiffuse[pixel].xyz;
-    float4 specRough = gSpecRough[pixel];
-
-    //Flip Face Normal of double sided mats
-    if(dot(faceNormalW, view) <= 0.f)
+    float3 emissive = float3(0.f);
+    if (valid)
     {
-        faceNormalW = -faceNormalW;
-    }
+    #if SIMPLIFIED_SHADING
+        float3 diffuse = gDiffuse[pixel].xyz;
+        float4 specRough = gSpecRough[pixel];
 
-    adjustShadingNormal(view, faceNormalW, normalW);
+        //Flip Face Normal of double sided mats
+        if(dot(faceNormalW, view) <= 0.f)
+        {
+            faceNormalW = -faceNormalW;
+        }
+
+        adjustShadingNormal(view, faceNormalW, normalW);
     
-     //Loop over all lights
-    const uint lightCount = gScene.getLightCount();
-    uint validLights = 0;
-    for(uint i=0 ; i<lightCount; i++){
-        float3 Li, toLight;
-        if(!sampleLight(posW, normalW, faceNormalW, i, toLight, Li))
-            continue;
+         //Loop over all lights
+        const uint lightCount = gScene.getLightCount();
+        uint validLights = 0;
+        for(uint i=0 ; i<lightCount; i++){
+            float3 Li, toLight;
+            if(!sampleLight(posW, normalW, faceNormalW, i, toLight, Li))
+                continue;
             
-        color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, toLight) * Li;
-    }
+            color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, toLight) * Li;
+        }
 
-    //Ambient Color
-    color += kAmbientFactor * diffuse;
-    
-#else
-    float2 texCoord = gTexCoord[pixel];
-    uint4 materialInfo = gMaterialInfo[pixel];
-    float4 grads = gTexGrads[pixel];
-    
-    SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 2 * 7);
+        //Ambient Color
+        color += kAmbientFactor * diffuse;
 
-    //Fill Vertex Data struct for the shading
-    VertexData v = {posW, normalW, tangentW, texCoord, faceNormalW, 0.f, 0.f};
-    uint materialID = materialInfo.x;
+        //Envmap
+        if (kUseEnvMap)
+        {
+            float3 R = reflect(-view, normalW);
+            float diffLod = roughnessToLod(specRough.w * 2.f);
+            float specLod = roughnessToLod(specRough.w);
+            float envMaxIntensity = roughnessToIntensity(specRough.w);
+            float3 F = evalFresnelSchlick(specRough.xyz, 1.0, max(0.0, dot(view, normalW)));
+            color += kEnvMapFactor * diffuse * min(gScene.envMap.eval(normalW, diffLod), 1.0);
+            color += kEnvMapFactor * F * min(gScene.envMap.eval(R, specLod), envMaxIntensity);
+        }
+        
+        #if is_valid(gEmissive)
+            emissive = gEmissive[pixel].xyz;
+        #endif //Valid gEmissive
+    #else
+        float2 texCoord = gTexCoord[pixel];
+        uint4 materialInfo = gMaterialInfo[pixel];
+        float4 grads = gTexGrads[pixel];
     
-    let lod = ExplicitGradientTextureSampler(grads.xy, grads.zw);
+        SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 2 * 7);
+
+        //Fill Vertex Data struct for the shading
+        VertexData v = { posW, normalW, tangentW, texCoord, faceNormalW, 0.f, 0.f };
+        uint materialID = materialInfo.x;
     
-    //Create
-    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, view, lod);
-    sd.mtl.setActiveLobes((uint) LobeType::DiffuseReflection | (uint) LobeType::SpecularReflection);
-
-    // Create material instance.
-    uint hints = (uint)MaterialInstanceHints::AdjustShadingNormal;
-    let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
-    let bsdfProperties = mi.getProperties(sd);
+        let lod = ExplicitGradientTextureSampler(grads.xy, grads.zw);
     
-    float useRayTest = 0.f;
-    //Loop over all lights
-    const uint lightCount = gScene.getLightCount();
-    uint validLights = 0;
-    for(uint i=0 ; i<lightCount; i++){
-        float3 Li, toLight;
-        if(!sampleLight(sd.posW, bsdfProperties.guideNormal, sd.getOrientedFaceNormal(), i, toLight, Li))
-            continue;
+        //Create
+        ShadingData sd = gScene.materials.prepareShadingData(v, materialID, view, lod);
+        sd.mtl.setActiveLobes((uint) LobeType::DiffuseReflection | (uint) LobeType::SpecularReflection);
 
-        color += mi.eval(sd, toLight, sg) * Li;
-    }
+        // Create material instance.
+        uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
+        let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
+        let bsdfProperties = mi.getProperties(sd);
+    
+        float useRayTest = 0.f;
+        //Loop over all lights
+        const uint lightCount = gScene.getLightCount();
+        uint validLights = 0;
+        for (uint i = 0; i < lightCount; i++)
+        {
+            float3 Li, toLight;
+            if (!sampleLight(sd.posW, bsdfProperties.guideNormal, sd.getOrientedFaceNormal(), i, toLight, Li))
+                continue;
 
-    //Ambient Factor
-    color += kAmbientFactor * bsdfProperties.diffuseReflectionAlbedo;
+            color += mi.eval(sd, toLight, sg) * Li;
+        }
+
+        //Ambient Factor
+        color += kAmbientFactor * bsdfProperties.diffuseReflectionAlbedo;
+
+        //Envmap
+        if (kUseEnvMap)
+        {
+            float3 R = reflect(-view, bsdfProperties.guideNormal);
+            float diffLod = roughnessToLod(bsdfProperties.roughness * 2.f);
+            float specLod = roughnessToLod(bsdfProperties.roughness);
+            float envMaxIntensity = roughnessToIntensity(bsdfProperties.roughness);
+            float3 F = evalFresnelSchlick(bsdfProperties.specularReflectionAlbedo, 1.0, max(0.0, dot(view, bsdfProperties.guideNormal)));
+            color += kEnvMapFactor * bsdfProperties.diffuseReflectionAlbedo * min(gScene.envMap.eval(bsdfProperties.guideNormal, diffLod), 1.0);
+            color += kEnvMapFactor * F * min(gScene.envMap.eval(R, specLod), envMaxIntensity);
+        }
+        
+        emissive = bsdfProperties.emission;
 #endif
 
+        //Add emissive after shading
+        if (kUseEmissive)
+            color += kEmissiveFactor * emissive;
+    }
+    else if(kUseEnvMap)
+    {
+        color = kEnvMapFactor * gScene.envMap.eval(-view);
+    }
     
-
-
     gColor[pixel] = float4(color, 1.f);
 }

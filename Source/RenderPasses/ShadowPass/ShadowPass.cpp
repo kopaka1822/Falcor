@@ -42,6 +42,7 @@ namespace
         {"posW", "gPosW", "World Position"},
         {"normalW", "gNormalW", "World Normal"},
         {"faceNormalW", "gFaceNormalW", "Face Normal"},
+        {"emissive", "gEmissive", "Emissive", true}
     };
 
     const ChannelList kOptionalInputsShading = {
@@ -136,6 +137,7 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
     bool ioChanged = false;
     ioChanged |= mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOptionalInputsShading, renderData));
     ioChanged |= mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOptionalInputsSimplifiedShading, renderData));
+    mShadowTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));    //Emissive is the only optional channel (only used in simplified shading)
 
     // Check which shading model should be used
     if (ioChanged)
@@ -166,6 +168,11 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
     mShadowTracer.pProgram->addDefine("SIMPLIFIED_SHADING", mUseSimplifiedShading ? "1" : "0");
     mShadowTracer.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     mShadowTracer.pProgram->addDefine("SP_AMBIENT", std::to_string(mAmbientFactor));
+    mShadowTracer.pProgram->addDefine("SP_ENV_FACTOR", std::to_string(mEnvMapFactor));
+    mShadowTracer.pProgram->addDefine("SP_EMISSIVE", std::to_string(mEmissiveFactor));
+    mShadowTracer.pProgram->addDefine("USE_ENV_MAP", mpScene->useEnvBackground() ? "1" : "0");
+    mShadowTracer.pProgram->addDefine("USE_EMISSIVE", mpScene->useEmissiveLights() ? "1" : "0");
+
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
 
     //Prepare Vars
@@ -239,6 +246,8 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
     }
         
     changed |= widget.var("Ambient Factor", mAmbientFactor,0.0f, 1.f, 0.01f);
+    changed |= widget.var("Env Map Factor", mEnvMapFactor, 0.f, 100.f, 0.01f);
+    changed |= widget.var("Emissive Factor", mEmissiveFactor, 0.f, 100.f, 0.01f);
 
     if (mShadowMode != SPShadowMode::RayTraced && mpShadowMap)
     {
