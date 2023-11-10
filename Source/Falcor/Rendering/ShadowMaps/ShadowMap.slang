@@ -107,6 +107,27 @@ struct ShadowMap
         float3(0, 1, 1), float3(0, -1, 1), float3(0, -1, -1), float3(0, 1, -1)
     };
 
+    /* Converts Falcors Light Data struct to SMLightData (is much more compact)
+    \param[in] light data struct from falcor
+    \return Shadow Map light data struct
+    */
+    SMLightData getShadowMapLightData(const in LightData lightData, const uint index)
+    {
+        SMLightData smLightData = {};
+        smLightData.posW = lightData.posW;
+        smLightData.dirW = lightData.dirW;
+        smLightData.type = getShadowMapLightType(lightData);
+
+        //Get the shadow map index. For multiple types the shadow map needs to be mapped
+        if (kMultipleSMTypes)
+            smLightData.index = gShadowMapIndexMap[index];
+        else
+            smLightData.index = index;
+            
+        return smLightData;
+    }
+
+    
     /** Gets the value from the shadow map depending on type. R32/16 case
     \param[in] local shadow map texture index.
     \param[in] texture sample index. z-component is only used in cube-case.
@@ -383,11 +404,6 @@ struct ShadowMap
     bool evalShadowMapClassic(float3 posW, const in SMLightData lightData, float4 random, out float shadow)
     {
         uint index = lightData.index;
-        //Get the right index if multiple shadow map types are used
-        if (kMultipleSMTypes)
-        {
-            index = gShadowMapIndexMap[index];
-        }
         
         shadow = 1.f;
         float lightDist = 0.f;
@@ -484,11 +500,6 @@ struct ShadowMap
     bool hybridShadowMapClassic(float3 posW, const in SMLightData lightData, float4 random, out float shadow)
     {
         uint index = lightData.index;
-        //Get the right index if multiple shadow map types are used
-        if (kMultipleSMTypes)
-        {
-            index = gShadowMapIndexMap[index];
-        }
         
         shadow = kUseRayOutsideSM ? -1.f : 1.f;     //Make shadow value invalid if a ray should be shot outside of the shadow map
         float lightDist = 0.f;
@@ -695,11 +706,6 @@ struct ShadowMap
     bool evalShadowMapVariance(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightData.index;
-        //Get the right index if multiple shadow map types are used
-        if (kMultipleSMTypes)
-        {
-            index = gShadowMapIndexMap[index];
-        }
         
         shadow = 0.f;
         float lightDist = 0.f;
@@ -784,11 +790,6 @@ struct ShadowMap
     bool evalShadowMapExponential(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightData.index;
-        //Get the right index if multiple shadow map types are used
-        if (kMultipleSMTypes)
-        {
-            index = gShadowMapIndexMap[index];
-        }
         
         shadow = 0.f;
         float lightDist = 0.f;
@@ -863,11 +864,6 @@ struct ShadowMap
     bool evalShadowMapExponentialVariance(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightData.index;
-        //Get the right index if multiple shadow map types are used
-        if (kMultipleSMTypes)
-        {
-            index = gShadowMapIndexMap[index];
-        }
         
         shadow = 0.f;
         float lightDist = 0.f;
@@ -1027,11 +1023,6 @@ struct ShadowMap
     bool evalShadowMapMSM(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightData.index;
-        //Get the right index if multiple shadow map types are used
-        if (kMultipleSMTypes)
-        {
-            index = gShadowMapIndexMap[index];
-        }
         
         shadow = 0.f;
         float lightDist = 0.f;
@@ -1156,11 +1147,6 @@ struct ShadowMap
     {
         mipLevel = 0.f; //Default value
         uint lightIdx = lightData.index;
-        //Get the right index if multiple shadow map types are used
-        if (kMultipleSMTypes)
-        {
-            lightIdx = gShadowMapIndexMap[lightIdx];
-        }
 
         if (lightData.type == (uint) LightTypeSM::Spot)
             lightIdx += kNPSOffsetSpot;
@@ -1278,11 +1264,6 @@ struct ShadowMap
             return 0.f;
         
         uint lightIdx = lightData.index;
-        //Get the right index if multiple shadow map types are used
-        if (kMultipleSMTypes)
-        {
-            lightIdx = gShadowMapIndexMap[lightIdx];
-        }
         
         uint bufferIdx = lightIdx;
         uint texSize = k2DSMRes;

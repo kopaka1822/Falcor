@@ -130,7 +130,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
     float lod = 0.f;
     //Eval shadow map if mode is enabled
     if(!useRay){
-        SMLightData smLightData = getShadowMapLightData(lightData, lightIdx);
+        SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, lightIdx);
         //Get lod level
         float2 invFrameDim = 1.f / float2(DispatchRaysDimensions().xy);
         float3 posWDdx = computeDdxPosW(posW, N, invFrameDim);

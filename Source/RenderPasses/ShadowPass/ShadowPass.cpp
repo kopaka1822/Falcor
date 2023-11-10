@@ -97,6 +97,7 @@ RenderPassReflection ShadowPass::reflect(const CompileData& compileData)
 
 void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    FALCOR_PROFILE(pRenderContext, "DeferredShadingAndShadow");
     // Update refresh flag if options that affect the output have changed.
     auto& dict = renderData.getDictionary();
     if (mOptionsChanged)
@@ -130,16 +131,23 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
     }
 
     // Calculate and update the shadow map
-    if (!mpShadowMap->update(pRenderContext))
-        return;
+    if (mShadowMode != SPShadowMode::RayTraced)
+        if (!mpShadowMap->update(pRenderContext))
+            return;
+    
+    shade(pRenderContext, renderData);
+}
 
+void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "DeferredShading");
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     // I/O Resources could change at any time
     bool ioChanged = false;
     ioChanged |= mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOptionalInputsShading, renderData));
     ioChanged |= mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOptionalInputsSimplifiedShading, renderData));
-    mShadowTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));    //Emissive is the only optional channel (only used in simplified shading)
-    mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOutputChannels, renderData));   //Debug out images
+    mShadowTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData)); // Emissive is the only optional channel (only
+                                                                                             // used in simplified shading)
+    mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOutputChannels, renderData)); // Debug out images
 
     // Check which shading model should be used
     if (ioChanged)
@@ -165,7 +173,7 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
             mUseSimplifiedShading = false;
     }
 
-    //Add defines
+    // Add defines
     mShadowTracer.pProgram->addDefine("SP_SHADOW_MODE", std::to_string(uint32_t(mShadowMode)));
     mShadowTracer.pProgram->addDefine("SIMPLIFIED_SHADING", mUseSimplifiedShading ? "1" : "0");
     mShadowTracer.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
@@ -177,7 +185,7 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
 
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
 
-    //Prepare Vars
+    // Prepare Vars
     if (!mShadowTracer.pVars)
     {
         mShadowTracer.pProgram->setTypeConformances(mpScene->getTypeConformances());
@@ -189,7 +197,7 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
     const uint2 targetDim = renderData.getDefaultTextureDims();
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
 
-    //Bind Resources
+    // Bind Resources
     auto var = mShadowTracer.pVars->getRootVar();
 
     // Set Shadow Map per Iteration Shader Data
@@ -214,7 +222,7 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
     for (auto channel : kOutputChannels)
         bind(channel);
 
-    //Execute shader
+    // Execute shader
     mpScene->raytrace(pRenderContext, mShadowTracer.pProgram.get(), mShadowTracer.pVars, uint3(targetDim, 1));
 }
 

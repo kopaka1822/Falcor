@@ -358,7 +358,7 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
 
      //Visiblity Test using Shadow Map or Shadow Ray
     //Get orcale function
-    SMLightData smLightData = getShadowMapLightData(lightData, lightIndex);
+    SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, lightIndex);
     float oracle = 0.f;
     float oracleMip = 0.f;
     bool useShadowRay = gUseShadowMap > pathLength;

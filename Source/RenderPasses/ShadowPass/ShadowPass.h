@@ -52,6 +52,9 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
+    //Dispatches the shaders
+    void shade(RenderContext* pRenderContext, const RenderData& renderData);
+
     // Internal state
     ref<Scene> mpScene;                     ///< Current scene.
     std::unique_ptr<ShadowMap> mpShadowMap; ///< Shadow Map

@@ -967,7 +967,7 @@ struct PathTracer
                     bool traceShadowRay = true;
                     bool visible;
                     if(ls.lightType == (uint)LightType::Analytic && applyShadowMap){
-                        SMLightData lightData = getShadowMapLightData(gScene.getLight(lightIndex), lightIndex);
+                        SMLightData lightData = gShadowMap.getShadowMapLightData(gScene.getLight(lightIndex), lightIndex);
                         float shadow = 0.f;
                         if(kUseHybridShadowMap)
                             traceShadowRay = !gShadowMap.evalHybridShadowMap(ray.origin,lightData , sampleNext4D(path.sg), 0.f, shadow);
