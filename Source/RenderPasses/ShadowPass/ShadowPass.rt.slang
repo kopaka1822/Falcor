@@ -88,6 +88,24 @@ struct ShadowRayData
     bool visible;
 };
 
+ float3 computeDdxPosW(float3 posW, float3 normW, float2 invFrameDim)
+{
+    float3 projRight = normalize(cross(normW, cross(normW, gScene.camera.data.cameraV)));
+    float distanceToHit = length(posW - gScene.camera.data.posW);
+    float2 ddNdc = float2(2.f, -2.f) * invFrameDim;
+    float distRight = distanceToHit * ddNdc.x / dot(normalize(gScene.camera.data.cameraV), projRight);
+    return distRight * projRight;
+}
+
+float3 computeDdyPosW(float3 posW, float3 normW, float2 invFrameDim)
+{
+    float3 projUp = normalize(cross(normW, cross(normW, gScene.camera.data.cameraU)));
+    float distanceToHit = length(posW - gScene.camera.data.posW);
+    float2 ddNdc = float2(2.f, -2.f) * invFrameDim;
+    float distUp = distanceToHit * ddNdc.y / dot(normalize(gScene.camera.data.cameraU), projUp);
+    return distUp * projUp;
+}
+
 //Calculates the shadowed Li for a given light
 bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uint lightIdx, out float3 toLight, out float3 Li, inout float3 debug){
     Li = float3(0);
@@ -109,13 +127,18 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
     //Shadow test
     float shadow = 0.f;
     bool useRay = kShadowMode == (uint)SPShadowMode::RayTraced;
-
+    float lod = 0.f;
     //Eval shadow map if mode is enabled
     if(!useRay){
         SMLightData smLightData = getShadowMapLightData(lightData, lightIdx);
-        useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(0) /*random*/, 0.f /*MipLevel*/, shadow);
+        //Get lod level
+        float2 invFrameDim = 1.f / float2(DispatchRaysDimensions().xy);
+        float3 posWDdx = computeDdxPosW(posW, N, invFrameDim);
+        float3 posWDdy = computeDdyPosW(posW, faceN, invFrameDim);
+        lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);       
+        useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(0) /*random*/, lod /*MipLevel*/, shadow);
     }
-
+    
     //Shoot Shadow ray
     if(useRay && kShadowMode != (uint)SPShadowMode::ShadowMap){
         RayDesc ray;
@@ -134,6 +157,20 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
 
     if (is_valid(gDebug))
     {
+        //Lod level debug
+        /*
+        debug = float3(1,0,0);
+        if(lod > 1)
+            debug = float3(0,1,0);
+        if(lod > 2)
+            debug = float3(0,0,1);
+        if(lod > 3)
+            debug = float3(1,0,1);
+        if(lod > 4)
+            debug = float3(0,1,1);
+        if(lod > 5)
+            debug = float3(1,0,1);
+        */
         debug.x += useRay && kShadowMode != (uint) SPShadowMode::ShadowMap ? 1.f : 0.f;
         debug.y += any(ls.Li > 0) ? shadow : 0.f;
     }

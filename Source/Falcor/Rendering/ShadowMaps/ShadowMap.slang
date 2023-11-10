@@ -316,7 +316,7 @@ struct ShadowMap
     {
         float4x4 viewProjectMat = gShadowMapVPBuffer[index];
         float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
-        projPos.xyz = (projPos.xyz / projPos.w); //This is actually not necessary for Directional Lights
+        projPos.xyz = (projPos.xyz / projPos.w);
         if (kShadowMapMode == (uint) ShadowMapType::ShadowMap)
             lightDist = projPos.z;
         else
@@ -1252,7 +1252,99 @@ struct ShadowMap
         }
         //default case 
         return 1.f;
-    }    
+    }
+
+    bool parallel_or_orthogonal(float2 a, float2 b)
+    {
+        a = normalize(a);
+        b = normalize(b);
+        float d = abs(dot(a, b));
+        if ((d < 1e-5f) || ((1.0f - d) < 1e-5f)) {
+            return true;
+        } 
+        return false;
+    }
+    
+    /* Calculates the LOD level from derivative positions.
+    \param[in] lightData
+    \param[in] World Position of the current pixel
+    \param[in] Difference in position to the neighboring pixel (x-Axis) on the triangle plane of the current hit
+    \param[in] Difference in position to the neighboring pixel (y-Axis) on the triangle plane of the current hit
+    \return LOD level for the shadow map
+    */
+    float getSMLODLevel(const in SMLightData lightData, float3 posW ,float3 ddxPosW, float3 ddyPosW){
+        //TODO Point lights (CubeTexture) are currently not supported
+        if (lightData.type == (uint) LightTypeSM::Point)
+            return 0.f;
+        
+        uint lightIdx = lightData.index;
+        //Get the right index if multiple shadow map types are used
+        if (kMultipleSMTypes)
+        {
+            lightIdx = gShadowMapIndexMap[lightIdx];
+        }
+        
+        uint bufferIdx = lightIdx;
+        uint texSize = k2DSMRes;
+        uint cascLevel = 0;
+        if(lightData.type == (uint)LightTypeSM::Directional){
+            cascLevel = getCascadedLevel(posW); //TODO support stochastic level
+            bufferIdx = kCascadedMatOffset + bufferIdx * kCascadedLevels;
+            texSize = kCascadedSMRes;
+        }
+        
+        float4x4 viewProjectMat = gShadowMapVPBuffer[bufferIdx + cascLevel];
+        //Get Projected Position
+        float4 projPos      = mul(viewProjectMat, float4(posW, 1.f));
+        float4 projPosDdx   = mul(viewProjectMat, float4(posW + ddxPosW, 1.f));
+        float4 projPosDdy   = mul(viewProjectMat, float4(posW + ddyPosW, 1.f));
+        //UV coords
+        float2 uv       = (projPos.xy / projPos.w);
+        float2 uvDdx    = (projPosDdx.xy / projPosDdx.w);
+        float2 uvDdy    = (projPosDdy.xy / projPosDdy.w);
+        //Flip v (Handness) and convert [-1,1] to [0,1]
+        uv      = uv * float2(0.5,-0.5) + 0.5;
+        uvDdx   = uvDdx * float2(0.5,-0.5) + 0.5;
+        uvDdy   = uvDdy * float2(0.5,-0.5) + 0.5;
+        //Get Gradient
+        uvDdx -= uv;
+        uvDdy -= uv;
+
+        //LOD Calculation inspired by https://graemephi.github.io/posts/calculating-lod/
+        
+        //Get Pixel diff
+        uvDdx *= texSize;
+        uvDdy *= texSize;
+        
+    #if 1
+        // https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm#LODCalculation
+        if (parallel_or_orthogonal(uvDdx, uvDdy) == false) {
+            float A = uvDdx.y * uvDdx.y + uvDdy.y * uvDdy.y;
+            float B = -2.0 * (uvDdx.x * uvDdx.y + uvDdy.x * uvDdy.y);
+            float C = uvDdx.x * uvDdx.x + uvDdy.x * uvDdy.x;
+            float F = uvDdx.x * uvDdy.y - uvDdy.x * uvDdx.y;
+            F *= F;
+
+            float p = A - C;
+            float q = A + C;
+            float t = sqrt(p*p + B*B);
+
+            uvDdx.x = sqrt(F * (t+p) / (t * (q+t)));
+            uvDdx.y = sqrt(F * (t-p) / (t * (q+t))) * sign(B);
+            uvDdy.x = sqrt(F * (t-p) / (t * (q-t))) * -sign(B);
+            uvDdy.y = sqrt(F * (t+p) / (t * (q-t)));
+        }
+    #endif
+    
+        //max squared magnitude of the change along x and y
+    #if 0
+        float delta_max_sqr = min(dot(uvDdx, uvDdx), dot(uvDdy, uvDdy));
+    #else
+         float delta_max_sqr = max(dot(uvDdx, uvDdx), dot(uvDdy, uvDdy));
+    #endif
+        // equivalent to log2(sqrt(delta_max_sqr))
+        return max(0.0, 0.5 * log2(delta_max_sqr));
+    }
 };
 
 ParameterBlock<ShadowMap> gShadowMap;
