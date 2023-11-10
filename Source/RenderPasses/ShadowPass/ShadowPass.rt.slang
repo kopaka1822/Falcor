@@ -112,8 +112,8 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
 
     //Eval shadow map if mode is enabled
     if(!useRay){
-        SMLightData smLightData = getShadowMapLightData(lightData);
-        useRay = !gShadowMap.evalHybridShadowMap(lightIdx, posW, smLightData, float4(0) /*random*/, 0.f /*MipLevel*/, shadow);
+        SMLightData smLightData = getShadowMapLightData(lightData, lightIdx);
+        useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(0) /*random*/, 0.f /*MipLevel*/, shadow);
     }
 
     //Shoot Shadow ray

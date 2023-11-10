@@ -58,7 +58,7 @@ struct SMLightData{
     float3 posW;
     uint type;
     float3 dirW;
-    uint pad;
+    uint index;
 };
 
 END_NAMESPACE_FALCOR

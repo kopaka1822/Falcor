@@ -428,22 +428,22 @@ void rayGen()
                         float shadow = 0.f;
                         if(kUseShadowMap){
                             //Fill the shadow map light data struct
-                            SMLightData lightData = lightSampleToLightData(ls);
+                            SMLightData lightData = lightSampleToLightData(ls, ls.lightIndex);
                             float oracle = 0.f;
                             float oracleMip = 0.f;
                             bool useNormalSM = !gShadowMap.kUseHybridShadowMap;
                             if (gShadowMap.kUseOracle){
-                                oracle = gShadowMap.oracleFunction(ls.lightIndex, lightData, sd, smDistance, oracleMip);
+                                oracle = gShadowMap.oracleFunction(lightData, sd, smDistance, oracleMip);
                                 useNormalSM = oracle <= gShadowMap.kOracleCompValue;
                             }
                                 
                             if (gShadowMap.kUseHybridShadowMap)
                             {
-                                doShadowTest = !gShadowMap.evalHybridShadowMap(ls.lightIndex, sd.posW, lightData, sampleNext4D(traceData.sg), oracleMip, shadow) && !useNormalSM;
+                                doShadowTest = !gShadowMap.evalHybridShadowMap(sd.posW, lightData, sampleNext4D(traceData.sg), oracleMip, shadow) && !useNormalSM;
                             }
                             else if(useNormalSM)
                             {
-                                doShadowTest = !gShadowMap.evalShadowMap(ls.lightIndex, sd.posW, lightData, sampleNext4D(traceData.sg), oracleMip, shadow);
+                                doShadowTest = !gShadowMap.evalShadowMap(sd.posW, lightData, sampleNext4D(traceData.sg), oracleMip, shadow);
                             }
                         }
                    

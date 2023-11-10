@@ -380,13 +380,13 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapClassic(uint lightIdx, float3 posW, const in SMLightData lightData, float4 random, out float shadow)
+    bool evalShadowMapClassic(float3 posW, const in SMLightData lightData, float4 random, out float shadow)
     {
-        uint index = lightIdx;
+        uint index = lightData.index;
         //Get the right index if multiple shadow map types are used
         if (kMultipleSMTypes)
         {
-            index = gShadowMapIndexMap[lightIdx];
+            index = gShadowMapIndexMap[index];
         }
         
         shadow = 1.f;
@@ -481,13 +481,13 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool hybridShadowMapClassic(uint lightIdx, float3 posW, const in SMLightData lightData, float4 random, out float shadow)
+    bool hybridShadowMapClassic(float3 posW, const in SMLightData lightData, float4 random, out float shadow)
     {
-        uint index = lightIdx;
+        uint index = lightData.index;
         //Get the right index if multiple shadow map types are used
         if (kMultipleSMTypes)
         {
-            index = gShadowMapIndexMap[lightIdx];
+            index = gShadowMapIndexMap[index];
         }
         
         shadow = kUseRayOutsideSM ? -1.f : 1.f;     //Make shadow value invalid if a ray should be shot outside of the shadow map
@@ -692,13 +692,13 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapVariance(uint lightIdx, float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapVariance(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
-        uint index = lightIdx;
+        uint index = lightData.index;
         //Get the right index if multiple shadow map types are used
         if (kMultipleSMTypes)
         {
-            index = gShadowMapIndexMap[lightIdx];
+            index = gShadowMapIndexMap[index];
         }
         
         shadow = 0.f;
@@ -781,13 +781,13 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapExponential(uint lightIdx, float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapExponential(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
-        uint index = lightIdx;
+        uint index = lightData.index;
         //Get the right index if multiple shadow map types are used
         if (kMultipleSMTypes)
         {
-            index = gShadowMapIndexMap[lightIdx];
+            index = gShadowMapIndexMap[index];
         }
         
         shadow = 0.f;
@@ -860,13 +860,13 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapExponentialVariance(uint lightIdx, float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapExponentialVariance(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
-        uint index = lightIdx;
+        uint index = lightData.index;
         //Get the right index if multiple shadow map types are used
         if (kMultipleSMTypes)
         {
-            index = gShadowMapIndexMap[lightIdx];
+            index = gShadowMapIndexMap[index];
         }
         
         shadow = 0.f;
@@ -1024,13 +1024,13 @@ struct ShadowMap
         return 1.0f - saturate(shadowIntensity);
     }
     
-    bool evalShadowMapMSM(uint lightIdx, float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapMSM(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
     {
-        uint index = lightIdx;
+        uint index = lightData.index;
         //Get the right index if multiple shadow map types are used
         if (kMultipleSMTypes)
         {
-            index = gShadowMapIndexMap[lightIdx];
+            index = gShadowMapIndexMap[index];
         }
         
         shadow = 0.f;
@@ -1094,21 +1094,21 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMap(uint lightIdx, float3 posW, const in SMLightData lightData, float4 random, const float mipLevel , out float shadow)
+    bool evalShadowMap(float3 posW, const in SMLightData lightData, float4 random, const float mipLevel , out float shadow)
     {
         switch (ShadowMapType(kShadowMapMode))
         {
             case ShadowMapType::ShadowMap:
-                return evalShadowMapClassic(lightIdx, posW, lightData, random, shadow);
+                return evalShadowMapClassic(posW, lightData, random, shadow);
             case ShadowMapType::Variance:
-                return evalShadowMapVariance(lightIdx, posW, lightData, random.x, mipLevel, false ,shadow);
+                return evalShadowMapVariance(posW, lightData, random.x, mipLevel, false ,shadow);
             case ShadowMapType::Exponential:
-                return evalShadowMapExponential(lightIdx, posW, lightData, random.x, mipLevel, false, shadow);
+                return evalShadowMapExponential(posW, lightData, random.x, mipLevel, false, shadow);
             case ShadowMapType::ExponentialVariance:
-                return evalShadowMapExponentialVariance(lightIdx, posW, lightData, random.x, mipLevel, false, shadow);
+                return evalShadowMapExponentialVariance(posW, lightData, random.x, mipLevel, false, shadow);
             case ShadowMapType::MSMHamburger:
             case ShadowMapType::MSMHausdorff:
-                return evalShadowMapMSM(lightIdx, posW, lightData, random.x, mipLevel, false, shadow);
+                return evalShadowMapMSM(posW, lightData, random.x, mipLevel, false, shadow);
             default:
                 shadow = 1.f;
                 return false;
@@ -1123,21 +1123,21 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalHybridShadowMap(uint lightIdx, float3 posW, const in SMLightData lightData, float4 random, const float mipLevel, out float shadow)
+    bool evalHybridShadowMap(float3 posW, const in SMLightData lightData, float4 random, const float mipLevel, out float shadow)
     {
         switch (ShadowMapType(kShadowMapMode))
         {
             case ShadowMapType::ShadowMap:
-                return hybridShadowMapClassic(lightIdx, posW, lightData, random, shadow);
+                return hybridShadowMapClassic(posW, lightData, random, shadow);
             case ShadowMapType::Variance:
-                return evalShadowMapVariance(lightIdx, posW, lightData, random.x, mipLevel ,true ,shadow);
+                return evalShadowMapVariance(posW, lightData, random.x, mipLevel ,true ,shadow);
             case ShadowMapType::Exponential:
-                return evalShadowMapExponential(lightIdx, posW, lightData, random.x, mipLevel, true , shadow);
+                return evalShadowMapExponential(posW, lightData, random.x, mipLevel, true , shadow);
             case ShadowMapType::ExponentialVariance:
-                return evalShadowMapExponentialVariance(lightIdx, posW, lightData, random.x, mipLevel, true, shadow);
+                return evalShadowMapExponentialVariance(posW, lightData, random.x, mipLevel, true, shadow);
             case ShadowMapType::MSMHamburger:
             case ShadowMapType::MSMHausdorff:
-                return evalShadowMapMSM(lightIdx, posW, lightData, random.x, mipLevel, true, shadow);
+                return evalShadowMapMSM(posW, lightData, random.x, mipLevel, true, shadow);
             default:
                 shadow = 1.f;
                 return false;
@@ -1152,9 +1152,10 @@ struct ShadowMap
     \param[out] Optional Mip Level. Written if kUseSMMips == true
     \return a oracle value that indicates the proportion of the seen camera pixel area to the seen shadow map pixel area
     */
-    float oracleFunction(uint lightIdx, const in SMLightData lightData, const in ShadingData sd, float rayDistance, out float mipLevel)
+    float oracleFunction(const in SMLightData lightData, const in ShadingData sd, float rayDistance, out float mipLevel)
     {
         mipLevel = 0.f; //Default value
+        uint lightIdx = lightData.index;
         //Get the right index if multiple shadow map types are used
         if (kMultipleSMTypes)
         {
@@ -1207,10 +1208,10 @@ struct ShadowMap
     \param[in] current distance from camera to hit. Can be modified with the oracleDistanceFactor for better results with indirect bounces
     \return a oracle value that indicates the proportion of the seen camera pixel area to the seen shadow map pixel area
     */
-    float oracleFunction(uint lightIdx, const in SMLightData lightData, const in ShadingData sd, float rayDistance)
+    float oracleFunction(const in SMLightData lightData, const in ShadingData sd, float rayDistance)
     {
         float mipLevel;
-        return oracleFunction(lightIdx, lightData, sd, rayDistance, mipLevel);
+        return oracleFunction(lightData, sd, rayDistance, mipLevel);
     }
     
      /** Calculate the Oracle distance factor based on the currently selected mode. Should be used on bounces only

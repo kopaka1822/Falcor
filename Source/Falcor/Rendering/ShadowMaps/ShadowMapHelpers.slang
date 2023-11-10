@@ -25,11 +25,12 @@ import ShadowMapData;
     \param[in] light data struct from falcor
     \return Shadow Map light data struct
     */
-    static SMLightData getShadowMapLightData(const in LightData lightData)
+    static SMLightData getShadowMapLightData(const in LightData lightData, const uint index)
     {
         SMLightData smLightData = {};
         smLightData.posW = lightData.posW;
         smLightData.dirW = lightData.dirW;
         smLightData.type = getShadowMapLightType(lightData);
+        smLightData.index = index;
         return smLightData;
     }

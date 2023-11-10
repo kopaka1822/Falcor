@@ -358,14 +358,14 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
 
      //Visiblity Test using Shadow Map or Shadow Ray
     //Get orcale function
-    SMLightData smLightData = getShadowMapLightData(lightData);
+    SMLightData smLightData = getShadowMapLightData(lightData, lightIndex);
     float oracle = 0.f;
     float oracleMip = 0.f;
     bool useShadowRay = gUseShadowMap > pathLength;
         
     if (rayData.useOracle && !useShadowRay)
     {
-        oracle = gShadowMap.oracleFunction(lightIndex, smLightData, sd, rayData.distance, oracleMip);
+        oracle = gShadowMap.oracleFunction(smLightData, sd, rayData.distance, oracleMip);
     }
     
     float shadow;
@@ -376,13 +376,13 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
     
     if (gShadowMap.kUseHybridShadowMap && !useShadowRay)
     {
-        useShadowRay = !gShadowMap.evalHybridShadowMap(lightIndex, sd.posW, smLightData, sampleNext4D(sg), oracleMip, shadow);
+        useShadowRay = !gShadowMap.evalHybridShadowMap(sd.posW, smLightData, sampleNext4D(sg), oracleMip, shadow);
         bool validShadowValue = shadow >= 0.f;
         useShadowRay &= (!useNormalSM || !rayData.useOracle || !validShadowValue); //Disable ray if oracle function was evaluated true
     }
     else if (!useShadowRay && useNormalSM)
     {
-        useShadowRay = !gShadowMap.evalShadowMap(lightIndex, sd.posW, smLightData, sampleNext4D(sg), oracleMip, shadow);
+        useShadowRay = !gShadowMap.evalShadowMap(sd.posW, smLightData, sampleNext4D(sg), oracleMip, shadow);
     }
 
     //Make sure the ray is used if no hybrid shadow mapping is used
