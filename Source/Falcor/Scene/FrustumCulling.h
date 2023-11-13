@@ -31,6 +31,9 @@
 #include "Utils/Math/AABB.h"
 #include "Camera/Camera.h"
 #include "Camera/CameraController.h"
+#include "Core/API/Buffer.h"
+#include "Core/API/IndirectCommands.h"
+#include "Core/API/Device.h"
 
 namespace Falcor
 {
@@ -41,11 +44,31 @@ namespace Falcor
     {
         FALCOR_OBJECT(FrustumCulling)
     public:
-        FrustumCulling(ref<Camera> camera); //Created based on Camera
+        FrustumCulling() = default;
+        FrustumCulling(const ref<Camera>& camera); //Created based on Camera
         FrustumCulling(float3 eye, float3 center, float3 up, float aspect, float fovY, float near, float far); //created based on lookAt
+
+        //Updates the frustum based on the camera
+        void updateFrustum(const ref<Camera>& camera);
+
+        //Updates the frustum based on lookAt
+        void updateFrustum(float3 eye, float3 center, float3 up, float aspect, float fovY, float near, float far);
 
         // Frustum Culling Test. Assumes AABB is transformed to world coordinates
         bool isInFrustum(const AABB& aabb) const;
+
+        size_t getDrawBufferSize() { return mDraw.size(); }
+        void resetDrawBuffer(ref<Device> pDevice,const std::vector<ref<Buffer>>& drawBuffer, const std::vector<uint>& drawBufferCount);
+
+        void updateDrawBuffer(uint index, const std::vector<DrawIndexedArguments> drawArguments);
+
+        std::vector<ref<Buffer>>& getDrawBuffers() { return mDraw; }
+        std::vector<uint>& getDrawCounts() { return mDrawCount; }
+
+        void setBufferValid(uint index) { mValidDrawBuffer[index] = true; }
+        bool isBufferValid(uint index) { return mValidDrawBuffer[index]; }
+        void invalidateAllDrawBuffers();
+
     private:
         struct Plane
         {
@@ -77,5 +100,10 @@ namespace Falcor
         bool isInFrontOfPlane(const Plane& plane, const AABB& aabb) const;
 
         Frustum mFrustum;
+
+        bool mDrawValid = false;
+        std::vector<ref<Buffer>> mDraw;      //Draw buffer that can be reused if there was no change in frustum. One per mDrawArgs from scene
+        std::vector<uint> mDrawCount;         //The number of elements in the draw buffer. One per mDrawArgs from scene
+        std::vector<bool> mValidDrawBuffer;
     };
 }

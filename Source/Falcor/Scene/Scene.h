@@ -1299,6 +1299,8 @@ namespace Falcor
         ref<Vao> mpCurveVao;                                        ///< Vertex array object for the global curve vertex/index buffers.
         std::vector<DrawArgs> mDrawArgs;                            ///< List of draw arguments for rasterizing the meshes in the scene.
         std::vector<std::vector<uint>> mDrawArgsInstanceIDs;        ///< List of draw mesh ids fitting to the mDrawArgs
+        ref<FrustumCulling> mpCameraCulling = nullptr;              ///< Culling for the camera
+        bool mFrustumCullingUpdated = false;                        ///< Records if culling was updated this frame
 
         // Triangle meshes
         std::vector<MeshDesc> mMeshDesc;                            ///< Copy of mesh data GPU buffer (mpMeshesBuffer).

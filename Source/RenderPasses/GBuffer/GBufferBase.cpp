@@ -128,6 +128,9 @@ void GBufferBase::renderUI(Gui::Widgets& widget)
     widget.tooltip("Enable this option to override the default cull mode.\n\n"
         "Otherwise the default for rasterization is to cull backfacing geometry, and for ray tracing to disable culling.", true);
 
+    mOptionsChanged |= widget.checkbox("Frustum Culling", mUseFrustumCulling);
+    widget.tooltip("Frustum Culling. Only Implemented for Rasterization passes and ignored for raytracing passes.", true);
+
     if (mForceCullMode)
     {
         if (auto cullMode = mCullMode; widget.dropdown("Cull mode", cullMode))

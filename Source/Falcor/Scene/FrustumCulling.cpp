@@ -41,21 +41,36 @@ namespace Falcor
         return math::dot(normal, point) - distance;
     }
 
-    FrustumCulling::FrustumCulling(const ref<Camera> camera)
+    FrustumCulling::FrustumCulling(const ref<Camera>& camera)
+    {
+        updateFrustum(camera);
+    }
+
+    FrustumCulling::FrustumCulling(float3 eye, float3 center, float3 up, float aspect, float fovY, float near, float far)
+    {
+        updateFrustum(eye, center, up, aspect, fovY, near, far);
+    }
+
+    void FrustumCulling::updateFrustum(const ref<Camera>& camera)
     {
         const CameraData& data = camera->getData();
         const float fovY = focalLengthToFovY(data.focalLength, data.frameHeight);
         createFrustum(
-            data.posW, normalize(data.cameraU), normalize(data.cameraV), normalize(data.cameraW), data.aspectRatio, fovY, data.nearZ, data.farZ
+            data.posW, normalize(data.cameraU), normalize(data.cameraV), normalize(data.cameraW), data.aspectRatio, fovY, data.nearZ,
+            data.farZ
         );
+
+        invalidateAllDrawBuffers();
     }
 
-    FrustumCulling::FrustumCulling(float3 eye, float3 center, float3 up, float aspect, float fovY, float near, float far)
+    void FrustumCulling::updateFrustum(float3 eye, float3 center, float3 up, float aspect, float fovY, float near, float far)
     {
         float3 front = math::normalize(eye - center);
         float3 right = math::normalize(math::cross(up, front));
         float3 u = math::cross(front, right);
         createFrustum(eye, right, u, front, aspect, fovY, near, far);
+
+        invalidateAllDrawBuffers();
     }
 
     void FrustumCulling::createFrustum(float3 camPos, float3 camU, float3 camV, float3 camW, float aspect, float fovY, float near, float far)
@@ -106,5 +121,48 @@ namespace Falcor
 
         return inPlane;
     }
+        
+    void FrustumCulling::resetDrawBuffer(ref<Device> pDevice, const std::vector<ref<Buffer>>& drawBuffer, const std::vector<uint>& drawBufferCount)
+    {
+        //Clear
+        mDraw.clear();
+        mDrawCount.clear();
+        mValidDrawBuffer.clear();
 
+        // Resize
+        size_t size = drawBuffer.size();
+        mDraw.resize(size);
+        mDrawCount.resize(size);
+        mValidDrawBuffer.resize(size);
+
+        //TODO add staging buffers if that results in problems
+        //Initialize
+        for (uint i = 0; i < size; i++)
+        {
+            auto elementCount = drawBuffer[i]->getElementCount();
+            uint testCount = drawBufferCount[i];
+            std::vector<char> tmpData;
+            tmpData.resize(elementCount);
+            mDraw[i] = Buffer::create(pDevice, elementCount, Resource::BindFlags::IndirectArg, Buffer::CpuAccess::Write, tmpData.data());
+            mDraw[i]->setName("FrustumCullingBuffer");
+        }
+    }
+
+    void FrustumCulling::invalidateAllDrawBuffers() {
+        for (uint i = 0; i < mValidDrawBuffer.size(); i++)
+            mValidDrawBuffer[i] = false;
+    }
+
+    void FrustumCulling::updateDrawBuffer(uint index, const std::vector<DrawIndexedArguments> drawArguments)
+    {
+        uint buffSize = drawArguments.size();
+        DrawIndexedArguments* drawArgs = (DrawIndexedArguments*)mDraw[index]->map(Buffer::MapType::Write);
+        for (uint i = 0; i < buffSize; i++)
+        {
+            drawArgs[i] = drawArguments[i];
+        }
+        mDraw[index]->unmap();
+        mDrawCount[index] = buffSize;
+        mValidDrawBuffer[index] = true;
+    }
 }

@@ -437,8 +437,50 @@ namespace Falcor
         auto pCurrentRS = pState->getRasterizerState();
         bool isIndexed = hasIndexBuffer();
 
+        bool updateCulling = false;
+
+        //If there was no called culling, use the camera one
         if (!pFrustumCulling)
-            pFrustumCulling = make_ref<FrustumCulling>((mCameras[0])); //TODO change back mSelectedCamera
+        {
+            const auto& camera = mCameras[0];// TODO change back mSelectedCamera
+            if (!mpCameraCulling)
+            {
+                mpCameraCulling = make_ref<FrustumCulling>(camera);
+            }
+
+            pFrustumCulling = mpCameraCulling;
+
+            if (!mFrustumCullingUpdated)
+            {
+                auto cameraChanges = camera->getChanges();
+                auto excluded = Camera::Changes::Jitter | Camera::Changes::History;
+                if ((cameraChanges & ~excluded) != Camera::Changes::None)
+                {
+                    pFrustumCulling->updateFrustum(camera);
+                }
+                mFrustumCullingUpdated = true;
+            }
+        }
+
+        //TODO add a better way as scene changes could break that
+        //Create a copy of the draw buffers that we only need to update depending on the number of meshes that sould be drawn
+        if (mDrawArgs.size() != pFrustumCulling->getDrawBufferSize())
+        {
+            std::vector<ref<Buffer>> drawBuffers;
+            std::vector<uint> drawCountBuffer;
+            for (const auto& draw : mDrawArgs)
+            {
+                drawBuffers.push_back(draw.pBuffer);
+                drawCountBuffer.push_back(draw.count);
+            }
+                
+            pFrustumCulling->resetDrawBuffer(mpDevice, drawBuffers, drawCountBuffer);
+        }
+
+        // Create an custom draw argument buffer for this frame
+        const auto& globalMatrices = mpAnimationController->getGlobalMatrices();
+        auto& pDrawBuffers = pFrustumCulling->getDrawBuffers();
+        auto& pDrawBufferCounts = pFrustumCulling->getDrawCounts();
 
         for (uint i=0; i<mDrawArgs.size(); i++)
         {
@@ -453,22 +495,20 @@ namespace Falcor
             if (meshRenderMode == RasterizerState::MeshRenderMode::Static && draw.isDynamic)
                 continue;
 
-            //Create an custom draw argument buffer for this frame
-            const auto& globalMatrices = mpAnimationController->getGlobalMatrices();
-            ref<Buffer> pCulledDraw;
-            uint culledDrawCount = 0;
+            bool bufferValid = pFrustumCulling->isBufferValid(i);
 
             // Helper to create the draw-indirect buffer.
-            auto createDrawBuffer = [&](const auto& drawMeshes) {
-                pCulledDraw = Buffer::create(
+            auto createDrawBuffer = [&](const auto& drawMeshes, uint index) {
+                pDrawBuffers[index] = Buffer::create(
                     mpDevice, sizeof(drawMeshes[0]) * drawMeshes.size(), Resource::BindFlags::IndirectArg, Buffer::CpuAccess::None,
                     drawMeshes.data()
                 );
-                pCulledDraw->setName("FrustumCulling draw buffer");
+                pDrawBuffers[index]->setName("FrustumCulling draw buffer");
             };
 
-            if (isIndexed)
+            if (isIndexed && (!bufferValid || draw.isDynamic))
             {
+                pDrawBufferCounts[i] = 0;           //Reset Draw buffer count if we rerecord
                 std::vector<DrawIndexedArguments> drawArguments;
                 for (auto& instanceID : mDrawArgsInstanceIDs[i])
                 {
@@ -487,15 +527,14 @@ namespace Falcor
                         drawArg.StartInstanceLocation = instanceID;
 
                         drawArguments.push_back(drawArg);
-
-                        culledDrawCount++;
                     }
                 }
-                if (culledDrawCount > 0)
-                    createDrawBuffer(drawArguments);
+                pFrustumCulling->updateDrawBuffer(i, drawArguments);
             }
-            else
+            else if ((!bufferValid || draw.isDynamic))
             {
+                pDrawBufferCounts[i] = 0;           // Reset Draw buffer count if we rerecord
+                /*
                 std::vector<DrawArguments> drawArguments;
                 for (auto& instanceID : mDrawArgsInstanceIDs[i])
                 {
@@ -514,15 +553,16 @@ namespace Falcor
 
                         drawArguments.push_back(drawArg);
 
-                        culledDrawCount++;
+                        pDrawBufferCounts[i]++;
                     }
                 }
-                if (culledDrawCount > 0)
-                    createDrawBuffer(drawArguments);
+                if (pDrawBufferCounts[i] > 0)
+                    createDrawBuffer(drawArguments,i);
+                */
             }
 
             //Check if everything was culled
-            if (culledDrawCount == 0)
+            if (pDrawBufferCounts[i] == 0)
                 continue;
 
             // Set state.
@@ -538,11 +578,11 @@ namespace Falcor
             // Draw the primitives.
             if (isIndexed)
             {
-                pRenderContext->drawIndexedIndirect(pState, pVars, culledDrawCount, pCulledDraw.get(), 0, nullptr, 0);
+                pRenderContext->drawIndexedIndirect(pState, pVars, pDrawBufferCounts[i], pDrawBuffers[i].get(), 0, nullptr, 0);
             }
             else
             {
-                pRenderContext->drawIndirect(pState, pVars, culledDrawCount, pCulledDraw.get(), 0, nullptr, 0);
+                pRenderContext->drawIndirect(pState, pVars, pDrawBufferCounts[i], pDrawBuffers[i].get(), 0, nullptr, 0);
             }
         }
 
@@ -2027,6 +2067,8 @@ namespace Falcor
         // Validate assumption that scene defines didn't change.
         updateSceneDefines();
         checkInvariant(mSceneDefines == mPrevSceneDefines, "Scene defines changed unexpectedly");
+
+        mFrustumCullingUpdated = false;
 
         return mUpdates;
     }
