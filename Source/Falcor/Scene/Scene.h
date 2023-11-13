@@ -29,6 +29,7 @@
 #include "SceneIDs.h"
 #include "SceneTypes.slang"
 #include "HitInfo.h"
+#include "FrustumCulling.h"
 #include "Animation/Animation.h"
 #include "Animation/AnimationController.h"
 #include "Displacement/DisplacementUpdateTask.slang"
@@ -984,6 +985,47 @@ namespace Falcor
             RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All
         );
 
+         /** Render the scene using the rasterizer and FrustumCulling
+           Note the rasterizer state bound to 'pState' is ignored.
+           If FrustumCulling is nullptr, it is created using the camera
+           \param[in] pRenderContext Render context.
+           \param[in] pState Graphics state.
+           \param[in] pVars Graphics vars.
+           \param[in] cullMode Optional rasterizer cull mode. The default is to cull back-facing primitives.
+           \param[in] meshRenderMode Specifies which meshes should be rasterized
+           \param[in] Frustum Culling Object. When null, it will be generated from the current selected camera
+       */
+        void rasterizeFrustumCulling(RenderContext* pRenderContext,
+                                     GraphicsState* pState,
+                                     GraphicsVars* pVars,
+                                     RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back,
+                                     RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All,
+                                     ref<FrustumCulling> pFrustumCulling = nullptr
+        );
+
+        /** Render the scene using the rasterizer and frustumCulling
+            This overload uses the supplied rasterizer states.
+            \param[in] pRenderContext Render context.
+            \param[in] pState Graphics state.
+            \param[in] pVars Graphics vars.
+            \param[in] pRasterizerStateCW Rasterizer state for meshes with clockwise triangle winding.
+            \param[in] pRasterizerStateCCW Rasterizer state for meshes with counter-clockwise triangle winding. Can be the same as for clockwise.
+            \param[in] pRasterizerStateDS Rasterizer state for double sided meshes. Same as Cull mode None.
+            \param[in] meshRenderMode Specifies which meshes should be rasterized
+            \param[in] Frustum Culling Object. When null, it will be generated from the current selected camera
+        */
+        void rasterizeFrustumCulling(
+            RenderContext* pRenderContext,
+            GraphicsState* pState,
+            GraphicsVars* pVars,
+            const ref<RasterizerState>& pRasterizerStateCW,
+            const ref<RasterizerState>& pRasterizerStateCCW,
+            const ref<RasterizerState>& pRasterizerStateDS,
+            RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All,
+            ref<FrustumCulling> pFrustumCulling = nullptr
+        );
+
+
         /** Get the required raytracing maximum attribute size for this scene.
             Note: This depends on what types of geometry are used in the scene.
             \return Max attribute size in bytes.
@@ -1256,6 +1298,7 @@ namespace Falcor
         ref<Vao> mpMeshVao16Bit;                                    ///< VAO for drawing meshes with 16-bit vertex indices.
         ref<Vao> mpCurveVao;                                        ///< Vertex array object for the global curve vertex/index buffers.
         std::vector<DrawArgs> mDrawArgs;                            ///< List of draw arguments for rasterizing the meshes in the scene.
+        std::vector<std::vector<uint>> mDrawArgsInstanceIDs;        ///< List of draw mesh ids fitting to the mDrawArgs
 
         // Triangle meshes
         std::vector<MeshDesc> mMeshDesc;                            ///< Copy of mesh data GPU buffer (mpMeshesBuffer).

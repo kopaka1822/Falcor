@@ -195,7 +195,7 @@ void GBufferRaster::execute(RenderContext* pRenderContext, const RenderData& ren
         mpFbo->attachDepthStencilTarget(pDepth);
         mDepthPass.pState->setFbo(mpFbo);
 
-        mpScene->rasterize(pRenderContext, mDepthPass.pState.get(), mDepthPass.pVars.get(), cullMode);
+        mpScene->rasterizeFrustumCulling(pRenderContext, mDepthPass.pState.get(), mDepthPass.pVars.get(), cullMode);
     }
 
     // GBuffer pass.
@@ -226,7 +226,7 @@ void GBufferRaster::execute(RenderContext* pRenderContext, const RenderData& ren
         mGBufferPass.pState->setFbo(mpFbo); // Sets the viewport
 
         // Rasterize the scene.
-        mpScene->rasterize(pRenderContext, mGBufferPass.pState.get(), mGBufferPass.pVars.get(), cullMode);
+        mpScene->rasterizeFrustumCulling(pRenderContext, mGBufferPass.pState.get(), mGBufferPass.pVars.get(), cullMode);
     }
 
     mFrameCount++;
