@@ -7,4 +7,6 @@ target_sources(ShadowPass PRIVATE
 	ShadowPassData.slang
 )
 
+target_copy_shaders(ShadowPass RenderPasses/ShadowPass)
+
 target_source_group(ShadowPass "RenderPasses")
