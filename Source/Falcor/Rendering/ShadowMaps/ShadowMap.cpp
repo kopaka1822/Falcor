@@ -345,6 +345,17 @@ void ShadowMap::prepareShadowMapBuffers()
         }
     }
 
+    //Create Frustum Culling Objects
+    if (mUseFrustumCulling)
+    {
+        //Calculate total number of Culling Objects needed
+        mFrustumCullingVectorOffsets = uint2(countMisc, countMisc + countCascade * mCascadedLevelCount);
+        uint frustumCullingVectorSize = countMisc + countCascade * mCascadedLevelCount + countPoint * 6;
+        mFrustumCulling.resize(frustumCullingVectorSize);
+        for (size_t i = 0; i < frustumCullingVectorSize; i++)
+            mFrustumCulling[i] = make_ref<FrustumCulling>();
+    }
+
     //Check if multiple SM types are used
     LightTypeSM checkType = LightTypeSM::NotSupported;
     for (size_t i = 0; i < mPrevLightType.size(); i++)
@@ -1062,7 +1073,10 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
             mShadowMapRasterPass.pVars = GraphicsVars::create(mpDevice, mShadowMapRasterPass.pProgram.get());
         }
     }
-   
+
+    if (index > 0)
+        return false;
+
     FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
     auto changes = light->getChanges();
     bool renderLight = false;
@@ -1070,9 +1084,9 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
         mStaticTexturesReady[0] = false;
 
     //Handle updates
+    bool lightMoved = (changes == Light::Changes::Position) || (changes == Light::Changes::Direction);
     if (mShadowMapUpdateMode == SMUpdateMode::Static)
-        renderLight =
-            (changes == Light::Changes::Active) || (changes == Light::Changes::Position) || (changes == Light::Changes::Direction);
+        renderLight = (changes == Light::Changes::Active) || lightMoved;
     else if (mShadowMapUpdateMode == SMUpdateMode::UpdateAll)
         renderLight = true;
     else
@@ -1151,9 +1165,12 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
             mpFbo->attachDepthStencilTarget(mpShadowMaps[index]);
         }
     }
+
+   
     
     ShaderParameters params;
-  
+
+    //TODO only recalculate if lightMoved
     float3 lightTarget = lightData.posW + lightData.dirW;
     const float3 up = abs(lightData.dirW.y) == 1 ? float3(0, 0, 1) : float3(0, 1, 0);
     float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
@@ -1165,14 +1182,30 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
   
     mSpotDirViewProjMat[index] = params.viewProjectionMatrix;
 
+     // Update frustum
+    if (lightMoved || mUpdateShadowMap)
+    {
+        mFrustumCulling[index]->updateFrustum(lightData.posW, lightTarget, up, 1.f, lightData.openingAngle * 2, mNear, mFar);
+    }
+
     auto vars = mShadowMapRasterPass.pVars->getRootVar();
     setSMShaderVars(vars, params);
 
     mShadowMapRasterPass.pState->setFbo(mpFbo);
-    mpScene->rasterize(
-        pRenderContext, mShadowMapRasterPass.pState.get(), mShadowMapRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
-        mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode
-    );
+    if (mUseFrustumCulling)
+    {
+        mpScene->rasterizeFrustumCulling(
+            pRenderContext, mShadowMapRasterPass.pState.get(), mShadowMapRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
+            mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode,
+            mFrustumCulling[index]
+        );
+    }else{
+        mpScene->rasterize(
+            pRenderContext, mShadowMapRasterPass.pState.get(), mShadowMapRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
+            mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode
+        );
+    }
+    
 
     //Blur if it is activated/enabled
     if (mpBlurShadowMap && (meshRenderMode != RasterizerState::MeshRenderMode::Static))
@@ -1208,11 +1241,11 @@ bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRe
     
     auto changes = light->getChanges();
     bool renderLight = false;
-    
+    bool lightMoved = (changes == Light::Changes::Position) || (changes == Light::Changes::Direction);
+
     // Handle updates
     if (mShadowMapUpdateMode == SMUpdateMode::Static)
-        renderLight =
-            (changes == Light::Changes::Active) || (changes == Light::Changes::Position) || (changes == Light::Changes::Direction);
+        renderLight = (changes == Light::Changes::Active) || lightMoved;
     else if (mShadowMapUpdateMode == SMUpdateMode::UpdateAll)
         renderLight = true;
     else
@@ -1318,7 +1351,7 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
     for (uint i = 0; i < mCascadedLevelCount; i++)
     {
         //Get the 8 corners of the frustum Part
-         const float4x4 proj = math::perspective(camFovY, cameraData.aspectRatio, near, mCascadedZSlices[i]);
+        const float4x4 proj = math::perspective(camFovY, cameraData.aspectRatio, near, mCascadedZSlices[i]);
         const float4x4 inv = math::inverse(math::mul(proj, cameraData.viewMat));
         std::vector<float4> frustumCorners;
         for (uint x = 0; x <= 1; x++){
@@ -1332,10 +1365,11 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
 
         //Get Centerpoint for view
         float3 center = float3(0);
+        const float3 upVec = float3(0, 1, 0);
         for (const auto& p : frustumCorners)
             center += p.xyz();
         center /= 8.f;
-        const float4x4 casView = math::matrixFromLookAt(center, center + lightData.dirW, float3(0, 1, 0));
+        const float4x4 casView = math::matrixFromLookAt(center, center + lightData.dirW, upVec);
 
         //Get Box for Orto
         float minX = std::numeric_limits<float>::max();
@@ -1375,7 +1409,13 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
 
         mCascadedWidthHeight[startIdx * mCascadedLevelCount + i] = float2(abs(maxX - minX), abs(maxY - minY));
         mCascadedVPMatrix[startIdx * mCascadedLevelCount + i] = math::mul(casProj, casView);
-            
+
+        //Update Frustum Culling
+        if (mUseFrustumCulling)
+        {
+            const uint cullingIndex = mFrustumCullingVectorOffsets.x + index * mCascadedLevelCount + i; //i is cascaded level
+            mFrustumCulling[cullingIndex]->updateFrustum(center, center + lightData.dirW, upVec, minX, maxX, minY, maxY, minZ, maxZ);
+        }
 
         //Update near far for next level
         if (mCascadedStochasticBlend)
@@ -1385,7 +1425,7 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
     }        
 }
 
-bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRenderContext)
+bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRenderContext, bool cameraMoved)
 {
     if (index == 0)
     {
@@ -1396,8 +1436,11 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
             mShadowMapCascadedRasterPass.pVars = GraphicsVars::create(mpDevice, mShadowMapCascadedRasterPass.pProgram.get());
         }
     }
-
     FALCOR_PROFILE(pRenderContext, "GenCascadedShadowMaps");
+
+    //if (!cameraMoved && !mUpdateShadowMap)
+    //    return false;
+
     auto& lightData = light->getData();
 
     if (index == 0)
@@ -1442,10 +1485,23 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
 
         
         mShadowMapCascadedRasterPass.pState->setFbo(mpFboCascaded);
-        mpScene->rasterize(
-            pRenderContext, mShadowMapCascadedRasterPass.pState.get(), mShadowMapCascadedRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
-            mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]
-        );
+        if (mUseFrustumCulling)
+        {
+            const uint cullingIndex = mFrustumCullingVectorOffsets.x + index * mCascadedLevelCount + cascLevel;
+            mpScene->rasterizeFrustumCulling(pRenderContext, mShadowMapCascadedRasterPass.pState.get(),
+                                             mShadowMapCascadedRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
+                                             mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None],
+                                             RasterizerState::MeshRenderMode::All, mFrustumCulling[cullingIndex]
+            );
+        }
+        else
+        {
+            mpScene->rasterize(
+                pRenderContext, mShadowMapCascadedRasterPass.pState.get(), mShadowMapCascadedRasterPass.pVars.get(),
+                mFrontClockwiseRS[mCullMode], mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]
+            );
+        }
+        
     }
 
     // Blur if it is activated/enabled
@@ -1459,7 +1515,8 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
     return true;
 }
 
-bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRenderContext) {
+bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRenderContext, bool cameraMoved)
+{
     if (index == 0)
     {
         mUpdateShadowMap |= mShadowMapCascadedRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false));                 // Update defines
@@ -1478,6 +1535,10 @@ bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRen
     }
 
     FALCOR_PROFILE(pRenderContext, "GenCascadedShadowMaps");
+
+    if (!cameraMoved && !mUpdateShadowMap)
+        return false;
+
     auto& lightData = light->getData();
 
     if (index == 0)
@@ -1488,6 +1549,7 @@ bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRen
         return false;
     }
 
+    //TODO Improve so that some level do not need to be recalculated each frame
     // Update viewProj
     calcProjViewForCascaded(index, lightData);
 
@@ -1653,16 +1715,21 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     }
 
     //Render cascaded
-    
     updateVPBuffer |= lightRenderListCascaded.size() > 0;
     bool cascFirstThisFrame = true;
+    const auto& camera = mpScene->getCamera();
+    auto cameraChanges = camera->getChanges();
+    auto excluded = Camera::Changes::Jitter | Camera::Changes::History;
+    bool cameraMoved = (cameraChanges & ~excluded) != Camera::Changes::None;
+
     for (size_t i = 0; i < lightRenderListCascaded.size(); i++)
     {
         if (mUseRaySMGen)
-            updateVPBuffer |= rayGenCascaded(i, lightRenderListCascaded[i], pRenderContext);
+            updateVPBuffer |= rayGenCascaded(i, lightRenderListCascaded[i], pRenderContext,cameraMoved);
         else
-            updateVPBuffer |= rasterCascaded(i, lightRenderListCascaded[i], pRenderContext);
+            updateVPBuffer |= rasterCascaded(i, lightRenderListCascaded[i], pRenderContext, cameraMoved);
     }
+    
 
     // Write all ViewProjectionMatrix to the buffer
     // TODO optimize this depending on the number of active lights
@@ -1706,6 +1773,11 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
 
     mResetShadowMapBuffers |= widget.checkbox("Generate: Use Ray Tracing", mUseRaySMGen);
     widget.tooltip("Uses a ray tracing shader to generate the shadow maps");
+    if (!mUseRaySMGen)
+    {
+        mResetShadowMapBuffers |= widget.checkbox("Use FrustumCulling", mUseFrustumCulling);
+        widget.tooltip("Enables Frustum Culling for the shadow map generation");
+    }
     static uint classicBias = mBias;
     static float classicSlopeBias = mSlopeBias;
     static float cubeBias = mSMCubeWorldBias;
@@ -1761,7 +1833,6 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
         widget.checkbox("Render every frame", mRerenderStatic);
         widget.tooltip("Rerenders the shadow map every frame");
     }
-    
 
     dirty |= widget.checkbox("Use Hybrid SM", mUseHybridSM);
     widget.tooltip("Enables Hybrid Shadow Maps, where the edge of the shadow map is traced", true);

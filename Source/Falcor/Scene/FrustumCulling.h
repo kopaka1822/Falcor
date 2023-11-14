@@ -45,14 +45,21 @@ namespace Falcor
         FALCOR_OBJECT(FrustumCulling)
     public:
         FrustumCulling() = default;
-        FrustumCulling(const ref<Camera>& camera); //Created based on Camera
-        FrustumCulling(float3 eye, float3 center, float3 up, float aspect, float fovY, float near, float far); //created based on lookAt
+        //Constructor based on perspective camera
+        FrustumCulling(const ref<Camera>& camera);
+        //Constructor based on lookAt and perspective
+        FrustumCulling(float3 eye, float3 center, float3 up, float aspect, float fovY, float near, float far);
+        //Constructor based on lookAt and ortho
+        FrustumCulling(float3 eye, float3 center, float3 up, float left, float right, float bottom, float top, float near, float far);
 
         //Updates the frustum based on the camera
         void updateFrustum(const ref<Camera>& camera);
 
-        //Updates the frustum based on lookAt
+        //Updates the frustum based on lookAt and perspective
         void updateFrustum(float3 eye, float3 center, float3 up, float aspect, float fovY, float near, float far);
+
+        // Updates the frustum based on lookAt and ortho
+        void updateFrustum(float3 eye, float3 center, float3 up, float left, float right, float bottom, float top, float near, float far);
 
         // Frustum Culling Test. Assumes AABB is transformed to world coordinates
         bool isInFrustum(const AABB& aabb) const;
@@ -110,8 +117,11 @@ namespace Falcor
             ref<Buffer> buffer;
         };
 
-        //Creates the camera frustum
+        //Creates the camera frustum based on an perspective camera
         void createFrustum(float3 camPos, float3 camU, float3 camV, float3 camW, float aspect, float fovY, float near, float far);
+
+        // Creates the camera frustum based on an orthographic
+        void createFrustum(float3 camPos, float3 camU, float3 camV, float3 camW, float left, float right, float bottom, float top, float near, float far);
 
         //Test if a AABB is in front of the plane based on https://gdbooks.gitbooks.io/3dcollisions/content/Chapter2/static_aabb_plane.html. Assumes that the AABB already transformed to world coordinates
         bool isInFrontOfPlane(const Plane& plane, const AABB& aabb) const;

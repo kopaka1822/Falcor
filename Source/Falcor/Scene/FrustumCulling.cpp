@@ -51,6 +51,11 @@ namespace Falcor
         updateFrustum(eye, center, up, aspect, fovY, near, far);
     }
 
+    FrustumCulling::FrustumCulling(float3 eye, float3 center, float3 up, float left, float right, float bottom, float top, float near, float far)
+    {
+        updateFrustum(eye, center, up, left, right,bottom, top, near, far);
+    }
+
     void FrustumCulling::updateFrustum(const ref<Camera>& camera)
     {
         const CameraData& data = camera->getData();
@@ -65,10 +70,20 @@ namespace Falcor
 
     void FrustumCulling::updateFrustum(float3 eye, float3 center, float3 up, float aspect, float fovY, float near, float far)
     {
-        float3 front = math::normalize(eye - center);
-        float3 right = math::normalize(math::cross(up, front));
-        float3 u = math::cross(front, right);
+        float3 front = math::normalize(center - eye);
+        float3 right = math::normalize(math::cross(front,up));
+        float3 u = math::cross(right,front);
         createFrustum(eye, right, u, front, aspect, fovY, near, far);
+
+        invalidateAllDrawBuffers();
+    }
+
+    void FrustumCulling::updateFrustum(float3 eye, float3 center, float3 up, float left, float right, float bottom, float top, float near, float far)
+    {
+        float3 front = math::normalize(center - eye);
+        float3 r = math::normalize(math::cross(front, up));
+        float3 u = math::cross(r, front);
+        createFrustum(eye, r, u, front, left, right, bottom, top, near, far);
 
         invalidateAllDrawBuffers();
     }
@@ -88,6 +103,23 @@ namespace Falcor
 
         frustum.right = {camPos, math::normalize(math::cross(frontTimesFar - camU * halfHSide, camV))};
         frustum.left = {camPos, math::normalize(math::cross(camV, frontTimesFar + camU * halfHSide))};
+
+        mFrustum = frustum;
+    }
+
+    void FrustumCulling::createFrustum(float3 camPos, float3 camU, float3 camV, float3 camW, float left, float right, float bottom, float top, float near, float far)
+    {
+        Frustum frustum;
+        const float3 frontTimesFar = camW * far;
+
+        frustum.near = {camPos + near * camW, camW};
+        frustum.far = {camPos + frontTimesFar, -camW};
+
+        frustum.top = {camPos + top, -camV};
+        frustum.bottom = {camPos + bottom, camV};
+
+        frustum.right = {camPos + right, -camU};
+        frustum.left = {camPos + left, camU};
 
         mFrustum = frustum;
     }

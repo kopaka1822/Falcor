@@ -137,10 +137,10 @@ private:
 
     void rasterCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
     bool rasterSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
-    bool rasterCascaded(uint index, ref<Light> light, RenderContext* pRenderContext);
+    bool rasterCascaded(uint index, ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
     void rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
     bool rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
-    bool rayGenCascaded(uint index, ref<Light> light, RenderContext* pRenderContext);
+    bool rayGenCascaded(uint index, ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix);
     void calcProjViewForCascaded(uint index, const LightData& lightData);
     
@@ -185,6 +185,7 @@ private:
 
     ResourceFormat mShadowMapFormat = ResourceFormat::D32Float;                 //Format D32 (F32 for most) and [untested] D16 (Unorm 16 for most) are supported
     RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;      //Cull mode. Double Sided Materials are not culled
+    bool mUseFrustumCulling = true;
 
     float mNear = 0.1f;
     float mFar = 60.f;
@@ -258,8 +259,8 @@ private:
     float mOracleCompaireUpperBound = 32.f;  ///< Hybrid mode only. If oracle is over this value, shoot an ray
 
     bool mOracleIgnoreDirect = true;            ///< Skip the Oracle function for direct hits and very specular (under the rougness thrs. below)
-    float mOracleIgnoreDirectRoughness = 0.085f;  ///< Roughness threshold for which hits are counted as very specular 
-   
+    float mOracleIgnoreDirectRoughness = 0.085f;  ///< Roughness threshold for which hits are counted as very specular    
+
     //UI
     bool mApplyUiSettings = false;
     bool mResetShadowMapBuffers = false;
@@ -270,6 +271,10 @@ private:
     //
     //Internal
     //
+
+    //Frustum Culling
+    uint2 mFrustumCullingVectorOffsets = uint2(0, 0);   //Cascaded / Point
+    std::vector<ref<FrustumCulling>> mFrustumCulling;
 
     //Cascaded
     std::vector<float4x4> mCascadedVPMatrix;
