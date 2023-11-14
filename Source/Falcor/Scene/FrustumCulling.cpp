@@ -120,31 +120,39 @@ namespace Falcor
         return inPlane;
     }
         
-    void FrustumCulling::createDrawBuffer(ref<Device> pDevice, RenderContext* pRenderContext, const std::vector<ref<Buffer>>& drawBuffer, const std::vector<uint>& drawBufferCount)
+    void FrustumCulling::createDrawBuffer(ref<Device> pDevice, RenderContext* pRenderContext, const std::vector<ref<Buffer>>& drawBuffer)
     {
         //Clear
         mDraw.clear();
-        mDrawStaging.clear();
+        mStagingBuffer.clear();
         mDrawCount.clear();
         mValidDrawBuffer.clear();
 
         // Resize
         size_t size = drawBuffer.size();
         mDraw.resize(size);
-        mDrawStaging.resize(size);
+        mStagingBuffer.resize(size);
         mDrawCount.resize(size);
         mValidDrawBuffer.resize(size);
 
         //Initialize
         for (uint i = 0; i < size; i++)
         {
-            auto elementCount = drawBuffer[i]->getElementCount();   //Byte size of original buffer
+            auto elementCount = drawBuffer[i]->getElementCount(); // Byte size of original buffer
+
+            mStagingBuffer[i].count = 0;
+            mStagingBuffer[i].maxElementsBytes = elementCount;
+
             //CPU Buffers need initial data or they are not initialized properly
             std::vector<char> tmpData;
-            tmpData.resize(elementCount);
+            tmpData.resize(elementCount * kStagingCount);
+
             //Create Staging
-            mDrawStaging[i] = Buffer::create(pDevice, elementCount, Resource::BindFlags::IndirectArg, Buffer::CpuAccess::Write, tmpData.data());
-            mDrawStaging[i]->setName("FrustumCullingBufferStaging");
+            mStagingBuffer[i].buffer = Buffer::create(
+                pDevice, elementCount * kStagingCount, Resource::BindFlags::IndirectArg, Buffer::CpuAccess::Write, tmpData.data()
+            );
+            mStagingBuffer[i].buffer->setName("FrustumCullingBufferStaging");
+
             //Create Draw buffer
             mDraw[i] =
                 Buffer::create(pDevice, elementCount, Resource::BindFlags::IndirectArg, Buffer::CpuAccess::None);
@@ -160,7 +168,7 @@ namespace Falcor
 
     void FrustumCulling::updateDrawBuffer(RenderContext* pRenderContext, uint index, const std::vector<DrawIndexedArguments> drawArguments)
     {
-        FALCOR_ASSERT(mDrawStaging[index]);
+        FALCOR_ASSERT(mStagingBuffer[index].buffer);
         FALCOR_ASSERT(mDraw[index]);
 
         uint buffSize = drawArguments.size();
@@ -170,18 +178,28 @@ namespace Falcor
         if (buffSize <= 0)
             return;
 
-        DrawIndexedArguments* drawArgs = (DrawIndexedArguments*)mDrawStaging[index]->map(Buffer::MapType::Write);
+        auto& stagingBuffer = mStagingBuffer[index].buffer;
+        auto& stagingCount = mStagingBuffer[index].count;
+        const auto& maxElements = mStagingBuffer[index].maxElementsBytes / sizeof(DrawIndexedArguments);
+        const uint stagingOffset = maxElements * stagingCount;
+
+        DrawIndexedArguments* drawArgs = (DrawIndexedArguments*)stagingBuffer->map(Buffer::MapType::Write);
         for (uint i = 0; i < buffSize; i++)
         {
-            drawArgs[i] = drawArguments[i];
+            drawArgs[stagingOffset + i] = drawArguments[i];
         }
-        mDrawStaging[index]->unmap();
-        pRenderContext->copyBufferRegion(mDraw[index].get(), 0, mDrawStaging[index].get(), 0, sizeof(DrawIndexedArguments) * buffSize );
+
+        pRenderContext->copyBufferRegion(
+            mDraw[index].get(), 0, stagingBuffer.get(), sizeof(DrawIndexedArguments) * stagingOffset,
+            sizeof(DrawIndexedArguments) * buffSize
+        );
+
+        stagingCount = (stagingCount + 1) % kStagingCount;
     }
 
     void FrustumCulling::updateDrawBuffer(RenderContext* pRenderContext, uint index, const std::vector<DrawArguments> drawArguments)
     {
-        FALCOR_ASSERT(mDrawStaging[index]);
+        FALCOR_ASSERT(mStagingBuffer[index].buffer);
         FALCOR_ASSERT(mDraw[index]);
 
         uint buffSize = drawArguments.size();
@@ -190,13 +208,23 @@ namespace Falcor
         if (buffSize <= 0)
             return;
 
-        DrawArguments* drawArgs = (DrawArguments*)mDrawStaging[index]->map(Buffer::MapType::Write);
+        auto& stagingBuffer = mStagingBuffer[index].buffer;
+        auto& stagingCount = mStagingBuffer[index].count;
+        const auto& maxElements = mStagingBuffer[index].maxElementsBytes / sizeof(DrawArguments);
+        const uint stagingOffset = maxElements * stagingCount;
+
+        DrawArguments* drawArgs = (DrawArguments*)stagingBuffer->map(Buffer::MapType::Write);
         for (uint i = 0; i < buffSize; i++)
         {
-            drawArgs[i] = drawArguments[i];
+            drawArgs[stagingOffset + i] = drawArguments[i];
         }
-        mDrawStaging[index]->unmap();
-        pRenderContext->copyBufferRegion(mDraw[index].get(), 0, mDrawStaging[index].get(), 0, sizeof(DrawArguments) * buffSize);
+
+        pRenderContext->copyBufferRegion(
+            mDraw[index].get(), 0, stagingBuffer.get(), sizeof(DrawArguments) * stagingOffset,
+            sizeof(DrawArguments) * buffSize
+        );
+
+        stagingCount = (stagingCount + 1) % kStagingCount;
     }
 
 }

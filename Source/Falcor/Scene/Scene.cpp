@@ -467,18 +467,16 @@ namespace Falcor
             }
         }
 
-        //Initialize the draw buffers, with the 
+        //Initialize the draw buffers, with the mDrawArgs buffer as template
         if (mDrawArgs.size() != pFrustumCulling->getDrawBufferSize())
         {
             std::vector<ref<Buffer>> drawBuffers;
-            std::vector<uint> drawCountBuffer;
             for (const auto& draw : mDrawArgs)
             {
                 drawBuffers.push_back(draw.pBuffer);
-                drawCountBuffer.push_back(draw.count);
             }
                 
-            pFrustumCulling->createDrawBuffer(mpDevice,pRenderContext ,drawBuffers, drawCountBuffer);
+            pFrustumCulling->createDrawBuffer(mpDevice,pRenderContext ,drawBuffers);
         }
 
         // Create an custom draw argument buffer for this frame

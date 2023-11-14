@@ -64,8 +64,7 @@ namespace Falcor
         void createDrawBuffer(
             ref<Device> pDevice,
             RenderContext* pRenderContext,
-            const std::vector<ref<Buffer>>& drawBuffer,
-            const std::vector<uint>& drawBufferCount
+            const std::vector<ref<Buffer>>& drawBuffer
         );
 
         //Update of the draw buffer with (culled) vector of draw arguments. Overload for DrawIndexedArguments
@@ -104,16 +103,26 @@ namespace Falcor
             Plane right;
         };
 
+        struct StagingInfo
+        {
+            uint count;
+            uint maxElementsBytes;
+            ref<Buffer> buffer;
+        };
+
         //Creates the camera frustum
         void createFrustum(float3 camPos, float3 camU, float3 camV, float3 camW, float aspect, float fovY, float near, float far);
 
         //Test if a AABB is in front of the plane based on https://gdbooks.gitbooks.io/3dcollisions/content/Chapter2/static_aabb_plane.html. Assumes that the AABB already transformed to world coordinates
         bool isInFrontOfPlane(const Plane& plane, const AABB& aabb) const;
 
+        const uint kStagingCount = 3u;
+
         Frustum mFrustum;
 
         bool mDrawValid = false;
-        std::vector<ref<Buffer>> mDrawStaging; // Staging draw buffer that is used to write CPU data
+        std::vector<StagingInfo> mStagingBuffer; // Current Staging index for each buff
+        //std::vector<ref<Buffer>> mDrawStaging; // Staging draw buffer that is used to write CPU data
         std::vector<ref<Buffer>> mDraw;      //Draw buffer that can be reused if there was no change in frustum. One per mDrawArgs from scene
         std::vector<uint> mDrawCount;         //The number of elements in the draw buffer. One per mDrawArgs from scene
         std::vector<bool> mValidDrawBuffer;
