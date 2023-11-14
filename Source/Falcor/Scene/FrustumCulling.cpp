@@ -83,7 +83,6 @@ namespace Falcor
         frustum.near = {camPos + near * camW, camW};
         frustum.far = {camPos + frontTimesFar, -camW};
 
-        //TODO Check if these are right or if camera coord system is flipped in an axis
         frustum.top = {camPos, math::normalize(math::cross(camU, frontTimesFar - camV * halfVSide))};
         frustum.bottom = {camPos, math::normalize(math::cross(frontTimesFar + camV * halfVSide, camU))};
 
@@ -92,8 +91,7 @@ namespace Falcor
 
         mFrustum = frustum;
     }
-
-    
+        
     bool FrustumCulling::isInFrontOfPlane(const Plane& plane, const AABB& aabb) const
     {
         float3 c = aabb.center();
@@ -122,29 +120,36 @@ namespace Falcor
         return inPlane;
     }
         
-    void FrustumCulling::resetDrawBuffer(ref<Device> pDevice, const std::vector<ref<Buffer>>& drawBuffer, const std::vector<uint>& drawBufferCount)
+    void FrustumCulling::createDrawBuffer(ref<Device> pDevice, RenderContext* pRenderContext, const std::vector<ref<Buffer>>& drawBuffer, const std::vector<uint>& drawBufferCount)
     {
         //Clear
         mDraw.clear();
+        mDrawStaging.clear();
         mDrawCount.clear();
         mValidDrawBuffer.clear();
 
         // Resize
         size_t size = drawBuffer.size();
         mDraw.resize(size);
+        mDrawStaging.resize(size);
         mDrawCount.resize(size);
         mValidDrawBuffer.resize(size);
 
-        //TODO add staging buffers if that results in problems
         //Initialize
         for (uint i = 0; i < size; i++)
         {
-            auto elementCount = drawBuffer[i]->getElementCount();
-            uint testCount = drawBufferCount[i];
+            auto elementCount = drawBuffer[i]->getElementCount();   //Byte size of original buffer
+            //CPU Buffers need initial data or they are not initialized properly
             std::vector<char> tmpData;
             tmpData.resize(elementCount);
-            mDraw[i] = Buffer::create(pDevice, elementCount, Resource::BindFlags::IndirectArg, Buffer::CpuAccess::Write, tmpData.data());
+            //Create Staging
+            mDrawStaging[i] = Buffer::create(pDevice, elementCount, Resource::BindFlags::IndirectArg, Buffer::CpuAccess::Write, tmpData.data());
+            mDrawStaging[i]->setName("FrustumCullingBufferStaging");
+            //Create Draw buffer
+            mDraw[i] =
+                Buffer::create(pDevice, elementCount, Resource::BindFlags::IndirectArg, Buffer::CpuAccess::None);
             mDraw[i]->setName("FrustumCullingBuffer");
+            pRenderContext->copyBufferRegion(mDraw[i].get(), 0, drawBuffer[i].get(), 0, elementCount);  //Copy the original buffer for now
         }
     }
 
@@ -153,16 +158,45 @@ namespace Falcor
             mValidDrawBuffer[i] = false;
     }
 
-    void FrustumCulling::updateDrawBuffer(uint index, const std::vector<DrawIndexedArguments> drawArguments)
+    void FrustumCulling::updateDrawBuffer(RenderContext* pRenderContext, uint index, const std::vector<DrawIndexedArguments> drawArguments)
     {
+        FALCOR_ASSERT(mDrawStaging[index]);
+        FALCOR_ASSERT(mDraw[index]);
+
         uint buffSize = drawArguments.size();
-        DrawIndexedArguments* drawArgs = (DrawIndexedArguments*)mDraw[index]->map(Buffer::MapType::Write);
+        mValidDrawBuffer[index] = true;
+        mDrawCount[index] = buffSize;
+
+        if (buffSize <= 0)
+            return;
+
+        DrawIndexedArguments* drawArgs = (DrawIndexedArguments*)mDrawStaging[index]->map(Buffer::MapType::Write);
         for (uint i = 0; i < buffSize; i++)
         {
             drawArgs[i] = drawArguments[i];
         }
-        mDraw[index]->unmap();
-        mDrawCount[index] = buffSize;
-        mValidDrawBuffer[index] = true;
+        mDrawStaging[index]->unmap();
+        pRenderContext->copyBufferRegion(mDraw[index].get(), 0, mDrawStaging[index].get(), 0, sizeof(DrawIndexedArguments) * buffSize );
     }
+
+    void FrustumCulling::updateDrawBuffer(RenderContext* pRenderContext, uint index, const std::vector<DrawArguments> drawArguments)
+    {
+        FALCOR_ASSERT(mDrawStaging[index]);
+        FALCOR_ASSERT(mDraw[index]);
+
+        uint buffSize = drawArguments.size();
+        mValidDrawBuffer[index] = true;
+        mDrawCount[index] = buffSize;
+        if (buffSize <= 0)
+            return;
+
+        DrawArguments* drawArgs = (DrawArguments*)mDrawStaging[index]->map(Buffer::MapType::Write);
+        for (uint i = 0; i < buffSize; i++)
+        {
+            drawArgs[i] = drawArguments[i];
+        }
+        mDrawStaging[index]->unmap();
+        pRenderContext->copyBufferRegion(mDraw[index].get(), 0, mDrawStaging[index].get(), 0, sizeof(DrawArguments) * buffSize);
+    }
+
 }

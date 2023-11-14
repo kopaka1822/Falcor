@@ -442,7 +442,11 @@ namespace Falcor
         //If there was no called culling, use the camera one
         if (!pFrustumCulling)
         {
-            const auto& camera = mCameras[0];// TODO change back mSelectedCamera
+            bool forceUpdate = mSelectedCamera != mFrustumCullingSelectedCamera;
+            if (forceUpdate)
+                mFrustumCullingSelectedCamera = mSelectedCamera;
+
+            const auto& camera = mCameras[mSelectedCamera];
             if (!mpCameraCulling)
             {
                 mpCameraCulling = make_ref<FrustumCulling>(camera);
@@ -450,7 +454,8 @@ namespace Falcor
 
             pFrustumCulling = mpCameraCulling;
 
-            if (!mFrustumCullingUpdated)
+            //Update the frustum only for the first rasterize pass
+            if (!mFrustumCullingUpdated || forceUpdate)
             {
                 auto cameraChanges = camera->getChanges();
                 auto excluded = Camera::Changes::Jitter | Camera::Changes::History;
@@ -462,8 +467,7 @@ namespace Falcor
             }
         }
 
-        //TODO add a better way as scene changes could break that
-        //Create a copy of the draw buffers that we only need to update depending on the number of meshes that sould be drawn
+        //Initialize the draw buffers, with the 
         if (mDrawArgs.size() != pFrustumCulling->getDrawBufferSize())
         {
             std::vector<ref<Buffer>> drawBuffers;
@@ -474,7 +478,7 @@ namespace Falcor
                 drawCountBuffer.push_back(draw.count);
             }
                 
-            pFrustumCulling->resetDrawBuffer(mpDevice, drawBuffers, drawCountBuffer);
+            pFrustumCulling->createDrawBuffer(mpDevice,pRenderContext ,drawBuffers, drawCountBuffer);
         }
 
         // Create an custom draw argument buffer for this frame
@@ -487,11 +491,11 @@ namespace Falcor
             const auto& draw = mDrawArgs[i];
             FALCOR_ASSERT(draw.count > 0);
 
-            // Skip dynamic meshes if desired
+            //Skip dynamic meshes if desired
             if (meshRenderMode == RasterizerState::MeshRenderMode::Dynamic && !draw.isDynamic)
                 continue;
 
-            // Skip static meshes if desired
+            //Skip static meshes if desired
             if (meshRenderMode == RasterizerState::MeshRenderMode::Static && draw.isDynamic)
                 continue;
 
@@ -529,12 +533,11 @@ namespace Falcor
                         drawArguments.push_back(drawArg);
                     }
                 }
-                pFrustumCulling->updateDrawBuffer(i, drawArguments);
+                pFrustumCulling->updateDrawBuffer(pRenderContext,i, drawArguments);
             }
             else if ((!bufferValid || draw.isDynamic))
             {
                 pDrawBufferCounts[i] = 0;           // Reset Draw buffer count if we rerecord
-                /*
                 std::vector<DrawArguments> drawArguments;
                 for (auto& instanceID : mDrawArgsInstanceIDs[i])
                 {
@@ -556,9 +559,7 @@ namespace Falcor
                         pDrawBufferCounts[i]++;
                     }
                 }
-                if (pDrawBufferCounts[i] > 0)
-                    createDrawBuffer(drawArguments,i);
-                */
+                pFrustumCulling->updateDrawBuffer(pRenderContext, i, drawArguments);
             }
 
             //Check if everything was culled

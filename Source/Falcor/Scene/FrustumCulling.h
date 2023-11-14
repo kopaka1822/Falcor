@@ -57,15 +57,26 @@ namespace Falcor
         // Frustum Culling Test. Assumes AABB is transformed to world coordinates
         bool isInFrustum(const AABB& aabb) const;
 
+        //Returns the number of draw buffers
         size_t getDrawBufferSize() { return mDraw.size(); }
-        void resetDrawBuffer(ref<Device> pDevice,const std::vector<ref<Buffer>>& drawBuffer, const std::vector<uint>& drawBufferCount);
 
-        void updateDrawBuffer(uint index, const std::vector<DrawIndexedArguments> drawArguments);
+        //Creates the draw buffer from the existing drawBuffer of the scene
+        void createDrawBuffer(
+            ref<Device> pDevice,
+            RenderContext* pRenderContext,
+            const std::vector<ref<Buffer>>& drawBuffer,
+            const std::vector<uint>& drawBufferCount
+        );
+
+        //Update of the draw buffer with (culled) vector of draw arguments. Overload for DrawIndexedArguments
+        void updateDrawBuffer(RenderContext* pRenderContext, uint index, const std::vector<DrawIndexedArguments> drawArguments);
+
+        // Update of the draw buffer with (culled) vector of draw arguments. Overload for DrawArguments
+        void updateDrawBuffer(RenderContext* pRenderContext, uint index, const std::vector<DrawArguments> drawArguments);
 
         std::vector<ref<Buffer>>& getDrawBuffers() { return mDraw; }
         std::vector<uint>& getDrawCounts() { return mDrawCount; }
 
-        void setBufferValid(uint index) { mValidDrawBuffer[index] = true; }
         bool isBufferValid(uint index) { return mValidDrawBuffer[index]; }
         void invalidateAllDrawBuffers();
 
@@ -102,6 +113,7 @@ namespace Falcor
         Frustum mFrustum;
 
         bool mDrawValid = false;
+        std::vector<ref<Buffer>> mDrawStaging; // Staging draw buffer that is used to write CPU data
         std::vector<ref<Buffer>> mDraw;      //Draw buffer that can be reused if there was no change in frustum. One per mDrawArgs from scene
         std::vector<uint> mDrawCount;         //The number of elements in the draw buffer. One per mDrawArgs from scene
         std::vector<bool> mValidDrawBuffer;
