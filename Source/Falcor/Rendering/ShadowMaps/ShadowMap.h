@@ -207,8 +207,6 @@ private:
     uint mCascadedLevelCount = 4;
     float mCascadedFrustumFix = 0.5f;
     float mCascZMult = 3.f; // Pushes the z Values apart
-    bool mCascadedStochasticBlend = false;
-    float mCascadedStochasticBlendBand = 0.05f;
 
     // Hybrid Shadow Maps
     bool mUseHybridSM = true; ///< Uses the Hybrid Shadow Maps; For "Classic" Shadow Maps based on: https://gpuopen.com/fidelityfx-hybrid-shadows/#details
