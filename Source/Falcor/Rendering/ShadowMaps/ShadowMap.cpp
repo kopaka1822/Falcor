@@ -296,6 +296,9 @@ void ShadowMap::prepareShadowMapBuffers()
         mpDepth->setName("ShadowMap2DPassDepthHelper");
     }
 
+    //For Cascaded optimizations
+    mPreviousCascades.resize(countCascade * mCascadedLevelCount);
+
     //Create Textures for animated Scenes
     if (mpScene->hasAnimation())
     {
@@ -1324,6 +1327,7 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
             mCascadedZSlices.resize(mCascadedLevelCount);
         }
 
+        //TODO add fixed user defined splits
         //Z slizes formula by: https://developer.download.nvidia.com/SDK/10.5/opengl/src/cascaded_shadow_maps/doc/cascaded_shadow_maps.pdf
         const uint N = mCascadedLevelCount;
         for (uint i = 1 ; i <= N; i++)
@@ -1397,6 +1401,62 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
         {
             maxZ *= mCascZMult;
         }
+
+        //TODO Check why this does not work !
+
+        //Check if the current cascade box fit into the box from last frame
+        if (mPreviousCascades[startIdx + i].valid){
+            //Get the AABB from the stored view
+            float3 minRepro = float3(std::numeric_limits<float>::lowest());
+            float3 maxRepro = float3(std::numeric_limits<float>::lowest());
+            for (const float4& p : frustumCorners)
+            {
+                const float4 vp = math::mul(mPreviousCascades[i].prevView, p);
+                minRepro.x = std::min(minRepro.x, vp.x);
+                maxRepro.x = std::max(maxRepro.x, vp.x);
+                minRepro.y = std::min(minRepro.y, vp.y);
+                maxRepro.y = std::max(maxRepro.y, vp.y);
+                minRepro.z = std::min(minRepro.z, vp.z);
+                maxRepro.z = std::max(maxRepro.z, vp.z);
+            }
+
+            //Pull back based on ZMult
+            if (minRepro.z < 0)
+            {
+                minRepro.z *= mCascZMult;
+            }
+            else
+            {
+                minRepro.z /= mCascZMult;
+            }
+            if (maxRepro.z < 0)
+            {
+                maxRepro.z /= mCascZMult;
+            }
+            else
+            {
+                maxRepro.z *= mCascZMult;
+            }
+
+            //Test both points against the enlarged box. If the box is inside, skip calculation for this level
+            const float3& minPrev = mPreviousCascades[startIdx + i].min;
+            const float3& maxPrev = mPreviousCascades[startIdx + i].max;
+            if (math::all(minRepro >= minPrev && minRepro <= maxPrev) && math::all(maxRepro >= minPrev && maxRepro <= maxPrev))
+                continue;
+        }
+
+        //Enlarge the box and set the previous cascade
+        minX += minX * mCascadedReuseEnlargeFactor;
+        maxX += maxX * mCascadedReuseEnlargeFactor;
+        minY += minY * mCascadedReuseEnlargeFactor;
+        maxY += maxY * mCascadedReuseEnlargeFactor;
+        minZ += minZ * mCascadedReuseEnlargeFactor;
+        maxZ += maxZ * mCascadedReuseEnlargeFactor;
+
+        mPreviousCascades[startIdx + i].valid = true;
+        mPreviousCascades[startIdx + i].prevView = casView;
+        mPreviousCascades[startIdx + i].min = float3(minX, minY, minZ);
+        mPreviousCascades[startIdx + i].max = float3(maxX, maxY, maxZ);
 
         const float4x4 casProj = math::ortho(minX, maxX,  minY, maxY, minZ, maxZ);
 

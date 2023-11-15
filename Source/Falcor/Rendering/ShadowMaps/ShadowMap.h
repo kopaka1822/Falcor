@@ -120,6 +120,14 @@ private:
         float nearPlane = 0.1f;
     };
 
+    struct PreviousCascade
+    {
+        bool valid = false;
+        float4x4 prevView;
+        float3 min;
+        float3 max;
+    };
+
     LightTypeSM getLightType(const ref<Light> light);
     void prepareShadowMapBuffers();
     void prepareRasterProgramms();
@@ -276,6 +284,8 @@ private:
 
     //Cascaded
     std::vector<float4x4> mCascadedVPMatrix;
+    std::vector<PreviousCascade> mPreviousCascades; //Previous cascade for rendering optimizations
+    float mCascadedReuseEnlargeFactor = 0.1f;    //Increases box size by the factor on each side
     uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
     float mCascadedMaxFar = 1000000.f;
     bool mCascadedFirstThisFrame = true;
