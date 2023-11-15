@@ -1074,9 +1074,6 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
         }
     }
 
-    if (index > 0)
-        return false;
-
     FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
     auto changes = light->getChanges();
     bool renderLight = false;
@@ -1165,8 +1162,6 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
             mpFbo->attachDepthStencilTarget(mpShadowMaps[index]);
         }
     }
-
-   
     
     ShaderParameters params;
 

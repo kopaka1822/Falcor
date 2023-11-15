@@ -110,16 +110,15 @@ namespace Falcor
     void FrustumCulling::createFrustum(float3 camPos, float3 camU, float3 camV, float3 camW, float left, float right, float bottom, float top, float near, float far)
     {
         Frustum frustum;
-        const float3 frontTimesFar = camW * far;
 
-        frustum.near = {camPos + near * camW, camW};
-        frustum.far = {camPos + frontTimesFar, -camW};
+        frustum.near = {camPos + camW * near, camW};
+        frustum.far = {camPos + camW * far, -camW};
 
-        frustum.top = {camPos + top, -camV};
-        frustum.bottom = {camPos + bottom, camV};
+        frustum.top = {camPos + camV * top, -camV};
+        frustum.bottom = {camPos + camV * bottom, camV};
 
-        frustum.right = {camPos + right, -camU};
-        frustum.left = {camPos + left, camU};
+        frustum.right = {camPos + camU * right, -camU};
+        frustum.left = {camPos + camU * left, camU};
 
         mFrustum = frustum;
     }
