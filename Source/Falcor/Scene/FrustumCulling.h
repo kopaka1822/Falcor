@@ -34,6 +34,7 @@
 #include "Core/API/Buffer.h"
 #include "Core/API/IndirectCommands.h"
 #include "Core/API/Device.h"
+#include "Core/API/GpuFence.h"
 
 namespace Falcor
 {
@@ -87,6 +88,8 @@ namespace Falcor
         void invalidateAllDrawBuffers();
 
     private:
+        static const uint kStagingFramesInFlight = 4u;
+
         struct Plane
         {
             float3 normal = float3(0.f, 1.f, 0.f);
@@ -115,6 +118,7 @@ namespace Falcor
             uint count;
             uint maxElementsBytes;
             ref<Buffer> buffer;
+            uint64_t fenceWaitValue[kStagingFramesInFlight];
         };
 
         //Creates the camera frustum based on an perspective camera
@@ -126,13 +130,11 @@ namespace Falcor
         //Test if a AABB is in front of the plane based on https://gdbooks.gitbooks.io/3dcollisions/content/Chapter2/static_aabb_plane.html. Assumes that the AABB already transformed to world coordinates
         bool isInFrontOfPlane(const Plane& plane, const AABB& aabb) const;
 
-        const uint kStagingCount = 3u;
-
         Frustum mFrustum;
+        ref<GpuFence> mpStagingFence;
 
         bool mDrawValid = false;
         std::vector<StagingInfo> mStagingBuffer; // Current Staging index for each buff
-        //std::vector<ref<Buffer>> mDrawStaging; // Staging draw buffer that is used to write CPU data
         std::vector<ref<Buffer>> mDraw;      //Draw buffer that can be reused if there was no change in frustum. One per mDrawArgs from scene
         std::vector<uint> mDrawCount;         //The number of elements in the draw buffer. One per mDrawArgs from scene
         std::vector<bool> mValidDrawBuffer;

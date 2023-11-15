@@ -196,7 +196,7 @@ private:
     float mPoissonDiscRadCube = 0.015f;
 
     bool mUseAlphaTest = true;
-    uint mAlphaMode = 3; // Mode for the alpha test ; 1 = Basic, 2 = HashedIsotropic, 3 = HashedAnisotropic
+    uint mAlphaMode = 1; // Mode for the alpha test ; 1 = Basic, 2 = HashedIsotropic, 3 = HashedAnisotropic
 
     bool mUseRayOutsideOfShadowMap = false;
 
