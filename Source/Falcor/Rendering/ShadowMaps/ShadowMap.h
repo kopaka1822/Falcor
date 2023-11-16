@@ -98,6 +98,12 @@ public:
         Stratified,
     };
 
+    enum class CascadedFrustumMode : uint32_t
+    {
+        Manual = 0u,
+        AutomaticNvidia = 1u,
+    };
+
 private:
     const float kEVSM_ExponentialConstantMax = 42.f;    //Max exponential constant for Exponential Variance Shadow Maps
     const float kESM_ExponentialConstantMax = 84.f;     //Max exponential constant for Exponential Shadow Maps
@@ -212,6 +218,7 @@ private:
     float mShadowMipBias = 1.5f;    ///< Bias used in mips (cos theta)^bias
 
     //Cascaded
+    CascadedFrustumMode mCascadedFrustumMode = CascadedFrustumMode::AutomaticNvidia;
     uint mCascadedLevelCount = 3;
     uint mCascadedTracedLevelsAtEnd = 1; //Adds N number of ray tracing only cascades at the end. Will only work on hybrid mode
     float mCascadedFrustumFix = 0.8f;
@@ -287,6 +294,7 @@ private:
     //Cascaded
     std::vector<float4x4> mCascadedVPMatrix;
     std::vector<PreviousCascade> mPreviousCascades; //Previous cascade for rendering optimizations
+    std::vector<float> mCascadedFrustumManualVals = {0.1f, 0.3f, 0.6f}; // Values for Manual set Cascaded frustum. Initialized for 3 Levels
     uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
     float mCascadedMaxFar = 1000000.f;
     bool mCascadedFirstThisFrame = true;

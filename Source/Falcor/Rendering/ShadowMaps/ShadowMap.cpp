@@ -68,6 +68,11 @@ const Gui::DropdownList kJitterModeDropdownList{
     {(uint)ShadowMap::SamplePattern::Halton, "Halton"},
     {(uint)ShadowMap::SamplePattern::Stratified, "Stratified"},
 };
+
+const Gui::DropdownList kCascadedFrustumModeList{
+    {(uint)ShadowMap::CascadedFrustumMode::Manual, "Manual"},
+    {(uint)ShadowMap::CascadedFrustumMode::AutomaticNvidia, "AutomaticNvidia"},
+};
 } // namespace
 
 ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, mpScene{scene}
@@ -1328,21 +1333,53 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
         }
 
         //TODO add fixed user defined splits
-        
-        //Z slizes formula by: https://developer.download.nvidia.com/SDK/10.5/opengl/src/cascaded_shadow_maps/doc/cascaded_shadow_maps.pdf
-        std::vector<float> cascadedSlices(mCascadedLevelCount + mCascadedTracedLevelsAtEnd);
-        const uint N = mCascadedLevelCount + mCascadedTracedLevelsAtEnd;
-        for (uint i = 1 ; i <= N; i++)
+        switch (mCascadedFrustumMode)
         {
-            cascadedSlices[i - 1] = mCascadedFrustumFix * (cameraData.nearZ * pow((mCascadedMaxFar / cameraData.nearZ), float(i) / N));
-            cascadedSlices[i - 1] +=
-                (1.f - mCascadedFrustumFix) * (cameraData.nearZ + (float(i) / N) * (mCascadedMaxFar - cameraData.nearZ));
+        case Falcor::ShadowMap::CascadedFrustumMode::Manual:
+            {
+                const float near = camera->getNearPlane();
+                const float distanceFarNear = camera->getFarPlane() - near;
+                //If the manual array has the wrong size, create a new one
+                if (mCascadedFrustumManualVals.size() != mCascadedLevelCount)
+                {
+                    mCascadedFrustumManualVals.resize(mCascadedLevelCount);
+                    //TODO Replace with the Nvidia for init
+                    const float equalLevel = 1.f / mCascadedLevelCount;
+                    float partSum = equalLevel;
+                    for (auto& vals : mCascadedFrustumManualVals)
+                    {
+                        vals = partSum;
+                        partSum += equalLevel;
+                    } 
+                }
+
+                //Update all zSlices
+                for (uint i = 0; i < mCascadedLevelCount; i++)
+                {
+                    mCascadedZSlices[i] = near + distanceFarNear * mCascadedFrustumManualVals[i];
+                }
+            }
+            break;
+            case Falcor::ShadowMap::CascadedFrustumMode::AutomaticNvidia:
+            {
+                // Z slizes formula by:
+                // https://developer.download.nvidia.com/SDK/10.5/opengl/src/cascaded_shadow_maps/doc/cascaded_shadow_maps.pdf
+                std::vector<float> cascadedSlices(mCascadedLevelCount + mCascadedTracedLevelsAtEnd);
+                const uint N = mCascadedLevelCount + mCascadedTracedLevelsAtEnd;
+                for (uint i = 1; i <= N; i++)
+                {
+                    cascadedSlices[i - 1] = mCascadedFrustumFix * (cameraData.nearZ * pow((mCascadedMaxFar / cameraData.nearZ), float(i) / N));
+                    cascadedSlices[i - 1] +=
+                        (1.f - mCascadedFrustumFix) * (cameraData.nearZ + (float(i) / N) * (mCascadedMaxFar - cameraData.nearZ));
+                }
+
+                // Copy to used cascade levels
+                for (uint i = 0; i < mCascadedZSlices.size(); i++)
+                    mCascadedZSlices[i] = cascadedSlices[i];
+            }
+            break;
         }
-
-        //Copy to used cascade levels
-        for (uint i = 0; i < mCascadedZSlices.size(); i++)
-            mCascadedZSlices[i] = cascadedSlices[i];
-
+        
         mCascadedFirstThisFrame = false;
     }
 
@@ -2108,13 +2145,37 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
                 mShadowResChanged = true;
             }
             group.tooltip("Changes the number of cascaded levels");
-            group.var("Virtual RayTraced Casc Level at end", mCascadedTracedLevelsAtEnd, 0u, 8u, 1u);
-            group.tooltip(
-                "Adds N virtual cascaded levels that will be fully ray traced. Does not generate extra shadow maps.\n \" Use Ray outside "
-                "Shadow Map \" needs to be activated for the virtual cascaded levels to work"
-            );
-            dirty |= group.var("Z Slize Exp influence", mCascadedFrustumFix, 0.f, 1.f, 0.001f);
-            group.tooltip("Influence of the Exponentenial part in the zSlice calculation. (1-Value) is used for the linear part");
+
+            group.dropdown("Cascaded Frustum Mode", kCascadedFrustumModeList, (uint32_t&)mCascadedFrustumMode);
+
+            switch (mCascadedFrustumMode)
+            {
+            case Falcor::ShadowMap::CascadedFrustumMode::Manual:
+                group.text("Set Cascaded Levels:");
+                group.tooltip("Max Z-Level is set between 0 and 1. If last level has a Z-Value smaller than 1, it is ray traced");
+                for (uint i = 0; i < mCascadedFrustumManualVals.size(); i++)
+                {
+                    const std::string name = "Level " + std::to_string(i);
+                    group.var(name.c_str(), mCascadedFrustumManualVals[i], 0.f, 1.0f, 0.001f);
+                }
+                group.text("--------------------");
+                break;
+            case Falcor::ShadowMap::CascadedFrustumMode::AutomaticNvidia:
+                {
+                    group.var("Virtual RayTraced Casc Level at end", mCascadedTracedLevelsAtEnd, 0u, 8u, 1u);
+                    group.tooltip(
+                        "Adds N virtual cascaded levels that will be fully ray traced. Does not generate extra shadow maps.\n \" Use Ray "
+                        "outside "
+                        "Shadow Map \" needs to be activated for the virtual cascaded levels to work"
+                    );
+                    dirty |= group.var("Z Slize Exp influence", mCascadedFrustumFix, 0.f, 1.f, 0.001f);
+                    group.tooltip("Influence of the Exponentenial part in the zSlice calculation. (1-Value) is used for the linear part");
+                }
+                break;
+            default:
+                break;
+            }
+           
             dirty |= group.var("Z Value Multi", mCascZMult, 1.f, 1000.f, 0.1f);
             group.tooltip("Pulls the Z-Values of each cascaded level apart. Is needed as not all Geometry is in the View-Frustum");
             dirty |= group.var("Reuse Enlarge Factor", mCascadedReuseEnlargeFactor, 0.f, 10.f, 0.001f);
