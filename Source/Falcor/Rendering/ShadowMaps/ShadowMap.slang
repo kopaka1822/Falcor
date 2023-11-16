@@ -1225,7 +1225,11 @@ struct ShadowMap
         uint texSize = k2DSMRes;
         uint cascLevel = 0;
         if(lightData.type == (uint)LightTypeSM::Directional){
-            cascLevel = getCascadedLevel(posW);
+            //cascLevel = getCascadedLevel(posW);
+            float2 tmpUV;
+            float tmpDist;
+            if (!directionalDistanceAndSampleVec(lightIdx, posW, cascLevel, tmpUV, tmpDist))
+                return 0.f;
             bufferIdx = kCascadedMatOffset + bufferIdx * kCascadedLevels;
             texSize = kCascadedSMRes;
         }

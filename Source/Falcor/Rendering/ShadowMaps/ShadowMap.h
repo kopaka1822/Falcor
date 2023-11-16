@@ -206,13 +206,14 @@ private:
     bool mUseAlphaTest = true;
     uint mAlphaMode = 1; // Mode for the alpha test ; 1 = Basic, 2 = HashedIsotropic, 3 = HashedAnisotropic
 
-    bool mUseRayOutsideOfShadowMap = false;
+    bool mUseRayOutsideOfShadowMap = true;
 
     bool mUseShadowMipMaps = false; ///< Uses mip maps for applyable shadow maps
     float mShadowMipBias = 1.5f;    ///< Bias used in mips (cos theta)^bias
 
     //Cascaded
-    uint mCascadedLevelCount = 4;
+    uint mCascadedLevelCount = 3;
+    uint mCascadedTracedLevelsAtEnd = 1; //Adds N number of ray tracing only cascades at the end. Will only work on hybrid mode
     float mCascadedFrustumFix = 0.8f;
     float mCascZMult = 8.f; // Pushes the z Values apart
     float mCascadedReuseEnlargeFactor = 0.1f; // Increases box size by the factor on each side

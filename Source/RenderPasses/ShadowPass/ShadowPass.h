@@ -69,6 +69,7 @@ private:
     float mAmbientFactor = 0.1f; //<Ambient light factor
     float mEnvMapFactor = 1.0f; //< Env Map factor
     float mEmissiveFactor = 1.f; //< Emissive Factor
+    uint mDebugMode = 0;            //< Mode for the debug view
 
     bool mOptionsChanged = false;
     SPShadowMode mShadowMode = SPShadowMode::Hybrid;

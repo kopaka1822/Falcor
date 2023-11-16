@@ -62,6 +62,12 @@ namespace
         {"debug", "gDebug", "Debug Image", true, ResourceFormat::RGBA16Float},
     };
 
+    const Gui::DropdownList kDebugModes{
+        {0, "Hybrid Mask"},
+        {1, "Lod Level"},
+        {2, "Cascaded Level"}
+    };
+
 } // namespace
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -182,6 +188,7 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     mShadowTracer.pProgram->addDefine("SP_EMISSIVE", std::to_string(mEmissiveFactor));
     mShadowTracer.pProgram->addDefine("USE_ENV_MAP", mpScene->useEnvBackground() ? "1" : "0");
     mShadowTracer.pProgram->addDefine("USE_EMISSIVE", mpScene->useEmissiveLights() ? "1" : "0");
+    mShadowTracer.pProgram->addDefine("DEBUG_MODE", std::to_string(mDebugMode));
 
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
 
@@ -258,6 +265,8 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
     changed |= widget.var("Ambient Factor", mAmbientFactor,0.0f, 1.f, 0.01f);
     changed |= widget.var("Env Map Factor", mEnvMapFactor, 0.f, 100.f, 0.01f);
     changed |= widget.var("Emissive Factor", mEmissiveFactor, 0.f, 100.f, 0.01f);
+
+    changed |= widget.dropdown("Debug Mode", kDebugModes, mDebugMode);
 
     if (mShadowMode != SPShadowMode::RayTraced && mpShadowMap)
     {

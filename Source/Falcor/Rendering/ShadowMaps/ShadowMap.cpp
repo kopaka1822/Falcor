@@ -1328,13 +1328,21 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
         }
 
         //TODO add fixed user defined splits
+        
         //Z slizes formula by: https://developer.download.nvidia.com/SDK/10.5/opengl/src/cascaded_shadow_maps/doc/cascaded_shadow_maps.pdf
-        const uint N = mCascadedLevelCount;
+        std::vector<float> cascadedSlices(mCascadedLevelCount + mCascadedTracedLevelsAtEnd);
+        const uint N = mCascadedLevelCount + mCascadedTracedLevelsAtEnd;
         for (uint i = 1 ; i <= N; i++)
         {
-            mCascadedZSlices[i-1] = mCascadedFrustumFix * (cameraData.nearZ * pow((mCascadedMaxFar / cameraData.nearZ), float(i) / N));
-            mCascadedZSlices[i-1] += (1.f - mCascadedFrustumFix) * (cameraData.nearZ + (float(i) / N) * (mCascadedMaxFar - cameraData.nearZ));
+            cascadedSlices[i - 1] = mCascadedFrustumFix * (cameraData.nearZ * pow((mCascadedMaxFar / cameraData.nearZ), float(i) / N));
+            cascadedSlices[i - 1] +=
+                (1.f - mCascadedFrustumFix) * (cameraData.nearZ + (float(i) / N) * (mCascadedMaxFar - cameraData.nearZ));
         }
+
+        //Copy to used cascade levels
+        for (uint i = 0; i < mCascadedZSlices.size(); i++)
+            mCascadedZSlices[i] = cascadedSlices[i];
+
         mCascadedFirstThisFrame = false;
     }
 
@@ -2099,8 +2107,12 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
                 mResetShadowMapBuffers = true;
                 mShadowResChanged = true;
             }
-
             group.tooltip("Changes the number of cascaded levels");
+            group.var("Virtual RayTraced Casc Level at end", mCascadedTracedLevelsAtEnd, 0u, 8u, 1u);
+            group.tooltip(
+                "Adds N virtual cascaded levels that will be fully ray traced. Does not generate extra shadow maps.\n \" Use Ray outside "
+                "Shadow Map \" needs to be activated for the virtual cascaded levels to work"
+            );
             dirty |= group.var("Z Slize Exp influence", mCascadedFrustumFix, 0.f, 1.f, 0.001f);
             group.tooltip("Influence of the Exponentenial part in the zSlice calculation. (1-Value) is used for the linear part");
             dirty |= group.var("Z Value Multi", mCascZMult, 1.f, 1000.f, 0.1f);

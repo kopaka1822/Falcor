@@ -71,6 +71,10 @@ cbuffer CB
 #define SIMPLIFIED_SHADING 1
 #endif
 
+#ifndef DEBUG_MODE
+#define DEBUG_MODE 0
+#endif
+
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
 static const uint kShadowMode = SP_SHADOW_MODE;
@@ -133,7 +137,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
         SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, lightIdx);
         //Get lod level
         float2 invFrameDim = 1.f / float2(DispatchRaysDimensions().xy);
-        float3 posWDdx = computeDdxPosW(posW, N, invFrameDim);
+        float3 posWDdx = computeDdxPosW(posW, faceN, invFrameDim);
         float3 posWDdy = computeDdyPosW(posW, faceN, invFrameDim);
         lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);       
         useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(0) /*random*/, lod /*MipLevel*/, shadow);
@@ -157,11 +161,11 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
 
     if (is_valid(gDebug))
     {
-    #if 0
+    #if DEBUG_MODE == 0 //Hybrid Mask debug
         debug.x += useRay && kShadowMode != (uint) SPShadowMode::ShadowMap ? 1.f : 0.f;
         debug.y += any(ls.Li > 0) ? shadow : 0.f;
         
-    #elif 0 //Lod level debug
+    #elif DEBUG_MODE == 1 //Lod level debug
         debug = float3(1,0,0);
         if(lod > 1)
             debug = float3(0,1,0);
@@ -412,8 +416,10 @@ void rayGen()
         if (kUseEmissive)
             color += kEmissiveFactor * emissive;
 
+#if DEBUG_MODE != 2
         if(is_valid(gDebug))
             debugOut /= lightCount;
+#endif
     }
     else if(kUseEnvMap)
     {
