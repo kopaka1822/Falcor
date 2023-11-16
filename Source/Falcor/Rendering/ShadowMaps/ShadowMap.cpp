@@ -1309,7 +1309,7 @@ bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRe
 }
 
  //Calc based on https://learnopengl.com/Guest-Articles/2021/CSM
-void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) {
+void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, std::vector<bool>& renderLevel) {
    
     auto& sceneBounds = mpScene->getSceneBounds();
     auto camera = mpScene->getCamera();
@@ -1354,7 +1354,7 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
         for (uint x = 0; x <= 1; x++){
             for (uint y = 0; y <= 1; y++){
                 for (uint z = 0; z <= 1; z++){
-                    const float4 pt = math::mul(inv, float4(2.f * x - 1.f, 2.f * y - 1.f, 2.f * z - 1.f, 1.f));
+                    const float4 pt = math::mul(inv, float4(2.f * x - 1.f, 2.f * y - 1.f, z, 1.f));
                     frustumCorners.push_back(pt / pt.w);
                 }
             }
@@ -1403,12 +1403,13 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
         }
 
         //TODO Check why this does not work !
+        renderLevel[i] = false;
 
         //Check if the current cascade box fit into the box from last frame
         if (mPreviousCascades[startIdx + i].valid){
             //Get the AABB from the stored view
-            float3 minRepro = float3(std::numeric_limits<float>::lowest());
-            float3 maxRepro = float3(std::numeric_limits<float>::lowest());
+            float3 minRepro = float3(std::numeric_limits<float>::max());
+            float3 maxRepro = float3(std::numeric_limits<float>::min());
             for (const float4& p : frustumCorners)
             {
                 const float4 vp = math::mul(mPreviousCascades[i].prevView, p);
@@ -1457,6 +1458,7 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData) 
         mPreviousCascades[startIdx + i].prevView = casView;
         mPreviousCascades[startIdx + i].min = float3(minX, minY, minZ);
         mPreviousCascades[startIdx + i].max = float3(maxX, maxY, maxZ);
+        renderLevel[i] = true;
 
         const float4x4 casProj = math::ortho(minX, maxX,  minY, maxY, minZ, maxZ);
 
@@ -1500,8 +1502,9 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
         return false;
     } 
 
-    //Update viewProj
-    calcProjViewForCascaded(index, lightData);
+    // Update viewProj
+    std::vector<bool> renderCascLevel(mCascadedLevelCount);
+    calcProjViewForCascaded(index, lightData, renderCascLevel);
 
     uint casMatIdx = index * mCascadedLevelCount;
 
@@ -1511,6 +1514,8 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
     //Render each cascade
     for (uint cascLevel = 0; cascLevel < mCascadedLevelCount; cascLevel++)
     {
+        if (!renderCascLevel[cascLevel])
+            continue;
         // If depth tex is set, Render to RenderTarget
         if (mpDepthCascaded)
         {
@@ -1600,7 +1605,8 @@ bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRen
 
     //TODO Improve so that some level do not need to be recalculated each frame
     // Update viewProj
-    calcProjViewForCascaded(index, lightData);
+    std::vector<bool> renderCascadedLevel(mCascadedLevelCount);
+    calcProjViewForCascaded(index, lightData, renderCascadedLevel);
 
     uint casMatIdx = index * mCascadedLevelCount;
 
@@ -1612,6 +1618,9 @@ bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRen
     // Render each cascade
     for (uint cascLevel = 0; cascLevel < mCascadedLevelCount; cascLevel++)
     {
+        if (!renderCascadedLevel[cascLevel])
+            continue;
+
         params.viewProjectionMatrix = mCascadedVPMatrix[casMatIdx + cascLevel];
         params.invViewProjectionMatrix = math::inverse(mCascadedVPMatrix[casMatIdx + cascLevel]);
 
@@ -2096,6 +2105,8 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip("Influence of the Exponentenial part in the zSlice calculation. (1-Value) is used for the linear part");
             dirty |= group.var("Z Value Multi", mCascZMult, 1.f, 1000.f, 0.1f);
             group.tooltip("Pulls the Z-Values of each cascaded level apart. Is needed as not all Geometry is in the View-Frustum");
+            dirty |= group.var("Reuse Enlarge Factor", mCascadedReuseEnlargeFactor, 0.f, 10.f, 0.001f);
+            group.tooltip("Factor by which the frustum of each cascaded level is enlarged by");
         }
     }
 

@@ -348,13 +348,14 @@ struct ShadowMap
             float4x4 viewProjectMat = gShadowMapVPBuffer[bufferIdx + level];
             float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
             projPos.xyz = (projPos.xyz / projPos.w); //This is actually not necessary for Directional Lights
-            lightDist = projPos.z;
-        
-            shadowUV = projPos.xy;
-            shadowUV.y *= -1; //Flip 
-            shadowUV = shadowUV * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+            
+            projPos.y *= -1; //Flip 
+            projPos.xy = projPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
 
-            if (all(shadowUV.xy >= 0.f) && all(shadowUV.xy <= 1.f))   //Return if outside of the shadow map
+            shadowUV = projPos.xy;
+            lightDist = projPos.z;
+            
+            if (all(projPos.xyz >= 0.f) && all(projPos.xyz <= 1.f))   //Return if outside of the shadow map
                 return true;
         }
         return false;

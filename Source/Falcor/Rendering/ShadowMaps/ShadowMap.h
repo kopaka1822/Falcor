@@ -150,7 +150,7 @@ private:
     bool rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
     bool rayGenCascaded(uint index, ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix);
-    void calcProjViewForCascaded(uint index, const LightData& lightData);
+    void calcProjViewForCascaded(uint index, const LightData& lightData, std::vector<bool>& renderLevel);
     
 
     // Getter
@@ -213,8 +213,9 @@ private:
 
     //Cascaded
     uint mCascadedLevelCount = 4;
-    float mCascadedFrustumFix = 0.5f;
-    float mCascZMult = 3.f; // Pushes the z Values apart
+    float mCascadedFrustumFix = 0.8f;
+    float mCascZMult = 8.f; // Pushes the z Values apart
+    float mCascadedReuseEnlargeFactor = 0.1f; // Increases box size by the factor on each side
 
     // Hybrid Shadow Maps
     bool mUseHybridSM = true; ///< Uses the Hybrid Shadow Maps; For "Classic" Shadow Maps based on: https://gpuopen.com/fidelityfx-hybrid-shadows/#details
@@ -285,7 +286,6 @@ private:
     //Cascaded
     std::vector<float4x4> mCascadedVPMatrix;
     std::vector<PreviousCascade> mPreviousCascades; //Previous cascade for rendering optimizations
-    float mCascadedReuseEnlargeFactor = 0.1f;    //Increases box size by the factor on each side
     uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
     float mCascadedMaxFar = 1000000.f;
     bool mCascadedFirstThisFrame = true;

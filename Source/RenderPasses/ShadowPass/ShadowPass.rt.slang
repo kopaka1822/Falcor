@@ -157,8 +157,11 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
 
     if (is_valid(gDebug))
     {
-        //Lod level debug
-        /*
+    #if 0
+        debug.x += useRay && kShadowMode != (uint) SPShadowMode::ShadowMap ? 1.f : 0.f;
+        debug.y += any(ls.Li > 0) ? shadow : 0.f;
+        
+    #elif 0 //Lod level debug
         debug = float3(1,0,0);
         if(lod > 1)
             debug = float3(0,1,0);
@@ -170,9 +173,35 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
             debug = float3(0,1,1);
         if(lod > 5)
             debug = float3(1,0,1);
-        */
-        debug.x += useRay && kShadowMode != (uint) SPShadowMode::ShadowMap ? 1.f : 0.f;
-        debug.y += any(ls.Li > 0) ? shadow : 0.f;
+            
+    #else //Cacaded Level Debug
+        SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, lightIdx);
+        if (smLightData.type == (uint) LightTypeSM::Directional)
+        {
+            uint cascLevel = 0;
+            float2 tmpUV;
+            float tmpDist;
+            bool valid = gShadowMap.directionalDistanceAndSampleVec(lightIdx, posW, cascLevel, tmpUV, tmpDist);
+
+            if (valid)
+            {
+                debug = float3(1, 0, 0);            //Level 0: Red
+                if(cascLevel == 1)
+                    debug = float3(0, 0, 1);        //Level 1 : Blue
+                else if(cascLevel == 2)
+                    debug = float3(1, 0, 1);        //Level 2 : Purple
+                else if(cascLevel == 3)
+                    debug =float3(0, 1, 1);         //Level 3 : Cyan
+                else if (cascLevel > 3)
+                    debug = float3(1, 0.678, 0.118);//Level 4+ : Orange
+            }
+            else
+            {
+                debug = float3(0,1,0);  //Green Ray needed
+            }
+            
+        }
+    #endif
     }
 
     toLight = ls.dir;
