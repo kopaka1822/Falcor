@@ -162,6 +162,9 @@ namespace Falcor
         mpStagingFence = GpuFence::create(pDevice);
         mpStagingFence->breakStrongReferenceToDevice();
 
+        for (auto& waitVals : mFenceWaitValues)
+            waitVals = 0;
+
         // Resize
         size_t size = drawBuffer.size();
         mDraw.resize(size);
@@ -176,10 +179,6 @@ namespace Falcor
 
             mStagingBuffer[i].count = 0;
             mStagingBuffer[i].maxElementsBytes = elementCount;
-            for (uint j = 0; j < kStagingFramesInFlight; j++)
-            {
-                mStagingBuffer[i].fenceWaitValue[j] = 0;
-            }
 
             //CPU Buffers need initial data or they are not initialized properly
             std::vector<char> tmpData;
@@ -217,16 +216,11 @@ namespace Falcor
             return;
 
         auto& stagingBuffer = mStagingBuffer[index].buffer;
-        auto& stagingCount = mStagingBuffer[index].count;
-        auto& fenceWaitVal = mStagingBuffer[index].fenceWaitValue[stagingCount];
         const auto& maxElements = mStagingBuffer[index].maxElementsBytes / sizeof(DrawIndexedArguments);
-        const uint stagingOffset = maxElements * stagingCount;
-
-        if (buffSize > maxElements)
-            throw RuntimeError("Test");
+        const uint stagingOffset = maxElements * mStagingCount;
 
         //Wait for the GPU to finish copying from kStagingFramesInFlight frames back
-        mpStagingFence->syncCpu(fenceWaitVal);
+        mpStagingFence->syncCpu(mFenceWaitValues[mStagingCount]);
 
         DrawIndexedArguments* drawArgs = (DrawIndexedArguments*)stagingBuffer->map(Buffer::MapType::Write);
         for (uint i = 0; i < buffSize; i++)
@@ -234,17 +228,10 @@ namespace Falcor
             drawArgs[stagingOffset + i] = drawArguments[i];
         }
 
-        //mpStagingFence->syncGpu(pRenderContext->getLowLevelData()->getCommandQueue());
         pRenderContext->copyBufferRegion(
             mDraw[index].get(), 0, stagingBuffer.get(), sizeof(DrawIndexedArguments) * stagingOffset,
             sizeof(DrawIndexedArguments) * buffSize
         );
-        
-        pRenderContext->flush(); //Sumbit pending commands before adding the Fence Signal
-
-        fenceWaitVal = mpStagingFence->gpuSignal(pRenderContext->getLowLevelData()->getCommandQueue()); // Signal GPU for next wait
-        
-        stagingCount = (stagingCount + 1) % kStagingFramesInFlight;
     }
 
     void FrustumCulling::updateDrawBuffer(RenderContext* pRenderContext, uint index, const std::vector<DrawArguments> drawArguments)
@@ -259,13 +246,11 @@ namespace Falcor
             return;
 
         auto& stagingBuffer = mStagingBuffer[index].buffer;
-        auto& stagingCount = mStagingBuffer[index].count;
-        auto& fenceWaitVal = mStagingBuffer[index].fenceWaitValue[stagingCount];
-        const auto& maxElements = mStagingBuffer[index].maxElementsBytes / sizeof(DrawArguments);
-        const uint stagingOffset = maxElements * stagingCount;
+        const auto& maxElements = mStagingBuffer[index].maxElementsBytes / sizeof(DrawIndexedArguments);
+        const uint stagingOffset = maxElements * mStagingCount;
 
         // Wait for the GPU to finish copying from kStagingFramesInFlight frames back
-        mpStagingFence->syncCpu(fenceWaitVal);
+        mpStagingFence->syncCpu(mFenceWaitValues[mStagingCount]);
 
         DrawArguments* drawArgs = (DrawArguments*)stagingBuffer->map(Buffer::MapType::Write);
         for (uint i = 0; i < buffSize; i++)
@@ -277,11 +262,16 @@ namespace Falcor
             mDraw[index].get(), 0, stagingBuffer.get(), sizeof(DrawArguments) * stagingOffset,
             sizeof(DrawArguments) * buffSize
         );
-        pRenderContext->flush(); //Sumbit pending commands before adding the Fence Signal
+    }
 
-        fenceWaitVal = mpStagingFence->gpuSignal(pRenderContext->getLowLevelData()->getCommandQueue()); //Signal GPU for next wait
-
-        stagingCount = (stagingCount + 1) % kStagingFramesInFlight;
+    void FrustumCulling::endDraw(RenderContext* pRenderContext) {
+        // Sumbit pending commands before adding the Fence Signal
+        if(pRenderContext->hasPendingCommands())
+            pRenderContext->flush(); 
+        //Signal Fence for next round
+        mFenceWaitValues[mStagingCount] = mpStagingFence->gpuSignal(pRenderContext->getLowLevelData()->getCommandQueue()); // Signal GPU for next wait
+        //Increase Counter
+        mStagingCount = (mStagingCount + 1) % kStagingFramesInFlight;
     }
 
 }

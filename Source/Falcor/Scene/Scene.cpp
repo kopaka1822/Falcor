@@ -576,6 +576,7 @@ namespace Falcor
             }
         }
 
+        pFrustumCulling->endDraw(pRenderContext);
         pState->setRasterizerState(pCurrentRS);
     }
 

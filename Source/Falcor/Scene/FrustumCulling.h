@@ -81,6 +81,9 @@ namespace Falcor
         // Update of the draw buffer with (culled) vector of draw arguments. Overload for DrawArguments
         void updateDrawBuffer(RenderContext* pRenderContext, uint index, const std::vector<DrawArguments> drawArguments);
 
+        // Call at the end of the draw call for the fence sync and staging count increase
+        void endDraw(RenderContext* pRenderContext);
+
         std::vector<ref<Buffer>>& getDrawBuffers() { return mDraw; }
         std::vector<uint>& getDrawCounts() { return mDrawCount; }
 
@@ -88,7 +91,7 @@ namespace Falcor
         void invalidateAllDrawBuffers();
 
     private:
-        static const uint kStagingFramesInFlight = 4u;
+        static const uint kStagingFramesInFlight = 6u;
 
         struct Plane
         {
@@ -118,7 +121,6 @@ namespace Falcor
             uint count;
             uint maxElementsBytes;
             ref<Buffer> buffer;
-            uint64_t fenceWaitValue[kStagingFramesInFlight];
         };
 
         //Creates the camera frustum based on an perspective camera
@@ -134,6 +136,8 @@ namespace Falcor
         ref<GpuFence> mpStagingFence;
 
         bool mDrawValid = false;
+        uint mStagingCount = 0; 
+        std::array<uint64_t, kStagingFramesInFlight> mFenceWaitValues;
         std::vector<StagingInfo> mStagingBuffer; // Current Staging index for each buff
         std::vector<ref<Buffer>> mDraw;      //Draw buffer that can be reused if there was no change in frustum. One per mDrawArgs from scene
         std::vector<uint> mDrawCount;         //The number of elements in the draw buffer. One per mDrawArgs from scene
