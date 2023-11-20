@@ -36,6 +36,7 @@
 #include "Core/Program/ProgramVars.h"
 #include "Core/Program/ProgramVersion.h"
 #include "Core/Program/RtProgram.h"
+#include "Core/API/GpuFence.h"
 #include "Utils/Properties.h"
 #include "Utils/Debug/PixelDebug.h"
 #include "Scene/Scene.h"
@@ -107,7 +108,7 @@ public:
 private:
     const float kEVSM_ExponentialConstantMax = 42.f;    //Max exponential constant for Exponential Variance Shadow Maps
     const float kESM_ExponentialConstantMax = 84.f;     //Max exponential constant for Exponential Shadow Maps
-    const uint  kStagingBufferCount = 3;                // Number of staging buffers for GPU CPU
+    const static uint  kStagingBufferCount = 4;         // Number of staging buffers CPU buffers for GPU/CPU sync
 
     struct ShaderParameters
     {
@@ -175,6 +176,7 @@ private:
     ref<Device> mpDevice;                               ///< Graphics device
     ref<Scene> mpScene;                                 ///< Scene                          
     ref<CPUSampleGenerator> mpCPUJitterSampleGenerator; ///< Sample generator for shadow map jitter
+    ref<GpuFence> mpFence;                              ///< Fence for GPU / CPU sync
 
     //FBOs
     ref<Fbo> mpFbo;
@@ -306,6 +308,7 @@ private:
     uint2 mNPSOffsets = uint2(0);   //x = idx first spot; y = idx first cascade
     std::vector<float4x4> mSpotDirViewProjMat;      //Spot matrices
     std::vector<LightTypeSM> mPrevLightType;   // Vector to check if the Shadow Map Type is still correct
+    std::array<uint, kStagingBufferCount> mStagingFenceWaitValues;  //Fence wait values for staging cpu / gpu sync               
 
     //Blur 
     std::unique_ptr<SMGaussianBlur> mpBlurShadowMap;
@@ -320,7 +323,7 @@ private:
     std::vector<ref<Texture>> mpShadowMapsStatic;     // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
     ref<Buffer> mpLightMapping;
     ref<Buffer> mpVPMatrixBuffer;
-    std::vector<ref<Buffer>> mpVPMatrixStangingBuffer;
+    ref<Buffer> mpVPMatrixStangingBuffer;
     ref<Buffer> mpNormalizedPixelSize;             //Buffer with the normalized pixel size for each ShadowMap
     ref<Texture> mpDepthCascaded;                  //Depth texture needed for some types of cascaded (can be null)
     ref<Texture> mpDepthCube;                      //Depth texture needed for the cube map

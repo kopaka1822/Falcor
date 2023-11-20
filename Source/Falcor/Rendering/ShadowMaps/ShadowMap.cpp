@@ -99,6 +99,12 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
     samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear);
     mpShadowSamplerLinear = Sampler::create(mpDevice, samplerDesc);
 
+    //Init Fence
+    mpFence = GpuFence::create(mpDevice);
+    mpFence->breakStrongReferenceToDevice();
+    for (auto& waitVal : mStagingFenceWaitValues)
+        waitVal = 0;
+
     // Set RasterizerStateDescription
     updateRasterizerStates();
 
@@ -139,7 +145,7 @@ void ShadowMap::prepareShadowMapBuffers()
     {
         mpLightMapping.reset();
         mpVPMatrixBuffer.reset();
-        mpVPMatrixStangingBuffer.clear();
+        mpVPMatrixStangingBuffer.reset();
     }
 
     //Initialize the Shadow Map Textures
@@ -392,24 +398,19 @@ void ShadowMap::prepareShadowMapBuffers()
         size_t size = mpShadowMaps.size() + mpCascadedShadowMaps.size() * mCascadedLevelCount;
         std::vector<float4x4> initData(size);
         for (size_t i = 0; i < initData.size(); i++)
-            initData[i] = float4x4();
+            initData[i] = float4x4::identity();
 
          mpVPMatrixBuffer = Buffer::createStructured(
             mpDevice, sizeof(float4x4), size, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false
         );
         mpVPMatrixBuffer->setName("ShadowMapViewProjectionBuffer");
 
-        mpVPMatrixStangingBuffer.clear();
-        mpVPMatrixStangingBuffer.resize(kStagingBufferCount);
-        for (uint i = 0; i < kStagingBufferCount; i++)
-        {
-            mpVPMatrixStangingBuffer[i] = Buffer::createStructured(
-                mpDevice, sizeof(float4x4), size, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::Write, initData.data(), false
-            );
-            mpVPMatrixStangingBuffer[i]->setName("ShadowMapViewProjectionStagingBuffer " + std::to_string(i));
-        }
-
-
+        mpVPMatrixStangingBuffer = Buffer::createStructured(
+            mpDevice, sizeof(float4x4), size * kStagingBufferCount, ResourceBindFlags::ShaderResource,
+            Buffer::CpuAccess::Write, initData.data(), false
+        );
+        mpVPMatrixStangingBuffer->setName("ShadowMapViewProjectionStagingBuffer");
+       
         mCascadedMatrixStartIndex = mpShadowMaps.size();   //Set the start index for the cascaded VP Mats
     }
 
@@ -1839,26 +1840,33 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     {
         static uint stagingCount = 0;
 
-        float4x4* mats = (float4x4*)mpVPMatrixStangingBuffer[stagingCount]->map(Buffer::MapType::Write);
+        size_t totalSize = mpShadowMaps.size() + mpCascadedShadowMaps.size() * mCascadedLevelCount;
+        auto& fenceWaitVal = mStagingFenceWaitValues[stagingCount];
+        const uint stagingOffset = totalSize * stagingCount;
+
+        //Wait for the GPU to finish copying from kStagingFramesInFlight frames back
+        mpFence->syncCpu(fenceWaitVal);
+
+        float4x4* mats = (float4x4*)mpVPMatrixStangingBuffer->map(Buffer::MapType::Write);
         for (size_t i = 0; i < mSpotDirViewProjMat.size(); i++)
         {
             if (!wasRendered[i])
                 continue;
-            mats[i] = mSpotDirViewProjMat[i];
+            mats[stagingOffset + i] = mSpotDirViewProjMat[i];
         }
 
         for (size_t i = 0; i < mpCascadedShadowMaps.size() * mCascadedLevelCount; i++)
         {
-            mats[mCascadedMatrixStartIndex + i] = mCascadedVPMatrix[i];
+            mats[stagingOffset + mCascadedMatrixStartIndex + i] = mCascadedVPMatrix[i];
         }
 
-        mpVPMatrixStangingBuffer[stagingCount]->unmap();
-
-        size_t totalSize = mpShadowMaps.size() + mpCascadedShadowMaps.size() * mCascadedLevelCount;
-
         pRenderContext->copyBufferRegion(
-            mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer[stagingCount].get(), 0, sizeof(float4x4) * totalSize
+            mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer.get(), sizeof(float4x4) * stagingOffset, sizeof(float4x4) * totalSize
         );
+
+        pRenderContext->flush(); // Sumbit pending commands before adding the Fence Signal
+
+        fenceWaitVal = mpFence->gpuSignal(pRenderContext->getLowLevelData()->getCommandQueue()); // Signal GPU for next wait
 
         stagingCount = (stagingCount + 1) % kStagingBufferCount;
     }
