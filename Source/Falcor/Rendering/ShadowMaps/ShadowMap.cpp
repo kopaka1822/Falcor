@@ -1447,7 +1447,6 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
             maxZ *= mCascZMult;
         }
 
-        //TODO Check why this does not work !
         renderLevel[i] = false;
 
         //Check if the current cascade box fit into the box from last frame

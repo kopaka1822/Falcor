@@ -499,15 +499,6 @@ namespace Falcor
 
             bool bufferValid = pFrustumCulling->isBufferValid(i);
 
-            // Helper to create the draw-indirect buffer.
-            auto createDrawBuffer = [&](const auto& drawMeshes, uint index) {
-                pDrawBuffers[index] = Buffer::create(
-                    mpDevice, sizeof(drawMeshes[0]) * drawMeshes.size(), Resource::BindFlags::IndirectArg, Buffer::CpuAccess::None,
-                    drawMeshes.data()
-                );
-                pDrawBuffers[index]->setName("FrustumCulling draw buffer");
-            };
-
             if (isIndexed && (!bufferValid || draw.isDynamic))
             {
                 pDrawBufferCounts[i] = 0;           //Reset Draw buffer count if we rerecord
