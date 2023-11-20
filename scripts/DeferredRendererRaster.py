@@ -17,11 +17,12 @@ def render_graph_DeferredRenderer():
     g.add_edge('GBufferRaster.diffuseOpacity', 'ShadowPass.diffuse')
     g.add_edge('GBufferRaster.specRough', 'ShadowPass.specularRoughness')
     g.add_edge('GBufferRaster.emissive', 'ShadowPass.emissive')
-    g.add_edge('GBufferRaster.guideNormalW', 'ShadowPass.normalW')
     g.add_edge('VideoRecorder', 'GBufferRaster')
     g.add_edge('TAA.colorOut', 'ToneMapper.src')
     g.add_edge('ShadowPass.color', 'TAA.colorIn')
     g.add_edge('GBufferRaster.mvec', 'TAA.motionVecs')
+    g.add_edge('GBufferRaster.normW', 'ShadowPass.normalW')
+    g.add_edge('GBufferRaster.guideNormalW', 'ShadowPass.guideNormalW')
     g.mark_output('ToneMapper.dst')
     return g
 

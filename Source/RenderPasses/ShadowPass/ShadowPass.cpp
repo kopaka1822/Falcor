@@ -40,12 +40,13 @@ namespace
 
     const ChannelList kInputChannels = {
         {"posW", "gPosW", "World Position"},
-        {"normalW", "gNormalW", "World Normal"},
+        
         {"faceNormalW", "gFaceNormalW", "Face Normal"},
         {"emissive", "gEmissive", "Emissive", true}
     };
 
     const ChannelList kOptionalInputsShading = {
+        {"normalW", "gNormalW", "World Normal (Vertex)", true},
         {"tangentW", "gTangentW", "Tangent", true},
         {"texCoord", "gTexCoord", "Texture Coordinate", true},
         {"texGrads", "gTexGrads", "Texture Gradients (LOD)", true},
@@ -53,6 +54,7 @@ namespace
     };
 
     const ChannelList kOptionalInputsSimplifiedShading = {
+        {"guideNormalW", "gGuideNormalW", "World Normal from Textures", true},
         {"diffuse", "gDiffuse", "Diffuse Reflection", true},
         {"specularRoughness", "gSpecRough", "Specular Reflection (xyz) and Roughness (w)", true},
     };

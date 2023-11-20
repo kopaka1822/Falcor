@@ -43,17 +43,18 @@ import ShadowPassData;
 
 //Inputs
 Texture2D<float4> gPosW;
-Texture2D<float4> gNormalW;
 Texture2D<float4> gFaceNormalW;
 Texture2D<float4> gEmissive;   //Optional
 
 //Optional Inputs Complex Shading
+Texture2D<float4> gNormalW;
 Texture2D<float4> gTangentW;
 Texture2D<float2> gTexCoord;
 Texture2D<float4> gTexGrads;
 Texture2D<uint4> gMaterialInfo;
 
 //Optional Inputs Simplified Shading
+Texture2D<float4> gGuideNormalW;
 Texture2D<float4> gDiffuse;
 Texture2D<float4> gSpecRough;
 
@@ -305,9 +306,7 @@ void rayGen()
     float4 posTex = gPosW[pixel];
     float3 posW = posTex.xyz;
     bool valid = posTex.w > 0;
-    float3 normalW = gNormalW[pixel].xyz;
     float3 faceNormalW = gFaceNormalW[pixel].xyz;
-    float4 tangentW = gTangentW[pixel];
     
     //Get view dir from camera
     float3 view = -gScene.camera.computeRayPinhole(pixel, frameDim).dir;
@@ -321,6 +320,7 @@ void rayGen()
     if (valid)
     {
     #if SIMPLIFIED_SHADING
+        float3 normalW = gGuideNormalW[pixel].xyz;
         float3 diffuse = gDiffuse[pixel].xyz;
         float4 specRough = gSpecRough[pixel];
 
@@ -363,6 +363,8 @@ void rayGen()
             emissive = gEmissive[pixel].xyz;
         #endif //Valid gEmissive
     #else
+        float3 normalW = gNormalW[pixel].xyz;
+        float4 tangentW = gTangentW[pixel];
         float2 texCoord = gTexCoord[pixel];
         uint4 materialInfo = gMaterialInfo[pixel];
         float4 grads = gTexGrads[pixel];
@@ -383,7 +385,7 @@ void rayGen()
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
         let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = mi.getProperties(sd);
-    
+        
         //Loop over all lights
         for (uint i = 0; i < lightCount; i++)
         {
