@@ -198,10 +198,15 @@ void VideoRecorder::renderUI(RenderContext* pRenderContext, Gui::Widgets& widget
             //startRender();
             startWarmup();
         }
-        if (mOutputs.empty()) widget.tooltip("No outputs selected. Nothing will be saved to file!");
+        if (mOutputs.empty())
+            widget.tooltip("No outputs selected. Nothing will be saved to file!");
+        else
+            widget.tooltip("FFMPEG is needed. Put in \"build/[buildname]/Source/Mogwai\"");
     }
 
-    widget.textbox("Prefix", mOutputPrefix);
+    widget.textbox("Folder Prefix", mOutputPrefixFolder);
+    widget.tooltip("Leave empty if no folder is desired");
+    widget.textbox("Filename Prefix", mOutputPrefix);
 
     widget.var("FPS", mFps, 1, 240);
 
@@ -573,7 +578,16 @@ void VideoRecorder::stopRender()
         auto filenameBase = outputName + "/frame" + outputName;
         char buffer[2048];
 
-        std::string outputFilename = mOutputPrefix + outputName + ".mp4";
+        std::string outputFilename;
+        if (!mOutputPrefixFolder.empty())
+        {
+            if (!folderExists(mOutputPrefixFolder))
+                createFolder(mOutputPrefixFolder);
+            outputFilename = mOutputPrefixFolder + "/" + mOutputPrefix + outputName + ".mp4";
+        }
+        else
+            outputFilename = mOutputPrefix + outputName + ".mp4";
+
         deleteFile(outputFilename); // delete old file (otherwise ffmpeg will not write anything)
         sprintf_s(buffer, "ffmpeg -r %d -i %s%%04d.bmp -c:v libx264 -preset medium -crf 12 -vf \"fps=%d,format=yuv420p\" \"%s\" 2>&1", mFps, filenameBase.c_str(), mFps, outputFilename.c_str());
 
@@ -581,7 +595,7 @@ void VideoRecorder::stopRender()
         FILE* ffmpeg = _popen(buffer, "w");
         if (!ffmpeg)
         {
-            logError("Cannot use popen to execute ffmpeg!");
+            logError("Cannot use popen to execute ffmpeg!. Put ffmpeg in \"build/[buildname]/Source/Mogwai\"");
             continue;
         }
 
