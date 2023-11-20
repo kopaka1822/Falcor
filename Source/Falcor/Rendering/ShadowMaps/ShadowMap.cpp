@@ -584,7 +584,6 @@ void ShadowMap::prepareProgramms()
 
 void ShadowMap::prepareGaussianBlur() {
     bool blurChanged = false;
-    // TODO add blur for cascaded and point
 
     if (mUseGaussianBlur && mShadowMapType != ShadowMapType::ShadowMap)
     {
@@ -847,12 +846,54 @@ void ShadowMap::setSMRayShaderVars(ShaderVar& var, RayShaderParameters& params)
     
 }
 
+float4x4 ShadowMap::getProjViewForCubeFace(uint face,const LightData& lightData, const float4x4& projectionMatrix)
+{
+    float3 lightTarget, up;
+    return getProjViewForCubeFace(face, lightData, projectionMatrix, lightTarget, up);
+}
+
+float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix, float3& lightTarget, float3& up)
+{
+    switch (face)
+    {
+    case 0: //+x (or dir)
+        lightTarget = float3(1, 0, 0);
+        up = float3(0, -1, 0);
+        break;
+    case 1: //-x
+        lightTarget = float3(-1, 0, 0);
+        up = float3(0, -1, 0);
+        break;
+    case 2: //+y
+        lightTarget = float3(0, -1, 0);
+        up = float3(0, 0, -1);
+        break;
+    case 3: //-y
+        lightTarget = float3(0, 1, 0);
+        up = float3(0, 0, 1);
+        break;
+    case 4: //+z
+        lightTarget = float3(0, 0, 1);
+        up = float3(0, -1, 0);
+        break;
+    case 5: //-z
+        lightTarget = float3(0, 0, -1);
+        up = float3(0, -1, 0);
+        break;
+    }
+    lightTarget += lightData.posW;
+    float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
+
+    return math::mul(projectionMatrix, viewMat);
+}
+
 void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext)
 {
     FALCOR_PROFILE(pRenderContext, "GenShadowMapPoint");
     if (index == 0)
     {
         mUpdateShadowMap |= mShadowCubeRasterPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass());
+        dummyProfileRaster(pRenderContext);
     }
 
     // Create Program Vars
@@ -866,9 +907,9 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
     if (mUpdateShadowMap)
         mStaticTexturesReady[1] = false;
 
+    bool lightMoved = changes == Light::Changes::Position;
     if (mShadowMapUpdateMode == SMUpdateMode::Static)
-        renderLight =
-            (changes == Light::Changes::Active) || (changes == Light::Changes::Position);
+        renderLight = (changes == Light::Changes::Active) || lightMoved;
     else if (mShadowMapUpdateMode == SMUpdateMode::UpdateAll)
         renderLight = true;
     else
@@ -926,18 +967,37 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
             mpFboCube->attachDepthStencilTarget(mpDepthCube);
         }
         
+        float3 lightTarget, up;
+        params.viewProjectionMatrix = getProjViewForCubeFace(face, lightData, projMat,lightTarget, up);
 
-        params.viewProjectionMatrix = getProjViewForCubeFace(face, lightData, projMat);
+        const uint cullingIndex = mFrustumCullingVectorOffsets.x + index * 6 + face;
+         // Update frustum
+        if ((lightMoved || mUpdateShadowMap) && mUseFrustumCulling)
+        {
+            mFrustumCulling[cullingIndex]->updateFrustum(lightData.posW, lightTarget, up, 1.f, float(M_PI_2), mNear, mFar);
+        }
 
         auto vars = mShadowCubeRasterPass.pVars->getRootVar();
         setSMShaderVars(vars, params);
 
         mShadowCubeRasterPass.pState->setFbo(mpFboCube);
-        mpScene->rasterize(pRenderContext, mShadowCubeRasterPass.pState.get(), mShadowCubeRasterPass.pVars.get(), mCullMode, meshRenderMode);
+        if (mUseFrustumCulling)
+        {
+            mpScene->rasterizeFrustumCulling(
+                pRenderContext, mShadowCubeRasterPass.pState.get(), mShadowCubeRasterPass.pVars.get(),
+                mCullMode, meshRenderMode, mFrustumCulling[cullingIndex]
+            );
+        }
+        else
+        {
+            mpScene->rasterize(
+                pRenderContext, mShadowCubeRasterPass.pState.get(), mShadowCubeRasterPass.pVars.get(), mCullMode, meshRenderMode
+            );
+        }
+        
     }
 
     // Blur if it is activated/enabled
-    
     if (mpBlurCube && (meshRenderMode != RasterizerState::MeshRenderMode::Static) )
         mpBlurCube->execute(pRenderContext, mpShadowMapsCube[index]);
     
@@ -951,6 +1011,8 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
 }
 
 void ShadowMap::rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext) {
+     FALCOR_PROFILE(pRenderContext, "GenShadowMapPoint");
+
      if (index == 0)
      {
         mUpdateShadowMap |= mShadowCubeRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false));                // Update defines
@@ -965,9 +1027,9 @@ void ShadowMap::rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* 
             // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
             mShadowCubeRayPass.pVars = RtProgramVars::create(mpDevice, mShadowCubeRayPass.pProgram, mShadowCubeRayPass.pBindingTable);
         }
-     }
 
-     FALCOR_PROFILE(pRenderContext, "GenShadowMapPoint");
+        dummyProfileRayTrace(pRenderContext);
+     }
 
      auto changes = light->getChanges();
      bool renderLight = false;
@@ -1033,44 +1095,8 @@ void ShadowMap::rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* 
      */
 }
 
-float4x4 ShadowMap::getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix)
-{
-    float3 lightTarget;
-    float3 up;
-    switch (face)
-    {
-    case 0: //+x (or dir)
-        lightTarget = float3(1, 0, 0);
-        up = float3(0, -1, 0);
-        break;
-    case 1: //-x
-        lightTarget = float3(-1, 0, 0);
-        up = float3(0, -1, 0);
-        break;
-    case 2: //+y
-        lightTarget = float3(0, -1, 0);
-        up = float3(0, 0, -1);
-        break;
-    case 3: //-y
-        lightTarget = float3(0, 1, 0);
-        up = float3(0, 0, 1);
-        break;
-    case 4: //+z
-        lightTarget = float3(0, 0, 1);
-        up = float3(0, -1, 0);
-        break;
-    case 5: //-z
-        lightTarget = float3(0, 0, -1);
-        up = float3(0, -1, 0);
-        break;
-    }
-    lightTarget += lightData.posW;
-    float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
-
-    return math::mul(projectionMatrix, viewMat);
-}
-
 bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered) {
+    FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
     if (index == 0)
     {
         mUpdateShadowMap |= mShadowMapRasterPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); // Update defines
@@ -1079,9 +1105,11 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
         {
             mShadowMapRasterPass.pVars = GraphicsVars::create(mpDevice, mShadowMapRasterPass.pProgram.get());
         }
+
+        dummyProfileRaster(pRenderContext);
     }
 
-    FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
+    
     auto changes = light->getChanges();
     bool renderLight = false;
     if (mUpdateShadowMap)
@@ -1122,7 +1150,6 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
         {
             // Clear depth buffer.
             pRenderContext->clearDsv(mpDepthStatic[index]->getDSV().get(), 1.f, 0);
-            // pRenderContext->clearRtv(mpShadowMaps[index]->getRTV(0, 0, 1).get(), float4(0)); //TODO Should not be necessary?
             //  Attach Render Targets
             mpFbo->attachColorTarget(mpShadowMapsStatic[index], 0, 0, 0, 1);
             mpFbo->attachDepthStencilTarget(mpDepthStatic[index]);
@@ -1139,7 +1166,6 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
         {
             // Clear depth buffer.
             pRenderContext->clearDsv(mpDepth->getDSV().get(), 1.f, 0);
-            // pRenderContext->clearRtv(mpShadowMaps[index]->getRTV(0, 0, 1).get(), float4(0)); //TODO Should not be necessary?
             //  Attach Render Targets
             mpFbo->attachColorTarget(mpShadowMaps[index], 0, 0, 0, 1);
             mpFbo->attachDepthStencilTarget(mpDepth);
@@ -1185,7 +1211,7 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
     mSpotDirViewProjMat[index] = params.viewProjectionMatrix;
 
      // Update frustum
-    if (lightMoved || mUpdateShadowMap)
+    if ((lightMoved || mUpdateShadowMap) && mUseFrustumCulling)
     {
         mFrustumCulling[index]->updateFrustum(lightData.posW, lightTarget, up, 1.f, lightData.openingAngle * 2, mNear, mFar);
     }
@@ -1224,6 +1250,7 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
 }
 
 bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered) {
+    FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
     if (index == 0)
     {
         mUpdateShadowMap |= mShadowMapRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false)); // Update defines
@@ -1238,8 +1265,8 @@ bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRe
             // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
             mShadowMapRayPass.pVars = RtProgramVars::create(mpDevice, mShadowMapRayPass.pProgram, mShadowMapRayPass.pBindingTable);
         }
+        dummyProfileRayTrace(pRenderContext);
     }
-    FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
     
     auto changes = light->getChanges();
     bool renderLight = false;
@@ -1333,7 +1360,6 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
             mCascadedZSlices.resize(mCascadedLevelCount);
         }
 
-        //TODO add fixed user defined splits
         switch (mCascadedFrustumMode)
         {
         case Falcor::ShadowMap::CascadedFrustumMode::Manual:
@@ -1523,6 +1549,7 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
 
 bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRenderContext, bool cameraMoved)
 {
+    FALCOR_PROFILE(pRenderContext, "GenCascadedShadowMaps");
     if (index == 0)
     {
         mUpdateShadowMap |= mShadowMapCascadedRasterPass.pState->getProgram()->addDefines(getDefinesShadowMapGenPass()); // Update defines
@@ -1531,11 +1558,12 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
         {
             mShadowMapCascadedRasterPass.pVars = GraphicsVars::create(mpDevice, mShadowMapCascadedRasterPass.pProgram.get());
         }
-    }
-    FALCOR_PROFILE(pRenderContext, "GenCascadedShadowMaps");
 
-    //if (!cameraMoved && !mUpdateShadowMap)
-    //    return false;
+        dummyProfileRaster(pRenderContext); // Show the render scene every frame
+    }
+    
+    if (!cameraMoved && !mUpdateShadowMap)
+        return false;
 
     auto& lightData = light->getData();
 
@@ -1565,7 +1593,6 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
         if (mpDepthCascaded)
         {
             pRenderContext->clearDsv(mpDepthCascaded->getDSV().get(), 1.f, 0);
-            //TODO clear cascaded tex ?
             mpFboCascaded->attachColorTarget(mpCascadedShadowMaps[index],0, 0, cascLevel, 1);
         }
         else //Else only render to DepthStencil
@@ -1616,6 +1643,7 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
 
 bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRenderContext, bool cameraMoved)
 {
+    FALCOR_PROFILE(pRenderContext, "GenCascadedShadowMaps");
     if (index == 0)
     {
         mUpdateShadowMap |= mShadowMapCascadedRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false));                 // Update defines
@@ -1631,9 +1659,8 @@ bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRen
             mShadowMapCascadedRayPass.pVars =
                 RtProgramVars::create(mpDevice, mShadowMapCascadedRayPass.pProgram, mShadowMapCascadedRayPass.pBindingTable);
         }
+        dummyProfileRayTrace(pRenderContext);
     }
-
-    FALCOR_PROFILE(pRenderContext, "GenCascadedShadowMaps");
 
     if (!cameraMoved && !mUpdateShadowMap)
         return false;
@@ -1648,7 +1675,6 @@ bool ShadowMap::rayGenCascaded(uint index, ref<Light> light, RenderContext* pRen
         return false;
     }
 
-    //TODO Improve so that some level do not need to be recalculated each frame
     // Update viewProj
     std::vector<bool> renderCascadedLevel(mCascadedLevelCount);
     calcProjViewForCascaded(index, lightData, renderCascadedLevel);
@@ -2414,6 +2440,14 @@ void ShadowMap::handleShadowMapUpdateMode() {
     }
 }
 
+void ShadowMap::dummyProfileRaster(RenderContext* pRenderContext) {
+    FALCOR_PROFILE(pRenderContext, "rasterizeScene");
+}
+
+void ShadowMap::dummyProfileRayTrace(RenderContext* pRenderContext) {
+    FALCOR_PROFILE(pRenderContext, "raytraceScene");
+}
+
 void ShadowMap::updateJitterSampleGenerator() {
     switch (mJitterSamplePattern)
     {
@@ -2451,7 +2485,6 @@ void ShadowMap::RayTraceProgramHelper::initRTProgram(ref<Device> device,ref<Scen
     sbt->setRayGen(desc.addRayGen("rayGen", globalTypeConformances)); //TODO globalTypeConformances necessary? 
     sbt->setMiss(0, desc.addMiss("miss"));
 
-    // TODO: Support more geometry types and more material conformances
     if (scene->hasGeometryType(Scene::GeometryType::TriangleMesh))
     {
         sbt->setHitGroup(0, scene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));

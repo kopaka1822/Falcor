@@ -156,9 +156,11 @@ private:
     void rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
     bool rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
     bool rayGenCascaded(uint index, ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
+    float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix, float3& lightTarget, float3& up);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix);
     void calcProjViewForCascaded(uint index, const LightData& lightData, std::vector<bool>& renderLevel);
-    
+    void dummyProfileRaster(RenderContext* pRenderContext); // Shows the rasterizeSzene profile even if nothing was rendered
+    void dummyProfileRayTrace(RenderContext* pRenderContext); // Shows the raytraceScene profile even if nothing was rendered
 
     // Getter
     std::vector<ref<Texture>>& getShadowMapsCube() { return mpShadowMapsCube; }
@@ -308,7 +310,7 @@ private:
     uint2 mNPSOffsets = uint2(0);   //x = idx first spot; y = idx first cascade
     std::vector<float4x4> mSpotDirViewProjMat;      //Spot matrices
     std::vector<LightTypeSM> mPrevLightType;   // Vector to check if the Shadow Map Type is still correct
-    std::array<uint, kStagingBufferCount> mStagingFenceWaitValues;  //Fence wait values for staging cpu / gpu sync               
+    std::array<uint64_t, kStagingBufferCount> mStagingFenceWaitValues;  //Fence wait values for staging cpu / gpu sync               
 
     //Blur 
     std::unique_ptr<SMGaussianBlur> mpBlurShadowMap;
