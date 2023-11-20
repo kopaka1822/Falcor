@@ -48,6 +48,8 @@ enum class RenderPassRefreshFlags : uint32_t
  */
 static const char kRenderPassRefreshFlags[] = "_refreshFlags";
 
+static const char kRenderGraph[] = "_renderGraph";
+
 /**
  * First available preudorandom number generator dimension.
  */
