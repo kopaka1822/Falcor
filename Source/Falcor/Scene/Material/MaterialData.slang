@@ -72,8 +72,8 @@ struct MaterialHeader
 
     // packedData.z bit layout
     static constexpr uint kIoROffset = 0;
-
-    static constexpr uint kTotalHeaderBitsZ = kIoROffset + kIoRBits;
+    static constexpr uint kCastShadowFlagOffset = kIoROffset + kIoRBits + 1;
+    static constexpr uint kTotalHeaderBitsZ = kCastShadowFlagOffset + 1;
 
     // packedData.w bit layout
     static constexpr uint kTotalHeaderBitsW = 0;
@@ -144,7 +144,7 @@ struct MaterialHeader
     /** Get thin surface flag.
     */
     bool isThinSurface() CONST_FUNCTION { return packedData.x & (1u << kThinSurfaceFlagOffset); }
-
+    
     /** Set emissive flag.
     */
     SETTER_DECL void setEmissive(bool isEmissive) { packedData.x = PACK_BITS(1, kEmissiveFlagOffset, packedData.x, isEmissive ? 1 : 0); }
@@ -183,6 +183,14 @@ struct MaterialHeader
     /// Get index of refraction.
     float16_t getIoR() CONST_FUNCTION { return asfloat16((uint16_t)EXTRACT_BITS(kIoRBits, kIoROffset, packedData.z)); }
 
+    /** Set cast shadow flag.
+    */
+    SETTER_DECL void setCastShadow(bool castShadow) { packedData.z = PACK_BITS(1, kCastShadowFlagOffset, packedData.z, castShadow ? 1 : 0); }
+
+    /** Get cast shadow flag.
+    */
+    bool isCastShadow() CONST_FUNCTION { return packedData.z & (1u << kCastShadowFlagOffset); }
+    
 #ifdef HOST_CODE
     friend bool operator==(const MaterialHeader& lhs, const MaterialHeader& rhs);
     friend bool operator!=(const MaterialHeader& lhs, const MaterialHeader& rhs) { return !(lhs == rhs); }

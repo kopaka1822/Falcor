@@ -155,7 +155,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
         ShadowRayData rayData;
         rayData.visible = false;  // Set to true by miss shader if ray is not terminated before
             
-        TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+        TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
         shadow = rayData.visible ? 1.f : 0.f;                
     }

@@ -420,6 +420,7 @@ void SceneDebugger::renderPixelDataUI(Gui::Widgets& widget)
             text += fmt::format("defaultTextureSamplerID: {}\n", header.getDefaultTextureSamplerID());
             text += fmt::format("doubleSided: {}\n", header.isDoubleSided());
             text += fmt::format("thinSurface: {}\n", header.isThinSurface());
+            text += fmt::format("castShadow: {}\n", header.isCastShadow());
             text += fmt::format("emissive: {}\n", header.isEmissive());
             text += fmt::format("basicMaterial: {}\n", header.isBasicMaterial());
             text += fmt::format("lightProfileEnabled: {}\n", header.isLightProfileEnabled());

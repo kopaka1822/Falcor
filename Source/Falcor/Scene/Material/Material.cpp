@@ -84,6 +84,9 @@ namespace Falcor
 
             bool thinSurface = isThinSurface();
             if (widget.checkbox("Thin surface", thinSurface)) setThinSurface(thinSurface);
+
+            bool castShadow = isCastShadow();
+            if (widget.checkbox("Cast Shadow", castShadow)) setCastShadow(castShadow);
         }
 
         bool alphaTest = !isOpaque();
@@ -119,6 +122,15 @@ namespace Falcor
         if (mHeader.isThinSurface() != thinSurface)
         {
             mHeader.setThinSurface(thinSurface);
+            markUpdates(UpdateFlags::DataChanged);
+        }
+    }
+
+    void Material::setCastShadow(bool castShadow)
+    {
+        if (mHeader.isCastShadow() != castShadow)
+        {
+            mHeader.setCastShadow(castShadow);
             markUpdates(UpdateFlags::DataChanged);
         }
     }
@@ -380,6 +392,7 @@ namespace Falcor
         material.def_property("name", &Material::getName, &Material::setName);
         material.def_property("doubleSided", &Material::isDoubleSided, &Material::setDoubleSided);
         material.def_property("thinSurface", &Material::isThinSurface, &Material::setThinSurface);
+        material.def_property("castShadow", &Material::isCastShadow, &Material::setCastShadow);
         material.def_property_readonly("emissive", &Material::isEmissive);
         material.def_property("alphaMode", &Material::getAlphaMode, &Material::setAlphaMode);
         material.def_property("alphaThreshold", &Material::getAlphaThreshold, &Material::setAlphaThreshold);

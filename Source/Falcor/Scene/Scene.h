@@ -285,6 +285,7 @@ namespace Falcor
             std::vector<MeshID> meshList;       ///< List of meshId's that are part of the group.
             bool isStatic = false;              ///< True if group represents static non-instanced geometry.
             bool isDisplaced = false;           ///< True if group uses displacement mapping.
+            bool isCastShadow = true;          ///< True if group mesh should cast shadows
         };
 
         /** Scene graph node.
@@ -963,7 +964,7 @@ namespace Falcor
             \param[in] cullMode Optional rasterizer cull mode. The default is to cull back-facing primitives.
             \param[in] meshRenderMode Specifies which meshes should be rasterized
         */
-        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back, RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All );
+        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back, RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All, bool drawShadowThrowable = true );
 
         /** Render the scene using the rasterizer.
             This overload uses the supplied rasterizer states.
@@ -982,7 +983,8 @@ namespace Falcor
             const ref<RasterizerState>& pRasterizerStateCW,
             const ref<RasterizerState>& pRasterizerStateCCW,
             const ref<RasterizerState>& pRasterizerStateDS,
-            RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All
+            RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All,
+            bool drawShadowThrowable = true
         );
 
          /** Render the scene using the rasterizer and FrustumCulling
@@ -1000,6 +1002,7 @@ namespace Falcor
                                      GraphicsVars* pVars,
                                      RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back,
                                      RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All,
+                                     bool drawShadowThrowable = true,
                                      ref<FrustumCulling> pFrustumCulling = nullptr
         );
 
@@ -1022,6 +1025,7 @@ namespace Falcor
             const ref<RasterizerState>& pRasterizerStateCCW,
             const ref<RasterizerState>& pRasterizerStateDS,
             RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All,
+            bool drawShadowThrowable = true,
             ref<FrustumCulling> pFrustumCulling = nullptr
         );
 
@@ -1283,6 +1287,7 @@ namespace Falcor
             bool ccw = true;                ///< True if counterclockwise triangle winding.
             bool ignoreWinding = false;     ///< Ignores winding and forces draws without culling (for transparent and double sided mats)
             bool isDynamic = false;         ///< For Dynamic Meshes if they should be rendered seperatly
+            bool isCastShadow = true;      ///< True if the mesh should cast a shadow
             ResourceFormat ibFormat = ResourceFormat::Unknown;  ///< Index buffer format.
         };
 

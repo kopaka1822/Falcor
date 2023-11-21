@@ -688,6 +688,7 @@ namespace Falcor
             bool isFrontFaceCW = false;             ///< Indicate whether front-facing side has clockwise winding in object space.
             bool isDisplaced = false;               ///< True if mesh has displacement map.
             bool isAnimated = false;                ///< True if mesh has vertex animations.
+            bool isCastShadow = true;              ///< True if mesh should throw a shadow
             AABB boundingBox;                       ///< Mesh bounding-box in object space.
             std::set<NodeID> instances;             ///< IDs of all nodes that instantiate this mesh.
 

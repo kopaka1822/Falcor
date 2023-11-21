@@ -249,6 +249,7 @@ struct BuilderContext
             {
                 pDefaultMaterial = Falcor::StandardMaterial::create(builder.getDevice(), "Default");
                 pDefaultMaterial->setDoubleSided(true);
+                pDefaultMaterial->setCastShadow(true);
             }
             return pDefaultMaterial;
         }
@@ -1001,6 +1002,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
                 [&](Falcor::ref<Texture> pTexture) { pPBRTMaterial->setBaseColorTexture(pTexture); }
             );
             pPBRTMaterial->setDoubleSided(true);
+            pPBRTMaterial->setCastShadow(true);
             pMaterial = pPBRTMaterial;
         }
         else
@@ -1013,6 +1015,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
                 [&](Falcor::ref<Texture> pTexture) { pStandardMaterial->setBaseColorTexture(pTexture); }
             );
             pStandardMaterial->setDoubleSided(true);
+            pStandardMaterial->setCastShadow(true);
             pMaterial = pStandardMaterial;
         }
     }
@@ -1038,6 +1041,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
                 [&](Falcor::ref<Texture> pTexture) { pPBRTMaterial->setBaseColorTexture(pTexture); }
             );
             pPBRTMaterial->setDoubleSided(true);
+            pPBRTMaterial->setCastShadow(true);
             pMaterial = pPBRTMaterial;
         }
         else
@@ -1052,6 +1056,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
                 [&](Falcor::ref<Texture> pTexture) { pStandardMaterial->setBaseColorTexture(pTexture); }
             );
             pStandardMaterial->setDoubleSided(true);
+            pStandardMaterial->setCastShadow(true);
             pMaterial = pStandardMaterial;
         }
     }
@@ -1073,6 +1078,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
             pPBRTMaterial->setTransmissionColor(k);
             pPBRTMaterial->setRoughness(roughness);
             pPBRTMaterial->setDoubleSided(true);
+            pPBRTMaterial->setCastShadow(true);
             pMaterial = pPBRTMaterial;
         }
         else
@@ -1085,6 +1091,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
             pStandardMaterial->setMetallic(1.f);
             pStandardMaterial->setRoughness(std::sqrt(roughness));
             pStandardMaterial->setDoubleSided(true);
+            pStandardMaterial->setCastShadow(true);
             pMaterial = pStandardMaterial;
         }
     }
@@ -1114,6 +1121,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
             pPBRTMaterial->setSpecularParams(float4(interfaceRoughness, conductorRoughness));
             pPBRTMaterial->setIndexOfRefraction(interfaceEta);
             pPBRTMaterial->setDoubleSided(true);
+            pPBRTMaterial->setCastShadow(true);
             pMaterial = pPBRTMaterial;
         }
         else
@@ -1131,6 +1139,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
             pStandardMaterial->setMetallic(1.f);
             pStandardMaterial->setRoughness(std::sqrt(roughness));
             pStandardMaterial->setDoubleSided(true);
+            pStandardMaterial->setCastShadow(true);
             pMaterial = pStandardMaterial;
         }
     }
@@ -1150,6 +1159,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
             auto pPBRTMaterial = PBRTDielectricMaterial::create(ctx.builder.getDevice(), entity.name);
             pPBRTMaterial->setRoughness(roughness);
             pPBRTMaterial->setIndexOfRefraction(eta);
+            pPBRTMaterial->setCastShadow(true);
             pMaterial = pPBRTMaterial;
         }
         else
@@ -1162,6 +1172,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
             pStandardMaterial->setRoughness(std::sqrt(roughness));
             pStandardMaterial->setIndexOfRefraction(eta);
             pStandardMaterial->setSpecularTransmission(1.f);
+            pStandardMaterial->setCastShadow(true);
             pMaterial = pStandardMaterial;
         }
     }
@@ -1180,6 +1191,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
         pStandardMaterial->setIndexOfRefraction(eta);
         pStandardMaterial->setSpecularTransmission(1.f);
         pStandardMaterial->setThinSurface(true);
+        pStandardMaterial->setCastShadow(true);
         pMaterial = pStandardMaterial;
     }
     else if (type == "diffusetransmission")
@@ -1203,6 +1215,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
                 transmittance, [&](float3 rgb) { pPBRTMaterial->setTransmissionColor(rgb); },
                 [&](Falcor::ref<Texture> pTexture) { pPBRTMaterial->setTransmissionTexture(pTexture); }
             );
+            pPBRTMaterial->setCastShadow(true);
             pMaterial = pPBRTMaterial;
         }
         else
@@ -1220,6 +1233,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
                 [&](Falcor::ref<Texture> pTexture) { pStandardMaterial->setTransmissionTexture(pTexture); }
             );
             pStandardMaterial->setDoubleSided(true);
+            pStandardMaterial->setCastShadow(true);
             pMaterial = pStandardMaterial;
         }
     }
@@ -1249,6 +1263,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
         pHairMaterial->setBaseColor(float4(baseColor, 1.f));
         pHairMaterial->setSpecularParams(float4(beta_m, beta_n, alpha, 0.f));
         pHairMaterial->setIndexOfRefraction(eta);
+        pHairMaterial->setCastShadow(true);
 
         if (sigma_a)
         {
@@ -1296,6 +1311,7 @@ Falcor::ref<Falcor::Material> createMaterial(BuilderContext& ctx, const Material
         try
         {
             auto pRGLMaterial = RGLMaterial::create(ctx.builder.getDevice(), entity.name, path);
+            pRGLMaterial->setCastShadow(true);
             pMaterial = pRGLMaterial;
         }
         catch (const RuntimeError& e)

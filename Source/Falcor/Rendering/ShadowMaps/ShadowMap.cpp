@@ -942,8 +942,6 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
         if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
         {
             uint cubeDepthIdx = index * 6 + face;
-            // Clear depth buffer.
-            pRenderContext->clearDsv(mpDepthCubeStatic[cubeDepthIdx]->getDSV().get(), 1.f, 0);
             //  Attach Render Targets
             mpFboCube->attachColorTarget(mpShadowMapsCubeStatic[index], 0, 0, face, 1);
             mpFboCube->attachDepthStencilTarget(mpDepthCubeStatic[cubeDepthIdx]);
@@ -960,8 +958,6 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
         }
         else
         {
-            // Clear depth buffer.
-            pRenderContext->clearDsv(mpDepthCube->getDSV().get(), 1.f, 0);
             // Attach Render Targets
             mpFboCube->attachColorTarget(mpShadowMapsCube[index], 0, 0, face, 1);
             mpFboCube->attachDepthStencilTarget(mpDepthCube);
@@ -981,17 +977,30 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
         setSMShaderVars(vars, params);
 
         mShadowCubeRasterPass.pState->setFbo(mpFboCube);
+        if (meshRenderMode != RasterizerState::MeshRenderMode::Dynamic)
+        {
+            float4 clearColor = float4(1.f);
+            if (mShadowMapType == ShadowMapType::Exponential)
+                clearColor.x = exp(mExponentialSMConstant); //Set to highest possible
+            else if (mShadowMapType == ShadowMapType::ExponentialVariance)
+            {
+                float2 expVarMax = float2(exp(mEVSMConstant), -exp(-mEVSMNegConstant)); 
+                clearColor = float4(expVarMax.x, expVarMax.x * expVarMax.x, expVarMax.y, expVarMax.y * expVarMax.y); // Set to highest possible
+            }
+                
+            pRenderContext->clearFbo(mShadowCubeRasterPass.pState->getFbo().get(), clearColor, 1.f, 0);
+        }
         if (mUseFrustumCulling)
         {
             mpScene->rasterizeFrustumCulling(
                 pRenderContext, mShadowCubeRasterPass.pState.get(), mShadowCubeRasterPass.pVars.get(),
-                mCullMode, meshRenderMode, mFrustumCulling[cullingIndex]
+                mCullMode, meshRenderMode,false, mFrustumCulling[cullingIndex]
             );
         }
         else
         {
             mpScene->rasterize(
-                pRenderContext, mShadowCubeRasterPass.pState.get(), mShadowCubeRasterPass.pVars.get(), mCullMode, meshRenderMode
+                pRenderContext, mShadowCubeRasterPass.pState.get(), mShadowCubeRasterPass.pVars.get(), mCullMode, meshRenderMode, false
             );
         }
         
@@ -1148,9 +1157,7 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
     {
         if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
         {
-            // Clear depth buffer.
-            pRenderContext->clearDsv(mpDepthStatic[index]->getDSV().get(), 1.f, 0);
-            //  Attach Render Targets
+            // Attach Render Targets
             mpFbo->attachColorTarget(mpShadowMapsStatic[index], 0, 0, 0, 1);
             mpFbo->attachDepthStencilTarget(mpDepthStatic[index]);
         }
@@ -1164,8 +1171,6 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
         }
         else
         {
-            // Clear depth buffer.
-            pRenderContext->clearDsv(mpDepth->getDSV().get(), 1.f, 0);
             //  Attach Render Targets
             mpFbo->attachColorTarget(mpShadowMaps[index], 0, 0, 0, 1);
             mpFbo->attachDepthStencilTarget(mpDepth);
@@ -1176,8 +1181,6 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
     {
         if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
         {
-            // Clear depth buffer.
-            pRenderContext->clearDsv(mpShadowMapsStatic[index]->getDSV().get(), 1.f, 0);
             // Attach Render Targets
             mpFbo->attachDepthStencilTarget(mpShadowMapsStatic[index]);
         }
@@ -1189,8 +1192,6 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
         }
         else
         {
-            // Clear depth buffer.
-            pRenderContext->clearDsv(mpShadowMaps[index]->getDSV().get(), 1.f, 0);
             // Attach Render Targets
             mpFbo->attachDepthStencilTarget(mpShadowMaps[index]);
         }
@@ -1220,17 +1221,30 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
     setSMShaderVars(vars, params);
 
     mShadowMapRasterPass.pState->setFbo(mpFbo);
+    if (meshRenderMode != RasterizerState::MeshRenderMode::Dynamic)
+    {
+        float4 clearColor = float4(1.f);
+        if (mShadowMapType == ShadowMapType::Exponential)
+            clearColor.x = exp(mExponentialSMConstant); // Set to highest possible
+        else if (mShadowMapType == ShadowMapType::ExponentialVariance)
+        {
+            float2 expVarMax = float2(exp(mEVSMConstant), -exp(-mEVSMNegConstant));
+            clearColor = float4(expVarMax.x, expVarMax.x * expVarMax.x, expVarMax.y, expVarMax.y * expVarMax.y); // Set to highest possible
+        }
+        pRenderContext->clearFbo(mShadowMapRasterPass.pState->getFbo().get(), clearColor, 1.f, 0);
+    }
+
     if (mUseFrustumCulling)
     {
         mpScene->rasterizeFrustumCulling(
             pRenderContext, mShadowMapRasterPass.pState.get(), mShadowMapRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
-            mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode,
+            mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode, false,
             mFrustumCulling[index]
         );
     }else{
         mpScene->rasterize(
             pRenderContext, mShadowMapRasterPass.pState.get(), mShadowMapRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
-            mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode
+            mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode, false
         );
     }
     
@@ -1592,12 +1606,10 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
         // If depth tex is set, Render to RenderTarget
         if (mpDepthCascaded)
         {
-            pRenderContext->clearDsv(mpDepthCascaded->getDSV().get(), 1.f, 0);
             mpFboCascaded->attachColorTarget(mpCascadedShadowMaps[index],0, 0, cascLevel, 1);
         }
         else //Else only render to DepthStencil
         {
-            pRenderContext->clearDsv(mpCascadedShadowMaps[index]->getDSV(0, cascLevel, 1).get(), 1.f, 0);
             mpFboCascaded->attachDepthStencilTarget(mpCascadedShadowMaps[index], 0, cascLevel, 1);
         }
        
@@ -1611,20 +1623,33 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
 
         
         mShadowMapCascadedRasterPass.pState->setFbo(mpFboCascaded);
+
+        float4 clearColor = float4(1.f);
+        if (mShadowMapType == ShadowMapType::Exponential)
+            clearColor.x = exp(mExponentialSMConstant); // Set to highest possible
+        else if (mShadowMapType == ShadowMapType::ExponentialVariance)
+        {
+            float2 expVarMax = float2(exp(mEVSMConstant), -exp(-mEVSMNegConstant));
+            clearColor = float4(expVarMax.x, expVarMax.x * expVarMax.x, expVarMax.y, expVarMax.y * expVarMax.y); // Set to highest possible
+        }
+
+        pRenderContext->clearFbo(mShadowMapCascadedRasterPass.pState->getFbo().get(), clearColor, 1.f, 0);
+
         if (mUseFrustumCulling)
         {
             const uint cullingIndex = mFrustumCullingVectorOffsets.x + index * mCascadedLevelCount + cascLevel;
             mpScene->rasterizeFrustumCulling(pRenderContext, mShadowMapCascadedRasterPass.pState.get(),
                                              mShadowMapCascadedRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
-                                             mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None],
-                                             RasterizerState::MeshRenderMode::All, mFrustumCulling[cullingIndex]
+                                             mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], RasterizerState::MeshRenderMode::All, false,
+                                             mFrustumCulling[cullingIndex]
             );
         }
         else
         {
             mpScene->rasterize(
                 pRenderContext, mShadowMapCascadedRasterPass.pState.get(), mShadowMapCascadedRasterPass.pVars.get(),
-                mFrontClockwiseRS[mCullMode], mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None]
+                mFrontClockwiseRS[mCullMode], mFrontCounterClockwiseRS[mCullMode],
+                mFrontCounterClockwiseRS[RasterizerState::CullMode::None], RasterizerState::MeshRenderMode::All, false
             );
         }
         

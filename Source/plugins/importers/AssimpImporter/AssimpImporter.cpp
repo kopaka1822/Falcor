@@ -914,6 +914,10 @@ ref<Material> createMaterial(
     if (pAiMaterial->Get(AI_MATKEY_TWOSIDED, isDoubleSided) == AI_SUCCESS)
         pMaterial->setDoubleSided((isDoubleSided != 0));
 
+    //TODO: See if there is a flag
+    //CastShadow
+    pMaterial->setCastShadow(true);    //Set to always true if imported
+
     // Handle GLTF2 PBR materials
     if (importMode == ImportMode::GLTF2)
     {
