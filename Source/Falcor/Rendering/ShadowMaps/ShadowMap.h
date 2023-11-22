@@ -84,9 +84,7 @@ public:
     enum class SMUpdateMode: uint
     {
         Static = 0,                 //Render once
-        UpdateAll = 1,              //Render every frame
-        UpdateOnePerFrame = 2,      //Render one light per frame
-        UpdateInNFrames = 3         //Update all lights in N frames   
+        Dynamic = 1,              //Render every frame
     };
 
     //Sample Pattern for Shadow Map Jitter
@@ -144,7 +142,6 @@ private:
     void setSMRayShaderVars(ShaderVar& var, RayShaderParameters& params);
     void updateRasterizerStates();
     void handleNormalizedPixelSizeBuffer();
-    void handleShadowMapUpdateMode();
     void updateJitterSampleGenerator();
 
     DefineList getDefinesShadowMapGenPass(bool addAlphaModeDefines = true) const;
@@ -232,12 +229,10 @@ private:
     float2 mHSMFilteredThreshold = float2(0.02f, 0.98f); // Threshold for filtered shadow map variants
 
     //Animated Light
+    bool mSceneIsDynamic = false;
     bool mRerenderStatic = false;
     SMUpdateMode mShadowMapUpdateMode = SMUpdateMode::Static;
     bool mStaticTexturesReady[2] = {false, false}; // Spot, Cube
-    uint mUpdateFrameCounter = 0;
-    std::vector<bool> mShadowMapUpdateList[2];
-    uint mUpdateEveryNFrame = 2;
     bool mUpdateShadowMap = true;
 
     //Shadow Map
@@ -321,6 +316,7 @@ private:
     std::vector<ref<Texture>> mpShadowMaps;         // 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights)
     std::vector<ref<Texture>> mpShadowMapsCubeStatic;     // Static Cube Shadow Maps. Only used if scene has animations
     std::vector<ref<Texture>> mpShadowMapsStatic;     // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
+    std::vector<ref<Texture>> mpShadowMapsCascadedStatic; // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
     ref<Buffer> mpLightMapping;
     ref<Buffer> mpVPMatrixBuffer;
     ref<Buffer> mpVPMatrixStangingBuffer;
@@ -330,6 +326,7 @@ private:
     ref<Texture> mpDepth;                          //Depth texture needed for some types of 2D SM (can be null)
     std::vector<ref<Texture>> mpDepthCubeStatic;   // Static cube depth map copy per shadow map
     std::vector<ref<Texture>> mpDepthStatic;       // Static 2D depth map copy per shadow map
+    std::vector<ref<Texture>> mpDepthCascadedStatic; // Static 2D depth map copy per shadow map
 
     //Samplers
     ref<Sampler> mpShadowSamplerPoint;

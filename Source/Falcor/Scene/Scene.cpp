@@ -2826,13 +2826,20 @@ namespace Falcor
         mpAnimationController->setEnabled(animate);
     }
 
+    bool Scene::hasDynamicGeometry() {
+        bool hasDynamic = false;
+        //Take the drawArgs to quickly check for dynamic geometry
+        for (const auto& drawArgs : mDrawArgs)
+            hasDynamic |= drawArgs.isDynamic;
+        return hasDynamic;
+    }
+
     void Scene::setBlasUpdateMode(UpdateMode mode)
     {
         if (mode != mBlasUpdateMode) mRebuildBlas = true;
         mBlasUpdateMode = mode;
     }
 
-    //TODO: ADD Frustum Culling support here
     void Scene::createDrawList()
     {
         // This function creates argument buffers for draw indirect calls to rasterize the scene.

@@ -1123,6 +1123,10 @@ namespace Falcor
         */
         void toggleAnimations(bool animate);
 
+        /** Returns true if scene contains dynamic geometry
+        */
+        bool hasDynamicGeometry();
+
         /** Get the parameter block with all scene resources.
         */
         const ref<ParameterBlock>& getParameterBlock() const { return mpSceneBlock; }

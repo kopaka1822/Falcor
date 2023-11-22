@@ -57,9 +57,7 @@ const Gui::DropdownList kShadowMapRasterAlphaModeDropdown{
 
 const Gui::DropdownList kShadowMapUpdateModeDropdownList{
     {(uint)ShadowMap::SMUpdateMode::Static, "Static"},
-    {(uint)ShadowMap::SMUpdateMode::UpdateAll, "UpdateAll"},
-    {(uint)ShadowMap::SMUpdateMode::UpdateOnePerFrame, "OneLightPerFrame"},
-    {(uint)ShadowMap::SMUpdateMode::UpdateInNFrames, "UpdateInNFrames"},
+    {(uint)ShadowMap::SMUpdateMode::Dynamic, "Dynamic"},
 };
 
 const Gui::DropdownList kJitterModeDropdownList{
@@ -84,6 +82,13 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
     mpFboCube = Fbo::create(mpDevice);
     mpFboCascaded = Fbo::create(mpDevice);
 
+    // Update all shadow maps every frame
+    if (mpScene->hasDynamicGeometry())
+    {
+        mSceneIsDynamic = true;
+        mShadowMapUpdateMode = SMUpdateMode::Dynamic;
+    }  
+
     // Create Light Mapping Buffer
     prepareShadowMapBuffers();
 
@@ -105,10 +110,6 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
 
     // Set RasterizerStateDescription
     updateRasterizerStates();
-
-    //Update all shadow maps every frame 
-    if (mpScene->hasAnimation())
-        mShadowMapUpdateMode = SMUpdateMode::UpdateAll;     
 
     mUpdateShadowMap = true;
 }
@@ -203,6 +204,8 @@ void ShadowMap::prepareShadowMapBuffers()
         {
             shadowMapFormat = mShadowMapFormat;
             shadowMapBindFlags |= ResourceBindFlags::DepthStencil;
+            if (mSceneIsDynamic)
+                shadowMapBindFlags |= ResourceBindFlags::RenderTarget;  //Needed for copy (blit)
         }
         
     }
@@ -308,8 +311,8 @@ void ShadowMap::prepareShadowMapBuffers()
     //For Cascaded optimizations
     mPreviousCascades.resize(countCascade * mCascadedLevelCount);
 
-    //Create Textures for animated Scenes
-    if (mpScene->hasAnimation())
+    //Create Textures for scenes with dynamic geometry
+    if (mSceneIsDynamic)
     {
         for (size_t i = 0; i < mpShadowMapsCube.size(); i++)
         {
@@ -353,6 +356,30 @@ void ShadowMap::prepareShadowMapBuffers()
                 );
                 depthTex->setName("ShadowMapPassDepthHelperStatic" + std::to_string(i));
                 mpDepthStatic.push_back(depthTex);
+            }
+        }
+        for (size_t i = 0; i < mpCascadedShadowMaps.size(); i++)
+        {
+            // Create a copy Texture
+            ref<Texture> tex = Texture::create2D(
+                mpDevice, mpCascadedShadowMaps[i]->getWidth(), mpCascadedShadowMaps[i]->getHeight(), mpCascadedShadowMaps[i]->getFormat(),
+                mCascadedLevelCount, 1u, nullptr, mpCascadedShadowMaps[i]->getBindFlags()
+            );
+            tex->setName("ShadowMapCascadedStatic" + std::to_string(i));
+            mpShadowMapsCascadedStatic.push_back(tex);
+
+            // Create a per cascaded level depth texture
+            if (mpDepthCascaded)
+            {
+                for (uint cascLevel = 0; cascLevel < mCascadedLevelCount; cascLevel++)
+                {
+                    ref<Texture> depthTex = Texture::create2D(
+                        mpDevice, mpDepthCascaded->getWidth(), mpDepthCascaded->getHeight(), mpDepthCascaded->getFormat(), 1u, 1u, nullptr,
+                        mpDepthCascaded->getBindFlags()
+                    );
+                    depthTex->setName("ShadowMapPassCascadedDepthHelperStatic" + std::to_string(i));
+                    mpDepthCascadedStatic.push_back(depthTex);
+                }
             }
         }
     }
@@ -908,10 +935,8 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
     bool lightMoved = changes == Light::Changes::Position;
     if (mShadowMapUpdateMode == SMUpdateMode::Static)
         renderLight = (changes == Light::Changes::Active) || lightMoved;
-    else if (mShadowMapUpdateMode == SMUpdateMode::UpdateAll)
+    else if (mShadowMapUpdateMode == SMUpdateMode::Dynamic)
         renderLight = true;
-    else
-        renderLight = mShadowMapUpdateList[1][index] || !mStaticTexturesReady[1];
 
     renderLight |= mUpdateShadowMap;
 
@@ -1043,10 +1068,8 @@ void ShadowMap::rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* 
 
      if (mShadowMapUpdateMode == SMUpdateMode::Static)
         renderLight = (changes == Light::Changes::Active) || (changes == Light::Changes::Position);
-     else if (mShadowMapUpdateMode == SMUpdateMode::UpdateAll)
+     else if (mShadowMapUpdateMode == SMUpdateMode::Dynamic)
         renderLight = true;
-     else
-        renderLight = mShadowMapUpdateList[1][index];
 
      renderLight |= mUpdateShadowMap;
 
@@ -1126,10 +1149,8 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
     bool lightMoved = (changes == Light::Changes::Position) || (changes == Light::Changes::Direction);
     if (mShadowMapUpdateMode == SMUpdateMode::Static)
         renderLight = (changes == Light::Changes::Active) || lightMoved;
-    else if (mShadowMapUpdateMode == SMUpdateMode::UpdateAll)
+    else if (mShadowMapUpdateMode == SMUpdateMode::Dynamic)
         renderLight = true;
-    else
-        renderLight = mShadowMapUpdateList[0][index] || !mStaticTexturesReady[0];
 
     renderLight |= mUpdateShadowMap;
 
@@ -1287,10 +1308,8 @@ bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRe
     // Handle updates
     if (mShadowMapUpdateMode == SMUpdateMode::Static)
         renderLight = (changes == Light::Changes::Active) || lightMoved;
-    else if (mShadowMapUpdateMode == SMUpdateMode::UpdateAll)
+    else if (mShadowMapUpdateMode == SMUpdateMode::Dynamic)
         renderLight = true;
-    else
-        renderLight = mShadowMapUpdateList[0][index];
 
     renderLight |= mUpdateShadowMap;
 
@@ -1573,8 +1592,10 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
 
         dummyProfileRaster(pRenderContext); // Show the render scene every frame
     }
-    
-    if (!cameraMoved && !mUpdateShadowMap)
+
+    bool dynamicMode = mShadowMapUpdateMode != SMUpdateMode::Static;
+
+    if (!cameraMoved && !mUpdateShadowMap && !dynamicMode)
         return false;
 
     auto& lightData = light->getData();
@@ -1588,27 +1609,71 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
     } 
 
     // Update viewProj
-    std::vector<bool> renderCascLevel(mCascadedLevelCount);
-    calcProjViewForCascaded(index, lightData, renderCascLevel);
+    std::vector<bool> renderCascadedLevel(mCascadedLevelCount);
+    calcProjViewForCascaded(index, lightData, renderCascadedLevel);
 
     uint casMatIdx = index * mCascadedLevelCount;
 
-    if (mpDepthCascaded)
-        mpFboCascaded->attachDepthStencilTarget(mpDepthCascaded);
-
-    //Render each cascade
-    for (uint cascLevel = 0; cascLevel < mCascadedLevelCount; cascLevel++)
+    // Render each cascade
+    const uint loopCount = dynamicMode ? mCascadedLevelCount * 2 : mCascadedLevelCount;
+    for (uint i = 0; i < loopCount; i++)
     {
-        if (!renderCascLevel[cascLevel])
+        const uint cascLevel = dynamicMode ? i / 2 : i;
+        const bool isDynamic = dynamicMode ? (i % 2 == 1) : false; // Uneven number is the dynamic pass
+
+        //Skip static cascaded levels if no update is necessary
+        if (!renderCascadedLevel[cascLevel] && !isDynamic)
             continue;
+
         // If depth tex is set, Render to RenderTarget
         if (mpDepthCascaded)
         {
-            mpFboCascaded->attachColorTarget(mpCascadedShadowMaps[index],0, 0, cascLevel, 1);
+            if (dynamicMode)
+            {
+                if (isDynamic)
+                {
+                    //Copy static tex
+                    pRenderContext->copyResource(mpDepthCascaded.get(), mpDepthCascadedStatic[casMatIdx + cascLevel].get());
+                    pRenderContext->blit(
+                        mpShadowMapsCascadedStatic[index]->getSRV(0, 1, cascLevel, 1), mpCascadedShadowMaps[index]->getRTV(0, cascLevel, 1)
+                    );
+                    //Bind FBO
+                    mpFboCascaded->attachColorTarget(mpCascadedShadowMaps[index], 0, 0, cascLevel, 1);
+                    mpFboCascaded->attachDepthStencilTarget(mpDepthCascaded);
+                }
+                else
+                {
+                    mpFboCascaded->attachColorTarget(mpShadowMapsCascadedStatic[index], 0, 0, cascLevel, 1);
+                    mpFboCascaded->attachDepthStencilTarget(mpDepthCascadedStatic[casMatIdx + cascLevel]);
+                }
+            }
+            else //Static Geometry only mode
+            {
+                mpFboCascaded->attachColorTarget(mpCascadedShadowMaps[index], 0, 0, cascLevel, 1);
+                mpFboCascaded->attachDepthStencilTarget(mpDepthCascaded);
+            }
         }
         else //Else only render to DepthStencil
         {
-            mpFboCascaded->attachDepthStencilTarget(mpCascadedShadowMaps[index], 0, cascLevel, 1);
+            if (dynamicMode)
+            {
+                if (isDynamic)
+                {
+                    // Copy static tex
+                    pRenderContext->blit(
+                        mpShadowMapsCascadedStatic[index]->getSRV(0, 1, cascLevel, 1), mpCascadedShadowMaps[index]->getRTV(0, cascLevel, 1)
+                    );
+                    mpFboCascaded->attachDepthStencilTarget(mpCascadedShadowMaps[index], 0, cascLevel, 1);
+                }
+                else
+                {
+                    mpFboCascaded->attachDepthStencilTarget(mpShadowMapsCascadedStatic[index], 0, cascLevel, 1);
+                }
+            }
+            else //Static Geometry only mode
+            {
+                mpFboCascaded->attachDepthStencilTarget(mpCascadedShadowMaps[index], 0, cascLevel, 1);
+            }
         }
        
         ShaderParameters params;
@@ -1619,7 +1684,6 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
         auto vars = mShadowMapCascadedRasterPass.pVars->getRootVar();
         setSMShaderVars(vars, params);
 
-        
         mShadowMapCascadedRasterPass.pState->setFbo(mpFboCascaded);
 
         float4 clearColor = float4(1.f);
@@ -1631,15 +1695,21 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
             clearColor = float4(expVarMax.x, expVarMax.x * expVarMax.x, expVarMax.y, expVarMax.y * expVarMax.y); // Set to highest possible
         }
 
-        pRenderContext->clearFbo(mShadowMapCascadedRasterPass.pState->getFbo().get(), clearColor, 1.f, 0);
+        if (!isDynamic)
+            pRenderContext->clearFbo(mShadowMapCascadedRasterPass.pState->getFbo().get(), clearColor, 1.f, 0);
+
+        //Set mesh render mode
+        auto meshRenderMode = RasterizerState::MeshRenderMode::All;
+        if (dynamicMode)
+            meshRenderMode = isDynamic ? RasterizerState::MeshRenderMode::Dynamic : RasterizerState::MeshRenderMode::Static;
 
         if (mUseFrustumCulling)
         {
             const uint cullingIndex = mFrustumCullingVectorOffsets.x + index * mCascadedLevelCount + cascLevel;
-            mpScene->rasterizeFrustumCulling(pRenderContext, mShadowMapCascadedRasterPass.pState.get(),
-                                             mShadowMapCascadedRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
-                                             mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], RasterizerState::MeshRenderMode::All, false,
-                                             mFrustumCulling[cullingIndex]
+            mpScene->rasterizeFrustumCulling(
+                pRenderContext, mShadowMapCascadedRasterPass.pState.get(), mShadowMapCascadedRasterPass.pVars.get(),
+                mFrontClockwiseRS[mCullMode], mFrontCounterClockwiseRS[mCullMode],
+                mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode, false, mFrustumCulling[cullingIndex]
             );
         }
         else
@@ -1647,7 +1717,7 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
             mpScene->rasterize(
                 pRenderContext, mShadowMapCascadedRasterPass.pState.get(), mShadowMapCascadedRasterPass.pVars.get(),
                 mFrontClockwiseRS[mCullMode], mFrontCounterClockwiseRS[mCullMode],
-                mFrontCounterClockwiseRS[RasterizerState::CullMode::None], RasterizerState::MeshRenderMode::All, false
+                mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode, false
             );
         }
         
@@ -1804,8 +1874,6 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     {
         updateJitterSampleGenerator();
     }
-
-    handleShadowMapUpdateMode();
 
     //Handle Blur
     prepareGaussianBlur();
@@ -1965,19 +2033,16 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
     }
     widget.tooltip("Changes the Shadow Map Type. For types other than Shadow Map, a extra depth texture is needed",true);
 
-    if (mpScene->hasAnimation())
+    if (mSceneIsDynamic)
     {
         widget.dropdown("Update Mode", kShadowMapUpdateModeDropdownList, (uint&)mShadowMapUpdateMode);
         widget.tooltip("Specify the update mode for shadow maps"); // TODO add more detail to each mode
-        if (mShadowMapUpdateMode == SMUpdateMode::UpdateInNFrames)
-            widget.var("Update Interval", mUpdateEveryNFrame, 2u, 512u, 1u);
-        widget.tooltip("Renders all shadow maps every frame");
-
+       
         if (mShadowMapUpdateMode != SMUpdateMode::Static)
         {
             bool resetStaticSM = widget.button("Reset Static SM");
             widget.tooltip("Rerenders all static shadow maps");
-            if (resetStaticSM && mStaticTexturesReady)
+            if (resetStaticSM)
             {
                 mStaticTexturesReady[0] = false;
                 mStaticTexturesReady[1] = false;
@@ -2389,76 +2454,6 @@ void ShadowMap::handleNormalizedPixelSizeBuffer()
         mpDevice, sizeof(float), npsData.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, npsData.data(), false
     );
     mpNormalizedPixelSize->setName("ShadowMap::NPSBuffer");
-}
-
-void ShadowMap::handleShadowMapUpdateMode() {
-    const uint spotSize = mpShadowMaps.size();
-    const uint pointSize = mpShadowMapsCube.size();
-    const uint numLights = spotSize + pointSize;
-    if (mShadowMapUpdateList[0].size() != spotSize || mShadowMapUpdateList[1].size() != pointSize)
-    {
-        mShadowMapUpdateList[0].resize(spotSize);
-        for (auto ul : mShadowMapUpdateList[0])
-            ul = false;
-        mShadowMapUpdateList[1].resize(pointSize);
-        for (auto ul : mShadowMapUpdateList[1])
-            ul = false;
-    }
-        
-    switch (mShadowMapUpdateMode)
-    {
-    case Falcor::ShadowMap::SMUpdateMode::UpdateOnePerFrame:
-        {
-            uint lastFrame = mUpdateFrameCounter == 0 ? numLights - 1 : mUpdateFrameCounter - 1;
-            if(lastFrame < spotSize)
-                mShadowMapUpdateList[0][lastFrame] = false;
-            else
-                mShadowMapUpdateList[1][lastFrame - spotSize] = false;
-            if (lastFrame < spotSize)
-                mShadowMapUpdateList[0][mUpdateFrameCounter] = true;
-            else
-                mShadowMapUpdateList[1][mUpdateFrameCounter - spotSize] = true;
-
-            mUpdateFrameCounter = (mUpdateFrameCounter + 1) % numLights;
-        }
-        break;
-    case Falcor::ShadowMap::SMUpdateMode::UpdateInNFrames:
-        {
-            if (numLights <= mUpdateEveryNFrame || mUpdateEveryNFrame < 2)
-                break;
-            else
-            {
-                uint updatePerFrame = uint(float(numLights) / float(mUpdateEveryNFrame)) + 1;
-                uint lastFrame = mUpdateFrameCounter == 0 ? numLights - (updatePerFrame + 1) : mUpdateFrameCounter - (updatePerFrame+1);
-                uint upperBound = std::min(numLights, lastFrame + updatePerFrame);
-                for (uint i = lastFrame; i <= upperBound; i++)
-                {
-                    if (i < spotSize)
-                        mShadowMapUpdateList[0][i] = false;
-                    else
-                        mShadowMapUpdateList[1][i - spotSize] = false;
-                }
-                upperBound = std::min(numLights, mUpdateFrameCounter + updatePerFrame);
-                for (uint i = mUpdateFrameCounter; i < upperBound; i++)
-                {
-                    if (i < spotSize)
-                        mShadowMapUpdateList[0][i] = true;
-                    else
-                        mShadowMapUpdateList[1][i - spotSize] = true;
-                }
-                mUpdateFrameCounter = (mUpdateFrameCounter + updatePerFrame);
-                if (mUpdateFrameCounter >= numLights)
-                    mUpdateFrameCounter = 0;
-            }
-            
-        }
-        break;
-
-    case Falcor::ShadowMap::SMUpdateMode::UpdateAll:
-    case Falcor::ShadowMap::SMUpdateMode::Static:
-    default:
-        break;
-    }
 }
 
 void ShadowMap::dummyProfileRaster(RenderContext* pRenderContext) {
