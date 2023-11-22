@@ -151,9 +151,9 @@ namespace Falcor
         return inPlane;
     }
         
-    void FrustumCulling::createDrawBuffer(ref<Device> pDevice, ref<GpuFence> pSceneFence, RenderContext* pRenderContext, const std::vector<ref<Buffer>>& drawBuffer)
+    void FrustumCulling::createDrawBuffer(ref<Device> pDevice, ref<GpuFence> pSceneFence, RenderContext* pRenderContext, const std::vector<ref<Buffer>>& drawBuffer, const std::vector<bool>& isDynamic)
     {
-        //Clear
+        //Clear / Reset
         mDraw.clear();
         mStagingBuffer.clear();
         mDrawCount.clear();
@@ -171,9 +171,19 @@ namespace Falcor
         mDrawCount.resize(size);
         mValidDrawBuffer.resize(size);
 
+        uint countDynamic = 0;
+        mDynamicDrawArgsToInstanceID.resize(0);
+
         //Initialize
         for (uint i = 0; i < size; i++)
         {
+            mDynamicDrawArgsToInstanceID.push_back(countDynamic);
+            if (isDynamic[i])
+            {
+                countDynamic++;
+            }
+            
+
             auto elementCount = drawBuffer[i]->getElementCount(); // Byte size of original buffer
 
             mStagingBuffer[i].count = 0;
@@ -195,6 +205,12 @@ namespace Falcor
             mDraw[i]->setName("FrustumCullingBuffer");
             pRenderContext->copyBufferRegion(mDraw[i].get(), 0, drawBuffer[i].get(), 0, elementCount);  //Copy the original buffer for now
         }
+
+        //Dynamic extra handling
+        mHasDynamic = countDynamic > 0;
+        if (mHasDynamic)
+            mDynamicInstanceID.resize(countDynamic);
+
     }
 
     void FrustumCulling::invalidateAllDrawBuffers() {
@@ -269,5 +285,33 @@ namespace Falcor
         mFenceWaitValues[mStagingCount] = lastFrameSyncValue;
         //Increase Counter
         mStagingCount = (mStagingCount + 1) % kStagingFramesInFlight;
+    }
+
+    bool FrustumCulling::checkDynamicInstances(uint index, const std::vector<uint> passedInstanceIDs)
+    {
+        uint instanceIdx = mDynamicDrawArgsToInstanceID[index];
+        auto& instanceList = mDynamicInstanceID[instanceIdx];
+
+        bool check = true;
+        if (instanceList.size() != passedInstanceIDs.size())
+            check = false;
+        else //Check if the instance ids are the same
+        {
+            for (uint i = 0; i < instanceList.size(); i++)
+            {
+                if (instanceList[i] != passedInstanceIDs[i])
+                {
+                    check = false;
+                    break;
+                } 
+            }
+        }
+
+        //copy vectors
+        instanceList.resize(0);
+        for (auto& ids : passedInstanceIDs)
+            instanceList.push_back(ids);
+
+        return check;
     }
 }

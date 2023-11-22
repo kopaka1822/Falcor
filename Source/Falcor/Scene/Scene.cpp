@@ -445,6 +445,8 @@ namespace Falcor
         auto pCurrentRS = pState->getRasterizerState();
         bool isIndexed = hasIndexBuffer();
 
+        bool updateDynamicGeomFrustum = true;
+
         //If there was no called culling, use the camera one
         if (!pFrustumCulling)
         {
@@ -469,20 +471,29 @@ namespace Falcor
                 {
                     pFrustumCulling->updateFrustum(camera);
                 }
+                updateDynamicGeomFrustum = true;
                 mFrustumCullingUpdated = true;
             }
+        }
+        else //Custom culling is used
+        {
+            // TODO add handling for custom frustum culling
+            // For now we assume that every custom culling is called once
+            updateDynamicGeomFrustum = true;
         }
 
         //Initialize the draw buffers, with the mDrawArgs buffer as template
         if (mDrawArgs.size() != pFrustumCulling->getDrawBufferSize())
         {
             std::vector<ref<Buffer>> drawBuffers;
+            std::vector<bool> hasDynamicGeometry;
             for (const auto& draw : mDrawArgs)
             {
                 drawBuffers.push_back(draw.pBuffer);
+                hasDynamicGeometry.push_back(draw.isDynamic);
             }
                 
-            pFrustumCulling->createDrawBuffer(mpDevice, mpFence, pRenderContext, drawBuffers);
+            pFrustumCulling->createDrawBuffer(mpDevice, mpFence, pRenderContext, drawBuffers, hasDynamicGeometry);
         }
 
         // Create an custom draw argument buffer for this frame
@@ -495,8 +506,7 @@ namespace Falcor
         for (uint i = 0; i < mDrawArgs.size(); i++)
             needUpdate |= !pFrustumCulling->isBufferValid(i);
 
-        //TODO handle dynamic geometry properly (needs an update every frame)
-        if (needUpdate)
+        if (needUpdate || (updateDynamicGeomFrustum && pFrustumCulling->hasDynamic()))
             pFrustumCulling->startUpdate(mFenceSyncLastFrame);
 
         for (uint i=0; i<mDrawArgs.size(); i++)
@@ -522,6 +532,7 @@ namespace Falcor
             {
                 pDrawBufferCounts[i] = 0;           //Reset Draw buffer count if we rerecord
                 std::vector<DrawIndexedArguments> drawArguments;
+                std::vector<uint> passedDrawInstances;        //Draw instances used for dynamic geometry
                 for (auto& instanceID : mDrawArgsInstanceIDs[i])
                 {
                     const auto& instance = mGeometryInstanceData[instanceID];
@@ -539,9 +550,16 @@ namespace Falcor
                         drawArg.StartInstanceLocation = instanceID;
 
                         drawArguments.push_back(drawArg);
+                        passedDrawInstances.push_back(instanceID);
                     }
                 }
-                pFrustumCulling->updateDrawBuffer(pRenderContext,i, drawArguments);
+                //For dynamic check if we need to update the draw buffer
+                bool updateDrawBuffer = true;
+                if (draw.isDynamic)
+                    updateDrawBuffer = pFrustumCulling->checkDynamicInstances(i, passedDrawInstances);
+
+                if (updateDrawBuffer)
+                    pFrustumCulling->updateDrawBuffer(pRenderContext,i, drawArguments);
             }
             else if ((!bufferValid || draw.isDynamic))
             {

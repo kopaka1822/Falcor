@@ -73,7 +73,8 @@ namespace Falcor
             ref<Device> pDevice,
             ref<GpuFence> pSceneFence,
             RenderContext* pRenderContext,
-            const std::vector<ref<Buffer>>& drawBuffer
+            const std::vector<ref<Buffer>>& drawBuffer,
+            const std::vector<bool>& isDynamic
         );
 
         //Update of the draw buffer with (culled) vector of draw arguments. Overload for DrawIndexedArguments
@@ -84,6 +85,11 @@ namespace Falcor
 
         // Call at the start of the draw call with the sync value from the scene for proper CPU/GPU sync
         void startUpdate(const uint lastFrameSyncValue);
+
+        bool hasDynamic() const {return mHasDynamic; }
+
+        //Checks if the dynamic instances have changed
+        bool checkDynamicInstances(uint index, const std::vector<uint> passedInstanceIDs);
 
         std::vector<ref<Buffer>>& getDrawBuffers() { return mDraw; }
         std::vector<uint>& getDrawCounts() { return mDrawCount; }
@@ -137,11 +143,15 @@ namespace Falcor
         ref<GpuFence> mpStagingFence;   //Copy of the scenes fence
 
         bool mDrawValid = false;
+        bool mHasDynamic = false;
         uint mStagingCount = 0; 
         std::array<uint64_t, kStagingFramesInFlight> mFenceWaitValues;
         std::vector<StagingInfo> mStagingBuffer; // Current Staging index for each buff
         std::vector<ref<Buffer>> mDraw;      //Draw buffer that can be reused if there was no change in frustum. One per mDrawArgs from scene
         std::vector<uint> mDrawCount;         //The number of elements in the draw buffer. One per mDrawArgs from scene
         std::vector<bool> mValidDrawBuffer;
+
+        std::vector<std::vector<uint>> mDynamicInstanceID;  //The dynamic instance id is stored to check if the culling buffer does not need to be copied again
+        std::vector<uint> mDynamicDrawArgsToInstanceID;     //Mapping buffer to map between drawArgs and the above vector
     };
 }
