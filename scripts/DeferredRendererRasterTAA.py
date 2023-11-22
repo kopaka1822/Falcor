@@ -7,6 +7,7 @@ def render_graph_DeferredRenderer():
     g.create_pass('ToneMapper', 'ToneMapper', {'outputSize': 'Default', 'useSceneMetadata': True, 'exposureCompensation': 0.0, 'autoExposure': False, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': 'Aces', 'clamp': True, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': 'AperturePriority'})
     g.create_pass('ShadowPass', 'ShadowPass', {})
     g.create_pass('VideoRecorder', 'VideoRecorder', {})
+    g.create_pass('TAA', 'TAA', {'alpha': 0.10000000149011612, 'colorBoxSigma': 1.0, 'antiFlicker': True})
     g.add_edge('GBufferRaster.posW', 'ShadowPass.posW')
     g.add_edge('GBufferRaster.faceNormalW', 'ShadowPass.faceNormalW')
     g.add_edge('GBufferRaster.tangentW', 'ShadowPass.tangentW')
@@ -19,7 +20,9 @@ def render_graph_DeferredRenderer():
     g.add_edge('VideoRecorder', 'GBufferRaster')
     g.add_edge('GBufferRaster.normW', 'ShadowPass.normalW')
     g.add_edge('GBufferRaster.guideNormalW', 'ShadowPass.guideNormalW')
-    g.add_edge('ShadowPass.color', 'ToneMapper.src')
+    g.add_edge('ShadowPass.color', 'TAA.colorIn')
+    g.add_edge('GBufferRaster.mvec', 'TAA.motionVecs')
+    g.add_edge('TAA.colorOut', 'ToneMapper.src')
     g.mark_output('ToneMapper.dst')
     return g
 
