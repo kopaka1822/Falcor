@@ -445,8 +445,6 @@ namespace Falcor
         auto pCurrentRS = pState->getRasterizerState();
         bool isIndexed = hasIndexBuffer();
 
-        bool updateCulling = false;
-
         //If there was no called culling, use the camera one
         if (!pFrustumCulling)
         {
@@ -484,13 +482,22 @@ namespace Falcor
                 drawBuffers.push_back(draw.pBuffer);
             }
                 
-            pFrustumCulling->createDrawBuffer(mpDevice,pRenderContext ,drawBuffers);
+            pFrustumCulling->createDrawBuffer(mpDevice, mpFence, pRenderContext, drawBuffers);
         }
 
         // Create an custom draw argument buffer for this frame
         const auto& globalMatrices = mpAnimationController->getGlobalMatrices();
         auto& pDrawBuffers = pFrustumCulling->getDrawBuffers();
         auto& pDrawBufferCounts = pFrustumCulling->getDrawCounts();
+
+        //Check if any buffer needs an update
+        bool needUpdate = false;
+        for (uint i = 0; i < mDrawArgs.size(); i++)
+            needUpdate |= !pFrustumCulling->isBufferValid(i);
+
+        //TODO handle dynamic geometry properly (needs an update every frame)
+        if (needUpdate)
+            pFrustumCulling->startUpdate(mFenceSyncLastFrame);
 
         for (uint i=0; i<mDrawArgs.size(); i++)
         {
@@ -588,7 +595,7 @@ namespace Falcor
             }
         }
 
-        pFrustumCulling->endDraw(pRenderContext);
+        
         pState->setRasterizerState(pCurrentRS);
     }
 
@@ -1742,6 +1749,18 @@ namespace Falcor
         return false;
     }
 
+    void Scene::signalFence(RenderContext* pRenderContext)
+    {
+        //Create the Fence
+        if (!mpFence)
+        {
+            mpFence = GpuFence::create(mpDevice);
+            mpFence->breakStrongReferenceToDevice();
+        }
+
+        mFenceSyncLastFrame = mpFence->gpuSignal(pRenderContext->getLowLevelData()->getCommandQueue());
+    }
+
     Scene::UpdateFlags Scene::updateSelectedCamera(bool forceUpdate)
     {
         auto camera = mCameras[mSelectedCamera];
@@ -2033,6 +2052,9 @@ namespace Falcor
             invalidateTlasCache();
             updateGeometryInstances(false);
         }
+
+        //Signal Fence for this frame
+        signalFence(pRenderContext);
 
         // Update existing BLASes if skinned animation and/or procedural primitives moved.
         bool updateProcedural = is_set(mUpdates, UpdateFlags::CurvesMoved) || is_set(mUpdates, UpdateFlags::CustomPrimitivesMoved);

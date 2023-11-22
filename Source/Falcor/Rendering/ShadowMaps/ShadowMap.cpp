@@ -99,9 +99,7 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
     samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear);
     mpShadowSamplerLinear = Sampler::create(mpDevice, samplerDesc);
 
-    //Init Fence
-    mpFence = GpuFence::create(mpDevice);
-    mpFence->breakStrongReferenceToDevice();
+    //Init Fence values
     for (auto& waitVal : mStagingFenceWaitValues)
         waitVal = 0;
 
@@ -1891,12 +1889,16 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     {
         static uint stagingCount = 0;
 
+        //Update staging values
+        mStagingFenceWaitValues[stagingCount] = mpScene->getLastFrameFenceValue();
+        stagingCount = (stagingCount + 1) % kStagingBufferCount;
+
         size_t totalSize = mpShadowMaps.size() + mpCascadedShadowMaps.size() * mCascadedLevelCount;
         auto& fenceWaitVal = mStagingFenceWaitValues[stagingCount];
         const uint stagingOffset = totalSize * stagingCount;
 
         //Wait for the GPU to finish copying from kStagingFramesInFlight frames back
-        mpFence->syncCpu(fenceWaitVal);
+        mpScene->getFence()->syncCpu(fenceWaitVal);
 
         float4x4* mats = (float4x4*)mpVPMatrixStangingBuffer->map(Buffer::MapType::Write);
         for (size_t i = 0; i < mSpotDirViewProjMat.size(); i++)
@@ -1914,12 +1916,6 @@ bool ShadowMap::update(RenderContext* pRenderContext)
         pRenderContext->copyBufferRegion(
             mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer.get(), sizeof(float4x4) * stagingOffset, sizeof(float4x4) * totalSize
         );
-
-        pRenderContext->flush(); // Sumbit pending commands before adding the Fence Signal
-
-        fenceWaitVal = mpFence->gpuSignal(pRenderContext->getLowLevelData()->getCommandQueue()); // Signal GPU for next wait
-
-        stagingCount = (stagingCount + 1) % kStagingBufferCount;
     }
 
     handleNormalizedPixelSizeBuffer();

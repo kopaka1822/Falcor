@@ -71,6 +71,7 @@ namespace Falcor
         //Creates the draw buffer from the existing drawBuffer of the scene
         void createDrawBuffer(
             ref<Device> pDevice,
+            ref<GpuFence> pSceneFence,
             RenderContext* pRenderContext,
             const std::vector<ref<Buffer>>& drawBuffer
         );
@@ -81,8 +82,8 @@ namespace Falcor
         // Update of the draw buffer with (culled) vector of draw arguments. Overload for DrawArguments
         void updateDrawBuffer(RenderContext* pRenderContext, uint index, const std::vector<DrawArguments> drawArguments);
 
-        // Call at the end of the draw call for the fence sync and staging count increase
-        void endDraw(RenderContext* pRenderContext);
+        // Call at the start of the draw call with the sync value from the scene for proper CPU/GPU sync
+        void startUpdate(const uint lastFrameSyncValue);
 
         std::vector<ref<Buffer>>& getDrawBuffers() { return mDraw; }
         std::vector<uint>& getDrawCounts() { return mDrawCount; }
@@ -133,7 +134,7 @@ namespace Falcor
         bool isInFrontOfPlane(const Plane& plane, const AABB& aabb) const;
 
         Frustum mFrustum;
-        ref<GpuFence> mpStagingFence;
+        ref<GpuFence> mpStagingFence;   //Copy of the scenes fence
 
         bool mDrawValid = false;
         uint mStagingCount = 0; 

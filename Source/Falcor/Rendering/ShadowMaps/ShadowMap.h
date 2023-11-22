@@ -36,7 +36,6 @@
 #include "Core/Program/ProgramVars.h"
 #include "Core/Program/ProgramVersion.h"
 #include "Core/Program/RtProgram.h"
-#include "Core/API/GpuFence.h"
 #include "Utils/Properties.h"
 #include "Utils/Debug/PixelDebug.h"
 #include "Scene/Scene.h"
@@ -178,7 +177,6 @@ private:
     ref<Device> mpDevice;                               ///< Graphics device
     ref<Scene> mpScene;                                 ///< Scene                          
     ref<CPUSampleGenerator> mpCPUJitterSampleGenerator; ///< Sample generator for shadow map jitter
-    ref<GpuFence> mpFence;                              ///< Fence for GPU / CPU sync
 
     //FBOs
     ref<Fbo> mpFbo;

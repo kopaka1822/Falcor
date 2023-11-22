@@ -48,6 +48,7 @@
 #include "Core/Object.h"
 #include "Core/API/VAO.h"
 #include "Core/API/RtAccelerationStructure.h"
+#include "Core/API/GpuFence.h"
 #include "Utils/Math/AABB.h"
 #include "Utils/Math/Rectangle.h"
 #include "Utils/Math/Vector.h"
@@ -1151,6 +1152,14 @@ namespace Falcor
         */
         NodeID getParentNodeID(NodeID nodeID) const;
 
+        /** Gets the Fence for GPU / CPU sync
+        */
+        const ref<GpuFence>& getFence() const { return mpFence; }
+
+        /** Gets the sync value last recorded by the fence in the update function
+        */
+        const uint getLastFrameFenceValue() const { return mFenceSyncLastFrame; }
+
         static void nullTracePass(RenderContext* pRenderContext, const uint2& dim);
 
         std::string getScript(const std::string& sceneVar);
@@ -1256,6 +1265,10 @@ namespace Falcor
         */
         bool updateAnimatable(Animatable& animatable, const AnimationController& controller, bool force = false);
 
+        /** Updates the fence. Should only be called once per frame after a flush
+        */
+        void signalFence(RenderContext* pRenderContext);
+
         UpdateFlags updateSelectedCamera(bool forceUpdate);
         UpdateFlags updateLights(bool forceUpdate);
         UpdateFlags updateGridVolumes(bool forceUpdate);
@@ -1304,10 +1317,15 @@ namespace Falcor
         ref<Vao> mpCurveVao;                                        ///< Vertex array object for the global curve vertex/index buffers.
         std::vector<DrawArgs> mDrawArgs;                            ///< List of draw arguments for rasterizing the meshes in the scene.
 
+        //Frustum Culling
         std::vector<std::vector<uint>> mDrawArgsInstanceIDs;        ///< List of draw instance ids fitting to the mDrawArgs
         ref<FrustumCulling> mpCameraCulling = nullptr;              ///< Culling for the camera
         uint mFrustumCullingSelectedCamera = 0;                     ///< Selected Camera for Frustum Culling
         bool mFrustumCullingUpdated = false;                        ///< Records if culling was updated this frame
+
+        //GPU CPU per frame sync
+        ref<GpuFence> mpFence;                                      ///< Fence for GPU/CPU sync. Will record the GPU Counter once per update
+        uint mFenceSyncLastFrame = 0;                               ///< Sync value for last frame
 
         // Triangle meshes
         std::vector<MeshDesc> mMeshDesc;                            ///< Copy of mesh data GPU buffer (mpMeshesBuffer).

@@ -151,7 +151,7 @@ namespace Falcor
         return inPlane;
     }
         
-    void FrustumCulling::createDrawBuffer(ref<Device> pDevice, RenderContext* pRenderContext, const std::vector<ref<Buffer>>& drawBuffer)
+    void FrustumCulling::createDrawBuffer(ref<Device> pDevice, ref<GpuFence> pSceneFence, RenderContext* pRenderContext, const std::vector<ref<Buffer>>& drawBuffer)
     {
         //Clear
         mDraw.clear();
@@ -159,8 +159,7 @@ namespace Falcor
         mDrawCount.clear();
         mValidDrawBuffer.clear();
 
-        mpStagingFence = GpuFence::create(pDevice);
-        mpStagingFence->breakStrongReferenceToDevice();
+        mpStagingFence = pSceneFence;
 
         for (auto& waitVals : mFenceWaitValues)
             waitVals = 0;
@@ -264,14 +263,11 @@ namespace Falcor
         );
     }
 
-    void FrustumCulling::endDraw(RenderContext* pRenderContext) {
-        // Sumbit pending commands before adding the Fence Signal
-        if(pRenderContext->hasPendingCommands())
-            pRenderContext->flush(); 
-        //Signal Fence for next round
-        mFenceWaitValues[mStagingCount] = mpStagingFence->gpuSignal(pRenderContext->getLowLevelData()->getCommandQueue()); // Signal GPU for next wait
+    void FrustumCulling::startUpdate(const uint lastFrameSyncValue)
+    {
+        //Store signal value for next round
+        mFenceWaitValues[mStagingCount] = lastFrameSyncValue;
         //Increase Counter
         mStagingCount = (mStagingCount + 1) % kStagingFramesInFlight;
     }
-
 }
