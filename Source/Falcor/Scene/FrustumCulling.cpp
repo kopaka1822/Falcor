@@ -292,26 +292,29 @@ namespace Falcor
         uint instanceIdx = mDynamicDrawArgsToInstanceID[index];
         auto& instanceList = mDynamicInstanceID[instanceIdx];
 
-        bool check = true;
+        bool updateDraw = false;
         if (instanceList.size() != passedInstanceIDs.size())
-            check = false;
+            updateDraw = true;
         else //Check if the instance ids are the same
         {
             for (uint i = 0; i < instanceList.size(); i++)
             {
                 if (instanceList[i] != passedInstanceIDs[i])
                 {
-                    check = false;
+                    updateDraw = true;
                     break;
                 } 
             }
         }
 
-        //copy vectors
-        instanceList.resize(0);
-        for (auto& ids : passedInstanceIDs)
-            instanceList.push_back(ids);
+        //Copy Lists if they are different
+        if (updateDraw)
+        {
+            instanceList.resize(0);
+            for (auto& ids : passedInstanceIDs)
+                instanceList.push_back(ids);
+        }
 
-        return check;
+        return updateDraw;
     }
 }

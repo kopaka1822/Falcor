@@ -530,7 +530,6 @@ namespace Falcor
 
             if (isIndexed && (!bufferValid || draw.isDynamic))
             {
-                pDrawBufferCounts[i] = 0;           //Reset Draw buffer count if we rerecord
                 std::vector<DrawIndexedArguments> drawArguments;
                 std::vector<uint> passedDrawInstances;        //Draw instances used for dynamic geometry
                 for (auto& instanceID : mDrawArgsInstanceIDs[i])
@@ -557,14 +556,14 @@ namespace Falcor
                 bool updateDrawBuffer = true;
                 if (draw.isDynamic)
                     updateDrawBuffer = pFrustumCulling->checkDynamicInstances(i, passedDrawInstances);
-
+                    
                 if (updateDrawBuffer)
                     pFrustumCulling->updateDrawBuffer(pRenderContext,i, drawArguments);
             }
             else if ((!bufferValid || draw.isDynamic))
             {
-                pDrawBufferCounts[i] = 0;           // Reset Draw buffer count if we rerecord
                 std::vector<DrawArguments> drawArguments;
+                std::vector<uint> passedDrawInstances; // Draw instances used for dynamic geometry
                 for (auto& instanceID : mDrawArgsInstanceIDs[i])
                 {
                     const auto& instance = mGeometryInstanceData[instanceID];
@@ -581,11 +580,16 @@ namespace Falcor
                         drawArg.StartInstanceLocation = instanceID;
 
                         drawArguments.push_back(drawArg);
-
-                        pDrawBufferCounts[i]++;
+                        passedDrawInstances.push_back(instanceID);
                     }
                 }
-                pFrustumCulling->updateDrawBuffer(pRenderContext, i, drawArguments);
+                // For dynamic check if we need to update the draw buffer
+                bool updateDrawBuffer = true;
+                if (draw.isDynamic)
+                    updateDrawBuffer = pFrustumCulling->checkDynamicInstances(i, passedDrawInstances);
+
+                if (updateDrawBuffer)
+                    pFrustumCulling->updateDrawBuffer(pRenderContext, i, drawArguments);
             }
 
             //Check if everything was culled
@@ -2911,7 +2915,7 @@ namespace Falcor
 
                 const auto& mesh = mMeshDesc[instance.geometryID];
                 bool use16Bit = mesh.use16BitIndices();
-                bool isDynamic = !mesh.isStatic();
+                bool isDynamic = mesh.isAnimated() || mesh.isDynamic(); 
                 const auto mat = getMaterial(MaterialID::fromSlang(mesh.materialID));
                 bool isCastShadow = mat->isCastShadow();
 
@@ -2976,7 +2980,7 @@ namespace Falcor
                 const auto& mesh = mMeshDesc[instance.geometryID];
                 FALCOR_ASSERT(mesh.indexCount == 0);
                 const auto mat = getMaterial(MaterialID::fromSlang(mesh.materialID));
-                bool isDynamic = mesh.isAnimated();
+                bool isDynamic = mesh.isAnimated() || mesh.isDynamic(); 
                 bool isCastShadow = mat->isCastShadow();
 
                 DrawArguments draw;
