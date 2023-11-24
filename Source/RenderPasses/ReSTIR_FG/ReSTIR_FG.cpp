@@ -307,7 +307,11 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         mPhotonCollectionRadiusStart.y = std::min(mPhotonCollectionRadiusStart.y, mPhotonCollectionRadiusStart.x);
         group.tooltip("Photon Radii for final gather and caustic collecton. First->Global, Second->Caustic");
         if (radiusChanged)
+        {
             mPhotonCollectRadius = mPhotonCollectionRadiusStart;
+            changed |= true;
+        }
+            
 
 
         changed |= group.checkbox("Enable SPPM", mUseSPPM);
@@ -344,6 +348,9 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                 changed |= causticGroup.var("Caustic Temporal History Limit", mCausticTemporalFilterHistoryLimit, 1u, 512u, 1u);
                 causticGroup.tooltip("History Limit for the Temporal Caustic Filter");
             }
+
+            changed |= causticGroup.checkbox("Use Caustics for indirect", mUseCausticsForIndirectLight);
+            causticGroup.tooltip("Collects caustic photons for the final gather sample used in ReSTIR");
         }
 
         changed |= group.checkbox("Use Photon Culling", mUsePhotonCulling);
@@ -627,7 +634,7 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
 
     if (!mpThp)
     {
-        mpThp = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
+        mpThp = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA32Float, 1u, 1u, nullptr,
                                   ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mpThp->setName("ReSTIR_FG::Throughput");
     }
@@ -957,6 +964,7 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      mCollectPhotonPass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefine("MODE_FINAL_GATHER", finalGatherRenderMode ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefine("CAUSTIC_COLLECTION_MODE", std::to_string((uint)mCausticCollectMode));
+     mCollectPhotonPass.pProgram->addDefine("CAUSTIC_COLLECTION_INDIRECT", mUseCausticsForIndirectLight ? "1" : "0");
 
      if (!mCollectPhotonPass.pVars)
         mCollectPhotonPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);

@@ -200,6 +200,7 @@ private:
     float mNormalThreshold = 0.6f;                                  // Cosine of maximum angle between both normals allowed
     float2 mJacobianMinMax = float2(1 / 10.f, 10.f);                // Min and Max values that are allowed for the jacobian determinant (Angle/dist too different if lower/higher)
     BiasCorrectionMode mBiasCorrectionMode = BiasCorrectionMode::Basic; // Bias Correction Mode
+    bool mUseCausticsForIndirectLight = true;                  // Use Caustic photons as indirect light samples
 
 
     //Photon

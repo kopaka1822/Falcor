@@ -78,6 +78,7 @@ RaytracingAccelerationStructure gPhotonAS;
 
 //Constant defines
 static const bool kCollectCaustics = CAUSTIC_COLLECTION_MODE != CAUSTIC_COLLECT_MODE_NONE;
+static const bool kCollectCausticsForIndirect = CAUSTIC_COLLECTION_INDIRECT;
 
 /** Payload for ray (48B).
 */
@@ -319,8 +320,20 @@ void rayGen()
         TraceRay(gPhotonAS, rayFlags, 1 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         float w = 1 / (M_PI * gPhotonRadius.x * gPhotonRadius.x);
         fgRadiance += w * rayData.radiance;
+
+        //Caustic photon collection for indirect light
+        if(kCollectCaustics && kCollectCausticsForIndirect)
+        {
+            rayData.radiance = float3(0);
+            //Add caustic indirect radiance
+            TraceRay(gPhotonAS, rayFlags, 2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
+            w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
+            fgRadiance += w * rayData.radiance;
+        }
+        
     }
 
+    
 #if MODE_FINAL_GATHER
     
     //Final gather
