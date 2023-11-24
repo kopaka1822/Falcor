@@ -175,6 +175,8 @@ private:
     RenderMode mRenderMode = RenderMode::ReSTIRFG;
     ResamplingMode mResamplingMode = ResamplingMode::SpartioTemporal;
     DirectLightingMode mDirectLightMode = DirectLightingMode::RTXDI;
+    bool mUseReduceTexPrecision = true;                             //Uses F16 instead of F32 for some textures. Can result in a loss of precision
+    bool mResetTex = false;
     bool mOptionsChanged = false;
 
     //Specular Trace Options

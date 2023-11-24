@@ -430,6 +430,9 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                 "weight still has full precision"
             );
 
+            mResetTex |= group.checkbox("Use reduced texture precision", mUseReduceTexPrecision);
+            group.tooltip("If enabled uses 16F tex for thp and causic radiance");                
+
             mClearReservoir = group.button("Clear Reservoirs");
             group.tooltip("Clears the reservoirs");
         }
@@ -519,7 +522,7 @@ bool ReSTIR_FG::prepareLighting(RenderContext* pRenderContext)
 void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& renderData) {
 
     //Reset screen space depentend buffers if the resolution has changed
-    if ((mScreenRes.x != renderData.getDefaultTextureDims().x) || (mScreenRes.y != renderData.getDefaultTextureDims().y))
+    if ((mScreenRes.x != renderData.getDefaultTextureDims().x) || (mScreenRes.y != renderData.getDefaultTextureDims().y) || mResetTex)
     {
         mScreenRes = renderData.getDefaultTextureDims();
         for (size_t i = 0; i < 2; i++)
@@ -587,7 +590,8 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
     if (!mpCausticRadiance[0])
     {
         mpCausticRadiance[0] = Texture::create2D(
-            mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
+            mpDevice, mScreenRes.x, mScreenRes.y, mUseReduceTexPrecision ? ResourceFormat::RGBA16Float : ResourceFormat::RGBA32Float, 1u,
+            1u, nullptr,
                                               ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mpCausticRadiance[0]->setName("ReSTIR_FG::CausticRadiance");
     }
@@ -595,7 +599,8 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
     if (mCausticCollectMode == CausticCollectionMode::Temporal && !mpCausticRadiance[1])
     {
         mpCausticRadiance[1] = Texture::create2D(
-            mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
+            mpDevice, mScreenRes.x, mScreenRes.y, mUseReduceTexPrecision ? ResourceFormat::RGBA16Float : ResourceFormat::RGBA32Float, 1u,
+            1u, nullptr,
             ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
         );
         mpCausticRadiance[1]->setName("ReSTIR_FG::CausticRadianceTemporal");
@@ -634,7 +639,9 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
 
     if (!mpThp)
     {
-        mpThp = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RGBA32Float, 1u, 1u, nullptr,
+        mpThp = Texture::create2D(
+            mpDevice, mScreenRes.x, mScreenRes.y, mUseReduceTexPrecision ? ResourceFormat::RGBA16Float : ResourceFormat::RGBA32Float, 1u,
+            1u, nullptr,
                                   ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mpThp->setName("ReSTIR_FG::Throughput");
     }
