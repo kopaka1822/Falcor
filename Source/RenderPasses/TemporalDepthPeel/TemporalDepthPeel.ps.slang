@@ -18,18 +18,6 @@ cbuffer PerFrameCB
     int maxIterations;
 }
 
-bool isInValidArea(float2 uv)
-{
-    return uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0;
-}
-
-int2 UVToPixel(float2 uv)
-{
-    float width, height;
-    gDepth.GetDimensions(width, height);
-    return int2(floor(uv * float2(width, height)));
-}
-
 #define INSIDE 0
 #define LEFT 1
 #define RIGHT 2
@@ -141,33 +129,14 @@ float2 ViewSpaceToUV(float3 posV)
     return ndc * float2(-0.5, 0.5) + 0.5; // since posV.z is negative, the sign order is inversed
 }
 
-float RelativeDepth(float reference, float value)
-{
-    return abs(1.0 - value / reference);
-}
-
-float CalcViewDepthFromPrev(float2 prevUV, Texture2D<float> tex)
-{
-    float3 prevPosV = UVToViewSpace(prevUV, tex.SampleLevel(gLinearSampler, prevUV, 0.0));
-    float3 curPosV = mul(prevViewToCurView, float4(prevPosV, 1.0)).xyz;
-    return -curPosV.z;
-}
-
 struct PsOut
 {
     float depth2 : SV_Target0;
 };
 
-float maxComponent(float4 v)
-{
-    //return max(max(v.x, v.y), max(v.z, v.w));
-    return (v.x + v.y + v.z + v.w) * 0.25;
-}
-
 // perspective correct interpolation
 float zlerp(float z0, float z1, float t)
 {
-    //return rcp(lerp(rcp(z0), rcp(z1), t));
     return 1.0 / lerp(1.0 / z0, 1.0 / z1, t);
 }
 
@@ -185,7 +154,7 @@ float4 GetTexelWeights(float2 uv)
     return w;
 }
 
-// returns the weight the highest magnitude
+// returns the weight with the highest magnitude (1, 0, 0, 0) or (0, 1, 0, 0) or (0, 0, 1, 0) or (0, 0, 0, 1)
 float4 GetTexelPointWeight(float4 w)
 {
     int maxIdx = 0;
@@ -214,35 +183,11 @@ float GetRectifiedDepth(float2 uv, Texture2D<float> depthTex)
     //float depth = dot(n, w);
     float depth = zlerp(n, w);
     float depthPoint = dot(GetTexelPointWeight(GetTexelWeights(uv)), n);
-    // redistribute weights based on depth difference
-    //w = w * float4(n - depthPoint < 5);
-    //w = sqrt(w);
-    //w = w / (w.x + w.y + w.z + w.w);
-    //depth = dot(n, w);
-    
-    //return depthPoint;
-    //if (RelativeDepth(depth, depthPoint) > 0.1)
-    //    return gCamera.data.farZ;
-    
-    //float minDist = min(min(abs(n[0] - depth), abs(n[1] - depth)), min(abs(n[2] - depth), abs(n[3] - depth)));
-    //float minN = min(min(n[0], n[1]), min(n[2], n[3]));
-    //float maxN = max(max(n[0], n[1]), max(n[2], n[3]));
+    // if any depth value contains values from the far plane, DO NOT interpolate (values will be very large). Instead return the closest point without interpolation
     if(any(n  > 0.99 * gCamera.data.farZ))
         return depthPoint;
-    //if (maxN - minN > minSeparationDist && minDist > minSeparationDist * 0.01)
-    //    return depthPoint;
+    
     return depth;
-}
-
-float2 GetRectifiedDepths(float2 uv)
-{
-    float2 d;
-    d[0] = GetRectifiedDepth(uv, gPrevDepth);
-    d[1] = GetRectifiedDepth(uv, gPrevDepth2);
-    d[1] = max(d[0], d[1]); // make sure d1 is not smaller than d0
-    if (d[1] > 0.9 * gCamera.data.farZ)
-        d[1] = d[0]; // dont use far plane
-    return d;
 }
 
 struct SearchResult
@@ -251,7 +196,7 @@ struct SearchResult
     float error;
 };
 
-SearchResult SearchDepth(float primaryDepth, float2 minUV, float2 maxUV, float minZ, float maxZ, Texture2D<float> depthTex)
+SearchResult SearchDepth(float primaryDepth, float2 minUV, float2 maxUV, float minZ, float maxZ, Texture2D<float> prevDepthTex)
 {
     SearchResult res;
     res.depth2 = 0.0;
@@ -271,9 +216,9 @@ SearchResult SearchDepth(float primaryDepth, float2 minUV, float2 maxUV, float m
         t = (tmin + tmax) * 0.5;
         float2 uv = lerp(minUV, maxUV, t);
         float zRef = zlerp(minZ, maxZ, t); // reference z value of the current pixels ray
+
         // obtain rectified depth values from the previous frame
-        //float2 d = GetRectifiedDepths(uv);
-        float d = GetRectifiedDepth(uv, depthTex);
+        float d = GetRectifiedDepth(uv, prevDepthTex);
 
         // remember best (here last) values so far
         float err = abs(zRef - d);
@@ -283,21 +228,16 @@ SearchResult SearchDepth(float primaryDepth, float2 minUV, float2 maxUV, float m
             bestUV = uv;
             res.error = err;
         }
-        //res.error = abs(1.0 - d / zRef);
+        
         // early out if search interval is smaller than epsilon
         if (distance(lerp(minUV, maxUV, tmin), lerp(minUV, maxUV, tmax)) < uvEpsilon)
             break;
-        // early out if d and zref are close
-        if (abs(d - zRef) < minSeparationDist * 0.001)
-            break;
-        else if (zRef < d) // increase t
-        {
+        
+        if (zRef < d) // increase t
             tmin = t;
-        }
         else
-        {
             tmax = t;
-        }
+
     }
 
     if (bestZ == 0.0)
@@ -305,7 +245,7 @@ SearchResult SearchDepth(float primaryDepth, float2 minUV, float2 maxUV, float m
 
     // calc view position in previouse view space
     float3 bestPosV = UVToViewSpace(bestUV, bestZ);
-    // cacl view position in current view space
+    // calc view position in current view space
     bestPosV = mul(prevViewToCurView, float4(bestPosV, 1.0)).xyz;
     // use z component as depth
     if (-bestPosV.z > primaryDepth + minSeparationDist && -bestPosV.z < 0.99 * gCamera.data.farZ)
@@ -313,7 +253,7 @@ SearchResult SearchDepth(float primaryDepth, float2 minUV, float2 maxUV, float m
         res.depth2 = -bestPosV.z;
     }
         
-    return res; // nothing
+    return res;
 }
 
 PsOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
@@ -321,16 +261,8 @@ PsOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     float depth = gDepth.SampleLevel(gLinearSampler, texC, 0.0);
     PsOut o;
     o.depth2 = depth;
-    //o.depth2 = gCamera.data.farZ; // assume far plane
-    
-    /*float2 mvec = gMotionVec.SampleLevel(gLinearSampler, texC, 0.0);
-    
-    if (!isInValidArea(texC + mvec)) // test if motion vector is outside of the screen
-    {
-        return o; // no information
-    }*/
 
-    // calc min an max posV in current view space
+    // calc min and max posV in current view space
     float3 minPosV = UVToViewSpace(texC, depth + minSeparationDist);
     float3 maxPosV = UVToViewSpace(texC, gCamera.data.farZ);
     // transform to previous view space
@@ -345,80 +277,8 @@ PsOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
     // clip to screen (uvmax may be outside)
     CohenSutherlandClipping(minUV, maxUV);
 
-    float2 bestUV = 0.0;
-    float bestZ = 0.0;
-    float t = 0.0; // interpolation between min and max
-    float tmin = 0.0;
-    float tmax = 1.0;
-    int i = 0; // iteration counter
-    
-    //#define DO_LINEAR_SEARCH
-    #ifdef DO_LINEAR_SEARCH
-
-    bool2 prevIntersect = true; // set it like this to prevent a loop break on the first iteration
-    int intersectIndex = -1; // 0 = d0, 1 = d1
-    while(t < 1.0)
-    {
-        i++; // count iterations
-        float2 uv = lerp(minUV, maxUV, t);
-        float zref = zlerp(minZ, maxZ, t); // reference z value of the current pixels ray
-        // obtain rectified depth values from the previous frame
-        float2 d = GetRectifiedDepths(uv);
-        bool2 intersect = d < zref;
-        if (!prevIntersect.x && intersect.x) // test d0 intersection
-        {
-            intersectIndex = 0;
-            break;
-        }
-        if (!prevIntersect.y && intersect.y) // test d1 intersection
-        {
-            intersectIndex = 1;
-            break;
-        }
-        prevIntersect = intersect;
-        tmin = t;
-        t += 2.0 / maxIterations; // spend at most half the iterations on the linear search
-        tmax = t;
-    }
-
-    if (intersectIndex == -1)
-        i = maxIterations; // abort, nothing found
-
-    for (; i < maxIterations; ++i)
-    {
-        t = (tmin + tmax) * 0.5;
-        float2 uv = lerp(minUV, maxUV, t);
-        float zRef = zlerp(minZ, maxZ, t); // reference z value of the current pixels ray
-        // obtain rectified depth values from the previous frame
-        float2 dtmp = GetRectifiedDepths(uv);
-        float d = intersectIndex == 0 ? dtmp[0] : dtmp[1];
-
-        // remember best (here last) values so far
-        bestZ = d;
-        bestUV = uv;
-        
-        if (abs(zRef - d) < minSeparationDist * 0.001)
-            break;
-        else if (zRef < d) // increase t
-        {
-            tmin = t;
-        }
-        else
-        {
-            tmax = t;
-        }
-    }
-    
-    #else
-    #endif
-
-
     SearchResult r2 = SearchDepth(depth, minUV, maxUV, minZ, maxZ, gPrevDepth2);
-    SearchResult r1 = SearchDepth(depth, minUV, maxUV, minZ, maxZ, gPrevDepth);
     
-    //if(r1.error < minSeparationDist && r1.error < r2.error * 10.0 && r1.depth2 > depth + minSeparationDist)
-    //    o.depth2 = r1.depth2;
-    //else
     if (r2.depth2 > depth + minSeparationDist)
         o.depth2 = r2.depth2;
     
