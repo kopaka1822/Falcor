@@ -66,27 +66,15 @@ public:
 
 private:
     ref<Texture> allocatePrevFrameTexture(const ref<Texture>& original, ref<Texture> prev) const;
-    ref<Buffer> genIndexBuffer(uint2 res) const;
 
     ref<FullScreenPass> mpIterPass;
     ref<Fbo> mpFbo;
-    ref<Fbo> mpRasterFbo;
-    ref<Fbo> mpPointsFbo;
 
     ref<Texture> mpPrevDepth;
     ref<Texture> mpPrevDepth2;
 
     ref<Scene> mpScene;
     bool mEnabled = true;
-    Implementation mImplementation = Implementation::Iterative;
-
-    ref<Buffer> mRasterIndexBuffer;
-    ref<GraphicsState> mpRasterState;
-    ref<GraphicsVars> mpRasterVars;
-
-    ref<GraphicsState> mpPointsState;
-    ref<GraphicsVars> mpPointsVars;
-    ref<FullScreenPass> mpPointFixPass;
 
     int mIterations = 32; // for iterative implementations (iterative and point (fix))
     float mMinSeparationDistance = 0.5f; // for depth peeling
