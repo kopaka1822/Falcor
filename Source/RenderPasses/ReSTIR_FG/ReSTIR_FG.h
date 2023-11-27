@@ -183,6 +183,7 @@ private:
     uint mTraceMaxBounces = 10;                                          //Number of Specular/Transmissive bounces allowed
     bool mTraceRequireDiffuseMat = true;                            //Requires a diffuse part in addition to delta lobes
     float mTraceRoughnessCutoff = 0.7f;                             //If diffuse part is required, dont trace if the roughness is too high
+    float mTraceDiffuseCutoff = 0.3f;                              //If diffuse part is requred, it only counts as diffuse if any channel is over this value
 
     //Light
     bool mMixedLights = false;                                      //True if analytic and emissive lights are in the scene
@@ -221,7 +222,7 @@ private:
     bool mPhotonUseAlphaTest = true;
     bool mPhotonAdjustShadingNormal = true;
     bool mGenerationDeltaRejection = true;
-    bool mGenerationDeltaRejectionRequireDiffPart = false;
+    bool mGenerationDeltaRejectionRequireDiffPart = true;
     CausticCollectionMode mCausticCollectMode = CausticCollectionMode::All;
     uint mCausticTemporalFilterHistoryLimit = 60;
 
