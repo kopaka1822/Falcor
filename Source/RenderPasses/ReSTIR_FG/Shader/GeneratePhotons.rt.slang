@@ -262,10 +262,13 @@ void closestHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersecti
     BSDFSample bsdfSample;
     let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
     let bsdfProperties = bsdf.getProperties(sd);
-    float3 diffuseProb = bsdfProperties.diffuseReflectionAlbedo / (bsdfProperties.diffuseReflectionAlbedo + bsdfProperties.specularReflectionAlbedo + bsdfProperties.diffuseTransmissionAlbedo + bsdfProperties.specularTransmissionAlbedo);
-    float meanDiffuseProb = (diffuseProb.x + diffuseProb.y + diffuseProb.z) / 3;
-    bool hasDiffuseParts = (gFlags & (uint) GenerationFlags::DeltaRejReqDiff) ? 
-    (meanDiffuseProb > kTraceDiffuseCutoff) || bsdfProperties.roughness > kTraceRoughnessCutoff : true;
+    bool hasDiffuseParts = true;
+    if((gFlags & (uint) GenerationFlags::DeltaRejReqDiff))
+    {
+        float3 diffuseProb = bsdfProperties.diffuseReflectionAlbedo / (bsdfProperties.diffuseReflectionAlbedo + bsdfProperties.specularReflectionAlbedo + bsdfProperties.diffuseTransmissionAlbedo + bsdfProperties.specularTransmissionAlbedo);
+        float meanDiffuseProb = (diffuseProb.x + diffuseProb.y + diffuseProb.z) / 3;
+        hasDiffuseParts = (meanDiffuseProb > kTraceDiffuseCutoff) || bsdfProperties.roughness > kTraceRoughnessCutoff;
+    }
 
     bool valid = bsdf.sample(sd, rayData.sg, bsdfSample, true /*ImportanceSampling*/);
 

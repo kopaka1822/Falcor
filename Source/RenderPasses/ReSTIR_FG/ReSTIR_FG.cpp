@@ -42,6 +42,7 @@ namespace
 
     const std::string kShaderModel = "6_5";
     const uint kMaxPayloadBytes = 96u;
+    const uint kMaxPayloadBytesGenerateFGSamples = 20u;
 
     //Render Pass inputs and outputs
     const std::string kInputVBuffer = "vbuffer";
@@ -710,7 +711,7 @@ void ReSTIR_FG::prepareRayTracingShaders(RenderContext* pRenderContext) {
     auto globalTypeConformances = mpScene->getMaterialSystem().getTypeConformances();
 
     //TODO specify the payload bytes for each pass
-    mFinalGatherSamplePass.initRTProgram(mpDevice, mpScene, kFinalGatherSamplesShader, kMaxPayloadBytes, globalTypeConformances);
+    mFinalGatherSamplePass.initRTProgram(mpDevice, mpScene, kFinalGatherSamplesShader, kMaxPayloadBytesGenerateFGSamples, globalTypeConformances);
     mGeneratePhotonPass.initRTProgram(mpDevice, mpScene, kGeneratePhotonsShader, kMaxPayloadBytes, globalTypeConformances);
     mTraceTransmissionDelta.initRTProgram(mpDevice, mpScene, kTraceTransmissionDeltaShader, kMaxPayloadBytes, globalTypeConformances);
 
@@ -977,7 +978,12 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      mCollectPhotonPass.pProgram->addDefine("MODE_FINAL_GATHER", finalGatherRenderMode ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefine("CAUSTIC_COLLECTION_MODE", std::to_string((uint)mCausticCollectMode));
      mCollectPhotonPass.pProgram->addDefine("CAUSTIC_COLLECTION_INDIRECT", mUseCausticsForIndirectLight ? "1" : "0");
+          
+    mCollectPhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_ROUGH_CUTOFF", std::to_string(mTraceRoughnessCutoff));
+    mCollectPhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF", std::to_string(mTraceDiffuseCutoff));
+    mCollectPhotonPass.pProgram->addDefine("REJECT_FGSAMPLE_DIFFUSE_SURFACE", (mGenerationDeltaRejectionRequireDiffPart && mTraceRequireDiffuseMat) ? "1" : "0");
 
+    
      if (!mCollectPhotonPass.pVars)
         mCollectPhotonPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
      FALCOR_ASSERT(mCollectPhotonPass.pVars);

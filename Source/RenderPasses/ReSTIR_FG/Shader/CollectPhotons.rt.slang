@@ -80,6 +80,10 @@ RaytracingAccelerationStructure gPhotonAS;
 static const bool kCollectCaustics = CAUSTIC_COLLECTION_MODE != CAUSTIC_COLLECT_MODE_NONE;
 static const bool kCollectCausticsForIndirect = CAUSTIC_COLLECTION_INDIRECT;
 
+static const float kRejectDiffuseSurfaces = REJECT_FGSAMPLE_DIFFUSE_SURFACE;    //Uses same definition as photon generation
+static const float kTraceRoughnessCutoff = TRACE_TRANS_SPEC_ROUGH_CUTOFF;
+static const float kTraceDiffuseCutoff = TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF;
+
 /** Payload for ray (48B).
 */
 struct RayData
@@ -286,13 +290,16 @@ void rayGen()
     #elif !MODE_FINAL_GATHER //END Caustic mode temporal; Store Caustic tex if not Final Gather mode
     gCausticOut[launchIndex] = float4(causticRadiance, 1.f);
     #endif
+
+    //
+    //Final Gather Sample Photon Collection
+    //
     
     rayData.radiance = float3(0);
     rayData.packedHitInfo = gFinalGatherHit[launchIndex];
     hit = HitInfo(rayData.packedHitInfo);
     valid &= hit.isValid(); //Check if the final gather ray is valid
 
-    
     triangleHit = hit.getTriangleHit();
     v = gScene.getVertexData(triangleHit);
     ray.Direction = v.posW - ray.Origin; //Sample dir is used here to save payload space
@@ -306,6 +313,18 @@ void rayGen()
     uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
     let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
     let bsdfProperties = bsdf.getProperties(sd);
+
+    uint lobeTypes = bsdf.getLobeTypes(sd);
+    bool hasDiffuseParts = true;
+    if(kRejectDiffuseSurfaces)
+    {
+        float3 diffuseProb = bsdfProperties.diffuseReflectionAlbedo / (bsdfProperties.diffuseReflectionAlbedo + bsdfProperties.specularReflectionAlbedo + bsdfProperties.diffuseTransmissionAlbedo + bsdfProperties.specularTransmissionAlbedo);
+        float meanDiffuseProb = (diffuseProb.x + diffuseProb.y + diffuseProb.z) / 3;
+        hasDiffuseParts = (meanDiffuseProb > kTraceDiffuseCutoff) || bsdfProperties.roughness > kTraceRoughnessCutoff;
+    }
+    //Reject surfaces where no photons are stored anyway. The emissive case is handled by ReSTIR for Direct Lights
+    bool isDiffuse = hasDiffuseParts && !any(bsdfProperties.emission > 0) && ((lobeTypes & (uint)LobeType::Delta) == 0);
+    valid &= isDiffuse;  
     
     float3 fgRadiance = float3(0);
     float jacoDeter = -1.f;
@@ -332,7 +351,6 @@ void rayGen()
         }
         
     }
-
     
 #if MODE_FINAL_GATHER
     
@@ -354,9 +372,7 @@ void rayGen()
 
      //Create the final gather sample
     FGData fgData = { };
-    bool fgValid = true;
-    if (isnan(Li) || isinf(Li))
-        fgValid = false;
+    bool fgValid = !isnan(Li) && !isinf(Li);
     fgData.posW = sd.computeNewRayOrigin();
     fgData.normal = bsdfProperties.guideNormal;
     fgData.flux = fgRadiance;

@@ -59,24 +59,15 @@ static const bool kUseCausticPhotons = USE_CAUSTIC_CULLING;
 struct TraceData
 {
     PackedHitInfo packedHitInfo; //< Reflection albedo of the current hit point
-    uint packedNormal; ///< Face normal encoded in 16 bit polar coordinates
-    float distance; ///< 
-    float NdotL; ///< NdotL precalculated for targetPDF
-    uint _pad;
-
-    SampleGenerator sg; ///< Per-ray state for the sample generator (up to 16B).
+    float distance; ///<Current hit distance
     
     /** Create ray payload with default parameters.
     */
     static TraceData create()
     {
         TraceData d;
-        d.NdotL = 0.f;
-        d.packedHitInfo = {
-        };
-        d.packedNormal = 0;
+        d.packedHitInfo = { };
         d.distance = -1;
-        d._pad = 0;
         return d;
     }
 };
@@ -160,6 +151,7 @@ void closestHit(inout TraceData rayData : SV_RayPayload, BuiltInTriangleIntersec
     triangleHit.instanceID = getGeometryInstanceID();
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics = attribs.barycentrics;
+    /*
     VertexData v = getVertexData(triangleHit.instanceID, PrimitiveIndex(), attribs);
     const uint materialID = gScene.getMaterialID(triangleHit.instanceID);
     let lod = ExplicitLodTextureSampler(0.f);
@@ -167,21 +159,17 @@ void closestHit(inout TraceData rayData : SV_RayPayload, BuiltInTriangleIntersec
 
     //TODO Add Alternative. Sample a new direction using BSDF and take reflective lobe
     
-    uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
+    uint hints = (uint)MaterialInstanceHints::AdjustShadingNormal;
     let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
     
     let bsdfProperties = bsdf.getProperties(sd);
+    uint lobes = bsdf.getLobeTypes(sd);
     bool diffuseHit = luminance(bsdfProperties.diffuseReflectionAlbedo) > 0;
-    diffuseHit &= luminance(bsdfProperties.emission) <= 0; //Ignore emissive hits, as they are sampled by ReSTIR
+    diffuseHit &= all(bsdfProperties.emission <= 0); //Ignore emissive hits, as they are sampled by ReSTIR
+    */
     
-    if(diffuseHit){
-        rayData.distance = RayTCurrent();
-        rayData.packedNormal = encodeNormal2x16(bsdfProperties.guideNormal);
-        rayData.packedHitInfo = HitInfo(triangleHit).getData();
-        rayData.NdotL = saturate(dot(bsdfProperties.guideNormal, incomingRayDir));
-    }else{
-        rayData.distance = -1.f;
-    }
+    rayData.distance =  RayTCurrent();
+    rayData.packedHitInfo = HitInfo(triangleHit).getData();
 }
 
 [shader("raygeneration")]
@@ -209,10 +197,10 @@ void rayGen()
         let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = bsdf.getProperties(sd);
 
-        traceData.sg = SampleGenerator(launchIndex, gFrameCount + 3 * 13);
+        SampleGenerator sg = SampleGenerator(launchIndex, gFrameCount + 3 * 13);
 
         BSDFSample bsdfSample;
-        bool validSample = bsdf.sample(sd, traceData.sg, bsdfSample);
+        bool validSample = bsdf.sample(sd, sg, bsdfSample);
 
         //Fill the RTXDI surface if it is enabled
     #if USE_RTXDI
@@ -267,7 +255,6 @@ void rayGen()
 #endif //USE_RTXDI
     
     //Store data in buffers
-    //gLightFactor[launchIndex] = lightFactor;
     gFinalGatherHit[launchIndex] = traceData.packedHitInfo;
     gSurfaceData[index2Dto1D(launchIndex, launchDim.x)] = surface.pack();   //TODO better index
     
