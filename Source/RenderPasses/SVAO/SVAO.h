@@ -102,8 +102,9 @@ private:
     VAOData mData;
     bool mDirty = true;
     uint2 mStochLastSize;
-    DepthMode mPrimaryDepthMode = DepthMode::SingleDepth;
-    DepthMode mSecondaryDepthMode = DepthMode::Raytraced;
+    DepthMode mPrimaryDepthMode = DepthMode::DualDepth;
+    DepthMode mSecondaryDepthMode = DepthMode::SingleDepth;
+    DepthMode mSimpleDepthMode = DepthMode::DualDepth;
     bool mUseRayPipeline = true;
 
     // performance knobs

@@ -487,7 +487,7 @@ void SVAO::renderUI(Gui::Widgets& widget)
     const Gui::DropdownList kSecondaryDepthModeDropdown =
     {
         { (uint32_t)DepthMode::SingleDepth, "Disabled" },
-        { (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
+        //{ (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
         { (uint32_t)DepthMode::Raytraced, "Raytraced" },
     };
 
@@ -505,15 +505,22 @@ void SVAO::renderUI(Gui::Widgets& widget)
         //{ (uint32_t)16, "16" }, // falcor (and directx) only support 8 render targets, which are required for the raster variant
     };
 
+    const Gui::DropdownList kSimpleDropdown =
+    {
+        { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
+        { (uint32_t)DepthMode::DualDepth, "DualDepth" },
+        { (uint32_t)DepthMode::Raytraced, "Raytraced" },
+    };
+
 
     auto reset = false;
 
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
 
-    if (widget.checkbox("Alpha Test", mAlphaTest)) reset = true;
+    //if (widget.checkbox("Alpha Test", mAlphaTest)) reset = true;
 
-    uint32_t primaryDepthMode = (uint32_t)mPrimaryDepthMode;
+    /*uint32_t primaryDepthMode = (uint32_t)mPrimaryDepthMode;
     if (widget.dropdown("Primary Depth Mode", kPrimaryDepthModeDropdown, primaryDepthMode)) {
         mPrimaryDepthMode = (DepthMode)primaryDepthMode;
         reset = true;
@@ -525,9 +532,33 @@ void SVAO::renderUI(Gui::Widgets& widget)
     if (widget.dropdown("Secondary Depth Mode", kSecondaryDepthModeDropdown, secondaryDepthMode)) {
         mSecondaryDepthMode = (DepthMode)secondaryDepthMode;
         reset = true;
+    }*/
+    uint32_t simpleMode = (uint32_t)mSimpleDepthMode;
+    widget.dropdown("Mode", kSimpleDropdown, simpleMode);
+
+    if(simpleMode != (uint32_t)mSimpleDepthMode)
+    {
+        mSimpleDepthMode = (DepthMode)simpleMode;
+        if(mSimpleDepthMode == DepthMode::SingleDepth)
+        {
+            mPrimaryDepthMode = DepthMode::SingleDepth;
+            mSecondaryDepthMode = DepthMode::SingleDepth;
+        }
+        else if (mSimpleDepthMode == DepthMode::DualDepth)
+        {
+            mPrimaryDepthMode = DepthMode::DualDepth;
+            mSecondaryDepthMode = DepthMode::SingleDepth;
+        }
+        else if (mSimpleDepthMode == DepthMode::Raytraced)
+        {
+            mPrimaryDepthMode = DepthMode::SingleDepth;
+            mSecondaryDepthMode = DepthMode::Raytraced;
+        }
+        else assert(false);
+        reset = true;
     }
 
-    if (mSecondaryDepthMode == DepthMode::StochasticDepth)
+    /*if (mSecondaryDepthMode == DepthMode::StochasticDepth)
     {
         uint32_t stochasticImpl = (uint32_t)mStochasticDepthImpl;
         if (widget.dropdown("Stochastic Impl.", kStochasticDepthDopdown, stochasticImpl))
@@ -564,16 +595,16 @@ void SVAO::renderUI(Gui::Widgets& widget)
         if (widget.checkbox("Trace Out of Screen", mTraceOutOfScreen)) reset = true;
         widget.tooltip("If a sample point is outside of the screen, a ray is traced. Otherwise the closest sample from the border is used.");
 
-    }
+    }*/
 
     widget.separator();
 
     if (widget.var("Sample Radius", mData.radius, 0.01f, FLT_MAX, 0.01f)) mDirty = true;
 
-    if (widget.var("Thickness", mData.thickness, 0.0f, 1.0f, 0.1f)) {
+   /* if (widget.var("Thickness", mData.thickness, 0.0f, 1.0f, 0.1f)) {
         mDirty = true;
         //mData.exponent = glm::mix(1.6f, 1.0f, mData.thickness);
-    }
+    }*/
 
     if (widget.var("Power Exponent", mData.exponent, 1.0f, 16.0f, 0.1f)) mDirty = true;
 
@@ -581,7 +612,8 @@ void SVAO::renderUI(Gui::Widgets& widget)
     widget.separator();
     //if(mEnableRayFilter) mpRayFilter->renderUI(widget);
 
-    
+
+    /* Simplified
     if (widget.var("Fade End (Screen Space Radius)", mData.ssRadiusFadeEnd, 0.0f, 100.0f, 1.0f)) mDirty = true;
     widget.tooltip("radius in pixels where the ray tracing result is completely faded and only rasterization remains");
 
@@ -596,7 +628,7 @@ void SVAO::renderUI(Gui::Widgets& widget)
     widget.checkbox("Use Depth LOD", mUseDepthLod);
 
     if (widget.var("Depth Mipmap Count", mDepthTexMips, 1u, 14u)) reset = true;
-
+    */
     if (reset) requestRecompile();
 }
 

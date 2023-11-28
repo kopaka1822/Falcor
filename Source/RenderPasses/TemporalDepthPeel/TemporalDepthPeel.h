@@ -35,21 +35,7 @@ using namespace Falcor;
 class TemporalDepthPeel : public RenderPass
 {
 public:
-    enum class Implementation
-    {
-        Iterative,
-        Raster,
-        Points
-    };
-
-    FALCOR_ENUM_INFO(Implementation,
-    {
-           { Implementation::Iterative, "Iterative" },
-           { Implementation::Raster, "Raster" },
-           { Implementation::Points, "Points" }
-    });
-
-    FALCOR_PLUGIN_CLASS(TemporalDepthPeel, "TemporalDepthPeel", "Insert pass description here.");
+    FALCOR_PLUGIN_CLASS(TemporalDepthPeel, "TemporalDepthPeel", "Depth Peeling via temporal reprojection");
 
     static ref<TemporalDepthPeel> create(ref<Device> pDevice, const Properties& props) { return make_ref<TemporalDepthPeel>(pDevice, props); }
 
@@ -79,5 +65,3 @@ private:
     int mIterations = 32; // for iterative implementations (iterative and point (fix))
     float mMinSeparationDistance = 0.5f; // for depth peeling
 };
-
-FALCOR_ENUM_REGISTER(TemporalDepthPeel::Implementation);
