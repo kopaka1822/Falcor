@@ -90,10 +90,13 @@ RenderPassReflection DepthPeeling::reflect(const CompileData& compileData)
 
 void DepthPeeling::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if (!mEnabled) return;
-
     auto pDepthIn = renderData[kDepthIn]->asTexture();
     auto pDepthOut = renderData[kDepthOut]->asTexture();
+
+    if (!mEnabled)
+    {
+        pDepthIn = nullptr; // forces to do a regular depth pass
+    }
 
     // clear depth
     auto dsvOut = pDepthOut->getDSV();

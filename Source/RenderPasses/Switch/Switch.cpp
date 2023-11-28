@@ -103,7 +103,7 @@ RenderPassReflection Switch::reflect(const CompileData& compileData)
 
 void Switch::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
-    //if (!mReady) throw std::runtime_error("Switch::compile - missing incoming reflection information");
+    if (!mReady) throw std::runtime_error("Switch::compile - missing incoming reflection information");
 }
 
 void Switch::execute(RenderContext* pRenderContext, const RenderData& renderData)
