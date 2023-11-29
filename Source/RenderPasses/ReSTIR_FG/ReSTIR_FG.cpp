@@ -42,6 +42,7 @@ namespace
 
     const std::string kShaderModel = "6_5";
     const uint kMaxPayloadBytes = 96u;
+    const uint kMaxPayloadBytesCollect = 48u;
     const uint kMaxPayloadBytesGenerateFGSamples = 20u;
 
     //Render Pass inputs and outputs
@@ -328,7 +329,14 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
             );
             changed |= group.button("Reset", true);
         }
-            
+
+        changed |= group.checkbox("Use Stochastic Collect", mUseStochasticCollect);
+        group.tooltip("Stochastic Collection using reservoir sampling. Can help if the BSDF is expensive and many photons overlap");
+        if (mUseStochasticCollect)
+        {
+            changed |= group.var("Stoch Collect Max", mStochasticCollectNumPhotons, 3u, 7u, 4u);
+            group.tooltip("Size of the Stochastic collection buffer in the payload.");
+        }
 
         if (auto causticGroup = group.group("Caustic Settings", true))
         {
@@ -716,7 +724,7 @@ void ReSTIR_FG::prepareRayTracingShaders(RenderContext* pRenderContext) {
     mTraceTransmissionDelta.initRTProgram(mpDevice, mpScene, kTraceTransmissionDeltaShader, kMaxPayloadBytes, globalTypeConformances);
 
     //Special Program for the Photon Collection as the photon acceleration structure is used
-    mCollectPhotonPass.initRTCollectionProgram(mpDevice, mpScene, kCollectPhotonsShader, kMaxPayloadBytes, globalTypeConformances);
+    mCollectPhotonPass.initRTCollectionProgram(mpDevice, mpScene, kCollectPhotonsShader, kMaxPayloadBytesCollect, globalTypeConformances);
 }
 
 void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -979,10 +987,12 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      mCollectPhotonPass.pProgram->addDefine("CAUSTIC_COLLECTION_MODE", std::to_string((uint)mCausticCollectMode));
      mCollectPhotonPass.pProgram->addDefine("CAUSTIC_COLLECTION_INDIRECT", mUseCausticsForIndirectLight ? "1" : "0");
           
-    mCollectPhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_ROUGH_CUTOFF", std::to_string(mTraceRoughnessCutoff));
-    mCollectPhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF", std::to_string(mTraceDiffuseCutoff));
-    mCollectPhotonPass.pProgram->addDefine("REJECT_FGSAMPLE_DIFFUSE_SURFACE", (mGenerationDeltaRejectionRequireDiffPart && mTraceRequireDiffuseMat) ? "1" : "0");
+     mCollectPhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_ROUGH_CUTOFF", std::to_string(mTraceRoughnessCutoff));
+     mCollectPhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF", std::to_string(mTraceDiffuseCutoff));
+     mCollectPhotonPass.pProgram->addDefine("REJECT_FGSAMPLE_DIFFUSE_SURFACE", (mGenerationDeltaRejectionRequireDiffPart && mTraceRequireDiffuseMat) ? "1" : "0");
 
+     mCollectPhotonPass.pProgram->addDefine("USE_STOCHASTIC_COLLECT", mUseStochasticCollect ? "1" : "0");
+     mCollectPhotonPass.pProgram->addDefine("STOCH_NUM_PHOTONS", std::to_string(mStochasticCollectNumPhotons));
     
      if (!mCollectPhotonPass.pVars)
         mCollectPhotonPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
