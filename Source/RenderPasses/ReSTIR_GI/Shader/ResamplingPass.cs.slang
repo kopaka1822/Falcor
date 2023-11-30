@@ -435,8 +435,8 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout GIData giSam
             int2 spartialOffset = int2(round(randSamp * gSamplingRadius));
             idx = prevIdx + spartialOffset;
 
-            //Cap to valid index
-            min(max(uint2(0), idx), gFrameDim - 1);
+            //Clamp to valid index
+            idx = clamp(idx, uint2(0), gFrameDim - 1);
             
              //Get surface and check if valid
             SurfaceGI neighSurface = getSurface(idx, true);
@@ -500,21 +500,20 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout GIData giSam
             if ((cachedIndices[i]) == 0xFFFFFFFF)
                 continue;
             //Get Index
-            uint2 idx = uint2(cachedIndices[i] >> 16, (cachedIndices[i] & 0xFFFF));
+            uint2 idx = uint2((cachedIndices[i] >> 16) & 0xFFFF, (cachedIndices[i] & 0xFFFF));
             //Get Surface
             SurfaceGI biasSurface = getSurface(idx, true);
-            if (!biasSurface.valid)
-                continue;
         
             //Get light pdf
             float ps = 0.0f;
             LightSample ls = { };
             float dist = 0;
 
-            //Skip Sample if it was rejected by jacobian
-            if (!getLightSample(giSample, biasSurface.posW, ls, dist))
-                continue;
-            ps = biasSurface.getPdf(ls.dir, ls.Li);
+            if (biasSurface.valid)
+            {
+                if(getLightSample(giSample, biasSurface.posW, ls, dist))
+                    ps = biasSurface.getPdf(ls.dir, ls.Li);
+            }
         
             //Trace ray
     #if BIAS_CORRECTION_MODE >= BIAS_MODE_RAYTRACE
@@ -533,7 +532,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout GIData giSam
             if (i % 2 == 0)
                 M = M & 0xFFFF;
             else
-                M = M >> 16;
+                M = (M >> 16) & 0xFFFF;
         
             pi = selectedSample == i ? ps : pi;
             piSum += ps * M;
