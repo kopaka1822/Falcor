@@ -290,9 +290,6 @@ float3 stochPhotonContribution(in const ShadingData sd, in IMaterialInstance bsd
     #endif
 }
 
-//TODO photon contribution function and add to raygen
-// https://github.com/SirKero/RTProgressivePhotonMapper/blob/master/Source/RenderPasses/RTPhotonMapper/PhotonMapperStochasticCollect.rt.slang
-
 [shader("raygeneration")]
 void rayGen()
 {
