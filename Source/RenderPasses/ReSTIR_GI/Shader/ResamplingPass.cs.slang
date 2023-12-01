@@ -358,8 +358,7 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout GIData giSample, in
 void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout GIData giSample, in SurfaceGI surface)
 {
     SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
-
-    uint initialM = r.M;
+    
     uint historyLimit = gMaxAge;
 
     //Check if motion vectors are inside of the frame
@@ -493,7 +492,6 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout GIData giSam
         
         float pi = r.targetPdf;
         float piSum = r.targetPdf; //piSum = target * M_initial
-        uint sumValidM = initialM;
         //go through all neighbors again
         for (int i = 0; i < numSamples; i++)
         {
@@ -537,11 +535,8 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout GIData giSam
         
             pi = selectedSample == i ? ps : pi;
             piSum += ps * M;
-            if(ps > 0)
-                sumValidM += M;
         }
         r.finalizeSample(pi, piSum);
-        r.weightSum = sumValidM;
         
     #else //BIAS MODE BASIC
         r.finalizeSample(1.0f, r.M);
