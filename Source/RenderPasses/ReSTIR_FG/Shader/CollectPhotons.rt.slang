@@ -170,7 +170,14 @@ void miss(inout RayData rayData : SV_RayPayload)
 void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_IntersectionAttributes)
 {
     const uint primIndex = PrimitiveIndex();
-
+    //Get Photon data
+    PhotonData pd = PhotonData(gPackedPhotonData[InstanceIndex()][primIndex]);
+    //Check if photon sample is in valid hemisphere
+    if (dot(pd.dir, WorldRayDirection()) <= 0) 
+    {
+        return;
+    }
+    
     uint idx = rayData.counter;
     rayData.counter++;
 
@@ -315,34 +322,39 @@ void rayGen()
     //Get vertex data for the world position
     TriangleHit triangleHit = hit.getTriangleHit();
     VertexData v = gScene.getVertexData(triangleHit);
-    
+
+    float3 view = -gView[launchIndex].xyz;
+
+#if MODE_FINAL_GATHER || USE_STOCHASTIC_COLLECT
+    ShadingData fgSD = loadShadingData(hit, view, lod); //TODO remove
+#endif // MODE_FINAL_GATHER
+
+
     //Ray description 
     RayDesc ray;
     ray.Origin = v.posW;
     ray.TMin = 0.0;
     ray.TMax = 0.001;
-    ray.Direction = -gView[launchIndex].xyz; //we take the view dir as direction to save payload space
+#if USE_STOCHASTIC_COLLECT
+    ray.Direction = fgSD.faceN; //we take the face Normal as direction to save payload space
+#else
+    ray.Direction = view; //we take the view dir as direction to save payload space
+#endif //USE_STOCHASTIC_COLLECT
 
-    #if MODE_FINAL_GATHER
-    ShadingData fgSD = loadShadingData(hit, ray.Direction, lod); //TODO remove
-    #endif
-    
     //Closest hit shader can be skipped
     uint rayFlags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES;
     float3 causticRadiance = float3(0);
 
     //Collect Caustic Photon
     if (valid && kCollectCaustics)
-    {
+    {        
         TraceRay(gPhotonAS, rayFlags, 2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         float w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
         #if USE_STOCHASTIC_COLLECT
-            //Load shading data and materialInstance
-            ShadingData sdCaustic = loadShadingData(hit, ray.Direction, lod);
             uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
-            let mi = gScene.materials.getMaterialInstance(sdCaustic, lod, hints);
-            let miProperties = mi.getProperties(sdCaustic);
-            causticRadiance += w * stochPhotonContribution(sdCaustic, mi, miProperties.guideNormal, rayData, true);
+            let mi = gScene.materials.getMaterialInstance(fgSD, lod, hints);
+            let miProperties = mi.getProperties(fgSD);
+            causticRadiance += w * stochPhotonContribution(fgSD, mi, miProperties.guideNormal, rayData, true);
         #else // USE_STOCHASTIC_COLLECT
             #if (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_GREATERONE)
             if(rayData.countPhotons > 1)
@@ -364,8 +376,8 @@ void rayGen()
     if (tempIndex.x >= 0 && tempIndex.y >= 0 && tempIndex.x < launchDim.x && tempIndex.y < launchDim.y)
     {
         //Load Surfaces
-        SurfaceFG currentSurface = getSurface(launchIndex, false, launchDim.x, ray.Direction);
-        SurfaceFG prevSurface = getSurface(tempIndex, false, launchDim.x, ray.Direction);
+        SurfaceFG currentSurface = getSurface(launchIndex, false, launchDim.x, view);
+        SurfaceFG prevSurface = getSurface(tempIndex, false, launchDim.x, view);
         
         if (currentSurface.isValidNeighbor(prevSurface, gDepthThreshold, gNormalThreshold, gMatThreshold))
         {
@@ -403,9 +415,13 @@ void rayGen()
     ray.Direction = v.posW - ray.Origin; //Sample dir is used here to save payload space
     float distToFG = length(ray.Direction); //Distance for Jacobian determinant
     ray.Direction /= distToFG; //Normalize
-    
     ray.Origin = v.posW; //Update origin
-        
+
+    
+#if MODE_FINAL_GATHER
+    view = ray.Direction;   //Store view for later
+#endif
+    
     uint materialID = gScene.getMaterialID(triangleHit.instanceID);
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.Direction, lod);
     uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
@@ -433,7 +449,11 @@ void rayGen()
 #if !MODE_FINAL_GATHER
         jacoDeter = vplAttenuation(distToFG, gAttenuationRadius) * saturate(dot(bsdfProperties.guideNormal,sd.V));
 #endif
-        
+
+    #if USE_STOCHASTIC_COLLECT
+        ray.Direction = sd.faceN;   //Store faceN in direction
+    #endif // USE_STOCHASTIC_COLLECT
+    
         TraceRay(gPhotonAS, rayFlags, 1 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         float w = 1 / (M_PI * gPhotonRadius.x * gPhotonRadius.x);
     #if USE_STOCHASTIC_COLLECT
@@ -462,14 +482,12 @@ void rayGen()
     }
     
 #if MODE_FINAL_GATHER
-    
     //Final gather
     let bsdfFG = gScene.materials.getMaterialInstance(fgSD, lod, hints);
     float3 color = max(0.f, fgRadiance * r.weightSum);
-    color *= bsdfFG.eval(fgSD, ray.Direction, rayData.sg);
+    color *= bsdfFG.eval(fgSD, view, rayData.sg);
     
     gColor[launchIndex] = float4(color + causticRadiance, 1.f);
-
 #else
    
     

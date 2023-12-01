@@ -543,8 +543,6 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
         
             pi = selectedSample == i ? ps : pi;
             piSum += ps * M;
-            if(ps > 0)
-                sumValidM += M;
         }
         r.finalizeSample(pi, piSum);
         
