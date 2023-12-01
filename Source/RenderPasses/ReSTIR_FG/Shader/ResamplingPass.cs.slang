@@ -497,7 +497,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
     #if BIAS_CORRECTION_MODE >= BIAS_MODE_BASIC
         
         float pi = r.targetPdf;
-        float piSum = r.targetPdf * initialM; //piSum = target * M_initial
+        float piSum = r.targetPdf; //piSum = target * M_initial
         uint sumValidM = initialM; //M_intial
         
         //go through all neighbors again
