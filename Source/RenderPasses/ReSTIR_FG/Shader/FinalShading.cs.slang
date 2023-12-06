@@ -173,7 +173,9 @@ void main(uint2 pixel : SV_DispatchThreadID)
     #endif
 
     //Load final gather and ReSTIR FG data
-    viewDir = -gView[pixel].xyz;
+    float4 viewTmp = gView[pixel];
+    viewDir = -viewTmp.xyz;
+    bool needEmissive = viewTmp.w == 0; //Direct light for indirect flag
 
     #if USE_RESTIRFG
         gViewPrev[pixel] = float4(-viewDir,1); //copy view
@@ -196,7 +198,8 @@ void main(uint2 pixel : SV_DispatchThreadID)
         ShadingData sd = loadShadingData(hitInfo, viewDir, lod);
         let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = bsdf.getProperties(sd);
-        emission += bsdfProperties.emission * thp; //Emission
+        if(needEmissive)
+            emission += bsdfProperties.emission * thp; //Emission
         
    
         //Get reservoir
