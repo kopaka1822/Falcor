@@ -29,14 +29,15 @@ struct FGData{
 
 struct PhotonData{
     float3 flux;
-    uint packedNormal;
+    uint packedNormal;  //Normal packed as 2x8snorm
     float3 dir;
-    uint _pad;
+    bool isFirstHit;
 
     __init(){
         flux = float3(0);
         dir = float3(0);
         packedNormal = 0;
+        isFirstHit = false;
     }
     
     __init(uint4 data){
@@ -44,12 +45,13 @@ struct PhotonData{
         flux.z = f16tof32((data.y >> 16) & 0xFFFF);
         dir.x = f16tof32(data.y & 0xFFFF);
         dir.yz = float2(f16tof32((data.z >> 16) & 0xFFFF), f16tof32(data.z & 0xFFFF));
-        packedNormal = data.w;
+        packedNormal = data.w & 0xFFFF;
+        isFirstHit = ((data.w >> 16) & 1) == 1 ? true : false;
     }
 
     property float3 normal{
-        get { return decodeNormal2x16(packedNormal); }
-        set { packedNormal = encodeNormal2x16(newValue); }
+        get { return decodeNormal2x8(packedNormal); }
+        set { packedNormal = encodeNormal2x8(newValue); }
     }
 
     uint4 pack(){
@@ -57,7 +59,7 @@ struct PhotonData{
         data.x = (f32tof16(flux.x) << 16u) | f32tof16(flux.y);
         data.y = (f32tof16(flux.z) << 16u) | f32tof16(dir.x);
         data.z = (f32tof16(dir.y) << 16u) | f32tof16(dir.z);
-        data.w = packedNormal;
+        data.w = packedNormal | (isFirstHit ? 1<<16 : 0);
         return data;
     }
 };

@@ -195,7 +195,7 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
         generatePhotonsPass(pRenderContext, renderData, true);  //Secound pass. Always Analytic
 
     //Direct light resampling
-    if (mpRTXDI) mpRTXDI->update(pRenderContext, pMotionVectors, mpViewDir, mpViewDirPrev);
+    if (mpRTXDI) mpRTXDI->update(pRenderContext, pMotionVectors, mpViewDirRayDistDI, mpViewDirDIPrev);
 
     collectPhotons(pRenderContext, renderData);
 
@@ -207,7 +207,7 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     {
         finalShadingPass(pRenderContext, renderData);
 
-        copyViewTexture(pRenderContext, renderData);
+        //copyViewTexture(pRenderContext, renderData);
     }
 
     if (mpRTXDI) mpRTXDI->endFrame(pRenderContext);
@@ -549,6 +549,10 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         mpViewDirPrev.reset();
         mpRayDist.reset();
         mpThp.reset();
+        mpVBufferDI.reset();
+        mpViewDirRayDistDI.reset();
+        mpViewDirDIPrev.reset();
+        mpThpDI.reset();
     }
 
     //If reservoir format changed reset buffer
@@ -625,6 +629,12 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         mpVBuffer = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, HitInfo::kDefaultFormat, 1u, 1u, nullptr,
                                       ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess );
         mpVBuffer->setName("ReSTIR_FG::VBufferWorkCopy");
+
+        mpVBufferDI = Texture::create2D(
+                           mpDevice, mScreenRes.x, mScreenRes.y, HitInfo::kDefaultFormat, 1u, 1u, nullptr,
+                           ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+                       );
+        mpVBufferDI->setName("ReSTIR_FG::VBufferWorkCopyDI");
     }
 
     if (!mpViewDir)
@@ -632,6 +642,12 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         mpViewDir = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, kViewDirFormat, 1u, 1u, nullptr,
                                       ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mpViewDir->setName("ReSTIR_FG::ViewDir");
+
+        mpViewDirRayDistDI = Texture::create2D(
+            mpDevice, mScreenRes.x, mScreenRes.y, kViewDirFormat, 1u, 1u, nullptr,
+            ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+        );
+        mpViewDirRayDistDI->setName("ReSTIR_FG::ViewDirRayDistDI");
     }
 
     if (!mpViewDirPrev)
@@ -639,6 +655,12 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         mpViewDirPrev = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, kViewDirFormat, 1u, 1u, nullptr,
                                           ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mpViewDirPrev->setName("ReSTIR_FG::ViewDirPrev");
+
+        mpViewDirDIPrev = Texture::create2D(
+            mpDevice, mScreenRes.x, mScreenRes.y, kViewDirFormat, 1u, 1u, nullptr,
+            ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+        );
+        mpViewDirDIPrev->setName("ReSTIR_FG::ViewDirDIPrev");
     }
 
     if (!mpRayDist)
@@ -655,6 +677,12 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
             1u, nullptr,
                                   ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
         mpThp->setName("ReSTIR_FG::Throughput");
+
+        mpThpDI = Texture::create2D(
+            mpDevice, mScreenRes.x, mScreenRes.y, mUseReduceTexPrecision ? ResourceFormat::RGBA16Float : ResourceFormat::RGBA32Float, 1u,
+            1u, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+        );
+        mpThpDI->setName("ReSTIR_FG::ThroughputDI");
     }
 
     //Photon
@@ -733,6 +761,8 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     mTraceTransmissionDelta.pProgram->addDefines(getValidResourceDefines(kOutputChannels, renderData));
     mTraceTransmissionDelta.pProgram->addDefine("TRACE_TRANS_SPEC_ROUGH_CUTOFF", std::to_string(mTraceRoughnessCutoff));
     mTraceTransmissionDelta.pProgram->addDefine("TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF", std::to_string(mTraceDiffuseCutoff));
+    mTraceTransmissionDelta.pProgram->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
+    if (mpRTXDI) mTraceTransmissionDelta.pProgram->addDefines(mpRTXDI->getDefines());
 
     if (!mTraceTransmissionDelta.pVars)
         mTraceTransmissionDelta.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
@@ -747,12 +777,18 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     var[nameBuf]["gRequDiffParts"] = mTraceRequireDiffuseMat;
     var[nameBuf]["gAlphaTest"] = mPhotonUseAlphaTest; 
 
+    if (mpRTXDI) mpRTXDI->setShaderData(var);
     var["gInVBuffer"] = renderData[kInputVBuffer]->asTexture();
 
     var["gOutThp"] = mpThp;
     var["gOutViewDir"] = mpViewDir;
     var["gOutRayDist"] = mpRayDist;
     var["gOutVBuffer"] = mpVBuffer;
+
+    var["gOutThpDI"] = mpThpDI;
+    var["gOutViewDirRayDistDI"] = mpViewDirRayDistDI;
+    var["gOutVBufferDI"] = mpVBufferDI;
+
     if (renderData[kOutputDiffuseReflectance])
         var["gOutDiffuseReflectance"] = renderData[kOutputDiffuseReflectance]->asTexture();
     if (renderData[kOutputSpecularReflectance])
@@ -776,8 +812,7 @@ void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const Rende
     mFinalGatherSamplePass.pProgram->addDefine("USE_PHOTON_CULLING", mUsePhotonCulling ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("USE_CAUSTIC_CULLING", (mCausticCollectMode != CausticCollectionMode::None) && mUseCausticCulling ? "1" : "0");
-    mFinalGatherSamplePass.pProgram->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
-    if (mpRTXDI) mFinalGatherSamplePass.pProgram->addDefines(mpRTXDI->getDefines());
+    
         
     if (!mFinalGatherSamplePass.pVars)
         mFinalGatherSamplePass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
@@ -800,7 +835,6 @@ void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const Rende
     var[nameBuf]["gUseAlphaTest"] = mPhotonUseAlphaTest;
     var[nameBuf]["gDeltaRejection"] = mGenerationDeltaRejection;
 
-    if (mpRTXDI) mpRTXDI->setShaderData(var);
     var["gVBuffer"] = mpVBuffer;
     var["gView"] = mpViewDir;
     var["gLinZ"] = mpRayDist;
@@ -1201,6 +1235,13 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      var["gView"] = mpViewDir;
      var["gVBuffer"] = mpVBuffer;
 
+     var["gThpDI"] = mpThpDI;
+     var["gViewDI"] = mpViewDirRayDistDI;
+     var["gVBufferDI"] = mpVBufferDI;
+
+     var["gViewDIPrev"] = mpViewDirDIPrev;
+     var["gViewPrev"] = mpViewDirPrev;
+
      uint causticRadianceIdx = mCausticCollectMode == CausticCollectionMode::Temporal ? mFrameCount % 2 : 0;
 
      var["gCausticRadiance"] = mpCausticRadiance[causticRadianceIdx];
@@ -1256,9 +1297,9 @@ void ReSTIR_FG::directAnalytic(RenderContext* pRenderContext, const RenderData& 
      mpScene->setRaytracingShaderData(pRenderContext, var, 1); // Set scene data
      mpSampleGenerator->setShaderData(var);                    // Sample generator
 
-     var["gThp"] = mpThp;
-     var["gView"] = mpViewDir;
-     var["gVBuffer"] = mpVBuffer;
+     var["gThp"] = mpThpDI;
+     var["gView"] = mpViewDirRayDistDI;
+     var["gVBuffer"] = mpVBufferDI;
 
      // Bind all Output Channels
      for (uint i = 0; i < kOutputChannels.size(); i++)

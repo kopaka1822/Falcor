@@ -12,7 +12,6 @@ import Rendering.Lights.LightHelpers;
 import Utils.Math.PackedFormats;
 import Utils.Math.FormatConversion;
 import Utils.Color.ColorHelpers;
-import Rendering.RTXDI.RTXDI;
 
 import Reservoir;
 import FinalGatherData;
@@ -151,22 +150,6 @@ void closestHit(inout TraceData rayData : SV_RayPayload, BuiltInTriangleIntersec
     triangleHit.instanceID = getGeometryInstanceID();
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics = attribs.barycentrics;
-    /*
-    VertexData v = getVertexData(triangleHit.instanceID, PrimitiveIndex(), attribs);
-    const uint materialID = gScene.getMaterialID(triangleHit.instanceID);
-    let lod = ExplicitLodTextureSampler(0.f);
-    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, incomingRayDir, lod);
-
-    //TODO Add Alternative. Sample a new direction using BSDF and take reflective lobe
-    
-    uint hints = (uint)MaterialInstanceHints::AdjustShadingNormal;
-    let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
-    
-    let bsdfProperties = bsdf.getProperties(sd);
-    uint lobes = bsdf.getLobeTypes(sd);
-    bool diffuseHit = luminance(bsdfProperties.diffuseReflectionAlbedo) > 0;
-    diffuseHit &= all(bsdfProperties.emission <= 0); //Ignore emissive hits, as they are sampled by ReSTIR
-    */
     
     rayData.distance =  RayTCurrent();
     rayData.packedHitInfo = HitInfo(triangleHit).getData();
@@ -201,12 +184,7 @@ void rayGen()
 
         BSDFSample bsdfSample;
         bool validSample = bsdf.sample(sd, sg, bsdfSample);
-
-        //Fill the RTXDI surface if it is enabled
-    #if USE_RTXDI
-        gRTXDI.setSurfaceData(launchIndex, sd.computeNewRayOrigin(), bsdfProperties.guideNormal, bsdfProperties.diffuseReflectionAlbedo, bsdfProperties.specularReflectance, bsdfProperties.roughness, viewDepth);
-    #endif
-        
+                
         //Fill Surface Buffer used for calculating the target PDF
         surface = SurfaceFG::create(sd.computeNewRayOrigin(), bsdfProperties.guideNormal, sd.V, viewDepth, bsdfProperties.roughness,
                                       luminance(bsdfProperties.diffuseReflectionAlbedo), luminance(bsdfProperties.specularReflectance));
@@ -247,12 +225,6 @@ void rayGen()
             reservoir.weightSum = 0.f; //invalidate reseroir
         }
     }
-#if USE_RTXDI
-    else
-    {
-        gRTXDI.setInvalidSurfaceData(launchIndex);
-    }
-#endif //USE_RTXDI
     
     //Store data in buffers
     gFinalGatherHit[launchIndex] = traceData.packedHitInfo;

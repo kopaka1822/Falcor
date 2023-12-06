@@ -9,7 +9,12 @@ import Utils.Math.PackedFormats;
 import Utils.Math.FormatConversion;
 import Rendering.Materials.IsotropicGGX;
 import Utils.Color.ColorHelpers;
+import Rendering.RTXDI.RTXDI;
 
+//Syntax Highlight
+#ifndef USE_RTXDI
+#define USE_RTXDI 1
+#endif
 
 cbuffer PerFrame
 {
@@ -27,6 +32,12 @@ RWTexture2D<PackedHitInfo> gOutVBuffer;
 RWTexture2D<float4> gOutViewDir;
 RWTexture2D<float> gOutRayDist;
 RWTexture2D<float4> gOutThp;
+
+//Outputs RTXDI (ReSTIR)
+RWTexture2D<PackedHitInfo> gOutVBufferDI;
+RWTexture2D<float4> gOutViewDirRayDistDI;
+RWTexture2D<float4> gOutThpDI;
+
 RWTexture2D<float4> gOutDiffuseReflectance;
 RWTexture2D<float4> gOutSpecularReflectance;
 
@@ -111,6 +122,13 @@ void rayGen()
     float3 viewDir = -gScene.camera.computeRayPinhole(launchIndex, launchDim).dir;
     float rayDist = 0.f;
     float3 thp = float3(1);
+
+    //Direct illumination 
+    HitInfo hitInfoDI = hitInfo;
+    float4 viewDirDistDI = float4(viewDir, rayDist);
+    float3 thpDI = thp;
+    bool validSurfaceForDI = true;
+    
     TraceData traceData = TraceData::create();
     traceData.sg = SampleGenerator(launchIndex, gFrameCount + 7 * 13);
     let lod = ExplicitLodTextureSampler(0.f);
@@ -124,7 +142,7 @@ void rayGen()
             break;
 
         ShadingData sd = loadShadingData(hitInfo, -viewDir, lod);
-        rayDist = distance(originPos, sd.posW);
+        rayDist += distance(originPos, sd.posW);
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
         let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = bsdf.getProperties(sd);
@@ -177,12 +195,44 @@ void rayGen()
         viewDir = -bsdfSample.wo;
         originPos = sd.posW;
         wasTracedMask = 1;
+
+        //Write DirectHit surfaces hits only for transmission or delta reflection hits
+        if(validSurfaceForDI){
+             if(isTransmission || bsdfSample.isLobe(LobeType::DeltaReflection)){
+                hitInfoDI = hitInfo;
+                viewDirDistDI = float4(viewDir,rayDist);
+                thpDI = thp;
+            }else{
+                validSurfaceForDI = false;
+            }
+        }
     }
 
+    //Fill the RTXDI surface if it is enabled
+#if USE_RTXDI
+    if(hitInfoDI.isValid())
+    {
+        //load all needed data
+        ShadingData sd = loadShadingData(hitInfoDI, -viewDirDistDI.xyz, lod);
+        uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
+        let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
+        let bsdfProperties = bsdf.getProperties(sd);
+    
+        gRTXDI.setSurfaceData(launchIndex, sd.computeNewRayOrigin(), bsdfProperties.guideNormal, bsdfProperties.diffuseReflectionAlbedo, bsdfProperties.specularReflectance, bsdfProperties.roughness, viewDirDistDI.w);
+    }else{
+        gRTXDI.setInvalidSurfaceData(launchIndex);
+    }
+    
+#endif
 
+    //Write DI Buffer
+    gOutVBufferDI[launchIndex] = hitInfoDI.getData();
+    gOutViewDirRayDistDI[launchIndex] = viewDirDistDI;
+    gOutThpDI[launchIndex] = float4(thp, 1.f);
+    
     //Write
     gOutVBuffer[launchIndex] = hitInfo.getData();
-    gOutViewDir[launchIndex] = float4(viewDir, 1);
+    gOutViewDir[launchIndex] = float4(viewDir, validSurfaceForDI ? 1 : 0);  //Store a flag if this surface has direct light
     gOutRayDist[launchIndex] = rayDist;
     gOutThp[launchIndex] = float4(thp, wasTracedMask);
     if (is_valid(gOutDiffuseReflectance)) gOutDiffuseReflectance[launchIndex] = float4(diffuseReflectance, 1.f);

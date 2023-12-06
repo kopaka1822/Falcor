@@ -142,7 +142,7 @@ private:
 
     // Specular Trace Options
     uint mTraceMaxBounces = 10;          // Number of Specular/Transmissive bounces allowed
-    bool mTraceRequireDiffuseMat = true; // Requires a diffuse part in addition to delta lobes
+    bool mTraceRequireDiffuseMat = false; // Requires a diffuse part in addition to delta lobes
 
     //Defines GI
     uint mGIMaxBounces = 3; // Max Bounces for GI

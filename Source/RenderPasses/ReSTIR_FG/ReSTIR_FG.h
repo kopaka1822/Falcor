@@ -263,6 +263,11 @@ private:
     ref<Texture> mpRayDist;             //Ray distance (needed for highly specular and transparent materials)
     ref<Texture> mpThp;                 //Throughput
 
+    ref<Texture> mpVBufferDI;          // Work copy for VBuffer (RTXDI or DirectAnalytical)
+    ref<Texture> mpViewDirRayDistDI;   // View dir tex (RTXDI or DirectAnalytical)
+    ref<Texture> mpViewDirDIPrev;      // Previous View dir for direct surfaces
+    ref<Texture> mpThpDI;              // Throughput (RTXDI or DirectAnalytical)
+
     //
     //Render Passes/Programms
     //
