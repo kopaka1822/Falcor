@@ -163,3 +163,66 @@ struct SurfaceFG{
         return ((normalCheck >= normalThreshold) && (linZDiff <= minLinZDiff) && (matThreshold >= matDiff));
     }
 };
+
+struct CausticSurface{
+    uint packedNormal;
+    float viewDepth;
+    bool isDelta;
+
+    // True if data is valid
+    property bool valid{
+        get {return viewDepth > 0.f;}
+    }
+
+    //Shading world normal
+    property float3 normal{
+        get { return decodeNormal2x16(packedNormal); }
+        set { packedNormal = encodeNormal2x16(newValue); }
+    }
+
+    //Empty init
+    __init(){
+        isDelta = false;
+        viewDepth = 0.f;
+    }
+
+    //Initialize with packedData and a viewDir
+    __init(const uint2 packed){
+        packedNormal = packed.x;
+        viewDepth = f16tof32(packed.y & 0xFFFF);
+        isDelta = ((packed.y >> 24) & 1) != 0;
+     }
+
+    //Packs the surface data
+    uint2 pack(){
+        uint2 packed = uint2(0);
+        packed.x = packedNormal;
+        packed.y |= f32tof16(viewDepth) & 0xFFFF;
+        if(isDelta)
+            packed.y |= 1 << 16;
+
+        return packed;
+    }
+
+    static CausticSurface create(float3 normal, float viewDepth, float diffuseProb, bool isDelta)
+    {
+        CausticSurface s = { };
+        s.normal = normal;
+        s.viewDepth = viewDepth;
+        s.isDelta = isDelta;
+    
+        return s;
+    }
+    
+    //ReStir heuristic + material difference + delta check (dont reuse outside of delta mats)
+    bool isValidNeighbor(const in CausticSurface neighbor, const float depthThreshold, const float normalThreshold)
+    {
+        float normalCheck = dot(normal, neighbor.normal);
+        float minLinZDiff = viewDepth * depthThreshold;
+        float linZDiff = abs(viewDepth - neighbor.viewDepth);
+        bool deltaCheck = isDelta == neighbor.isDelta; 
+        
+        return ((normalCheck >= normalThreshold) && (linZDiff <= minLinZDiff) && deltaCheck );
+    }
+    
+};

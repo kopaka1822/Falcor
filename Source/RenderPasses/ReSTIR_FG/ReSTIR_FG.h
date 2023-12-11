@@ -262,6 +262,7 @@ private:
     ref<Texture> mpViewDirPrev;         //Previous View dir
     ref<Texture> mpRayDist;             //Ray distance (needed for highly specular and transparent materials)
     ref<Texture> mpThp;                 //Throughput
+    ref<Texture> mpTemporalCausticSurface[2];   //Small buffer for surface rejection of temporal samples
 
     ref<Texture> mpVBufferDI;          // Work copy for VBuffer (RTXDI or DirectAnalytical)
     ref<Texture> mpViewDirRayDistDI;   // View dir tex (RTXDI or DirectAnalytical)

@@ -10,6 +10,7 @@ import Utils.Math.FormatConversion;
 import Rendering.Materials.IsotropicGGX;
 import Utils.Color.ColorHelpers;
 import Rendering.RTXDI.RTXDI;
+import SurfaceDataFG;
 
 //Syntax Highlight
 #ifndef USE_RTXDI
@@ -32,6 +33,7 @@ RWTexture2D<PackedHitInfo> gOutVBuffer;
 RWTexture2D<float4> gOutViewDir;
 RWTexture2D<float> gOutRayDist;
 RWTexture2D<float4> gOutThp;
+RWTexture2D<uint2> gPackedCausticSurface;
 
 //Outputs RTXDI (ReSTIR)
 RWTexture2D<PackedHitInfo> gOutVBufferDI;
@@ -46,7 +48,7 @@ RWTexture2D<float4> gOutSpecularReflectance;
 static const float kDemodulateMinReflectance = 0.01f;
 static const float kRoughnessCutoff = TRACE_TRANS_SPEC_ROUGH_CUTOFF;
 static const float kDiffuseCutoff = TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF;
-
+static const bool kTemporalFilterEnabled = CAUSTIC_TEMPORAL_FILTER_ENABLED;
 static const bool kAlphaTest = USE_ALPHA_TEST;
 
 struct TraceData
@@ -137,7 +139,8 @@ void rayGen()
     SampleGenerator sg = SampleGenerator(launchIndex, gFrameCount + 7 * 13);
     let lod = ExplicitLodTextureSampler(0.f);
     uint wasTracedMask = 0;
-        
+    CausticSurface causticSurface;
+    
     //Get first valid(diffuse) Surface
     for (uint i = 0; ((i < gMaxBounces) || gMaxBounces == 0) && hitInfo.isValid(); i++)
     {
@@ -168,6 +171,12 @@ void rayGen()
             }
         }
 
+        if(i == 0){
+            causticSurface.normal = sd.faceN;
+            causticSurface.viewDepth = rayDist;
+        }
+            
+        
         if (gMaxBounces == 0)
             break;
         
@@ -181,7 +190,7 @@ void rayGen()
         float meanDiffuseProb = (diffuseProb.x + diffuseProb.y + diffuseProb.z) / 3;
         bool hasDiffuseParts = gRequDiffParts ? (meanDiffuseProb > kDiffuseCutoff) || bsdfProperties.roughness > kRoughnessCutoff : true;
         bool isDiffuse = bsdfSample.isLobe(LobeType::NonDeltaReflection) && hasDiffuseParts;
-
+        
         if(isDiffuse)
             break;
         
@@ -195,12 +204,17 @@ void rayGen()
 
         TraceRay(gScene.rtAccel, 0, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, tRay, traceData);
 
+        //Set is delta flag on caustic surface
+        if(i == 0 && kTemporalFilterEnabled){
+            causticSurface.isDelta = true;
+        }
+        
         //Update info
         hitInfo = HitInfo(traceData.packedHitInfo);
         viewDir = -bsdfSample.wo;
         rayDist += traceData.distance;
         wasTracedMask = 1;
-
+        
         //Write DirectHit surfaces hits only for transmission or delta reflection hits
         if(validSurfaceForDI){
              if(isTransmission || bsdfSample.isLobe(LobeType::DeltaReflection)){
@@ -229,6 +243,7 @@ void rayGen()
     }
 #endif
 
+    if(kTemporalFilterEnabled) gPackedCausticSurface[launchIndex] = causticSurface.pack();
      //Write DI Buffer
     gOutVBufferDI[launchIndex] = hitInfoDI.getData();
     gOutViewDirRayDistDI[launchIndex] = viewDirDistDI;
