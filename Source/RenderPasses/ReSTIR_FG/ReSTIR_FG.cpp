@@ -758,6 +758,7 @@ void ReSTIR_FG::prepareRayTracingShaders(RenderContext* pRenderContext) {
 void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const RenderData& renderData) {
     FALCOR_PROFILE(pRenderContext, "TraceDeltaTransmissive");
 
+    mTraceTransmissionDelta.pProgram->addDefine("USE_ALPHA_TEST", mPhotonUseAlphaTest ? "1" : "0");
     mTraceTransmissionDelta.pProgram->addDefines(getValidResourceDefines(kOutputChannels, renderData));
     mTraceTransmissionDelta.pProgram->addDefine("TRACE_TRANS_SPEC_ROUGH_CUTOFF", std::to_string(mTraceRoughnessCutoff));
     mTraceTransmissionDelta.pProgram->addDefine("TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF", std::to_string(mTraceDiffuseCutoff));
@@ -775,7 +776,6 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     var[nameBuf]["gFrameCount"] = mFrameCount;
     var[nameBuf]["gMaxBounces"] = mTraceMaxBounces;
     var[nameBuf]["gRequDiffParts"] = mTraceRequireDiffuseMat;
-    var[nameBuf]["gAlphaTest"] = mPhotonUseAlphaTest; 
 
     if (mpRTXDI) mpRTXDI->setShaderData(var);
     var["gInVBuffer"] = renderData[kInputVBuffer]->asTexture();

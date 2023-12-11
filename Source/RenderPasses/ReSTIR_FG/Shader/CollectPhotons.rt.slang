@@ -391,7 +391,9 @@ void rayGen()
         if(collectDirect){
         //Clear Payload
         #if USE_STOCHASTIC_COLLECT
-            rayData = RayData();    //Reset Payload
+            rayData.counter = 0;
+            for(uint i=0; i<STOCH_NUM_PHOTONS; i++)
+                rayData.photonIdx[i] = 0;
             rayData.counter += 1 << 24; //Flag that only the first hit should be collected
         #else
             rayData.radiance = float3(0);
@@ -448,7 +450,9 @@ void rayGen()
     
     packedHit = gFinalGatherHit[launchIndex];
 #if USE_STOCHASTIC_COLLECT
-        rayData = RayData();    //Reset Payload
+        rayData.counter = 0;
+        for(uint i=0; i<STOCH_NUM_PHOTONS; i++)
+            rayData.photonIdx[i] = 0;
 #else
     rayData.radiance = float3(0);
     rayData.packedHitInfo = packedHit;
@@ -511,7 +515,9 @@ void rayGen()
         if(kCollectCaustics && kCollectCausticsForIndirect)
         {
         #if USE_STOCHASTIC_COLLECT
-            rayData = RayData();    //Reset Payload
+            rayData.counter = 0;
+            for(uint i=0; i<STOCH_NUM_PHOTONS; i++)
+                rayData.photonIdx[i] = 0;
         #else
             rayData.radiance = float3(0);
         #endif

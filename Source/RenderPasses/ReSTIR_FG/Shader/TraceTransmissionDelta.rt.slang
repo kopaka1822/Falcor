@@ -47,11 +47,12 @@ static const float kDemodulateMinReflectance = 0.01f;
 static const float kRoughnessCutoff = TRACE_TRANS_SPEC_ROUGH_CUTOFF;
 static const float kDiffuseCutoff = TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF;
 
+static const bool kAlphaTest = USE_ALPHA_TEST;
+
 struct TraceData
 {
     PackedHitInfo packedHitInfo; //< Reflection albedo of the current hit point
-
-    SampleGenerator sg; ///< Per-ray state for the sample generator (up to 16B).
+    float distance; ///<Current hit distance
     
     /** Create ray payload with default parameters.
     */
@@ -59,6 +60,7 @@ struct TraceData
     {
         TraceData d;
         d.packedHitInfo = {};
+        d.distance = 0.f;
         return d;
     }
 };
@@ -89,7 +91,7 @@ void miss(inout TraceData rayData : SV_RayPayload)
 [shader("anyhit")]
 void anyHit(inout TraceData rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes)
 {
-    if (gAlphaTest)
+    if (kAlphaTest)
     {
         // Alpha test for non-opaque geometry.
         GeometryInstanceID instanceID = getGeometryInstanceID();
@@ -106,6 +108,8 @@ void closestHit(inout TraceData rayData : SV_RayPayload, BuiltInTriangleIntersec
     triangleHit.instanceID = getGeometryInstanceID();
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics = attribs.barycentrics;
+    
+    rayData.distance =  RayTCurrent();
     rayData.packedHitInfo = HitInfo(triangleHit).getData();
 }
 
@@ -130,22 +134,24 @@ void rayGen()
     bool validSurfaceForDI = true;
     
     TraceData traceData = TraceData::create();
-    traceData.sg = SampleGenerator(launchIndex, gFrameCount + 7 * 13);
+    SampleGenerator sg = SampleGenerator(launchIndex, gFrameCount + 7 * 13);
     let lod = ExplicitLodTextureSampler(0.f);
-    float3 originPos = gScene.camera.getPosition();  //For ray dist
     uint wasTracedMask = 0;
-    
-    for (uint i = 0; i <= gMaxBounces; i++)
+        
+    //Get first valid(diffuse) Surface
+    for (uint i = 0; ((i < gMaxBounces) || gMaxBounces == 0) && hitInfo.isValid(); i++)
     {
-        //End loop if the scene is missed
-        if (!hitInfo.isValid())
-            break;
-
         ShadingData sd = loadShadingData(hitInfo, -viewDir, lod);
-        rayDist += distance(originPos, sd.posW);
+
+        //Get ray distance
+        if(i==0)
+            rayDist = distance(gScene.camera.getPosition(), sd.posW);
+
+        //Get BSDF
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
         let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = bsdf.getProperties(sd);
+        
         //Write the reflectance on first hit
         if (i == 0 && (is_valid(gOutDiffuseReflectance) || is_valid(gOutDiffuseReflectance)))
         {
@@ -162,19 +168,18 @@ void rayGen()
             }
         }
 
-        if (i == gMaxBounces)
+        if (gMaxBounces == 0)
             break;
         
         BSDFSample bsdfSample;
 
-        if (!bsdf.sample(sd, traceData.sg, bsdfSample))
+        if (!bsdf.sample(sd, sg, bsdfSample))
             break;
 
         bool isTransmission = bsdfSample.isLobe(LobeType::Transmission);
         float3 diffuseProb = bsdfProperties.diffuseReflectionAlbedo / (bsdfProperties.diffuseReflectionAlbedo + bsdfProperties.specularReflectionAlbedo + bsdfProperties.diffuseTransmissionAlbedo + bsdfProperties.specularTransmissionAlbedo);
         float meanDiffuseProb = (diffuseProb.x + diffuseProb.y + diffuseProb.z) / 3;
         bool hasDiffuseParts = gRequDiffParts ? (meanDiffuseProb > kDiffuseCutoff) || bsdfProperties.roughness > kRoughnessCutoff : true;
-        //bool isDiffuse = bsdfSample.isLobe(LobeType::Diffuse) && !isTransmission;
         bool isDiffuse = bsdfSample.isLobe(LobeType::NonDeltaReflection) && hasDiffuseParts;
 
         if(isDiffuse)
@@ -193,7 +198,7 @@ void rayGen()
         //Update info
         hitInfo = HitInfo(traceData.packedHitInfo);
         viewDir = -bsdfSample.wo;
-        originPos = sd.posW;
+        rayDist += traceData.distance;
         wasTracedMask = 1;
 
         //Write DirectHit surfaces hits only for transmission or delta reflection hits
@@ -222,10 +227,9 @@ void rayGen()
     }else{
         gRTXDI.setInvalidSurfaceData(launchIndex);
     }
-    
 #endif
 
-    //Write DI Buffer
+     //Write DI Buffer
     gOutVBufferDI[launchIndex] = hitInfoDI.getData();
     gOutViewDirRayDistDI[launchIndex] = viewDirDistDI;
     gOutThpDI[launchIndex] = float4(thp, 1.f);
