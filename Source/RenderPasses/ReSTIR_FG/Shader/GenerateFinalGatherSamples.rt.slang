@@ -168,7 +168,9 @@ void rayGen()
     
     if (hitInfo.isValid())
     {
-        float3 view = -gView[launchIndex].xyz;
+        float4 viewTmp = gView[launchIndex];
+        float3 view = -viewTmp.xyz;
+        bool collectDirect = viewTmp.w == 0;
         float viewDepth = gLinZ[launchIndex];
         let lod = ExplicitLodTextureSampler(0.f);
         ShadingData sd = loadShadingData(hitInfo, view, lod);
@@ -213,8 +215,12 @@ void rayGen()
             if (kUsePhotonCulling)
             {
                 photonCulling(hitPos,gCollectionRadius.x);
-                if(kUseCausticPhotons)
-                    photonCulling(sd.posW, gCollectionRadius.y);
+                if(kUseCausticPhotons || collectDirect)
+                {
+                    float radius = collectDirect ? gCollectionRadius.x : gCollectionRadius.y;
+                    photonCulling(sd.posW, radius);
+                }
+                    
             }
         }
 

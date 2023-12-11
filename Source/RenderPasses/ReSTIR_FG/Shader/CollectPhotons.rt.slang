@@ -191,15 +191,17 @@ void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_In
     {
         return;
     }
-    
-    uint idx = rayData.counter;
+
+    uint counter = rayData.counter & 0xFFFFFF;  //Mask out the flags
+    uint idx = counter;
+    counter++;
     rayData.counter++;
 
     //Reservoir sampling
     //If photon list is full we get a random index between 0 and number of elements (rayData.counter) to stochastically insert
     if (idx >= STOCH_NUM_PHOTONS)
     {
-        idx = uint(sampleNext1D(rayData.sg) * rayData.counter);
+        idx = uint(sampleNext1D(rayData.sg) * counter);
     }
     //Insert if index is within maximum list size
     if (idx < STOCH_NUM_PHOTONS)
