@@ -542,6 +542,7 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
             mpFGSampelDataBuffer[i].reset();
             mpSurfaceBuffer[i].reset();
             mpCausticRadiance[i].reset();
+            mpTemporalCausticSurface[i].reset();
         }
         mpFinalGatherSampleHitData.reset();
         mpVBuffer.reset();
@@ -619,10 +620,25 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
             ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
         );
         mpCausticRadiance[1]->setName("ReSTIR_FG::CausticRadianceTemporal");
+
+        for (uint j = 0; j < 2; j++)
+        {
+            mpTemporalCausticSurface[j] = Texture::create2D(
+                mpDevice, mScreenRes.x, mScreenRes.y, ResourceFormat::RG32Uint, 1u, 1u, nullptr,
+                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+            );
+            mpTemporalCausticSurface[j]->setName("ReSTIR_FG::CausticSurfaceTemporal " + std::to_string(j));
+        }
+        
     }
 
     if (mpCausticRadiance[1] && (mCausticCollectMode != CausticCollectionMode::Temporal))
+    {
         mpCausticRadiance[1].reset();
+        for (uint j = 0; j < 2; j++)
+            mpTemporalCausticSurface[j].reset();
+    }
+        
 
     if (!mpVBuffer)
     {
@@ -762,6 +778,9 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     mTraceTransmissionDelta.pProgram->addDefines(getValidResourceDefines(kOutputChannels, renderData));
     mTraceTransmissionDelta.pProgram->addDefine("TRACE_TRANS_SPEC_ROUGH_CUTOFF", std::to_string(mTraceRoughnessCutoff));
     mTraceTransmissionDelta.pProgram->addDefine("TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF", std::to_string(mTraceDiffuseCutoff));
+    mTraceTransmissionDelta.pProgram->addDefine(
+        "CAUSTIC_TEMPORAL_FILTER_ENABLED", mCausticCollectMode == CausticCollectionMode::Temporal ? "1" : "0"
+    );
     mTraceTransmissionDelta.pProgram->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
     if (mpRTXDI) mTraceTransmissionDelta.pProgram->addDefines(mpRTXDI->getDefines());
 
@@ -784,6 +803,7 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     var["gOutViewDir"] = mpViewDir;
     var["gOutRayDist"] = mpRayDist;
     var["gOutVBuffer"] = mpVBuffer;
+    var["gPackedCausticSurface"] = mpTemporalCausticSurface[mFrameCount % 2];
 
     var["gOutThpDI"] = mpThpDI;
     var["gOutViewDirRayDistDI"] = mpViewDirRayDistDI;
@@ -1056,8 +1076,8 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
 
         var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
         
-        var["gSurface"] = mpSurfaceBuffer[idxCurr];
-        var["gSurfacePrev"] = mpSurfaceBuffer[idxPrev];
+        var["gCausticSurface"] = mpTemporalCausticSurface[idxCurr];
+        var["gCausticSurfacePrev"] = mpTemporalCausticSurface[idxPrev];
 
         var["gCausticPrev"] = mpCausticRadiance[idxPrev];
         var["gCausticOut"] = mpCausticRadiance[idxCurr];
