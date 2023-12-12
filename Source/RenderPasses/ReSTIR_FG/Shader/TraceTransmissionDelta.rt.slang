@@ -218,6 +218,7 @@ void rayGen()
         //Write DirectHit surfaces hits only for transmission or delta reflection hits
         if(validSurfaceForDI){
              if(isTransmission || bsdfSample.isLobe(LobeType::DeltaReflection)){
+             //if(true){
                 hitInfoDI = hitInfo;
                 viewDirDistDI = float4(viewDir,rayDist);
                 thpDI = thp;

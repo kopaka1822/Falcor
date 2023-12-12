@@ -358,6 +358,8 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
             {
                 changed |= causticGroup.var("Caustic Temporal History Limit", mCausticTemporalFilterHistoryLimit, 1u, 512u, 1u);
                 causticGroup.tooltip("History Limit for the Temporal Caustic Filter");
+                changed |= causticGroup.checkbox("Add Emissive to CausticFilter", mEmissionToCausticFilter);
+                causticGroup.tooltip("Adds Emissive to the Caustic filter");
             }
 
             changed |= causticGroup.checkbox("Use Caustics for indirect", mUseCausticsForIndirectLight);
@@ -1044,6 +1046,7 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      mCollectPhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_ROUGH_CUTOFF", std::to_string(mTraceRoughnessCutoff));
      mCollectPhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF", std::to_string(mTraceDiffuseCutoff));
      mCollectPhotonPass.pProgram->addDefine("REJECT_FGSAMPLE_DIFFUSE_SURFACE", (mGenerationDeltaRejectionRequireDiffPart && mTraceRequireDiffuseMat) ? "1" : "0");
+     mCollectPhotonPass.pProgram->addDefine("EMISSION_TO_CAUSTIC_FILTER", (mEmissionToCausticFilter) ? "1" : "0");
 
      mCollectPhotonPass.pProgram->addDefine("USE_STOCHASTIC_COLLECT", mUseStochasticCollect ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefine("STOCH_NUM_PHOTONS", std::to_string(mStochasticCollectNumPhotons));
@@ -1223,6 +1226,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         defines.add(getValidResourceDefines(kInputChannels, renderData));
         defines.add("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
         defines.add("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
+        defines.add("EMISSION_TO_CAUSTIC_FILTER", (mEmissionToCausticFilter) ? "1" : "0");
         if (mpRTXDI) defines.add(mpRTXDI->getDefines());
         defines.add("USE_RTXDI", mpRTXDI ? "1" : "0");
         defines.add("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
@@ -1236,6 +1240,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      mpFinalShadingPass->getProgram()->addDefine("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
+     mpFinalShadingPass->getProgram()->addDefine("EMISSION_TO_CAUSTIC_FILTER", (mEmissionToCausticFilter) ? "1" : "0");
      // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
      mpFinalShadingPass->getProgram()->addDefines(getValidResourceDefines(kOutputChannels, renderData));
 

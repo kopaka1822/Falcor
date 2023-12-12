@@ -93,7 +93,7 @@ static const bool kCollectCausticsForIndirect = CAUSTIC_COLLECTION_INDIRECT;
 static const float kRejectDiffuseSurfaces = REJECT_FGSAMPLE_DIFFUSE_SURFACE;    //Uses same definition as photon generation
 static const float kTraceRoughnessCutoff = TRACE_TRANS_SPEC_ROUGH_CUTOFF;
 static const float kTraceDiffuseCutoff = TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF;
-
+static const bool kEmissionToCausticFilter = EMISSION_TO_CAUSTIC_FILTER;
 
 /** Payload for photon collection. Collect all (48B) and Stochastic Collect (32 + X B) available
 */
@@ -407,7 +407,7 @@ void rayGen()
             rayData.countPhotons = 0; //delete flag
             causticRadiance += w * rayData.radiance;
         #endif // USE_STOCHASTIC_COLLECT
-            causticRadiance += miProperties.emission;
+            if(kEmissionToCausticFilter) causticRadiance += miProperties.emission;
             causticRadiance *= thp;
         }
     }

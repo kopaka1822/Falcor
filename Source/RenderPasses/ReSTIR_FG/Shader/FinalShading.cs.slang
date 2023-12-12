@@ -63,6 +63,7 @@ cbuffer PerFrame
 
 static const float kRayEpsilon = 0.99f;
 static const bool kUseEnvBackground = USE_ENV_BACKROUND;
+static const bool kEmissionToCausticFilter = EMISSION_TO_CAUSTIC_FILTER;
 
 
 uint index2Dto1D(uint2 idx, uint width){
@@ -175,7 +176,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     //Load final gather and ReSTIR FG data
     float4 viewTmp = gView[pixel];
     viewDir = -viewTmp.xyz;
-    bool needEmissive = viewTmp.w == 0; //Direct light for indirect flag
+    bool needEmissive = viewTmp.w == 0 && kEmissionToCausticFilter; //Direct light for indirect flag
 
 #if USE_RESTIRFG
         gViewPrev[pixel] = float4(-viewDir,1); //copy view
@@ -234,9 +235,15 @@ void main(uint2 pixel : SV_DispatchThreadID)
             hitT += distance;
             hitT *= 1.f / hitTSamples;
         }
-        caustic = gCausticRadiance[pixel].xyz;        
+        caustic = gCausticRadiance[pixel].xyz;
+
+        
 #endif //RESTIRFG
 
+        //Add Emissive to additionally traced materials
+        if(needEmissive)
+            emission += bsdfProperties.emission * thp;
+            
     //If only RTXDI is used, add the previous calculated light color
     #if USE_RTXDI && !USE_RESTIRFG
             float3 fgRadiance = gOutColor[pixel].xyz;
