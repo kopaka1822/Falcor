@@ -1096,6 +1096,7 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
 
      var["gVBuffer"] = mpVBuffer;
      var["gView"] = mpViewDir;
+     var["gThp"] = mpThp;
 
      if (finalGatherRenderMode)
         var["gColor"] = renderData[kOutputColor]->asTexture();

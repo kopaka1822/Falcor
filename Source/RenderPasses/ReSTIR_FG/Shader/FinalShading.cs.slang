@@ -129,7 +129,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     
     float3 viewDir;
     HitInfo hitInfo;
-    #if USE_RTXDI
+#if USE_RTXDI
     viewDir = -gViewDI[pixel].xyz;
     
     gViewDIPrev[pixel] = float4(-viewDir,1); //copy view
@@ -170,16 +170,16 @@ void main(uint2 pixel : SV_DispatchThreadID)
             hitT = distance;
         }
     }
-    #endif
+#endif //RTXDI
 
     //Load final gather and ReSTIR FG data
     float4 viewTmp = gView[pixel];
     viewDir = -viewTmp.xyz;
     bool needEmissive = viewTmp.w == 0; //Direct light for indirect flag
 
-    #if USE_RESTIRFG
+#if USE_RESTIRFG
         gViewPrev[pixel] = float4(-viewDir,1); //copy view
-    #endif 
+#endif //USE_RESTIRFG
     
     hitInfo = HitInfo(gVBuffer[pixel]);
     bool wasTraced = false;
@@ -190,16 +190,12 @@ void main(uint2 pixel : SV_DispatchThreadID)
         float4 thpTex = gThp[pixel];
         float3 thp = thpTex.xyz;
         wasTraced = thpTex.w > 0.5;
-    #if USE_RESTIRFG   
-               
-    
+#if USE_RESTIRFG   
         //Get Material properties
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
         ShadingData sd = loadShadingData(hitInfo, viewDir, lod);
         let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = bsdf.getProperties(sd);
-        if(needEmissive)
-            emission += bsdfProperties.emission * thp; //Emission
         
    
         //Get reservoir
@@ -238,14 +234,14 @@ void main(uint2 pixel : SV_DispatchThreadID)
             hitT += distance;
             hitT *= 1.f / hitTSamples;
         }
-        caustic = gCausticRadiance[pixel].xyz * thp;        
-    #endif
+        caustic = gCausticRadiance[pixel].xyz;        
+#endif //RESTIRFG
 
     //If only RTXDI is used, add the previous calculated light color
     #if USE_RTXDI && !USE_RESTIRFG
             float3 fgRadiance = gOutColor[pixel].xyz;
-            color += fgRadiance * thp;
-            diffuse += fgRadiance * thp;  //TODO do this properly
+            color += fgRadiance;
+            diffuse += fgRadiance;  //TODO do this properly
     #endif
     
     }   
@@ -257,8 +253,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
 
         // NRD
         if(wasTraced){
-            float3 combined = (diffuse + specular);
-            diffuseIllumination = (caustic) / diffuseReflectance;
+            float3 combined = (diffuse + specular + caustic);
             specularIllumination = combined / specularReflectance;
         }
         else

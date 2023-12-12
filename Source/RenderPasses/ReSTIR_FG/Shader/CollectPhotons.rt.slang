@@ -61,6 +61,7 @@ Texture2D<float4> gView;
 Texture2D<PackedHitInfo> gFinalGatherHit;
 StructuredBuffer<AABB> gPhotonAABB[2];
 StructuredBuffer<uint4> gPackedPhotonData[2];
+Texture2D<float4> gThp; //Thp for caustic and final gathering
 
 //Inputs Temporal Caustic Filter (can be null)
 Texture2D<float2> gMVec;
@@ -350,10 +351,7 @@ void rayGen()
     float3 view = -viewTmp.xyz;
     bool collectDirect = viewTmp.w == 0;
 
-#if MODE_FINAL_GATHER || USE_STOCHASTIC_COLLECT
-    ShadingData fgSD = loadShadingData(hit, view, lod); //TODO remove
-#endif // MODE_FINAL_GATHER
-
+    ShadingData fgSD = loadShadingData(hit, view, lod); //Shading Data for direct hit
 
     //Ray description 
     RayDesc ray;
@@ -369,16 +367,17 @@ void rayGen()
     //Closest hit shader can be skipped
     uint rayFlags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES;
     float3 causticRadiance = float3(0);
-
+    float3 thp = gThp[launchIndex].xyz;
+    
     //Collect Caustic Photon
     if (valid && kCollectCaustics)
     {        
         TraceRay(gPhotonAS, rayFlags, 2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         float w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
+        uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
+        let mi = gScene.materials.getMaterialInstance(fgSD, lod, hints);
+        let miProperties = mi.getProperties(fgSD);
         #if USE_STOCHASTIC_COLLECT
-            uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
-            let mi = gScene.materials.getMaterialInstance(fgSD, lod, hints);
-            let miProperties = mi.getProperties(fgSD);
             causticRadiance += w * stochPhotonContribution(fgSD, mi, miProperties.guideNormal, rayData, true);
         #else // USE_STOCHASTIC_COLLECT
             #if (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_GREATERONE)
@@ -405,9 +404,11 @@ void rayGen()
             rayData.counter &= 0xFFFFFF;    //Delete flag
             causticRadiance += w * stochPhotonContribution(fgSD, mi, miProperties.guideNormal, rayData, false);
         #else // USE_STOCHASTIC_COLLECT
-                rayData.countPhotons = 0; //delete flag
-                causticRadiance += w * rayData.radiance;
+            rayData.countPhotons = 0; //delete flag
+            causticRadiance += w * rayData.radiance;
         #endif // USE_STOCHASTIC_COLLECT
+            causticRadiance += miProperties.emission;
+            causticRadiance *= thp;
         }
     }
 
@@ -539,8 +540,8 @@ void rayGen()
     //Final gather
     let bsdfFG = gScene.materials.getMaterialInstance(fgSD, lod, hints);
     float3 color = max(0.f, fgRadiance * r.weightSum);
-    color *= bsdfFG.eval(fgSD, view, rayData.sg);
-    
+    color *= bsdfFG.eval(fgSD, view, rayData.sg) * thp;
+
     gColor[launchIndex] = float4(color + causticRadiance, 1.f);
 #else
    
