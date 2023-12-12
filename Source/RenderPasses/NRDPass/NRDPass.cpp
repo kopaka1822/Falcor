@@ -434,46 +434,73 @@ void NRDPass::renderUI(Gui::Widgets& widget)
         widget.slider("Disocclusion threshold (%)", mDisocclusionThreshold, 0.0f, 5.0f, false, "%.2f");
 
         widget.text("Pack radiance:");
-        widget.slider("Max intensity", mMaxIntensity, 0.f, 100000.f, false, "%.0f");
+        widget.var("Max intensity", mMaxIntensity, 0.f, 100000.f,1.f, false, "%.0f");
 
         // ReLAX diffuse/specular settings.
         if (auto group = widget.group("ReLAX Diffuse/Specular"))
         {
             group.text("Prepass:");
-            group.slider("Specular blur radius", mRelaxDiffuseSpecularSettings.specularPrepassBlurRadius, 0.0f, 100.0f, false, "%.0f");
-            group.slider("Diffuse blur radius", mRelaxDiffuseSpecularSettings.diffusePrepassBlurRadius, 0.0f, 100.0f, false, "%.0f");
+            group.var("Specular blur radius", mRelaxDiffuseSpecularSettings.specularPrepassBlurRadius, 0.0f, 100.0f,1.0f, false, "%.0f");
+            group.var("Diffuse blur radius", mRelaxDiffuseSpecularSettings.diffusePrepassBlurRadius, 0.0f, 100.0f, 1.0f, false, "%.0f");
             group.text("Reprojection:");
-            group.slider("Specular max accumulated frames", mRelaxDiffuseSpecularSettings.specularMaxAccumulatedFrameNum, 0u, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
-            group.slider("Specular responsive max accumulated frames", mRelaxDiffuseSpecularSettings.specularMaxFastAccumulatedFrameNum, 0u, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
-            group.slider("Diffuse max accumulated frames", mRelaxDiffuseSpecularSettings.diffuseMaxAccumulatedFrameNum, 0u, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
-            group.slider("Diffuse responsive max accumulated frames", mRelaxDiffuseSpecularSettings.diffuseMaxFastAccumulatedFrameNum, 0u, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
-            group.slider("Specular variance boost", mRelaxDiffuseSpecularSettings.specularVarianceBoost, 0.0f, 8.0f, false, "%.1f");
-            group.slider("Diffuse history rejection normal threshold", mRelaxDiffuseSpecularSettings.diffuseHistoryRejectionNormalThreshold, 0.0f, 1.0f, false, "%.2f");
+            group.var("Specular max accumulated frames", mRelaxDiffuseSpecularSettings.specularMaxAccumulatedFrameNum, 0u, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
+            group.var("Specular responsive max accumulated frames", mRelaxDiffuseSpecularSettings.specularMaxFastAccumulatedFrameNum, 0u, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
+            group.var("Diffuse max accumulated frames", mRelaxDiffuseSpecularSettings.diffuseMaxAccumulatedFrameNum, 0u, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
+            group.var("Diffuse responsive max accumulated frames", mRelaxDiffuseSpecularSettings.diffuseMaxFastAccumulatedFrameNum, 0u, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
+            group.var("Specular variance boost", mRelaxDiffuseSpecularSettings.specularVarianceBoost, 0.0f, 8.0f, 0.1f, false, "%.1f");
+            group.var(
+                "Diffuse history rejection normal threshold", mRelaxDiffuseSpecularSettings.diffuseHistoryRejectionNormalThreshold, 0.0f,
+                1.0f, 0.01f, false, "%.2f"
+            );
             group.checkbox("Reprojection test skipping without motion", mRelaxDiffuseSpecularSettings.enableReprojectionTestSkippingWithoutMotion);
             group.checkbox("Specular virtual history clamping", mRelaxDiffuseSpecularSettings.enableSpecularVirtualHistoryClamping);
             group.text("Disocclusion fix:");
-            group.slider("Edge stopping normal power", mRelaxDiffuseSpecularSettings.disocclusionFixEdgeStoppingNormalPower, 0.0f, 128.0f, false, "%.1f");
-            group.slider("Max kernel radius", mRelaxDiffuseSpecularSettings.disocclusionFixMaxRadius, 0.0f, 100.0f, false, "%.0f");
-            group.slider("Frames to fix", (uint32_t&)mRelaxDiffuseSpecularSettings.disocclusionFixNumFramesToFix, 0u, 100u);
+            group.var(
+                "Edge stopping normal power", mRelaxDiffuseSpecularSettings.disocclusionFixEdgeStoppingNormalPower, 0.0f, 128.0f, 0.1f,
+                false, "%.1f"
+            );
+            group.var("Max kernel radius", mRelaxDiffuseSpecularSettings.disocclusionFixMaxRadius, 0.0f, 100.0f, 1.f, false, "%.0f");
+            group.var("Frames to fix", (uint32_t&)mRelaxDiffuseSpecularSettings.disocclusionFixNumFramesToFix, 0u, 100u);
             group.text("History clamping & antilag:");
-            group.slider("Color clamping sigma", mRelaxDiffuseSpecularSettings.historyClampingColorBoxSigmaScale, 0.0f, 10.0f, false, "%.1f");
+            group.var(
+                "Color clamping sigma", mRelaxDiffuseSpecularSettings.historyClampingColorBoxSigmaScale, 0.0f, 10.0f, 0.1f, false, "%.1f"
+            );
             group.text("Spatial variance estimation:");
-            group.slider("History threshold", (uint32_t&)mRelaxDiffuseSpecularSettings.spatialVarianceEstimationHistoryThreshold, 0u, 10u);
+            group.var("History threshold", (uint32_t&)mRelaxDiffuseSpecularSettings.spatialVarianceEstimationHistoryThreshold, 0u, 10u);
             group.text("Firefly filter:");
             group.checkbox("Enable firefly filter", (bool&)mRelaxDiffuseSpecularSettings.enableAntiFirefly);
             group.text("Spatial filter:");
-            group.slider("A-trous iterations", (uint32_t&)mRelaxDiffuseSpecularSettings.atrousIterationNum, 2u, 8u);
-            group.slider("Specular luminance weight (sigma scale)", mRelaxDiffuseSpecularSettings.specularPhiLuminance, 0.0f, 10.0f, false, "%.1f");
-            group.slider("Diffuse luminance weight (sigma scale)", mRelaxDiffuseSpecularSettings.diffusePhiLuminance, 0.0f, 10.0f, false, "%.1f");
-            group.slider("Min luminance weight", mRelaxDiffuseSpecularSettings.minLuminanceWeight, 0.0f, 1.0f, false, "%.2f");
-            group.slider("Depth weight (relative fraction)", mRelaxDiffuseSpecularSettings.depthThreshold, 0.0f, 0.05f, false, "%.2f");
-            group.slider("Roughness weight (relative fraction)", mRelaxDiffuseSpecularSettings.roughnessFraction, 0.0f, 2.0f, false, "%.2f");
-            group.slider("Diffuse lobe angle fraction", mRelaxDiffuseSpecularSettings.diffuseLobeAngleFraction, 0.0f, 2.0f, false, "%.1f");
-            group.slider("Specular loba angle fraction", mRelaxDiffuseSpecularSettings.specularLobeAngleFraction, 0.0f, 2.0f, false, "%.1f");
-            group.slider("Specular normal weight (degrees of slack)", mRelaxDiffuseSpecularSettings.specularLobeAngleSlack, 0.0f, 180.0f, false, "%.0f");
-            group.slider("Roughness relaxation", mRelaxDiffuseSpecularSettings.roughnessEdgeStoppingRelaxation, 0.0f, 1.0f, false, "%.2f");
-            group.slider("Normal relaxation", mRelaxDiffuseSpecularSettings.normalEdgeStoppingRelaxation, 0.0f, 1.0f, false, "%.2f");
-            group.slider("Luminance relaxation", mRelaxDiffuseSpecularSettings.luminanceEdgeStoppingRelaxation, 0.0f, 1.0f, false, "%.2f");
+            group.var("A-trous iterations", (uint32_t&)mRelaxDiffuseSpecularSettings.atrousIterationNum, 2u, 8u);
+            group.var(
+                "Specular luminance weight (sigma scale)", mRelaxDiffuseSpecularSettings.specularPhiLuminance, 0.0f, 10.0f, 0.1f, false,
+                "%.1f"
+            );
+            group.var(
+                "Diffuse luminance weight (sigma scale)", mRelaxDiffuseSpecularSettings.diffusePhiLuminance, 0.0f, 10.0f, 0.1f, false,
+                "%.1f"
+            );
+            group.var("Min luminance weight", mRelaxDiffuseSpecularSettings.minLuminanceWeight, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.var("Depth weight (relative fraction)", mRelaxDiffuseSpecularSettings.depthThreshold, 0.0f, 0.05f, 0.01f, false, "%.2f");
+            group.var(
+                "Roughness weight (relative fraction)", mRelaxDiffuseSpecularSettings.roughnessFraction, 0.0f, 2.0f, 0.01f, false, "%.2f"
+            );
+            group.var(
+                "Diffuse lobe angle fraction", mRelaxDiffuseSpecularSettings.diffuseLobeAngleFraction, 0.0f, 2.0f, 0.1f, false, "%.1f"
+            );
+            group.var(
+                "Specular loba angle fraction", mRelaxDiffuseSpecularSettings.specularLobeAngleFraction, 0.0f, 2.0f, 0.1f, false, "%.1f"
+            );
+            group.var(
+                "Specular normal weight (degrees of slack)", mRelaxDiffuseSpecularSettings.specularLobeAngleSlack, 0.0f, 180.0f, 1.f,
+                false, "%.0f"
+            );
+            group.var(
+                "Roughness relaxation", mRelaxDiffuseSpecularSettings.roughnessEdgeStoppingRelaxation, 0.0f, 1.0f, 0.01f, false, "%.2f"
+            );
+            group.var("Normal relaxation", mRelaxDiffuseSpecularSettings.normalEdgeStoppingRelaxation, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.var(
+                "Luminance relaxation", mRelaxDiffuseSpecularSettings.luminanceEdgeStoppingRelaxation, 0.0f, 1.0f, 0.01f, false, "%.2f"
+            );
             group.checkbox("Roughness edge stopping", mRelaxDiffuseSpecularSettings.enableRoughnessEdgeStopping);
         }
     }
@@ -518,59 +545,70 @@ void NRDPass::renderUI(Gui::Widgets& widget)
     {
         widget.text("Common:");
         widget.text(mWorldSpaceMotion ? "Motion: world space" : "Motion: screen space");
-        widget.slider("Disocclusion threshold (%)", mDisocclusionThreshold, 0.0f, 5.0f, false, "%.2f");
+        widget.var("Disocclusion threshold (%)", mDisocclusionThreshold, 0.0f, 5.0f, 0.01f, false, "%.2f");
 
         widget.text("Pack radiance:");
-        widget.slider("Max intensity", mMaxIntensity, 0.f, 100000.f, false, "%.0f");
+        widget.var("Max intensity", mMaxIntensity, 0.f, 100000.f, 1.f, false, "%.0f");
 
         if (auto group = widget.group("ReBLUR Diffuse/Specular"))
         {
             const float kEpsilon = 0.0001f;
             if (auto group2 = group.group("Specular lobe trimming"))
             {
-                group2.slider("A", mReblurSettings.specularLobeTrimmingParameters.A, -256.0f, 256.0f, false, "%.2f");
-                group2.slider("B", mReblurSettings.specularLobeTrimmingParameters.B, kEpsilon, 256.0f, false, "%.2f");
-                group2.slider("C", mReblurSettings.specularLobeTrimmingParameters.C, 1.0f, 256.0f, false, "%.2f");
+                group2.var("A", mReblurSettings.specularLobeTrimmingParameters.A, -256.0f, 256.0f, 0.01f, false, "%.2f");
+                group2.var("B", mReblurSettings.specularLobeTrimmingParameters.B, kEpsilon, 256.0f, 0.01f, false, "%.2f");
+                group2.var("C", mReblurSettings.specularLobeTrimmingParameters.C, 1.0f, 256.0f, 0.01f, false, "%.2f");
             }
 
             if (auto group2 = group.group("Hit distance"))
             {
-                group2.slider("A", mReblurSettings.hitDistanceParameters.A, -256.0f, 256.0f, false, "%.2f");
-                group2.slider("B", mReblurSettings.hitDistanceParameters.B, kEpsilon, 256.0f, false, "%.2f");
-                group2.slider("C", mReblurSettings.hitDistanceParameters.C, 1.0f, 256.0f, false, "%.2f");
-                group2.slider("D", mReblurSettings.hitDistanceParameters.D, -256.0f, 0.0f, false, "%.2f");
+                group2.var("A", mReblurSettings.hitDistanceParameters.A, -256.0f, 256.0f, 0.01f, false, "%.2f");
+                group2.var("B", mReblurSettings.hitDistanceParameters.B, kEpsilon, 256.0f, 0.01f, false, "%.2f");
+                group2.var("C", mReblurSettings.hitDistanceParameters.C, 1.0f, 256.0f, 0.01f, false, "%.2f");
+                group2.var("D", mReblurSettings.hitDistanceParameters.D, -256.0f, 0.0f, 0.01f, false, "%.2f");
             }
 
             if (auto group2 = group.group("Antilag intensity"))
             {
-                group2.slider("Threshold min", mReblurSettings.antilagIntensitySettings.thresholdMin, 0.0f, 1.0f, false, "%.2f");
-                group2.slider("Threshold max", mReblurSettings.antilagIntensitySettings.thresholdMax, 0.0f, 1.0f, false, "%.2f");
-                group2.slider("Sigma scale", mReblurSettings.antilagIntensitySettings.sigmaScale, kEpsilon, 16.0f, false, "%.2f");
-                group2.slider("Sensitivity to darkness", mReblurSettings.antilagIntensitySettings.sensitivityToDarkness, kEpsilon, 256.0f, false, "%.2f");
+                group2.var("Threshold min", mReblurSettings.antilagIntensitySettings.thresholdMin, 0.0f, 1.0f, 0.01f, false, "%.2f");
+                group2.var("Threshold max", mReblurSettings.antilagIntensitySettings.thresholdMax, 0.0f, 1.0f, 0.01f, false, "%.2f");
+                group2.var("Sigma scale", mReblurSettings.antilagIntensitySettings.sigmaScale, kEpsilon, 16.0f, 0.01f, false, "%.2f");
+                group2.var(
+                    "Sensitivity to darkness", mReblurSettings.antilagIntensitySettings.sensitivityToDarkness, kEpsilon, 256.0f, 0.01f,
+                    false, "%.2f"
+                );
                 group2.checkbox("Enable", mReblurSettings.antilagIntensitySettings.enable);
             }
 
             if (auto group2 = group.group("Antilag hit distance"))
             {
-                group2.slider("Threshold min", mReblurSettings.antilagHitDistanceSettings.thresholdMin, 0.0f, 1.0f, false, "%.2f");
-                group2.slider("Threshold max", mReblurSettings.antilagHitDistanceSettings.thresholdMax, 0.0f, 1.0f, false, "%.2f");
-                group2.slider("Sigma scale", mReblurSettings.antilagHitDistanceSettings.sigmaScale, kEpsilon, 16.0f, false, "%.2f");
-                group2.slider("Sensitivity to darkness", mReblurSettings.antilagHitDistanceSettings.sensitivityToDarkness, kEpsilon, 1.0f, false, "%.2f");
+                group2.var("Threshold min", mReblurSettings.antilagHitDistanceSettings.thresholdMin, 0.0f, 1.0f, 0.01f, false, "%.2f");
+                group2.var("Threshold max", mReblurSettings.antilagHitDistanceSettings.thresholdMax, 0.0f, 1.0f, 0.01f, false, "%.2f");
+                group2.var("Sigma scale", mReblurSettings.antilagHitDistanceSettings.sigmaScale, kEpsilon, 16.0f, 0.01f, false, "%.2f");
+                group2.var(
+                    "Sensitivity to darkness", mReblurSettings.antilagHitDistanceSettings.sensitivityToDarkness, kEpsilon, 1.0f, 0.01f,
+                    false, "%.2f"
+                );
                 group2.checkbox("Enable", mReblurSettings.antilagHitDistanceSettings.enable);
             }
 
-            group.slider("Max accumulated frame num", mReblurSettings.maxAccumulatedFrameNum, 0u, nrd::REBLUR_MAX_HISTORY_FRAME_NUM);
-            group.slider("Blur radius", mReblurSettings.blurRadius, 0.0f, 256.0f, false, "%.2f");
-            group.slider("Min converged state base radius scale", mReblurSettings.minConvergedStateBaseRadiusScale, 0.0f, 1.0f, false, "%.2f");
-            group.slider("Max adaptive radius scale", mReblurSettings.maxAdaptiveRadiusScale, 0.0f, 10.0f, false, "%.2f");
-            group.slider("Normal weight (fraction of lobe)", mReblurSettings.lobeAngleFraction, 0.0f, 1.0f, false, "%.2f");
-            group.slider("Roughness weight (fraction)", mReblurSettings.roughnessFraction, 0.0f, 1.0f, false, "%.2f");
-            group.slider("Responsive accumulation roughness threshold", mReblurSettings.responsiveAccumulationRoughnessThreshold, 0.0f, 1.0f, false, "%.2f");
-            group.slider("Stabilization strength", mReblurSettings.stabilizationStrength, 0.0f, 1.0f, false, "%.2f");
-            group.slider("History fix strength", mReblurSettings.historyFixStrength, 0.0f, 1.0f, false, "%.2f");
-            group.slider("Plane distance sensitivity", mReblurSettings.planeDistanceSensitivity, kEpsilon, 16.0f, false, "%.3f");
-            group.slider("Input mix", mReblurSettings.inputMix, 0.0f, 1.0f, false, "%.2f");
-            group.slider("Residual noise level", mReblurSettings.residualNoiseLevel, 0.01f, 0.1f, false, "%.2f");
+            group.var("Max accumulated frame num", mReblurSettings.maxAccumulatedFrameNum, 0u, nrd::REBLUR_MAX_HISTORY_FRAME_NUM);
+            group.var("Blur radius", mReblurSettings.blurRadius, 0.0f, 256.0f, 0.01f, false, "%.2f");
+            group.var(
+                "Min converged state base radius scale", mReblurSettings.minConvergedStateBaseRadiusScale, 0.0f, 1.0f, 0.01f, false, "%.2f"
+            );
+            group.var("Max adaptive radius scale", mReblurSettings.maxAdaptiveRadiusScale, 0.0f, 10.0f, 0.01f, false, "%.2f");
+            group.var("Normal weight (fraction of lobe)", mReblurSettings.lobeAngleFraction, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.var("Roughness weight (fraction)", mReblurSettings.roughnessFraction, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.var(
+                "Responsive accumulation roughness threshold", mReblurSettings.responsiveAccumulationRoughnessThreshold, 0.0f, 1.0f, 0.01f,
+                false, "%.2f"
+            );
+            group.var("Stabilization strength", mReblurSettings.stabilizationStrength, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.var("History fix strength", mReblurSettings.historyFixStrength, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.var("Plane distance sensitivity", mReblurSettings.planeDistanceSensitivity, kEpsilon, 16.0f, 0.01f, false, "%.3f");
+            group.var("Input mix", mReblurSettings.inputMix, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.var("Residual noise level", mReblurSettings.residualNoiseLevel, 0.01f, 0.1f, 0.01f, false, "%.2f");
             group.checkbox("Antifirefly", mReblurSettings.enableAntiFirefly);
             group.checkbox("Reference accumulation", mReblurSettings.enableReferenceAccumulation);
             group.checkbox("Performance mode", mReblurSettings.enablePerformanceMode);

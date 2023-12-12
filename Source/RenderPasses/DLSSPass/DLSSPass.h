@@ -85,7 +85,7 @@ private:
     // Options
     bool mEnabled = true;
     Profile mProfile = Profile::Balanced;
-    MotionVectorScale mMotionVectorScale = MotionVectorScale::Absolute;
+    MotionVectorScale mMotionVectorScale = MotionVectorScale::Relative;
     bool mIsHDR = true;
     float mSharpness = 0.f;
     float mExposure = 0.f;
