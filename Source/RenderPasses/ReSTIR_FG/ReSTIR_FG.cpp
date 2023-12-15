@@ -484,7 +484,7 @@ void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
     if (mpScene)
     {
         const auto& bounds= mpScene->getSceneBounds();
-        mPhotonFirstHitGuard = math::length(bounds.extent()) * 0.005;   //Init to 0.5 % of scene size
+        mPhotonFirstHitGuard = math::length(bounds.extent()) * 0.005f;   //Init to 0.5 % of scene size
 
         if (mpScene->hasGeometryType(Scene::GeometryType::Custom))
         {
