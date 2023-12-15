@@ -237,12 +237,13 @@ void main(uint2 pixel : SV_DispatchThreadID)
         }
         caustic = gCausticRadiance[pixel].xyz;
 
-        
-#endif //RESTIRFG
-
         //Add Emissive to additionally traced materials
         if(needEmissive)
             emission += bsdfProperties.emission * thp;
+        
+#endif //RESTIRFG
+
+        
             
     //If only RTXDI is used, add the previous calculated light color
     #if USE_RTXDI && !USE_RESTIRFG

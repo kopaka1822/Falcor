@@ -407,7 +407,7 @@ void rayGen()
             rayData.countPhotons = 0; //delete flag
             causticRadiance += w * rayData.radiance;
         #endif // USE_STOCHASTIC_COLLECT
-            if(kEmissionToCausticFilter) causticRadiance += miProperties.emission;
+            if(kEmissionToCausticFilter || MODE_FINAL_GATHER) causticRadiance += miProperties.emission;
             causticRadiance *= thp;
         }
     }
