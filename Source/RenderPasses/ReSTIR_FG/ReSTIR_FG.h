@@ -218,6 +218,7 @@ private:
     float mASBuildBufferPhotonOverestimate = 1.15f;
     float2 mPhotonCollectionRadiusStart = float2(0.025f, 0.005f);
     float2 mPhotonCollectRadius = mPhotonCollectionRadiusStart;     // Radius for collection
+    float mPhotonFirstHitGuard = 0.1f;
     bool mChangePhotonLightBufferSize = false;
     bool mPhotonUseAlphaTest = true;
     bool mPhotonAdjustShadingNormal = true;
