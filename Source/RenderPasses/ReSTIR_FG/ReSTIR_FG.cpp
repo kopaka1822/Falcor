@@ -1235,7 +1235,9 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         defines.add(getValidResourceDefines(kInputChannels, renderData));
         defines.add("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
         defines.add("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
-        defines.add("EMISSION_TO_CAUSTIC_FILTER", (mEmissionToCausticFilter) ? "1" : "0");
+        defines.add(
+            "EMISSION_TO_CAUSTIC_FILTER", (mCausticCollectMode == CausticCollectionMode::Temporal && mEmissionToCausticFilter) ? "1" : "0"
+        );
         if (mpRTXDI) defines.add(mpRTXDI->getDefines());
         defines.add("USE_RTXDI", mpRTXDI ? "1" : "0");
         defines.add("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
@@ -1249,7 +1251,9 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      mpFinalShadingPass->getProgram()->addDefine("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
-     mpFinalShadingPass->getProgram()->addDefine("EMISSION_TO_CAUSTIC_FILTER", (mEmissionToCausticFilter) ? "1" : "0");
+     mpFinalShadingPass->getProgram()->addDefine(
+         "EMISSION_TO_CAUSTIC_FILTER", (mCausticCollectMode == CausticCollectionMode::Temporal && mEmissionToCausticFilter) ? "1" : "0"
+     );
      // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
      mpFinalShadingPass->getProgram()->addDefines(getValidResourceDefines(kOutputChannels, renderData));
 
