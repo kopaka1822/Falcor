@@ -176,9 +176,9 @@ void main(uint2 pixel : SV_DispatchThreadID)
     //Load final gather and ReSTIR FG data
     float4 viewTmp = gView[pixel];
     viewDir = -viewTmp.xyz;
-    bool needEmissive = viewTmp.w == 0 && kEmissionToCausticFilter; //Direct light for indirect flag
 
 #if USE_RESTIRFG
+        bool needEmissive = viewTmp.w > 1.1 && !kEmissionToCausticFilter; //Direct light for indirect flag
         gViewPrev[pixel] = float4(-viewDir,1); //copy view
 #endif //USE_RESTIRFG
     
@@ -248,7 +248,6 @@ void main(uint2 pixel : SV_DispatchThreadID)
     //If only RTXDI is used, add the previous calculated light color
     #if USE_RTXDI && !USE_RESTIRFG
             float3 fgRadiance = gOutColor[pixel].xyz;
-            color += fgRadiance;
             diffuse += fgRadiance;  //TODO do this properly
     #endif
     

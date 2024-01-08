@@ -349,7 +349,8 @@ void rayGen()
 
     float4 viewTmp =gView[launchIndex];
     float3 view = -viewTmp.xyz;
-    bool collectDirect = viewTmp.w == 0;
+    bool collectDirect = viewTmp.w > 0.1;
+    bool collectEmissive = viewTmp.w > 1.1;
 
     ShadingData fgSD = loadShadingData(hit, view, lod); //Shading Data for direct hit
 
@@ -407,8 +408,9 @@ void rayGen()
             rayData.countPhotons = 0; //delete flag
             causticRadiance += w * rayData.radiance;
         #endif // USE_STOCHASTIC_COLLECT
-            if(kEmissionToCausticFilter || MODE_FINAL_GATHER) causticRadiance += miProperties.emission;
+            if((kEmissionToCausticFilter || MODE_FINAL_GATHER) && collectEmissive) causticRadiance += miProperties.emission;
             causticRadiance *= thp;
+            
         }
     }
 

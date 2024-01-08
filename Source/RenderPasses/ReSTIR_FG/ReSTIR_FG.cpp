@@ -561,6 +561,7 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         mpViewDirRayDistDI.reset();
         mpViewDirDIPrev.reset();
         mpThpDI.reset();
+        mResetTex = false;
     }
 
     //If reservoir format changed reset buffer
@@ -1052,7 +1053,9 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      mCollectPhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_ROUGH_CUTOFF", std::to_string(mTraceRoughnessCutoff));
      mCollectPhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF", std::to_string(mTraceDiffuseCutoff));
      mCollectPhotonPass.pProgram->addDefine("REJECT_FGSAMPLE_DIFFUSE_SURFACE", (mGenerationDeltaRejectionRequireDiffPart && mTraceRequireDiffuseMat) ? "1" : "0");
-     mCollectPhotonPass.pProgram->addDefine("EMISSION_TO_CAUSTIC_FILTER", (mEmissionToCausticFilter) ? "1" : "0");
+     mCollectPhotonPass.pProgram->addDefine(
+         "EMISSION_TO_CAUSTIC_FILTER", (mCausticCollectMode == CausticCollectionMode::Temporal && mEmissionToCausticFilter) ? "1" : "0"
+     );
 
      mCollectPhotonPass.pProgram->addDefine("USE_STOCHASTIC_COLLECT", mUseStochasticCollect ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefine("STOCH_NUM_PHOTONS", std::to_string(mStochasticCollectNumPhotons));
