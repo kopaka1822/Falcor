@@ -184,6 +184,7 @@ private:
     bool mTraceRequireDiffuseMat = true;                            //Requires a diffuse part in addition to delta lobes
     float mTraceRoughnessCutoff = 0.7f;                             //If diffuse part is required, dont trace if the roughness is too high
     float mTraceDiffuseCutoff = 0.3f;                              //If diffuse part is requred, it only counts as diffuse if any channel is over this value
+    bool mDebugSpecularTraceMask = false;                          //Mask used in paper
 
     //Light
     bool mMixedLights = false;                                      //True if analytic and emissive lights are in the scene

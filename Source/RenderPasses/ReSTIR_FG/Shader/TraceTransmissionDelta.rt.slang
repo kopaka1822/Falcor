@@ -17,6 +17,10 @@ import SurfaceDataFG;
 #define USE_RTXDI 1
 #endif
 
+#ifndef DEBUG_MASK
+#define DEBUG_MASK 1
+#endif
+
 cbuffer PerFrame
 {
     uint gFrameCount;       // Frame count since scene was loaded.
@@ -42,6 +46,8 @@ RWTexture2D<float4> gOutThpDI;
 
 RWTexture2D<float4> gOutDiffuseReflectance;
 RWTexture2D<float4> gOutSpecularReflectance;
+
+RWTexture2D<float4> gDebugOut;  //Only used when DEBUG_MASK == 1
 
 #define is_valid(name) (is_valid_##name != 0)
 
@@ -229,7 +235,7 @@ void rayGen()
         }else
             bouncesAfterValid++;
     }
-
+        
     //Fill the RTXDI surface if it is enabled
 #if USE_RTXDI
     if(hitInfoDI.isValid())
@@ -259,4 +265,18 @@ void rayGen()
     gOutThp[launchIndex] = float4(thp, wasTracedMask);
     if (is_valid(gOutDiffuseReflectance)) gOutDiffuseReflectance[launchIndex] = float4(diffuseReflectance, 1.f);
     if (is_valid(gOutSpecularReflectance)) gOutSpecularReflectance[launchIndex] = float4(specularReflectance, 1.f);
+
+    #if DEBUG_MASK
+        float3 debugOut = float3(0,0,1);
+        //Enable Red channel if it is not a direct hit
+        if(wasTracedMask > 0){
+            debugOut = float3(1,0,0);
+            
+            if(!validSurfaceForDI)
+                debugOut = float3(0,1,0);
+                
+        }
+
+        gDebugOut[launchIndex] = float4(debugOut, 1.f);
+    #endif
 }

@@ -183,10 +183,20 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
         mClearReservoir = false;
     }
 
-    if (mpRTXDI) mpRTXDI->beginFrame(pRenderContext, mScreenRes);
+    if (mpRTXDI)
+        mpRTXDI->beginFrame(pRenderContext, mScreenRes);
 
     //RenderPasses
     traceTransmissiveDelta(pRenderContext, renderData);
+
+    // Output the debug mask directly after the specular trace pass
+    if (mDebugSpecularTraceMask) 
+    {
+        if (mpRTXDI)
+            mpRTXDI->endFrame(pRenderContext);
+        return;
+    } 
+        
 
     getFinalGatherHitPass(pRenderContext, renderData);
 
@@ -260,6 +270,8 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
             group.var("Diffuse Cutoff", mTraceDiffuseCutoff, 0.f, 1.f,0.01f);
             group.tooltip("Material only counts as diffuse if the mean diffuse part is over this value");
         }
+        group.checkbox("Show Debug Path Mask", mDebugSpecularTraceMask);
+        group.tooltip("Shows a mask which path is used for which pixel. TODO Color Codings");
     }
 
     if (auto group = widget.group("PhotonMapper")) {
@@ -789,6 +801,7 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     mTraceTransmissionDelta.pProgram->addDefine(
         "CAUSTIC_TEMPORAL_FILTER_ENABLED", mCausticCollectMode == CausticCollectionMode::Temporal ? "1" : "0"
     );
+    mTraceTransmissionDelta.pProgram->addDefine("DEBUG_MASK", mDebugSpecularTraceMask ? "1" : "0");
     mTraceTransmissionDelta.pProgram->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
     if (mpRTXDI) mTraceTransmissionDelta.pProgram->addDefines(mpRTXDI->getDefines());
 
@@ -816,6 +829,8 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     var["gOutThpDI"] = mpThpDI;
     var["gOutViewDirRayDistDI"] = mpViewDirRayDistDI;
     var["gOutVBufferDI"] = mpVBufferDI;
+    if (mDebugSpecularTraceMask)
+        var["gDebugOut"] = renderData[kOutputColor]->asTexture();
 
     if (renderData[kOutputDiffuseReflectance])
         var["gOutDiffuseReflectance"] = renderData[kOutputDiffuseReflectance]->asTexture();
