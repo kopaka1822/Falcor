@@ -148,7 +148,7 @@ uint index2Dto1D(uint2 idx, uint width)
     return idx.x + width * idx.y;
 }
 
-CausticSurface getSurface(uint2 idx, bool prev, uint frameWidth, float3 view)
+CausticSurface getSurface(uint2 idx, bool prev)
 {
     uint2 surfaceData;
     if (prev)
@@ -427,8 +427,8 @@ void rayGen()
     if (tempIndex.x >= 0 && tempIndex.y >= 0 && tempIndex.x < launchDim.x && tempIndex.y < launchDim.y)
     {
         //Load Surfaces
-        CausticSurface currentSurface = getSurface(launchIndex, false, launchDim.x, view);
-        CausticSurface prevSurface = getSurface(tempIndex, true, launchDim.x, view);
+        CausticSurface currentSurface = getSurface(launchIndex, false);
+        CausticSurface prevSurface = getSurface(tempIndex, true);
         
         if (currentSurface.isValidNeighbor(prevSurface, gDepthThreshold, gNormalThreshold))
         {
