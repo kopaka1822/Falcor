@@ -16,6 +16,8 @@ import Rendering.Lights.EmissiveLightSamplerHelpers;
 import Hash;
 import PhotonData;
 
+#define USE_SUBGROUP_STORE 0
+
 cbuffer PerFrame
 {
     uint gFrameCount; // Frame count since scene was loaded.
@@ -68,7 +70,7 @@ enum class GenerationFlags // : uint32_t
     AnalyticLight       = 0x20,     //Use analytic light photons
 };
 
-static const bool kUseGlints = true;
+static const bool kUseGlints = false;
 static const uint3 kPhotonBufferSize = uint3(PHOTON_BUFFER_SIZE_GLOBAL, PHOTON_BUFFER_SIZE_CAUSTIC, PHOTON_BUFFER_SIZE_GLINT);
 static const uint kUsePhotonCulling = USE_PHOTON_CULLING;
 static const uint kRayFlagTerminatedMiss = 1;
@@ -473,6 +475,9 @@ void rayGen()
             bool storePhoton = true;
             if ((kUsePhotonCulling))
                 storePhoton = cullingTest(photonPos);
+
+        //Subgroups version
+        #if !USE_SUBGROUP_STORE
             if (storePhoton)
             {
                 uint photonIndex = 0;
@@ -492,8 +497,47 @@ void rayGen()
                     gPackedPhotonData[photonType][photonIndex] = pd.pack();
                 }
             }
+            
+        //Subgroups version
+        #else
+            if (storePhoton)
+            {
+                if (photonType == 0)
+                        photon.flux *= invRejection;
+                uint photonIndex = 0;
+                if (photonType == 0)
+                {
+                    uint numStores = WaveActiveCountBits(true);
+                
+                    if (WaveIsFirstLane())
+                        InterlockedAdd(gPhotonCounter[photonType], numStores, photonIndex);
+                    photonIndex = WaveReadLaneFirst(photonIndex);
+                    photonIndex += WavePrefixCountBits(true);
+                }
+                else
+                {
+                    uint numStores = WaveActiveCountBits(true);
+                
+                    if (WaveIsFirstLane())
+                        InterlockedAdd(gPhotonCounter[photonType], numStores, photonIndex);
+                    photonIndex = WaveReadLaneFirst(photonIndex);
+                    photonIndex += WavePrefixCountBits(true);
+                }
+                        
+                if (photonIndex <= kPhotonBufferSize[photonType])
+                {
+                    AABB photonAABB = AABB(photonPos - gPhotonRadius[photonType], photonPos + gPhotonRadius[photonType]);
+                    gPhotonAABB[photonType][photonIndex] = photonAABB;
+                    PhotonData pd = PhotonData();
+                    pd.flux = photon.flux;
+                    pd.dir = -photon.dir;
+                    pd.packedNormal = rayData.packedNormal;
+                
+                    gPackedPhotonData[photonType][photonIndex] = pd.pack();
+                }
+            }
+        #endif
         }
-
         //If next sampled ray is invalid return here
         if (rayData.terminated > 0)
             break;
