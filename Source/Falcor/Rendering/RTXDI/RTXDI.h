@@ -140,7 +140,7 @@ namespace Falcor
             bool testCandidateVisibility = true;        ///< Test visibility on selected candidate sample before doing resampling.
 
             // Resampling options.
-            BiasCorrection biasCorrection = BiasCorrection::Basic; ///< Bias correction mode.
+            BiasCorrection biasCorrection = BiasCorrection::RayTraced; ///< Bias correction mode.
             float depthThreshold = 0.1f;                ///< Relative depth difference at which pixels are classified too far apart to be reused (0.1 = 10%).
             float normalThreshold = 0.5f;               ///< Cosine of the angle between normals, below which pixels are classified too far apart to be reused.
 
