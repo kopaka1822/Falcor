@@ -229,7 +229,7 @@ private:
     uint mCausticTemporalFilterHistoryLimit = 60;
     bool mEmissionToCausticFilter = true;
 
-    bool mUseStochasticCollect = false;                     //Stochastic collect using reservoir sampling.
+    bool mUseStochasticCollect = true;                     //Stochastic collect using reservoir sampling.
     uint mStochasticCollectNumPhotons = 3;
 
     bool mUsePhotonCulling = true;
