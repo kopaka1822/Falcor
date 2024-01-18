@@ -2915,7 +2915,7 @@ namespace Falcor
 
                 const auto& mesh = mMeshDesc[instance.geometryID];
                 bool use16Bit = mesh.use16BitIndices();
-                bool isDynamic = mesh.isAnimated() || mesh.isDynamic(); 
+                bool isDynamic = mesh.isAnimated() || mesh.isDynamic() || !mesh.isStatic(); 
                 const auto mat = getMaterial(MaterialID::fromSlang(mesh.materialID));
                 bool isCastShadow = mat->isCastShadow();
 

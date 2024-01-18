@@ -1505,62 +1505,68 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
             maxZ *= mCascZMult;
         }
 
-        renderLevel[i] = false;
+        renderLevel[i] = !mEnableTemporalCascadedBoxTest;
 
-        //Check if the current cascade box fit into the box from last frame
-        if (mPreviousCascades[startIdx + i].valid){
-            //Get the AABB from the stored view
-            float3 minRepro = float3(std::numeric_limits<float>::max());
-            float3 maxRepro = float3(std::numeric_limits<float>::min());
-            for (const float4& p : frustumCorners)
+        //Check the box from last frame and abourt rendering if current level is inside the last frames level
+        if (mEnableTemporalCascadedBoxTest)
+        {
+            // Check if the current cascade box fit into the box from last frame
+            if (mPreviousCascades[startIdx + i].valid)
             {
-                const float4 vp = math::mul(mPreviousCascades[i].prevView, p);
-                minRepro.x = std::min(minRepro.x, vp.x);
-                maxRepro.x = std::max(maxRepro.x, vp.x);
-                minRepro.y = std::min(minRepro.y, vp.y);
-                maxRepro.y = std::max(maxRepro.y, vp.y);
-                minRepro.z = std::min(minRepro.z, vp.z);
-                maxRepro.z = std::max(maxRepro.z, vp.z);
+                // Get the AABB from the stored view
+                float3 minRepro = float3(std::numeric_limits<float>::max());
+                float3 maxRepro = float3(std::numeric_limits<float>::min());
+                for (const float4& p : frustumCorners)
+                {
+                    const float4 vp = math::mul(mPreviousCascades[i].prevView, p);
+                    minRepro.x = std::min(minRepro.x, vp.x);
+                    maxRepro.x = std::max(maxRepro.x, vp.x);
+                    minRepro.y = std::min(minRepro.y, vp.y);
+                    maxRepro.y = std::max(maxRepro.y, vp.y);
+                    minRepro.z = std::min(minRepro.z, vp.z);
+                    maxRepro.z = std::max(maxRepro.z, vp.z);
+                }
+
+                // Pull back based on ZMult
+                if (minRepro.z < 0)
+                {
+                    minRepro.z *= mCascZMult;
+                }
+                else
+                {
+                    minRepro.z /= mCascZMult;
+                }
+                if (maxRepro.z < 0)
+                {
+                    maxRepro.z /= mCascZMult;
+                }
+                else
+                {
+                    maxRepro.z *= mCascZMult;
+                }
+
+                // Test both points against the enlarged box. If the box is inside, skip calculation for this level
+                const float3& minPrev = mPreviousCascades[startIdx + i].min;
+                const float3& maxPrev = mPreviousCascades[startIdx + i].max;
+                if (math::all(minRepro >= minPrev) && math::all(minRepro <= maxPrev) && math::all(maxRepro >= minPrev) &&
+                    math::all(maxRepro <= maxPrev))
+                    continue;
             }
 
-            //Pull back based on ZMult
-            if (minRepro.z < 0)
-            {
-                minRepro.z *= mCascZMult;
-            }
-            else
-            {
-                minRepro.z /= mCascZMult;
-            }
-            if (maxRepro.z < 0)
-            {
-                maxRepro.z /= mCascZMult;
-            }
-            else
-            {
-                maxRepro.z *= mCascZMult;
-            }
+            // Enlarge the box and set the previous cascade
+            minX += minX * mCascadedReuseEnlargeFactor;
+            maxX += maxX * mCascadedReuseEnlargeFactor;
+            minY += minY * mCascadedReuseEnlargeFactor;
+            maxY += maxY * mCascadedReuseEnlargeFactor;
+            minZ += minZ * mCascadedReuseEnlargeFactor;
+            maxZ += maxZ * mCascadedReuseEnlargeFactor;
 
-            //Test both points against the enlarged box. If the box is inside, skip calculation for this level
-            const float3& minPrev = mPreviousCascades[startIdx + i].min;
-            const float3& maxPrev = mPreviousCascades[startIdx + i].max;
-            if (math::all(minRepro >= minPrev && minRepro <= maxPrev) && math::all(maxRepro >= minPrev && maxRepro <= maxPrev))
-                continue;
+            mPreviousCascades[startIdx + i].valid = true;
+            mPreviousCascades[startIdx + i].prevView = casView;
+            mPreviousCascades[startIdx + i].min = float3(minX, minY, minZ);
+            mPreviousCascades[startIdx + i].max = float3(maxX, maxY, maxZ);
+            renderLevel[i] = true;
         }
-
-        //Enlarge the box and set the previous cascade
-        minX += minX * mCascadedReuseEnlargeFactor;
-        maxX += maxX * mCascadedReuseEnlargeFactor;
-        minY += minY * mCascadedReuseEnlargeFactor;
-        maxY += maxY * mCascadedReuseEnlargeFactor;
-        minZ += minZ * mCascadedReuseEnlargeFactor;
-        maxZ += maxZ * mCascadedReuseEnlargeFactor;
-
-        mPreviousCascades[startIdx + i].valid = true;
-        mPreviousCascades[startIdx + i].prevView = casView;
-        mPreviousCascades[startIdx + i].min = float3(minX, minY, minZ);
-        mPreviousCascades[startIdx + i].max = float3(maxX, maxY, maxZ);
-        renderLevel[i] = true;
 
         const float4x4 casProj = math::ortho(minX, maxX,  minY, maxY, minZ, maxZ);
 
@@ -2297,8 +2303,13 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
            
             dirty |= group.var("Z Value Multi", mCascZMult, 1.f, 1000.f, 0.1f);
             group.tooltip("Pulls the Z-Values of each cascaded level apart. Is needed as not all Geometry is in the View-Frustum");
-            dirty |= group.var("Reuse Enlarge Factor", mCascadedReuseEnlargeFactor, 0.f, 10.f, 0.001f);
-            group.tooltip("Factor by which the frustum of each cascaded level is enlarged by");
+            dirty |= group.checkbox("Use Temporal Cascaded Reuse", mEnableTemporalCascadedBoxTest);
+            group.tooltip("Enlarges the rendered cascade and reuses it in the next frame if camera has not moved so much");
+            if (mEnableTemporalCascadedBoxTest)
+            {
+                dirty |= group.var("Reuse Enlarge Factor", mCascadedReuseEnlargeFactor, 0.f, 10.f, 0.001f);
+                group.tooltip("Factor by which the frustum of each cascaded level is enlarged by");
+            }
         }
     }
 

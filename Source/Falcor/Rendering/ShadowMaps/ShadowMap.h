@@ -223,6 +223,7 @@ private:
     float mCascadedFrustumFix = 0.8f;
     float mCascZMult = 8.f; // Pushes the z Values apart
     float mCascadedReuseEnlargeFactor = 0.1f; // Increases box size by the factor on each side
+    bool mEnableTemporalCascadedBoxTest = true; //Tests the cascaded level against the cascaded level from last frame. Only updates if box is outside
 
     // Hybrid Shadow Maps
     bool mUseHybridSM = true; ///< Uses the Hybrid Shadow Maps; For "Classic" Shadow Maps based on: https://gpuopen.com/fidelityfx-hybrid-shadows/#details
