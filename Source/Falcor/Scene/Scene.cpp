@@ -467,7 +467,7 @@ namespace Falcor
             {
                 auto cameraChanges = camera->getChanges();
                 auto excluded = Camera::Changes::Jitter | Camera::Changes::History;
-                if ((cameraChanges & ~excluded) != Camera::Changes::None)
+                if (((cameraChanges & ~excluded) != Camera::Changes::None) || forceUpdate)
                 {
                     pFrustumCulling->updateFrustum(camera);
                 }
