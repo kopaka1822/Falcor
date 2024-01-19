@@ -252,8 +252,9 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout GIData giSample, in
         int2 spartialOffset = int2(round(randSamp * gSamplingRadius));
         idx += spartialOffset;
 
-        //Clamp to edge
-        min(max(uint2(0), idx), gFrameDim - 1);
+        //Outside index is invalid
+        if(any(idx < 0) || any(idx >= gFrameDim))
+            continue;
 
         //Get surface and check if valid
         SurfaceGI neighSurface = getSurface(idx, false); //Get surface
@@ -441,8 +442,9 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout GIData giSam
             int2 spartialOffset = int2(round(randSamp * gSamplingRadius));
             idx = prevIdx + spartialOffset;
 
-            //Clamp to valid index
-            idx = clamp(idx, uint2(0), gFrameDim - 1);
+            //Outside index is invalid
+            if(any(idx < 0) || any(idx >= gFrameDim))
+                continue;
             
              //Get surface and check if valid
             SurfaceGI neighSurface = getSurface(idx, true);
