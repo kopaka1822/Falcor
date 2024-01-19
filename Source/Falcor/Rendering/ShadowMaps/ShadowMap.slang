@@ -28,16 +28,17 @@ __exported import Rendering.ShadowMaps.ShadowMapHelpers;
 
 struct ShadowMap
 {
-    SamplerState gShadowSampler;
+    SamplerState gShadowSamplerPoint;
+    SamplerState gShadowSamplerLinear;
     TextureCube<float> gShadowMapCube[NUM_SHADOW_MAPS_CUBE];                        //(Point)ShadowMap with type float. Can be Null
     Texture2D<float> gShadowMap[NUM_SHADOW_MAPS_MISC];                              //(Spot)ShadowMap with type float. Can be Null
     Texture2DArray<float> gCascadedShadowMap[NUM_SHADOW_MAPS_CASCADE];              //CascadedShadowMap with type float. Can be Null
     TextureCube<float2> gShadowMapVarianceCube[NUM_SHADOW_MAPS_CUBE];               //(Point)ShadowMap with type float2. Used in Variance SM. Can be Null
     Texture2D<float2> gShadowMapVariance[NUM_SHADOW_MAPS_MISC];                     //(Spot)ShadowMap with type float2. Used in Variance SM. Can be Null
     Texture2DArray<float2> gCascadedShadowMapVariance[NUM_SHADOW_MAPS_CASCADE];     //CascadedShadowMap with type float2. Used in Variance SM. Can be Null
-    TextureCube<float4> gCubeShadowMapF4[NUM_SHADOW_MAPS_CUBE];                     //(Point)ShadowMap with type float4. Used in Variance SM. Can be Null
-    Texture2D<float4> gShadowMapF4[NUM_SHADOW_MAPS_MISC];                           //(Spot)ShadowMap with type float4. Used in Variance SM. Can be Null
-    Texture2DArray<float4> gCascadedShadowMapF4[NUM_SHADOW_MAPS_CASCADE];           //CascadedShadowMap with type float4. Used in Variance SM. Can be Null
+    TextureCube<float4> gCubeShadowMapF4[NUM_SHADOW_MAPS_CUBE];                     //(Point)ShadowMap with type float4. Used in filtered SM. Can be Null
+    Texture2D<float4> gShadowMapF4[NUM_SHADOW_MAPS_MISC];                           //(Spot)ShadowMap with type float4. Used in filtered SM. Can be Null
+    Texture2DArray<float4> gCascadedShadowMapF4[NUM_SHADOW_MAPS_CASCADE];           //CascadedShadowMap with type float4. Used in filtered SM. Can be Null
     StructuredBuffer<uint> gShadowMapIndexMap;                                      //Maps global light index to local buffer index. Only used if kMultipleSMTypes == true
     StructuredBuffer<float4x4> gShadowMapVPBuffer;                                  //Buffer for the ViewProjection Matrices [Spot | Cascaded]           
     StructuredBuffer<float> gShadowMapNPSBuffer;                                    //Buffer for the Normalized Pixel Size [Point | Spot | Cascaded]
@@ -84,6 +85,8 @@ struct ShadowMap
     static const bool kUseOracleForDirect = USE_ORACLE_FOR_DIRECT;
     static const float kUseOracleForDirectRoughness = USE_ORACLE_FOR_DIRECT_ROUGHNESS;
 
+    static const float kUseDynamicSM = USE_DYNAMIC_SM;
+
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] =
     {
@@ -125,6 +128,12 @@ struct ShadowMap
         return smLightData;
     }
 
+    float4 getGatherWeights(const float2 uv, const float smRes, out float2 gatherUV){
+         gatherUV= (floor(uv * float(smRes) - 0.5) + 1.0f) / float(smRes);
+         float2 f = frac(uv * float(smRes) - 0.5f);
+         // (-,+),(+,+)(+,-)(-,-)
+         return float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
+    }
     
     /** Gets the value from the shadow map depending on type. R32/16 case
     \param[in] local shadow map texture index.
@@ -140,13 +149,18 @@ struct ShadowMap
         switch (lightType)
         {
             case LightTypeSM::Point:
-                sv = gShadowMapCube[index].SampleLevel(gShadowSampler, sampleVec, 0.f);//TODO fix mip level
+                sv = gShadowMapCube[index].SampleLevel(gShadowSamplerPoint, sampleVec, 0.f);//TODO fix mip level
                 break;
             case LightTypeSM::Spot:
-                sv = gShadowMap[index].SampleLevel(gShadowSampler, sampleVec.xy, mipLevel);
+                sv = gShadowMap[index].SampleLevel(gShadowSamplerPoint, sampleVec.xy, mipLevel);
                 break;
             case LightTypeSM::Directional:
-                sv = gCascadedShadowMap[index].SampleLevel(gShadowSampler, float3(sampleVec.xy, level), mipLevel);
+                sv = gCascadedShadowMap[index].SampleLevel(gShadowSamplerPoint, float3(sampleVec.xy, level), mipLevel);
+                if(kUseDynamicSM)
+                {
+                    float svDyn = gCascadedShadowMap[index].SampleLevel(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level), mipLevel);
+                    sv = min(sv, svDyn);
+                }
                 break;
             default:
                 break;
@@ -169,13 +183,18 @@ struct ShadowMap
         switch (lightType)
         {
             case LightTypeSM::Point:
-                sv = gShadowMapCube[index].Gather(gShadowSampler, sampleVec);
+                sv = gShadowMapCube[index].Gather(gShadowSamplerPoint, sampleVec);
                 break;
             case LightTypeSM::Spot:
-                sv = gShadowMap[index].Gather(gShadowSampler, sampleVec.xy);
+                sv = gShadowMap[index].Gather(gShadowSamplerPoint, sampleVec.xy);
                 break;
             case LightTypeSM::Directional:
-                sv = gCascadedShadowMap[index].Gather(gShadowSampler, float3(sampleVec.xy, level));
+                sv = gCascadedShadowMap[index].Gather(gShadowSamplerPoint, float3(sampleVec.xy, level));
+                if(kUseDynamicSM)
+                {
+                    float4 svDyn = gCascadedShadowMap[index].Gather(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level));
+                    sv = min(sv, svDyn);
+                }
                 break;
             default:
                 break;
@@ -198,13 +217,27 @@ struct ShadowMap
         switch (lightType)
         {
             case LightTypeSM::Point:
-                sv = gShadowMapVarianceCube[index].SampleLevel(gShadowSampler, sampleVec, 0.f); //TODO fix mip level
+                sv = gShadowMapVarianceCube[index].SampleLevel(gShadowSamplerLinear, sampleVec, 0.f); //TODO fix mip level
                 break;
             case LightTypeSM::Spot:
-                sv = gShadowMapVariance[index].SampleLevel(gShadowSampler, sampleVec.xy, mipLevel);
+                sv = gShadowMapVariance[index].SampleLevel(gShadowSamplerLinear, sampleVec.xy, mipLevel);
                 break;
             case LightTypeSM::Directional:
-                sv = gCascadedShadowMapVariance[index].SampleLevel(gShadowSampler, float3(sampleVec.xy, level), mipLevel);
+                sv = gCascadedShadowMapVariance[index].SampleLevel(gShadowSamplerLinear, float3(sampleVec.xy, level), mipLevel);
+                //Load dynamic values, take the min against shadow values and interpolate to recognize the edges
+                if(kUseDynamicSM)
+                {
+                    float2 gatherUV;
+                    float4 w = getGatherWeights(sampleVec.xy, kCascadedSMRes, gatherUV);
+                    float4 redComp = gCascadedShadowMapVariance[index].GatherRed(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 greenComp = gCascadedShadowMapVariance[index].GatherGreen(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float2 svDyn[4];
+                    for(uint i=0; i<4;i++)
+                        svDyn[i] = min(float2(redComp[i],greenComp[i]), sv);
+                    sv = float2(0);
+                    for(uint i=0; i<4;i++)
+                        sv += w[i] * svDyn[i];
+                }
                 break;
             default:
                 break;
@@ -226,16 +259,23 @@ struct ShadowMap
         switch (lightType)
         {
             case LightTypeSM::Point:
-                redComp = gShadowMapVarianceCube[index].GatherRed(gShadowSampler, sampleVec);
-                greenComponent = gShadowMapVarianceCube[index].GatherGreen(gShadowSampler, sampleVec);
+                redComp = gShadowMapVarianceCube[index].GatherRed(gShadowSamplerLinear, sampleVec);
+                greenComponent = gShadowMapVarianceCube[index].GatherGreen(gShadowSamplerLinear, sampleVec);
                 break;
             case LightTypeSM::Spot:
-                redComp = gShadowMapVariance[index].GatherRed(gShadowSampler, sampleVec.xy);
-                greenComponent = gShadowMapVariance[index].GatherGreen(gShadowSampler, sampleVec.xy);
+                redComp = gShadowMapVariance[index].GatherRed(gShadowSamplerLinear, sampleVec.xy);
+                greenComponent = gShadowMapVariance[index].GatherGreen(gShadowSamplerLinear, sampleVec.xy);
                 break;
             case LightTypeSM::Directional:
-                redComp = gCascadedShadowMapVariance[index].GatherRed(gShadowSampler, float3(sampleVec.xy, level));
-                greenComponent = gCascadedShadowMapVariance[index].GatherGreen(gShadowSampler, float3(sampleVec.xy, level));
+                redComp = gCascadedShadowMapVariance[index].GatherRed(gShadowSamplerLinear, float3(sampleVec.xy, level));
+                greenComponent = gCascadedShadowMapVariance[index].GatherGreen(gShadowSamplerLinear, float3(sampleVec.xy, level));
+                //Load dynamic values and take the min of both. Interpolation is handled later
+                if(kUseDynamicSM){
+                    float4 dynRed = gCascadedShadowMapVariance[index].GatherRed(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level));
+                    float4 dynGreen = gCascadedShadowMapVariance[index].GatherGreen(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level));
+                    redComp = min(redComp, dynRed);
+                    greenComponent = min(greenComponent, dynGreen);
+                }
                 break;
             default:
                 break;
@@ -257,13 +297,29 @@ struct ShadowMap
         switch (lightType)
         {
             case LightTypeSM::Point:
-                sv = gCubeShadowMapF4[index].SampleLevel(gShadowSampler, sampleVec, 0.f); //TODO fix mip level
+                sv = gCubeShadowMapF4[index].SampleLevel(gShadowSamplerLinear, sampleVec, 0.f); //TODO fix mip level
                 break;
             case LightTypeSM::Spot:
-                sv = gShadowMapF4[index].SampleLevel(gShadowSampler, sampleVec.xy, mipLevel);
+                sv = gShadowMapF4[index].SampleLevel(gShadowSamplerLinear, sampleVec.xy, mipLevel);
                 break;
             case LightTypeSM::Directional:
-                sv = gCascadedShadowMapF4[index].SampleLevel(gShadowSampler, float3(sampleVec.xy, level), mipLevel);
+                sv = gCascadedShadowMapF4[index].SampleLevel(gShadowSamplerLinear, float3(sampleVec.xy, level), mipLevel);
+                //Load dynamic values, take the min against shadow values and interpolate to recognize the edges
+                if(kUseDynamicSM)
+                {
+                    float2 gatherUV;
+                    float4 w = getGatherWeights(sampleVec.xy, kCascadedSMRes, gatherUV);
+                    float4 redComp = gCascadedShadowMapF4[index].GatherRed(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 greenComp = gCascadedShadowMapF4[index].GatherGreen(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 blueComp = gCascadedShadowMapF4[index].GatherBlue(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 alphaComp = gCascadedShadowMapF4[index].GatherAlpha(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 svDyn[4];
+                    for(uint i=0; i<4;i++)
+                        svDyn[i] = min(float4(redComp[i],greenComp[i],blueComp[i],alphaComp[i]), sv);
+                    sv = float4(0);
+                    for(uint i=0; i<4;i++)
+                        sv += w[i] * svDyn[i];
+                }
                 break;
             default:
                 break;

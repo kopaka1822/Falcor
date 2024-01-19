@@ -204,8 +204,6 @@ void ShadowMap::prepareShadowMapBuffers()
         {
             shadowMapFormat = mShadowMapFormat;
             shadowMapBindFlags |= ResourceBindFlags::DepthStencil;
-            if (mSceneIsDynamic)
-                shadowMapBindFlags |= ResourceBindFlags::RenderTarget;  //Needed for copy (blit)
         }
         
     }
@@ -269,8 +267,9 @@ void ShadowMap::prepareShadowMapBuffers()
         }
         else if (lightType == LightTypeSM::Directional)
         {
+            uint levelCount = mSceneIsDynamic ? mCascadedLevelCount * 2 : mCascadedLevelCount;
             tex = Texture::create2D(
-                mpDevice, mShadowMapSizeCascaded, mShadowMapSizeCascaded, shadowMapFormat, mCascadedLevelCount,
+                mpDevice, mShadowMapSizeCascaded, mShadowMapSizeCascaded, shadowMapFormat, levelCount,
                 genMipMaps ? Texture::kMaxPossible : 1u, nullptr, shadowMapBindFlags
             );
             tex->setName("ShadowMapCascade" + std::to_string(countCascade));
@@ -356,30 +355,6 @@ void ShadowMap::prepareShadowMapBuffers()
                 );
                 depthTex->setName("ShadowMapPassDepthHelperStatic" + std::to_string(i));
                 mpDepthStatic.push_back(depthTex);
-            }
-        }
-        for (size_t i = 0; i < mpCascadedShadowMaps.size(); i++)
-        {
-            // Create a copy Texture
-            ref<Texture> tex = Texture::create2D(
-                mpDevice, mpCascadedShadowMaps[i]->getWidth(), mpCascadedShadowMaps[i]->getHeight(), mpCascadedShadowMaps[i]->getFormat(),
-                mCascadedLevelCount, 1u, nullptr, mpCascadedShadowMaps[i]->getBindFlags()
-            );
-            tex->setName("ShadowMapCascadedStatic" + std::to_string(i));
-            mpShadowMapsCascadedStatic.push_back(tex);
-
-            // Create a per cascaded level depth texture
-            if (mpDepthCascaded)
-            {
-                for (uint cascLevel = 0; cascLevel < mCascadedLevelCount; cascLevel++)
-                {
-                    ref<Texture> depthTex = Texture::create2D(
-                        mpDevice, mpDepthCascaded->getWidth(), mpDepthCascaded->getHeight(), mpDepthCascaded->getFormat(), 1u, 1u, nullptr,
-                        mpDepthCascaded->getBindFlags()
-                    );
-                    depthTex->setName("ShadowMapPassCascadedDepthHelperStatic" + std::to_string(i));
-                    mpDepthCascadedStatic.push_back(depthTex);
-                }
             }
         }
     }
@@ -698,6 +673,8 @@ DefineList ShadowMap::getDefines() const
     defines.add("USE_ORACLE_DISTANCE_FUNCTION", mOracleDistanceFunctionMode == OracleDistFunction::None ? "0" : "1");
     defines.add("USE_ORACLE_FOR_DIRECT", mOracleIgnoreDirect ? "1" : "0");
     defines.add("USE_ORACLE_FOR_DIRECT_ROUGHNESS", std::to_string(mOracleIgnoreDirectRoughness));
+
+    defines.add("USE_DYNAMIC_SM", mSceneIsDynamic ? "1" : "0");
     
 
     if (mpScene)
@@ -784,7 +761,8 @@ void ShadowMap::setShaderData(const uint2 frameDim)
     var["gShadowMapNPSBuffer"] = mpNormalizedPixelSize; //Can be Nullptr on init
     var["gShadowMapVPBuffer"] = mpVPMatrixBuffer; // Can be Nullptr
     var["gShadowMapIndexMap"] = mpLightMapping;   // Can be Nullptr
-    var["gShadowSampler"] = mShadowMapType == ShadowMapType::ShadowMap ? mpShadowSamplerPoint : mpShadowSamplerLinear;
+    var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
+    var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
 }
 
 void ShadowMap::setShaderDataAndBindBlock(ShaderVar rootVar, const uint2 frameDim)
@@ -1626,6 +1604,7 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
     {
         const uint cascLevel = dynamicMode ? i / 2 : i;
         const bool isDynamic = dynamicMode ? (i % 2 == 1) : false; // Uneven number is the dynamic pass
+        const uint cascRenderTargetLevel = isDynamic ? cascLevel + mCascadedLevelCount : cascLevel;
 
         //Skip static cascaded levels if no update is necessary
         if (!renderCascadedLevel[cascLevel] && !isDynamic)
@@ -1633,53 +1612,13 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
 
         // If depth tex is set, Render to RenderTarget
         if (mpDepthCascaded)
-        {
-            if (dynamicMode)
-            {
-                if (isDynamic)
-                {
-                    //Copy static tex
-                    pRenderContext->copyResource(mpDepthCascaded.get(), mpDepthCascadedStatic[casMatIdx + cascLevel].get());
-                    pRenderContext->blit(
-                        mpShadowMapsCascadedStatic[index]->getSRV(0, 1, cascLevel, 1), mpCascadedShadowMaps[index]->getRTV(0, cascLevel, 1)
-                    );
-                    //Bind FBO
-                    mpFboCascaded->attachColorTarget(mpCascadedShadowMaps[index], 0, 0, cascLevel, 1);
-                    mpFboCascaded->attachDepthStencilTarget(mpDepthCascaded);
-                }
-                else
-                {
-                    mpFboCascaded->attachColorTarget(mpShadowMapsCascadedStatic[index], 0, 0, cascLevel, 1);
-                    mpFboCascaded->attachDepthStencilTarget(mpDepthCascadedStatic[casMatIdx + cascLevel]);
-                }
-            }
-            else //Static Geometry only mode
-            {
-                mpFboCascaded->attachColorTarget(mpCascadedShadowMaps[index], 0, 0, cascLevel, 1);
-                mpFboCascaded->attachDepthStencilTarget(mpDepthCascaded);
-            }
+        { 
+            mpFboCascaded->attachColorTarget(mpCascadedShadowMaps[index], 0, 0, cascRenderTargetLevel, 1);
+            mpFboCascaded->attachDepthStencilTarget(mpDepthCascaded);
         }
         else //Else only render to DepthStencil
         {
-            if (dynamicMode)
-            {
-                if (isDynamic)
-                {
-                    // Copy static tex
-                    pRenderContext->blit(
-                        mpShadowMapsCascadedStatic[index]->getSRV(0, 1, cascLevel, 1), mpCascadedShadowMaps[index]->getRTV(0, cascLevel, 1)
-                    );
-                    mpFboCascaded->attachDepthStencilTarget(mpCascadedShadowMaps[index], 0, cascLevel, 1);
-                }
-                else
-                {
-                    mpFboCascaded->attachDepthStencilTarget(mpShadowMapsCascadedStatic[index], 0, cascLevel, 1);
-                }
-            }
-            else //Static Geometry only mode
-            {
-                mpFboCascaded->attachDepthStencilTarget(mpCascadedShadowMaps[index], 0, cascLevel, 1);
-            }
+            mpFboCascaded->attachDepthStencilTarget(mpCascadedShadowMaps[index], 0, cascRenderTargetLevel, 1);
         }
        
         ShaderParameters params;
@@ -1701,8 +1640,8 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
             clearColor = float4(expVarMax.x, expVarMax.x * expVarMax.x, expVarMax.y, expVarMax.y * expVarMax.y); // Set to highest possible
         }
 
-        if (!isDynamic)
-            pRenderContext->clearFbo(mShadowMapCascadedRasterPass.pState->getFbo().get(), clearColor, 1.f, 0);
+        //Clear
+        pRenderContext->clearFbo(mShadowMapCascadedRasterPass.pState->getFbo().get(), clearColor, 1.f, 0);
 
         //Set mesh render mode
         auto meshRenderMode = RasterizerState::MeshRenderMode::All;

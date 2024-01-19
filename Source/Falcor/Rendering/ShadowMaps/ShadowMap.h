@@ -317,7 +317,7 @@ private:
     std::vector<ref<Texture>> mpShadowMaps;         // 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights)
     std::vector<ref<Texture>> mpShadowMapsCubeStatic;     // Static Cube Shadow Maps. Only used if scene has animations
     std::vector<ref<Texture>> mpShadowMapsStatic;     // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
-    std::vector<ref<Texture>> mpShadowMapsCascadedStatic; // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
+    //std::vector<ref<Texture>> mpShadowMapsCascadedStatic; // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
     ref<Buffer> mpLightMapping;
     ref<Buffer> mpVPMatrixBuffer;
     ref<Buffer> mpVPMatrixStangingBuffer;
@@ -327,7 +327,7 @@ private:
     ref<Texture> mpDepth;                          //Depth texture needed for some types of 2D SM (can be null)
     std::vector<ref<Texture>> mpDepthCubeStatic;   // Static cube depth map copy per shadow map
     std::vector<ref<Texture>> mpDepthStatic;       // Static 2D depth map copy per shadow map
-    std::vector<ref<Texture>> mpDepthCascadedStatic; // Static 2D depth map copy per shadow map
+    //std::vector<ref<Texture>> mpDepthCascadedStatic; // Static 2D depth map copy per shadow map
 
     //Samplers
     ref<Sampler> mpShadowSamplerPoint;
