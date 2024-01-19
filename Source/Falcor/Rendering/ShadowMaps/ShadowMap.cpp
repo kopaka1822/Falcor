@@ -89,6 +89,16 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
         mShadowMapUpdateMode = SMUpdateMode::Dynamic;
     }  
 
+    AABB sceneBounds = mpScene->getSceneBounds();
+    float far = length(sceneBounds.extent());
+    float near = 0.0005 * far;
+    //Set camera near and far plane to usable values
+    for (auto& camera : mpScene->getCameras())
+    {
+        camera->setNearPlane(std::max(camera->getNearPlane(), near));
+        camera->setFarPlane(std::min(camera->getFarPlane(), far));
+    }
+
     // Create Light Mapping Buffer
     prepareShadowMapBuffers();
 
@@ -396,7 +406,7 @@ void ShadowMap::prepareShadowMapBuffers()
     if ((!mpVPMatrixBuffer) && (mpShadowMaps.size() > 0 || mpCascadedShadowMaps.size() > 0))
     {
         size_t size = mpShadowMaps.size() + mpCascadedShadowMaps.size() * mCascadedLevelCount;
-        std::vector<float4x4> initData(size);
+        std::vector<float4x4> initData(size * kStagingBufferCount);
         for (size_t i = 0; i < initData.size(); i++)
             initData[i] = float4x4::identity();
 
