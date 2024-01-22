@@ -218,10 +218,10 @@ private:
 
     //Cascaded
     CascadedFrustumMode mCascadedFrustumMode = CascadedFrustumMode::AutomaticNvidia;
-    uint mCascadedLevelCount = 3;
-    uint mCascadedTracedLevelsAtEnd = 1; //Adds N number of ray tracing only cascades at the end. Will only work on hybrid mode
-    float mCascadedFrustumFix = 0.8f;
-    float mCascZMult = 8.f; // Pushes the z Values apart
+    uint mCascadedLevelCount = 4;
+    uint mCascadedTracedLevelsAtEnd = 0; //Adds N number of ray tracing only cascades at the end. Will only work on hybrid mode
+    float mCascadedFrustumFix = 0.9f;
+    float mCascZMult = 16.f; // Pushes the z Values apart
     float mCascadedReuseEnlargeFactor = 0.1f; // Increases box size by the factor on each side
     bool mEnableTemporalCascadedBoxTest = true; //Tests the cascaded level against the cascaded level from last frame. Only updates if box is outside
 
@@ -292,7 +292,7 @@ private:
     //Cascaded
     std::vector<float4x4> mCascadedVPMatrix;
     std::vector<PreviousCascade> mPreviousCascades; //Previous cascade for rendering optimizations
-    std::vector<float> mCascadedFrustumManualVals = {0.1f, 0.3f, 0.6f}; // Values for Manual set Cascaded frustum. Initialized for 3 Levels
+    std::vector<float> mCascadedFrustumManualVals = {0.05f, 0.15f, 0.3f,1.f}; // Values for Manual set Cascaded frustum. Initialized for 3 Levels
     uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
     float mCascadedMaxFar = 1000000.f;
     bool mCascadedFirstThisFrame = true;

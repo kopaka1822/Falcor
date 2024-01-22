@@ -1476,21 +1476,23 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
             maxZ = std::max(maxZ, vp.z);
         }
 
+        const float cascadedZMult = mCascZMult / (i + 1);   //Decrease the pull depending on the level
+
         if (minZ < 0)
         {
-            minZ *= mCascZMult;
+            minZ *= cascadedZMult;
         }
         else
         {
-            minZ /= mCascZMult;
+            minZ /= cascadedZMult;
         }
         if (maxZ < 0)
         {
-            maxZ /= mCascZMult;
+            maxZ /= cascadedZMult;
         }
         else
         {
-            maxZ *= mCascZMult;
+            maxZ *= cascadedZMult;
         }
 
         renderLevel[i] = !mEnableTemporalCascadedBoxTest;
@@ -1518,19 +1520,19 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
                 // Pull back based on ZMult
                 if (minRepro.z < 0)
                 {
-                    minRepro.z *= mCascZMult;
+                    minRepro.z *= cascadedZMult;
                 }
                 else
                 {
-                    minRepro.z /= mCascZMult;
+                    minRepro.z /= cascadedZMult;
                 }
                 if (maxRepro.z < 0)
                 {
-                    maxRepro.z /= mCascZMult;
+                    maxRepro.z /= cascadedZMult;
                 }
                 else
                 {
-                    maxRepro.z *= mCascZMult;
+                    maxRepro.z *= cascadedZMult;
                 }
 
                 // Test both points against the enlarged box. If the box is inside, skip calculation for this level
