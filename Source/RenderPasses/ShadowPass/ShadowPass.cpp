@@ -144,6 +144,7 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
             return;
     
     shade(pRenderContext, renderData);
+    mFrameCount++;
 }
 
 void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -212,6 +213,8 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     // Set Shadow Map per Iteration Shader Data
     mpShadowMap->setShaderDataAndBindBlock(var, renderData.getDefaultTextureDims());
     mpSampleGenerator->setShaderData(var);
+
+    var["CB"]["gFrameCount"] = mFrameCount;
 
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)

@@ -70,8 +70,8 @@ struct ShadowMap
     static const uint kCascadedSMRes = CASCADED_SM_RESOLUTION;             //Resolution for Cascaded Shadow Maps
     static const uint k2DSMRes = SM_RESOLUTION;                            //Resolution for (Spot) Shadow Maps
     static const uint kCubeSMRes = CUBE_SM_RESOLUTION;                     //Resolution for Cube Shadow Maps
-    static const float kMSMDepthBias = MSM_DEPTH_BIAS * 0.001f;            //Depth bias for the moment shadow map
-    static const float kMSMMomentBias = MSM_MOMENT_BIAS * 0.001f;          //Moment bias for the moment shadow map
+    static const float kMSMDepthBias = MSM_DEPTH_BIAS * 0.0001f;            //Depth bias for the moment shadow map
+    static const float kMSMMomentBias = MSM_MOMENT_BIAS * 0.0001f;          //Moment bias for the moment shadow map
     
     static const bool kUseHybridShadowMap = USE_HYBRID_SM;
     static const bool kUseSMMips = USE_SM_MIP;
@@ -325,6 +325,70 @@ struct ShadowMap
                 break;
         }
         return sv;
+    }
+
+    /** Gets the value from the shadow map depending on type. RG32/16 case
+    \param[in] local shadow map texture index.
+    \param[in] texture sample index. z-component is only used in cube-case.
+    \param[in] light type from "LightTypeSM" casted to uint.
+    \param[in] cascaded level. Only used if type == LightTypeSM::Directional.
+    \param[in] used mipmap level.
+    \return value from shadow map.
+    */
+    float4 getShadowValueF4Gather(uint index, float3 sampleVec, const uint lightType, out float4 sv[4], uint level = 0)
+    {
+        float4 red,green,blue,alpha, w;
+        float2 gatherUV;
+        float4 svAvrg = float4(0);
+        switch (lightType)
+        {
+            case LightTypeSM::Point:
+                red = gCubeShadowMapF4[index].GatherRed(gShadowSamplerLinear, sampleVec);
+                green = gCubeShadowMapF4[index].GatherGreen(gShadowSamplerLinear, sampleVec);
+                blue = gCubeShadowMapF4[index].GatherBlue(gShadowSamplerLinear, sampleVec);
+                alpha = gCubeShadowMapF4[index].GatherAlpha(gShadowSamplerLinear, sampleVec);
+                for(uint i=0; i<4;i++)
+                    sv[i] = float4(red[i], green[i], blue[i],alpha[i]);
+                svAvrg = (sv[0]+sv[1]+sv[2]+sv[3])* 0.25;
+                break;
+            case LightTypeSM::Spot:
+                w = getGatherWeights(sampleVec.xy, k2DSMRes, gatherUV);
+                red = gShadowMapF4[index].GatherRed(gShadowSamplerLinear, gatherUV);
+                green = gShadowMapF4[index].GatherGreen(gShadowSamplerLinear, gatherUV);
+                blue = gShadowMapF4[index].GatherBlue(gShadowSamplerLinear, gatherUV);
+                alpha = gShadowMapF4[index].GatherAlpha(gShadowSamplerLinear, gatherUV);
+                for(uint i=0; i<4;i++){
+                    sv[i] = float4(red[i], green[i], blue[i],alpha[i]);
+                    svAvrg += sv[i] * w[i];
+                }
+                    
+                break;
+            case LightTypeSM::Directional:
+                w = getGatherWeights(sampleVec.xy, kCascadedSMRes, gatherUV);
+                red = gCascadedShadowMapF4[index].GatherRed(gShadowSamplerPoint, float3(gatherUV, level));
+                green = gCascadedShadowMapF4[index].GatherGreen(gShadowSamplerPoint, float3(gatherUV, level));
+                blue = gCascadedShadowMapF4[index].GatherBlue(gShadowSamplerPoint, float3(gatherUV, level));
+                alpha = gCascadedShadowMapF4[index].GatherAlpha(gShadowSamplerPoint, float3(gatherUV, level));
+                for(uint i=0; i<4;i++){
+                    sv[i] = float4(red[i], green[i], blue[i],alpha[i]);
+                }
+                //Load dynamic values, take the min against shadow values and interpolate to recognize the edges
+                if(kUseDynamicSM)
+                {
+                    float4 redComp = gCascadedShadowMapF4[index].GatherRed(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 greenComp = gCascadedShadowMapF4[index].GatherGreen(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 blueComp = gCascadedShadowMapF4[index].GatherBlue(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 alphaComp = gCascadedShadowMapF4[index].GatherAlpha(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    for(uint i=0; i<4;i++)
+                        sv[i] = min(float4(redComp[i],greenComp[i],blueComp[i],alphaComp[i]), sv[i]);
+                }
+                for(uint i=0; i<4;i++)
+                        svAvrg += w[i] * sv[i]; 
+                break;
+            default:
+                break;
+        }
+        return svAvrg;
     }
     
     /** Gets the current cascaded level from the world position
@@ -923,9 +987,8 @@ struct ShadowMap
     }
 
     //From https://github.com/TheRealMJP/Shadows
-    float msmHamburger(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
+    float msmHamburger(in const float4 moments, in const float lightDist)
     {
-        float4 moments = getShadowValueF4(index, shadowUV, lightType, level, mipLevel);
         //Bias input data to avoid artifacts
         float4 b = lerp(moments, float4(0.5f), kMSMMomentBias);
         float3 z;
@@ -974,9 +1037,8 @@ struct ShadowMap
     }
 
     //From https://github.com/TheRealMJP/Shadows
-    float msmHausdorff(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
+    float msmHausdorff(in const float4 moments, in const float lightDist)
     {
-        float4 moments = getShadowValueF4(index, shadowUV, lightType, level, mipLevel);
         //Bias input data to avoid artifacts
         float4 b = lerp(moments, float4(0.5f), kMSMMomentBias);
         float3 z;
@@ -1037,7 +1099,7 @@ struct ShadowMap
         return 1.0f - saturate(shadowIntensity);
     }
     
-    bool evalShadowMapMSM(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapMSM(float3 posW, const in SMLightData lightData, const float mipLevel,const bool hybridSM , out float shadow)
     {
         uint index = lightData.index;
         
@@ -1064,13 +1126,19 @@ struct ShadowMap
         if (!valid)
             return !kUseRayOutsideSM;   //Outside of shadow map
 
+        
         //Shadow Test with shadow map
-        if(ShadowMapType(kShadowMapMode) == ShadowMapType::MSMHamburger)
-            shadow = msmHamburger(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
-        else
-            shadow = msmHausdorff(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
+        if(ShadowMapType(kShadowMapMode) == ShadowMapType::MSMHamburger){
+            float4 moments = getShadowValueF4(index, shadowUV, lightData.type, cascLevel, mipLevel);
+            shadow = msmHamburger(moments, lightDist);
+        }
+        else{
+            float4 moments = getShadowValueF4(index, shadowUV, lightData.type, cascLevel, mipLevel);
+            shadow = msmHausdorff(moments, lightDist);
+        }
             
         bool useShadow = true;
+        
         if (hybridSM)
         {
             if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
@@ -1078,9 +1146,9 @@ struct ShadowMap
         }
         
         //Clamp Shadow Value depending on the threshold        
-        if(shadow < kHSMFilteredThreshold.x)
+        if(shadow <= kHSMFilteredThreshold.x)
             shadow = 0.0;
-        else if (shadow > kHSMFilteredThreshold.y)
+        else if (shadow >= kHSMFilteredThreshold.y)
             shadow = 1.f;
         
         if(kMinShadowValue > 0)
@@ -1111,7 +1179,7 @@ struct ShadowMap
                 return evalShadowMapExponentialVariance(posW, lightData, random.x, mipLevel, false, shadow);
             case ShadowMapType::MSMHamburger:
             case ShadowMapType::MSMHausdorff:
-                return evalShadowMapMSM(posW, lightData, random.x, mipLevel, false, shadow);
+                return evalShadowMapMSM(posW, lightData, mipLevel, false, shadow);
             default:
                 shadow = 1.f;
                 return false;
@@ -1140,7 +1208,7 @@ struct ShadowMap
                 return evalShadowMapExponentialVariance(posW, lightData, random.x, mipLevel, true, shadow);
             case ShadowMapType::MSMHamburger:
             case ShadowMapType::MSMHausdorff:
-                return evalShadowMapMSM(posW, lightData, random.x, mipLevel, true, shadow);
+                return evalShadowMapMSM(posW, lightData, mipLevel, true, shadow);
             default:
                 shadow = 1.f;
                 return false;

@@ -2183,9 +2183,9 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Moment Shadow Maps Options"))
         {
-            dirty |= group.var("Depth Bias (x1000)", mMSMDepthBias, 0.f, 10.f, 0.0001f);
+            dirty |= group.var("Depth Bias (x10000)", mMSMDepthBias, 0.f, 10.f, 0.0001f);
             group.tooltip("Depth bias subtracted from the depth value the moment shadow map is tested against");
-            dirty |= group.var("Moment Bias (x1000)", mMSMMomentBias, 0.f, 10.f, 0.0001f);
+            dirty |= group.var("Moment Bias (x10000)", mMSMMomentBias, 0.f, 10.f, 0.0001f);
             group.tooltip("Moment bias which pulls all values a bit to 0.5");
             dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
             dirty |= group.checkbox("Use Min Shadow Value", mUseMinShadowValue);

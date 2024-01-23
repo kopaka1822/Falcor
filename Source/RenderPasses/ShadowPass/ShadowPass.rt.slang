@@ -128,10 +128,10 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
 
     if(all(ls.Li <= 0))
         return false;
-        
+
     //Shadow test
     float shadow = 0.f;
-    bool useRay = kShadowMode == (uint)SPShadowMode::RayTraced;
+    bool useRay = (kShadowMode == (uint)SPShadowMode::RayTraced);
     float lod = 0.f;
     //Eval shadow map if mode is enabled
     if(!useRay){

@@ -60,14 +60,14 @@ private:
     std::unique_ptr<ShadowMap> mpShadowMap; ///< Shadow Map
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
     uint mFrameCount = 0;
-    bool mSimplifiedShadingValid = false;
+    bool mSimplifiedShadingValid = true;
     bool mComplexShadingValid = false;
 
     //Configuration
     bool mUseAlphaTest = true; ///< Alpha Test for ray tracing
     bool mUseSimplifiedShading = false;     ///< Option to switch shading
     float mAmbientFactor = 0.1f; //<Ambient light factor
-    float mEnvMapFactor = 1.0f; //< Env Map factor
+    float mEnvMapFactor = 0.3f; //< Env Map factor
     float mEmissiveFactor = 1.f; //< Emissive Factor
     uint mDebugMode = 0;            //< Mode for the debug view
 

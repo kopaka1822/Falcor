@@ -253,8 +253,8 @@ private:
     bool mUseMinShadowValue = false; // Sets if there should be a minimum shadow value
     float mMinShadowValueVal = 0.4f; // The min allowed shadow value, else it is set to 0
 
-    float mMSMDepthBias = 0.0f;     //Depth Bias (x1000)
-    float mMSMMomentBias = 0.003f;  //Moment Bias (x1000)
+    float mMSMDepthBias = 0.0f;     //Depth Bias (x10000)
+    float mMSMMomentBias = 0.01f;  //Moment Bias (x10000)
 
     //Jitter And Blur
     SamplePattern mJitterSamplePattern = SamplePattern::None; // Sets the CPU Jitter generator
