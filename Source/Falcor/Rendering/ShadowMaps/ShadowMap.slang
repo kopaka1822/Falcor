@@ -990,7 +990,9 @@ struct ShadowMap
     float msmHamburger(in const float4 moments, in const float lightDist)
     {
         //Bias input data to avoid artifacts
-        float4 b = lerp(moments, float4(0.5f), kMSMMomentBias);
+        float4 b;
+        b.x = moments.x;
+        b.yzw = lerp(moments.yzw, float3(0.5f), kMSMMomentBias);
         float3 z;
         z[0] = lightDist - kMSMDepthBias;
 
@@ -1141,18 +1143,18 @@ struct ShadowMap
         
         if (hybridSM)
         {
-            if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
+            if ((shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y))
                 useShadow = false;   //Shoot ray
         }
         
-        //Clamp Shadow Value depending on the threshold        
+        //Clamp Shadow Value depending on the threshold
         if(shadow <= kHSMFilteredThreshold.x)
             shadow = 0.0;
         else if (shadow >= kHSMFilteredThreshold.y)
             shadow = 1.f;
-        
-        if(kMinShadowValue > 0)
-            shadow = shadow < kMinShadowValue ? 0.0f : shadow;
+           
+        //if(kMinShadowValue > 0)
+        //    shadow = shadow < kMinShadowValue ? 0.0f : shadow;
             
         return useShadow;
     }

@@ -165,6 +165,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
     #if DEBUG_MODE == 0 //Hybrid Mask debug
         debug.x += useRay && kShadowMode != (uint) SPShadowMode::ShadowMap ? 1.f : 0.f;
         debug.y += any(ls.Li > 0) ? shadow : 0.f;
+        //debug.z = shadow;
         
     #elif DEBUG_MODE == 1 //Lod level debug
         debug = float3(1,0,0);
