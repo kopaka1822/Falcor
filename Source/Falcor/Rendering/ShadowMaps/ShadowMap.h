@@ -128,8 +128,8 @@ private:
     {
         bool valid = false;
         float4x4 prevView;
-        float3 min;
-        float3 max;
+        float2 min;
+        float2 max;
     };
 
     LightTypeSM getLightType(const ref<Light> light);

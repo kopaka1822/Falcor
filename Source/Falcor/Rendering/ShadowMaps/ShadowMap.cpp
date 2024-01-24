@@ -1363,7 +1363,7 @@ bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRe
  //Calc based on https://learnopengl.com/Guest-Articles/2021/CSM
 void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, std::vector<bool>& renderLevel) {
    
-    auto& sceneBounds = mpScene->getSceneBounds();
+    const auto& sceneBounds = mpScene->getSceneBounds();
     auto camera = mpScene->getCamera();
     const auto& cameraData = mpScene->getCamera()->getData();
 
@@ -1454,6 +1454,11 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
         //Get Centerpoint for view
         float3 center = float3(0);
         const float3 upVec = float3(0, 1, 0);
+        //Cap to scene boundaries
+        for (auto& p : frustumCorners){
+            p = float4(math::clamp(p.xyz(), sceneBounds.minPoint, sceneBounds.maxPoint),1.f);
+        }
+
         for (const auto& p : frustumCorners)
             center += p.xyz();
         center /= 8.f;
@@ -1476,24 +1481,11 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
             maxZ = std::max(maxZ, vp.z);
         }
 
-        const float cascadedZMult = mCascZMult / (i + 1);   //Decrease the pull depending on the level
-
-        if (minZ < 0)
-        {
-            minZ *= cascadedZMult;
-        }
-        else
-        {
-            minZ /= cascadedZMult;
-        }
-        if (maxZ < 0)
-        {
-            maxZ /= cascadedZMult;
-        }
-        else
-        {
-            maxZ *= cascadedZMult;
-        }
+        //Set the max to the scenes maximum to ensure all geometry is seen
+        const float minSPZ = math::mul(casView, float4(sceneBounds.minPoint,1)).z;
+        const float maxSPZ = math::mul(casView, float4(sceneBounds.maxPoint, 1)).z;
+        maxZ = std::max(maxZ, minSPZ);
+        maxZ = std::max(maxZ, maxSPZ);
 
         renderLevel[i] = !mEnableTemporalCascadedBoxTest;
 
@@ -1504,8 +1496,8 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
             if (mPreviousCascades[startIdx + i].valid)
             {
                 // Get the AABB from the stored view
-                float3 minRepro = float3(std::numeric_limits<float>::max());
-                float3 maxRepro = float3(std::numeric_limits<float>::min());
+                float2 minRepro = float2(std::numeric_limits<float>::max());
+                float2 maxRepro = float2(std::numeric_limits<float>::min());
                 for (const float4& p : frustumCorners)
                 {
                     const float4 vp = math::mul(mPreviousCascades[i].prevView, p);
@@ -1513,52 +1505,30 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
                     maxRepro.x = std::max(maxRepro.x, vp.x);
                     minRepro.y = std::min(minRepro.y, vp.y);
                     maxRepro.y = std::max(maxRepro.y, vp.y);
-                    minRepro.z = std::min(minRepro.z, vp.z);
-                    maxRepro.z = std::max(maxRepro.z, vp.z);
-                }
-
-                // Pull back based on ZMult
-                if (minRepro.z < 0)
-                {
-                    minRepro.z *= cascadedZMult;
-                }
-                else
-                {
-                    minRepro.z /= cascadedZMult;
-                }
-                if (maxRepro.z < 0)
-                {
-                    maxRepro.z /= cascadedZMult;
-                }
-                else
-                {
-                    maxRepro.z *= cascadedZMult;
                 }
 
                 // Test both points against the enlarged box. If the box is inside, skip calculation for this level
-                const float3& minPrev = mPreviousCascades[startIdx + i].min;
-                const float3& maxPrev = mPreviousCascades[startIdx + i].max;
+                const float2& minPrev = mPreviousCascades[startIdx + i].min;
+                const float2& maxPrev = mPreviousCascades[startIdx + i].max;
                 if (math::all(minRepro >= minPrev) && math::all(minRepro <= maxPrev) && math::all(maxRepro >= minPrev) &&
                     math::all(maxRepro <= maxPrev))
                     continue;
             }
 
-            // Enlarge the box and set the previous cascade
+            // Enlarge the box in x,y and set the previous cascade
             minX += minX * mCascadedReuseEnlargeFactor;
             maxX += maxX * mCascadedReuseEnlargeFactor;
             minY += minY * mCascadedReuseEnlargeFactor;
             maxY += maxY * mCascadedReuseEnlargeFactor;
-            minZ += minZ * mCascadedReuseEnlargeFactor;
-            maxZ += maxZ * mCascadedReuseEnlargeFactor;
 
             mPreviousCascades[startIdx + i].valid = true;
             mPreviousCascades[startIdx + i].prevView = casView;
-            mPreviousCascades[startIdx + i].min = float3(minX, minY, minZ);
-            mPreviousCascades[startIdx + i].max = float3(maxX, maxY, maxZ);
+            mPreviousCascades[startIdx + i].min = float2(minX, minY);
+            mPreviousCascades[startIdx + i].max = float2(maxX, maxY);
             renderLevel[i] = true;
         }
 
-        const float4x4 casProj = math::ortho(minX, maxX,  minY, maxY, minZ, maxZ);
+        const float4x4 casProj = math::ortho(minX, maxX, minY, maxY, -1.f * maxZ, -1.f * minZ);
 
         mCascadedWidthHeight[startIdx * mCascadedLevelCount + i] = float2(abs(maxX - minX), abs(maxY - minY));
         mCascadedVPMatrix[startIdx * mCascadedLevelCount + i] = math::mul(casProj, casView);
@@ -1567,7 +1537,7 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
         if (mUseFrustumCulling)
         {
             const uint cullingIndex = mFrustumCullingVectorOffsets.x + index * mCascadedLevelCount + i; //i is cascaded level
-            mFrustumCulling[cullingIndex]->updateFrustum(center, center + lightData.dirW, upVec, minX, maxX, minY, maxY, minZ, maxZ);
+            mFrustumCulling[cullingIndex]->updateFrustum(center, center + lightData.dirW, upVec, minX, maxX, minY, maxY, -1.f * maxZ, -1.f * minZ);
         }
 
         near = mCascadedZSlices[i];
