@@ -190,7 +190,7 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     mShadowTracer.pProgram->addDefine("SP_ENV_FACTOR", std::to_string(mEnvMapFactor));
     mShadowTracer.pProgram->addDefine("SP_EMISSIVE", std::to_string(mEmissiveFactor));
     mShadowTracer.pProgram->addDefine("USE_ENV_MAP", mpScene->useEnvBackground() ? "1" : "0");
-    mShadowTracer.pProgram->addDefine("USE_EMISSIVE", mpScene->useEmissiveLights() ? "1" : "0");
+    mShadowTracer.pProgram->addDefine("USE_EMISSIVE", mEmissiveFactor > 0.f ? "1" : "0");
     mShadowTracer.pProgram->addDefine("DEBUG_MODE", std::to_string(mDebugMode));
 
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());

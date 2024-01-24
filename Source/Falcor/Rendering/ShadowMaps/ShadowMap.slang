@@ -70,8 +70,8 @@ struct ShadowMap
     static const uint kCascadedSMRes = CASCADED_SM_RESOLUTION;             //Resolution for Cascaded Shadow Maps
     static const uint k2DSMRes = SM_RESOLUTION;                            //Resolution for (Spot) Shadow Maps
     static const uint kCubeSMRes = CUBE_SM_RESOLUTION;                     //Resolution for Cube Shadow Maps
-    static const float kMSMDepthBias = MSM_DEPTH_BIAS * 0.0001f;            //Depth bias for the moment shadow map
-    static const float kMSMMomentBias = MSM_MOMENT_BIAS * 0.0001f;          //Moment bias for the moment shadow map
+    static const float kMSMDepthBias = MSM_DEPTH_BIAS * 0.001f;            //Depth bias for the moment shadow map
+    static const float kMSMMomentBias = MSM_MOMENT_BIAS * 0.001f;          //Moment bias for the moment shadow map
     
     static const bool kUseHybridShadowMap = USE_HYBRID_SM;
     static const bool kUseSMMips = USE_SM_MIP;

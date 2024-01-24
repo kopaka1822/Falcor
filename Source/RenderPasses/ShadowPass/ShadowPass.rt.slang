@@ -69,7 +69,7 @@ cbuffer CB
 
 //Defines for syntax highlighting
 #ifndef SIMPLIFIED_SHADING
-#define SIMPLIFIED_SHADING 1
+#define SIMPLIFIED_SHADING 0
 #endif
 
 #ifndef DEBUG_MODE
@@ -84,7 +84,7 @@ static const float kAmbientFactor = SP_AMBIENT;
 static const float kEnvMapFactor = SP_ENV_FACTOR;
 static const float kEmissiveFactor = SP_EMISSIVE;
 static const bool kUseEnvMap= USE_ENV_MAP;
-static const bool kUseEmissive = USE_EMISSIVE;
+static const bool kUseEmissive = true;
 
 /** Payload for shadow ray.
 */
@@ -243,6 +243,9 @@ float3 simplifiedShading(const float3 posW, const float3 N,const float3 viewDir 
     const float NdotH = saturate(dot(N, H));
     const float LdotH = saturate(dot(toLight, H));
 
+    if(NdotL == 0)
+        return 0.f;
+    
     //Disable delta lobes
     roughness = max(roughness, 0.08);
     
@@ -339,7 +342,7 @@ void rayGen()
                 continue;
 
             //Check if point can be shaded
-            if(dot(faceNormalW, toLight) <= 0)
+            if(dot(faceNormalW, toLight) <= 0.f)
                 continue;
             color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, toLight) * Li;
         }
@@ -354,7 +357,8 @@ void rayGen()
             float diffLod = roughnessToLod(specRough.w * 2.f);
             float specLod = roughnessToLod(specRough.w);
             float envMaxIntensity = roughnessToIntensity(specRough.w);
-            float3 F = evalFresnelSchlick(specRough.xyz, 1.0, max(0.0, dot(view, normalW)));
+            //TODO Currently hacked. Do properly by using microfacet N
+            float3 F = evalFresnelSchlick(specRough.xyz, 1.0 - specRough.w, max(0.0, dot(view, normalW)));
             color += kEnvMapFactor * diffuse * min(gScene.envMap.eval(normalW, diffLod), 1.0);
             color += kEnvMapFactor * F * min(gScene.envMap.eval(R, specLod), envMaxIntensity);
         }
@@ -406,8 +410,9 @@ void rayGen()
             float diffLod = roughnessToLod(bsdfProperties.roughness * 2.f);
             float specLod = roughnessToLod(bsdfProperties.roughness);
             float envMaxIntensity = roughnessToIntensity(bsdfProperties.roughness);
-            float3 F = evalFresnelSchlick(bsdfProperties.specularReflectionAlbedo, 1.0, max(0.0, dot(view, bsdfProperties.guideNormal)));
-            color += kEnvMapFactor * bsdfProperties.diffuseReflectionAlbedo * min(gScene.envMap.eval(bsdfProperties.guideNormal, diffLod), 1.0);
+            //TODO Currently hacked. Do properly by using microfacet N
+            float3 F = evalFresnelSchlick(bsdfProperties.specularReflectionAlbedo, 1-bsdfProperties.roughness, max(0.0, dot(view, bsdfProperties.guideNormal))); 
+            color += kEnvMapFactor *  bsdfProperties.diffuseReflectionAlbedo * min(gScene.envMap.eval(bsdfProperties.guideNormal, diffLod), 1.0);
             color += kEnvMapFactor * F * min(gScene.envMap.eval(R, specLod), envMaxIntensity);
         }
         

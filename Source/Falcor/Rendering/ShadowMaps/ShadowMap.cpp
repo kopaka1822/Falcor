@@ -920,9 +920,9 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
     if (mUpdateShadowMap)
         mStaticTexturesReady[1] = false;
 
-    bool lightMoved = changes == Light::Changes::Position;
+    bool lightMoved = is_set(changes,Light::Changes::Position);
     if (mShadowMapUpdateMode == SMUpdateMode::Static)
-        renderLight = (changes == Light::Changes::Active) || lightMoved;
+        renderLight = is_set(changes , Light::Changes::Active) || lightMoved;
     else if (mShadowMapUpdateMode == SMUpdateMode::Dynamic)
         renderLight = true;
 
@@ -1055,7 +1055,7 @@ void ShadowMap::rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* 
      bool renderLight = false;
 
      if (mShadowMapUpdateMode == SMUpdateMode::Static)
-        renderLight = (changes == Light::Changes::Active) || (changes == Light::Changes::Position);
+        renderLight = is_set(changes , Light::Changes::Active) || is_set(changes, Light::Changes::Position);
      else if (mShadowMapUpdateMode == SMUpdateMode::Dynamic)
         renderLight = true;
 
@@ -1134,9 +1134,9 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
         mStaticTexturesReady[0] = false;
 
     //Handle updates
-    bool lightMoved = (changes == Light::Changes::Position) || (changes == Light::Changes::Direction);
+    bool lightMoved = is_set(changes , Light::Changes::Position) || is_set(changes , Light::Changes::Direction);
     if (mShadowMapUpdateMode == SMUpdateMode::Static)
-        renderLight = (changes == Light::Changes::Active) || lightMoved;
+        renderLight = is_set(changes , Light::Changes::Active) || lightMoved;
     else if (mShadowMapUpdateMode == SMUpdateMode::Dynamic)
         renderLight = true;
 
@@ -1291,11 +1291,11 @@ bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRe
     
     auto changes = light->getChanges();
     bool renderLight = false;
-    bool lightMoved = (changes == Light::Changes::Position) || (changes == Light::Changes::Direction);
+    bool lightMoved = is_set(changes , Light::Changes::Position) || is_set(changes , Light::Changes::Direction);
 
     // Handle updates
     if (mShadowMapUpdateMode == SMUpdateMode::Static)
-        renderLight = (changes == Light::Changes::Active) || lightMoved;
+        renderLight = is_set(changes , Light::Changes::Active) || lightMoved;
     else if (mShadowMapUpdateMode == SMUpdateMode::Dynamic)
         renderLight = true;
 
@@ -1361,7 +1361,7 @@ bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRe
 }
 
  //Calc based on https://learnopengl.com/Guest-Articles/2021/CSM
-void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, std::vector<bool>& renderLevel) {
+void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, std::vector<bool>& renderLevel, bool forceUpdate) {
    
     const auto& sceneBounds = mpScene->getSceneBounds();
     auto camera = mpScene->getCamera();
@@ -1493,7 +1493,7 @@ void ShadowMap::calcProjViewForCascaded(uint index ,const LightData& lightData, 
         if (mEnableTemporalCascadedBoxTest)
         {
             // Check if the current cascade box fit into the box from last frame
-            if (mPreviousCascades[startIdx + i].valid)
+            if (mPreviousCascades[startIdx + i].valid && !forceUpdate)
             {
                 // Get the AABB from the stored view
                 float2 minRepro = float2(std::numeric_limits<float>::max());
@@ -1560,8 +1560,12 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
     }
 
     bool dynamicMode = mShadowMapUpdateMode != SMUpdateMode::Static;
+    
+    auto changes = light->getChanges();
 
-    if (!cameraMoved && !mUpdateShadowMap && !dynamicMode)
+    bool directionChanged = is_set(changes, Light::Changes::Direction);
+
+    if (!cameraMoved && !mUpdateShadowMap && !dynamicMode && !directionChanged)
         return false;
 
     auto& lightData = light->getData();
@@ -1576,7 +1580,7 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
 
     // Update viewProj
     std::vector<bool> renderCascadedLevel(mCascadedLevelCount);
-    calcProjViewForCascaded(index, lightData, renderCascadedLevel);
+    calcProjViewForCascaded(index, lightData, renderCascadedLevel, mUpdateShadowMap || directionChanged);
 
     uint casMatIdx = index * mCascadedLevelCount;
 
@@ -1650,6 +1654,8 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
         
     }
 
+    // TODO update blur and mips that it is not executed every frame for static shadow maps
+ 
     // Blur if it is activated/enabled
     if (mpBlurCascaded)
         mpBlurCascaded->execute(pRenderContext, mpCascadedShadowMaps[index]);
@@ -2153,9 +2159,9 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Moment Shadow Maps Options"))
         {
-            dirty |= group.var("Depth Bias (x10000)", mMSMDepthBias, 0.f, 10.f, 0.0001f);
+            dirty |= group.var("Depth Bias (x10000)", mMSMDepthBias, 0.f, 10.f, 0.001f);
             group.tooltip("Depth bias subtracted from the depth value the moment shadow map is tested against");
-            dirty |= group.var("Moment Bias (x10000)", mMSMMomentBias, 0.f, 10.f, 0.0001f);
+            dirty |= group.var("Moment Bias (x10000)", mMSMMomentBias, 0.f, 10.f, 0.001f);
             group.tooltip("Moment bias which pulls all values a bit to 0.5");
             dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
             dirty |= group.checkbox("Use Min Shadow Value", mUseMinShadowValue);
@@ -2178,6 +2184,7 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             }
         }
     }
+    break;
     default:;
     }
     

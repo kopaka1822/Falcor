@@ -154,7 +154,7 @@ private:
     bool rayGenCascaded(uint index, ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix, float3& lightTarget, float3& up);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix);
-    void calcProjViewForCascaded(uint index, const LightData& lightData, std::vector<bool>& renderLevel);
+    void calcProjViewForCascaded(uint index, const LightData& lightData, std::vector<bool>& renderLevel, bool forceUpdate = false);
     void dummyProfileRaster(RenderContext* pRenderContext); // Shows the rasterizeSzene profile even if nothing was rendered
     void dummyProfileRayTrace(RenderContext* pRenderContext); // Shows the raytraceScene profile even if nothing was rendered
 
@@ -253,8 +253,8 @@ private:
     bool mUseMinShadowValue = false; // Sets if there should be a minimum shadow value
     float mMinShadowValueVal = 0.4f; // The min allowed shadow value, else it is set to 0
 
-    float mMSMDepthBias = 0.0f;     //Depth Bias (x10000)
-    float mMSMMomentBias = 0.01f;  //Moment Bias (x10000)
+    float mMSMDepthBias = 0.0f;     //Depth Bias (x1000)
+    float mMSMMomentBias = 0.00f;  //Moment Bias (x1000)
 
     //Jitter And Blur
     SamplePattern mJitterSamplePattern = SamplePattern::None; // Sets the CPU Jitter generator
