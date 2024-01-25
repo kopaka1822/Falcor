@@ -72,6 +72,7 @@ struct ShadowMap
     static const uint kCubeSMRes = CUBE_SM_RESOLUTION;                     //Resolution for Cube Shadow Maps
     static const float kMSMDepthBias = MSM_DEPTH_BIAS * 0.001f;            //Depth bias for the moment shadow map
     static const float kMSMMomentBias = MSM_MOMENT_BIAS * 0.001f;          //Moment bias for the moment shadow map
+    static const float kAdditionalVarianceTestThreshold = MSM_VARIANCE_TEST_THRESHOLD; //Threshold for additional variance test in MSM
     
     static const bool kUseHybridShadowMap = USE_HYBRID_SM;
     static const bool kUseSMMips = USE_SM_MIP;
@@ -1128,16 +1129,12 @@ struct ShadowMap
         if (!valid)
             return !kUseRayOutsideSM;   //Outside of shadow map
 
-        
+        float4 moments = getShadowValueF4(index, shadowUV, lightData.type, cascLevel, mipLevel);
         //Shadow Test with shadow map
-        if(ShadowMapType(kShadowMapMode) == ShadowMapType::MSMHamburger){
-            float4 moments = getShadowValueF4(index, shadowUV, lightData.type, cascLevel, mipLevel);
+        if(ShadowMapType(kShadowMapMode) == ShadowMapType::MSMHamburger)
             shadow = msmHamburger(moments, lightDist);
-        }
-        else{
-            float4 moments = getShadowValueF4(index, shadowUV, lightData.type, cascLevel, mipLevel);
+        else
             shadow = msmHausdorff(moments, lightDist);
-        }
             
         bool useShadow = true;
         
@@ -1145,6 +1142,15 @@ struct ShadowMap
         {
             if ((shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y))
                 useShadow = false;   //Shoot ray
+
+            if (kAdditionalVarianceTestThreshold >= 0)
+            {
+                float shadowVariance = ChebyshevUpperBound(moments.xy, lightDist, 1e-10f); //Variance shadow test
+                float shadowDiff = abs(shadow - shadowVariance);
+                if (((shadowVariance > kHSMFilteredThreshold.x && shadowVariance < kHSMFilteredThreshold.y)) || shadowDiff > kAdditionalVarianceTestThreshold)
+                    useShadow = false; //Shoot ray
+            }
+                
         }
         
         //Clamp Shadow Value depending on the threshold

@@ -667,6 +667,7 @@ DefineList ShadowMap::getDefines() const
     );
     defines.add("MSM_DEPTH_BIAS", std::to_string(mMSMDepthBias));
     defines.add("MSM_MOMENT_BIAS", std::to_string(mMSMMomentBias));
+    defines.add("MSM_VARIANCE_TEST_THRESHOLD", mMSMUseVarianceTest ? std::to_string(mMSMVarianceThreshold) : "-1.0f");
     defines.add("USE_RAY_OUTSIDE_SM", mUseRayOutsideOfShadowMap ? "1" : "0");
     defines.add("CASCADED_SM_RESOLUTION", std::to_string(mShadowMapSizeCascaded));
     defines.add("SM_RESOLUTION", std::to_string(mShadowMapSize));
@@ -2170,22 +2171,35 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Moment Shadow Maps Options"))
         {
-            dirty |= group.var("Depth Bias (x10000)", mMSMDepthBias, 0.f, 10.f, 0.001f);
+            dirty |= group.var("Depth Bias (x1000)", mMSMDepthBias, 0.f, 10.f, 0.001f);
             group.tooltip("Depth bias subtracted from the depth value the moment shadow map is tested against");
-            dirty |= group.var("Moment Bias (x10000)", mMSMMomentBias, 0.f, 10.f, 0.001f);
-            group.tooltip("Moment bias which pulls all values a bit to 0.5");
-            dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
+            dirty |= group.var("Moment Bias (x1000)", mMSMMomentBias, 0.f, 10.f, 0.001f);
+            group.tooltip("Moment bias which pulls all values a bit to 0.5. Needs to be >0 for MSM to be stable");
+            
             dirty |= group.checkbox("Use Min Shadow Value", mUseMinShadowValue);
             group.tooltip(
                 "Enables a minimum allowed shadow value. Every shadow value gets reduced to 0. Prevents some light leaking with the cost "
                 "of reducing the soft shadow effect"
             );
-            dirty |= group.var("Min Shadow Value", mMinShadowValueVal, 0.f, 1.f, 0.0001f);
-            group.tooltip("Minimal Shadow Value");
+            if (mUseMinShadowValue)
+            {
+                dirty |= group.var("Min Shadow Value", mMinShadowValueVal, 0.f, 1.f, 0.0001f);
+                group.tooltip("Minimal Shadow Value");
+            }
+
             dirty |= group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
             group.tooltip(
                 "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [x, y]", true
             );
+            dirty |= group.checkbox("HSM use additional variance test", mMSMUseVarianceTest);
+            group.tooltip("Additional Variance test using the first two moments. Can help as both variance exhibit different artifacts");
+            if (mMSMUseVarianceTest)
+            {
+                dirty |= group.var("HSM Variance Difference", mMSMVarianceThreshold, 0.f, 1.f, 0.001f);
+                group.tooltip("Threshold difference for the additional variance test. A ray is shot if difference is bigger than the threshold");
+            }
+            
+            dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
             mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
             if (mUseShadowMipMaps)

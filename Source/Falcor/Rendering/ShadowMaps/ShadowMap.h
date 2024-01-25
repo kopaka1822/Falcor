@@ -256,6 +256,9 @@ private:
     float mMSMDepthBias = 0.0f;     //Depth Bias (x1000)
     float mMSMMomentBias = 0.001f;  //Moment Bias (x1000)
 
+    bool mMSMUseVarianceTest = true;
+    float mMSMVarianceThreshold = 0.05f; //Threshold for additional variance test in hybrid moment shadow maps
+
     //Jitter And Blur
     SamplePattern mJitterSamplePattern = SamplePattern::None; // Sets the CPU Jitter generator
     uint mTemporalFilterLength = 10;                          // Temporal filter strength
