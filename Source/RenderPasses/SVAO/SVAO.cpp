@@ -44,6 +44,7 @@ namespace
     // ray bounds for the stochastic depth map RT
     const std::string kInternalRayMin = "internalRayMin";
     const std::string kInternalRayMax = "internalRayMax";
+    const std::string kRayBuffer = "rayBuffer";
 
     const std::string kRasterShader = "RenderPasses/SVAO/SVAORaster.ps.slang";
     const std::string kRasterShader2 = "RenderPasses/SVAO/SVAORaster2.ps.slang";
@@ -169,6 +170,9 @@ RenderPassReflection SVAO::reflect(const CompileData& compileData)
     reflector.addOutput(kInternalRayMin, "internal ray min").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(internalMapsRes.x, internalMapsRes.y);
     reflector.addOutput(kInternalRayMax, "internal ray max").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(internalMapsRes.x, internalMapsRes.y);
 
+    //reflector.addInternal(kRayBuffer, "raymin/max buffer").rawBuffer(internalMapsRes.x * internalMapsRes.y * 2 * 4);
+    //mpRayBuffer = Buffer::createStructured(mpDevice, sizeof(uint2), internalMapsRes.x * internalMapsRes.y, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false);
+    mpRayBuffer = Buffer::createTyped(mpDevice, ResourceFormat::RG32Uint, internalMapsRes.x * internalMapsRes.y);
     return reflector;
 }
 
@@ -176,6 +180,7 @@ void SVAO::compile(RenderContext* pRenderContext, const CompileData& compileData
 {
     mData.resolution = float2(compileData.defaultTexDims.x, compileData.defaultTexDims.y);
     mData.invResolution = float2(1.0f) / mData.resolution;
+    mData.sdresolution = float2((compileData.defaultTexDims.x + mStochMapDivisor - 1) / mStochMapDivisor, (compileData.defaultTexDims.y + mStochMapDivisor - 1) / mStochMapDivisor);
     mData.noiseScale = mData.resolution / 4.0f; // noise texture is 4x4 resolution
 
     mpRasterPass.reset(); // recompile passes
@@ -234,6 +239,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     auto pInternalRayMin = renderData[kInternalRayMin]->asTexture();
     auto pInternalRayMax = renderData[kInternalRayMax]->asTexture();
+    //auto pRayBuffer = renderData[kRayBuffer]->asBuffer();
 
     if (!mEnabled)
     {
@@ -351,15 +357,17 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         if (mSecondaryDepthMode == DepthMode::StochasticDepth)
         {
             FALCOR_PROFILE(pRenderContext, "Clear RayMinMax");
+            pRenderContext->clearUAV(mpRayBuffer->getUAV(0, Resource::kMaxPossible).get(), uint4(asuint(std::numeric_limits<float>::max()), 0, asuint(std::numeric_limits<float>::max()), 0));
+            rasterVars["gRayBuffer"].setUav(mpRayBuffer->getUAV());
             // ray max will always be used as a mask (even without ray interval, it will contain only 0 and 1)
-            pRenderContext->clearUAV(pInternalRayMax->getUAV().get(), uint4(0u));
+            /*pRenderContext->clearUAV(pInternalRayMax->getUAV().get(), uint4(0u));
             rasterVars["gRayMaxAccess"] = pInternalRayMax;
             if(mUseRayInterval)
             {
                 // ray min is required for proper ray interval
                 pRenderContext->clearUAV(pInternalRayMin->getUAV().get(), uint4(asuint(std::numeric_limits<float>::max())));
                 rasterVars["gRayMinAccess"] = pInternalRayMin;
-            }
+            }*/
         }
 
         mpRasterPass->execute(pRenderContext, mpFbo, false);
@@ -381,6 +389,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
             break;
         case StochasticDepthImpl::Ray:
             mpStochasticDepthGraph->setInput("StochasticDepthMap.linearZ", pDepth);
+            mpStochasticDepthGraph->setInput("StochasticDepthMap.rayBuffer", mpRayBuffer);
             break;
         }
         mpStochasticDepthGraph->setInput("StochasticDepthMap.rayMin", pInternalRayMin);

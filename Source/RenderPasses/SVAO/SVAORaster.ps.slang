@@ -16,6 +16,7 @@ struct PSOut
 
 RWTexture2D<uint> gRayMinAccess;
 RWTexture2D<uint> gRayMaxAccess;
+RWBuffer<uint> gRayBuffer;
 
 PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
 {
@@ -62,9 +63,15 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION)
             
 #if (SECONDARY_DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
             #if USE_RAY_INTERVAL
-            InterlockedMin(gRayMinAccess[uint2(s.rasterSamplePosUV * gData.resolution) / STOCH_MAP_DIVISOR], /*rough estimate of depth*/asuint(max(data.posVLength - data.radius - gData.thickness * data.radius - s.sphereStart, 0.0)));
-            InterlockedMax(gRayMaxAccess[uint2(s.rasterSamplePosUV * gData.resolution) / STOCH_MAP_DIVISOR], /*rough estimate of depth*/asuint(max(data.posVLength - s.sphereEnd, 0.0)));
-            #else // no interval (only set flag)
+            uint rayMinValue = /*rough estimate of depth*/asuint(max(data.posVLength - data.radius - gData.thickness * data.radius - s.sphereStart, 0.0));
+            uint rayMaxValue = /*rough estimate of depth*/asuint(max(data.posVLength - s.sphereEnd, 0.0));
+            uint2 pixel = uint2(s.rasterSamplePosUV * gData.resolution) / STOCH_MAP_DIVISOR;
+            uint index = pixel.x + pixel.y * gData.sdresolution.x;
+            InterlockedMin(gRayBuffer[2 * index], rayMinValue);
+            InterlockedMax(gRayBuffer[2 * index + 1], rayMaxValue);
+            //InterlockedMin(gRayMinAccess[pixel], rayMinValue);
+            //InterlockedMax(gRayMaxAccess[pixel], rayMaxValue);
+#else // no interval (only set flag)
             gRayMaxAccess[uint2(s.rasterSamplePosUV * gData.resolution) / STOCH_MAP_DIVISOR] = 1u;
             #endif          
 #endif

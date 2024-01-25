@@ -13,6 +13,9 @@ StructuredBuffer<uint> stratifiedLookUpTable;
 
 StructuredBuffer<uint> materialAlphaTestLookup;
 
+//RWBuffer<uint> minMaxCounter;
+RWBuffer<uint> gRayBuffer;
+
 #define DEFAULT_DEPTH (NORMALIZE ? 1.0 : 3.40282347E+37F)
 
 #define IMPLEMENTATION_DEFAULT 0
@@ -73,11 +76,14 @@ RayDesc initRayDesc(uint2 pixel, uint2 dim)
 
     if (USE_RAY_INTERVAL)
     {
-        uint iRayMin = rayMinTex[pixel];
+        //uint iRayMin = rayMinTex[pixel];
+        uint index = pixel.x + pixel.y * dim.x;
+        uint iRayMin = gRayBuffer[2 * index];
         if (iRayMin != 0u) // test if valid values
             ray.TMin = max(asfloat(iRayMin), ray.TMin);
     
-        uint iRayMax = rayMaxTex[pixel];
+        //uint iRayMax = rayMaxTex[pixel];
+        uint iRayMax = gRayBuffer[2 * index + 1];
         if (iRayMax != 0u) // test if valid values
             ray.TMax = min(asfloat(iRayMax), ray.TMax);
     }

@@ -35,6 +35,7 @@ struct VAOData
     float2 noiseScale = float2(1, 1);
     float2 resolution;
     float2 invResolution;
+    uint2 sdresolution; // resolution of stochastic depth map
     float radius = 0.5f;
     float exponent = 2.0f;
     float thickness = 0.0f;

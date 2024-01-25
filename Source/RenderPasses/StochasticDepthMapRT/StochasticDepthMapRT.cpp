@@ -34,6 +34,7 @@ namespace
     const std::string kRayMin = "rayMin"; // ray T values for Ray.TMin
     const std::string kRayMax = "rayMax"; // ray T values for Ray.TMax
     const std::string kStencil = "stencilMask";
+    const std::string kRayBuffer = "rayBuffer";
 
     const std::string kInternalStencil = "internalStencil";
 
@@ -221,6 +222,8 @@ RenderPassReflection StochasticDepthMapRT::reflect(const CompileData& compileDat
     reflector.addInput(kRayMax, "max ray T distance for depth values").flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(ksDepth, "stochastic depths in [0,1]").bindFlags(ResourceBindFlags::AllColorViews).format(depthFormat).texture2D(0, 0, 1, 1, 1);
     reflector.addInternal(kInternalStencil, "stencil-mask").bindFlags(ResourceBindFlags::DepthStencil).format(ResourceFormat::D32FloatS8X24);
+
+    reflector.addInput(kRayBuffer, "raymin/max buffer").rawBuffer(compileData.defaultTexDims.x * compileData.defaultTexDims.y * 2 * 4);
     return reflector;
 }
 
@@ -253,6 +256,9 @@ void StochasticDepthMapRT::execute(RenderContext* pRenderContext, const RenderDa
     if (renderData[kRayMin]) pRayMin = renderData[kRayMin]->asTexture();
     ref<Texture> pRayMax;
     if (renderData[kRayMax]) pRayMax = renderData[kRayMax]->asTexture();
+
+    ref<Buffer> pRayBuffer;
+    if (renderData[kRayBuffer]) pRayBuffer = renderData[kRayBuffer]->asBuffer();
 
     if(mClear)
     {
@@ -325,12 +331,14 @@ void StochasticDepthMapRT::execute(RenderContext* pRenderContext, const RenderDa
 
     if (mUseRayPipeline)
     {
-        mRayVars->getRootVar()["depthInTex"] = pDepthIn;
-        mRayVars->getRootVar()["depthOutTex"] = psDepths;
-        mRayVars->getRootVar()["maskTex"] = pStencilMask;
-        mRayVars->getRootVar()["rayMinTex"] = pRayMin;
-        mRayVars->getRootVar()["rayMaxTex"] = pRayMax;
-        mRayVars->getRootVar()["materialAlphaTestLookup"] = mpMaterialAlphaTest;
+        auto vars = mRayVars->getRootVar();
+        vars["depthInTex"] = pDepthIn;
+        vars["depthOutTex"] = psDepths;
+        vars["maskTex"] = pStencilMask;
+        vars["rayMinTex"] = pRayMin;
+        vars["rayMaxTex"] = pRayMax;
+        vars["materialAlphaTestLookup"] = mpMaterialAlphaTest;
+        vars["gRayBuffer"] = pRayBuffer;
 
         mpScene->raytrace(pRenderContext, mpRayProgram.get(), mRayVars, uint3(psDepths->getWidth(), psDepths->getHeight(), 1));
     
