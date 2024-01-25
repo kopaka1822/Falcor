@@ -393,13 +393,23 @@ RenderPass::CompileData RenderGraphCompiler::prepPassCompilationData(const PassD
         if (hasPrefix(name, passData.name + "."))
         {
             auto pTex = pRes->asTexture();
+            auto pBuf = pRes->asBuffer();
             std::string resName = name.substr((passData.name + ".").size());
-            compileData.connectedResources.addInput(resName, "External input resource")
-                .format(pTex->getFormat())
-                .resourceType(
-                    resourceTypeToFieldType(pTex->getType()), pTex->getWidth(), pTex->getHeight(), pTex->getDepth(), pTex->getSampleCount(),
-                    pTex->getMipCount(), pTex->getArraySize()
-                );
+            if(pTex)
+            {
+                compileData.connectedResources.addInput(resName, "External input resource")
+                    .format(pTex->getFormat())
+                    .resourceType(
+                        resourceTypeToFieldType(pTex->getType()), pTex->getWidth(), pTex->getHeight(), pTex->getDepth(), pTex->getSampleCount(),
+                        pTex->getMipCount(), pTex->getArraySize()
+                    );
+            }
+            else if (pBuf)
+            {
+                compileData.connectedResources.addInput(resName, "External inout resource")
+                    .format(pBuf->getFormat())
+                    .rawBuffer(static_cast<uint32_t>(pBuf->getSize()));
+            }
         }
     }
 
