@@ -38,8 +38,8 @@ const std::string kShaderModel = "6_5";
 
 } // namespace
 
-void SMGaussianBlur::execute(RenderContext* pRenderContext, ref<Texture> pTexture) {
-
+void SMGaussianBlur::execute(RenderContext* pRenderContext, ref<Texture>& pTexture, uint texArrayIndex)
+{
     FALCOR_PROFILE(pRenderContext, "SM_GausBlur");
 
     //Check source texture and create work copy
@@ -52,75 +52,81 @@ void SMGaussianBlur::execute(RenderContext* pRenderContext, ref<Texture> pTextur
         mKernelChanged = false;
     }
 
-    for (uint arrayIdx = 0; arrayIdx < mArraySize; arrayIdx++)
+    if (mIsCube)
     {
-        // Horizontal Blur
+        for (uint i = 0; i < 6; i++)
+            blur(pRenderContext, pTexture, i);  //TODO check if this works
+    }
+    else
+    {
+        blur(pRenderContext, pTexture, texArrayIndex);
+    }
+    
+}
+
+void SMGaussianBlur::blur(RenderContext* pRenderContext, ref<Texture>& pTexture, uint texArrayIndex) {
+    // Horizontal Blur
+    {
+        if (!mpHorizontalBlur)
         {
-            if (!mpHorizontalBlur)
-            {
-                Program::Desc desc;
-                desc.addShaderLibrary(kShaderFile).csEntry("main").setShaderModel(kShaderModel);
+            Program::Desc desc;
+            desc.addShaderLibrary(kShaderFile).csEntry("main").setShaderModel(kShaderModel);
 
-                DefineList defines;
-                defines.add("_HORIZONTAL_BLUR");
-                if(mIsCube)
-                    defines.add("_IS_CUBE");
-                defines.add("_KERNEL_WIDTH", std::to_string(mKernelWidth));
-                defines.add("_TEX_WIDTH", mDimMaxDefineString);
-
-                mpHorizontalBlur = ComputePass::create(mpDevice, desc, defines, true);
-            }
-            FALCOR_ASSERT(mpHorizontalBlur);
-            // If defines change, refresh the program
-            mpHorizontalBlur->getProgram()->addDefine("_KERNEL_WIDTH", std::to_string(mKernelWidth));
-            mpHorizontalBlur->getProgram()->addDefine("_TEX_WIDTH", mDimMaxDefineString);
-
-            // Set variables
-            auto var = mpHorizontalBlur->getRootVar();
-
-            var["weights"] = mpWeightBuffer;
+            DefineList defines;
+            defines.add("_HORIZONTAL_BLUR");
             if (mIsCube)
-                var["gSrcTex"].setUav(pTexture->getUAV(0, arrayIdx, 1));
-            else if (mArraySize > 1)
-                var["gSrcTex"].setSrv(pTexture->getSRV(0,1,arrayIdx,1));
-            else
-                var["gSrcTex"] = pTexture;
-            var["gDstTex"] = mpBlurWorkTexture;
+                defines.add("_IS_CUBE");
+            defines.add("_KERNEL_WIDTH", std::to_string(mKernelWidth));
+            defines.add("_TEX_WIDTH", mDimMaxDefineString);
 
-            mpHorizontalBlur->execute(pRenderContext, uint3(mTextureDims, 1));
+            mpHorizontalBlur = ComputePass::create(mpDevice, desc, defines, true);
         }
+        FALCOR_ASSERT(mpHorizontalBlur);
+        // If defines change, refresh the program
+        mpHorizontalBlur->getProgram()->addDefine("_KERNEL_WIDTH", std::to_string(mKernelWidth));
+        mpHorizontalBlur->getProgram()->addDefine("_TEX_WIDTH", mDimMaxDefineString);
 
-        // Vertical Blur
+        // Set variables
+        auto var = mpHorizontalBlur->getRootVar();
+
+        var["weights"] = mpWeightBuffer;
+        if (mIsCube)
+            var["gSrcTex"].setUav(pTexture->getUAV(0, texArrayIndex, 1)); // SRV Cube is bugged in slang/falcor so UAV is needed
+        else
+            var["gSrcTex"].setSrv(pTexture->getSRV(0, 1, texArrayIndex, 1));
+
+        var["gDstTex"] = mpBlurWorkTexture;
+
+        mpHorizontalBlur->execute(pRenderContext, uint3(mTextureDims, 1));
+    }
+
+    // Vertical Blur
+    {
+        if (!mpVerticalBlur)
         {
-            if (!mpVerticalBlur)
-            {
-                Program::Desc desc;
-                desc.addShaderLibrary(kShaderFile).csEntry("main").setShaderModel(kShaderModel);
+            Program::Desc desc;
+            desc.addShaderLibrary(kShaderFile).csEntry("main").setShaderModel(kShaderModel);
 
-                DefineList defines;
-                defines.add("_VERTICAL_BLUR");
-                defines.add("_TEX_WIDTH", mDimMaxDefineString);
-                defines.add("_KERNEL_WIDTH", std::to_string(mKernelWidth));
+            DefineList defines;
+            defines.add("_VERTICAL_BLUR");
+            defines.add("_TEX_WIDTH", mDimMaxDefineString);
+            defines.add("_KERNEL_WIDTH", std::to_string(mKernelWidth));
 
-                mpVerticalBlur = ComputePass::create(mpDevice, desc, defines, true);
-            }
-            FALCOR_ASSERT(mpVerticalBlur);
-            // If defines change, refresh the program
-            mpVerticalBlur->getProgram()->addDefine("_KERNEL_WIDTH", std::to_string(mKernelWidth));
-            mpVerticalBlur->getProgram()->addDefine("_TEX_WIDTH", mDimMaxDefineString);
-
-            // Set variables
-            auto var = mpVerticalBlur->getRootVar();
-
-            var["weights"] = mpWeightBuffer;
-            var["gSrcTex"] = mpBlurWorkTexture;
-            if (mArraySize > 1)
-                var["gDstTex"].setUav(pTexture->getUAV(0,arrayIdx,1));
-            else
-                var["gDstTex"] = pTexture;
-
-            mpVerticalBlur->execute(pRenderContext, uint3(mTextureDims, 1));
+            mpVerticalBlur = ComputePass::create(mpDevice, desc, defines, true);
         }
+        FALCOR_ASSERT(mpVerticalBlur);
+        // If defines change, refresh the program
+        mpVerticalBlur->getProgram()->addDefine("_KERNEL_WIDTH", std::to_string(mKernelWidth));
+        mpVerticalBlur->getProgram()->addDefine("_TEX_WIDTH", mDimMaxDefineString);
+
+        // Set variables
+        auto var = mpVerticalBlur->getRootVar();
+
+        var["weights"] = mpWeightBuffer;
+        var["gSrcTex"] = mpBlurWorkTexture;
+        var["gDstTex"].setUav(pTexture->getUAV(0, texArrayIndex, 1));
+
+        mpVerticalBlur->execute(pRenderContext, uint3(mTextureDims, 1));
     }
 }
 
@@ -140,7 +146,7 @@ void SMGaussianBlur::prepareBlurTexture(ref<Texture> pTexture)
     bool createTexture = !mpBlurWorkTexture;
     const uint2 srcTexDims = uint2(pTexture->getWidth(), pTexture->getHeight());
     ResourceFormat srcTexFormat = pTexture->getFormat();
-    const uint srcTexArraySize = pTexture->getArraySize();
+    //const uint srcTexArraySize = pTexture->getArraySize();
     //Convert depth formats to float formats for comparison
     switch (srcTexFormat)
     {
@@ -156,24 +162,26 @@ void SMGaussianBlur::prepareBlurTexture(ref<Texture> pTexture)
 
     createTexture |= (srcTexDims.x != mTextureDims.x) || (srcTexDims.y != mTextureDims.y);  //Check Dims
     createTexture |= srcTexFormat != mTextureFormat;                                        //Check Format
-    bool arraySizeChanged =  srcTexArraySize != mArraySize;                                 //Check Array Size
-    createTexture |= arraySizeChanged;
+    //bool arraySizeChanged =  srcTexArraySize != mArraySize;                                 //Check Array Size
+    //createTexture |= arraySizeChanged;
     if (createTexture)
     {
         mTextureDims = srcTexDims;
         mTextureFormat = srcTexFormat;
         mDimMaxDefineString = "int2(" + std::to_string(mTextureDims.x - 1) + ", " + std::to_string(mTextureDims.y - 1) + ")";
-        mArraySize = srcTexArraySize;
+        mArraySize = 1;
 
         if (mpBlurWorkTexture)
             mpBlurWorkTexture.reset();
 
         //Rebuild programs im the array size changed
+        /*
         if (arraySizeChanged)
         {
             mpHorizontalBlur.reset();
             mpVerticalBlur.reset();
         }
+        */
 
         mpBlurWorkTexture = Texture::create2D(
             mpDevice, mTextureDims.x, mTextureDims.y, mTextureFormat, mArraySize, 1u, nullptr,

@@ -362,7 +362,7 @@ public:
      * @param[in] minMaxMips Generate a min/max mipmap pyramid. Each RGBA texel of levels >0 in the resulting MIP pyramid will cointain
      * {Avg, Min, Max, Avg} of the 4 coresponding texels from the immediatly larger MIP level.
      */
-    void generateMips(RenderContext* pContext, bool minMaxMips = false);
+    void generateMips(RenderContext* pContext, bool minMaxMips = false, int arraySlice = -1);
 
     /**
      * In case the texture was loaded from a file, use this to set the file path

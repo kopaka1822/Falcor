@@ -585,17 +585,20 @@ void Texture::uploadInitData(RenderContext* pRenderContext, const void* pData, b
     }
 }
 
-void Texture::generateMips(RenderContext* pContext, bool minMaxMips)
+void Texture::generateMips(RenderContext* pContext, bool minMaxMips, int arraySlice)
 {
     if (mType != Type::Texture2D)
     {
         logWarning("Texture::generateMips() was only tested with Texture2Ds");
     }
 
+    uint texArrayStart = arraySlice >= 0 ? arraySlice : 0;
+    uint texArrayEnd = arraySlice >= 0 ? arraySlice + 1 : mArraySize;
+
     // #OPTME: should blit support arrays?
     for (uint32_t m = 0; m < mMipLevels - 1; m++)
     {
-        for (uint32_t a = 0; a < mArraySize; a++)
+        for (uint32_t a = texArrayStart; a < texArrayEnd; a++)
         {
             auto srv = getSRV(m, 1, a, 1);
             auto rtv = getRTV(m + 1, a, 1);

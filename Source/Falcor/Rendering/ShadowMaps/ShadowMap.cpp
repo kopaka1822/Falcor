@@ -1654,15 +1654,26 @@ bool ShadowMap::rasterCascaded(uint index, ref<Light> light, RenderContext* pRen
         
     }
 
-    // TODO update blur and mips that it is not executed every frame for static shadow maps
- 
-    // Blur if it is activated/enabled
+    // Blur all static shadow maps if it is enabled
     if (mpBlurCascaded)
-        mpBlurCascaded->execute(pRenderContext, mpCascadedShadowMaps[index]);
+    {
+        for (uint i = 0; i < mCascadedLevelCount; i++)
+        {
+            if (renderCascadedLevel[i])
+                mpBlurCascaded->execute(pRenderContext, mpCascadedShadowMaps[index], i);
+        }
+    }
 
-    // generate Mips for shadow map modes that allow filter
+    //Generate Mips for static shadow maps modes that allow filter
     if (mUseShadowMipMaps)
-        mpCascadedShadowMaps[index]->generateMips(pRenderContext);
+    {
+        for (uint i = 0; i < mCascadedLevelCount; i++)
+        {
+            if (renderCascadedLevel[i])
+                mpCascadedShadowMaps[index]->generateMips(pRenderContext,false, i);
+        }
+    }
+       
 
     return true;
 }

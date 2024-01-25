@@ -58,13 +58,14 @@ class FALCOR_API SMGaussianBlur
 public:
     SMGaussianBlur(ref<Device> pDevice, bool isCube = false) : mpDevice{pDevice}, mIsCube{isCube} {}
 
-    void execute(RenderContext* pRenderContext, ref<Texture> pTexture);
+    void execute(RenderContext* pRenderContext, ref<Texture>& pTexture, uint texArrayIndex = 0);
 
     bool renderUI(Gui::Widgets& widget);
 
 private:
     void prepareBlurTexture(ref<Texture> pTexture);
     void updateKernel();
+    void blur(RenderContext* pRenderContext, ref<Texture>& pTexture, uint texArrayIndex = 0);
 
     ref<Device> mpDevice;
 
