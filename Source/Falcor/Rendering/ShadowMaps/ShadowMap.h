@@ -148,13 +148,13 @@ private:
 
     void rasterCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
     bool rasterSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
-    bool rasterCascaded(uint index, ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
+    bool rasterCascaded(ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
     void rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
     bool rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
-    bool rayGenCascaded(uint index, ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
+    bool rayGenCascaded(ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix, float3& lightTarget, float3& up);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix);
-    void calcProjViewForCascaded(uint index, const LightData& lightData, std::vector<bool>& renderLevel, bool forceUpdate = false);
+    void calcProjViewForCascaded(const LightData& lightData, std::vector<bool>& renderLevel, bool forceUpdate = false);
     void dummyProfileRaster(RenderContext* pRenderContext); // Shows the rasterizeSzene profile even if nothing was rendered
     void dummyProfileRayTrace(RenderContext* pRenderContext); // Shows the raytraceScene profile even if nothing was rendered
 
@@ -315,7 +315,7 @@ private:
     std::unique_ptr<SMGaussianBlur> mpBlurCube;
 
     //Textures and Buffers
-    std::vector<ref<Texture>> mpCascadedShadowMaps; //Cascaded Shadow Maps for Directional Lights
+    ref<Texture> mpCascadedShadowMaps; //Cascaded Shadow Maps for Directional Lights
     std::vector<ref<Texture>> mpShadowMapsCube;     // Cube Shadow Maps (Point Lights)
     std::vector<ref<Texture>> mpShadowMaps;         // 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights)
     std::vector<ref<Texture>> mpShadowMapsCubeStatic;     // Static Cube Shadow Maps. Only used if scene has animations

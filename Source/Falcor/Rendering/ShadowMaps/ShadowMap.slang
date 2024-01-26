@@ -15,9 +15,6 @@ __exported import Rendering.ShadowMaps.ShadowMapHelpers;
 #ifndef NUM_SHADOW_MAPS_MISC
 #define NUM_SHADOW_MAPS_MISC 1
 #endif
-#ifndef NUM_SHADOW_MAPS_CASCADE
-#define NUM_SHADOW_MAPS_CASCADE 1
-#endif
 #ifndef MULTIPLE_SHADOW_MAP_TYPES
 #define MULTIPLE_SHADOW_MAP_TYPES 1
 #endif
@@ -32,13 +29,13 @@ struct ShadowMap
     SamplerState gShadowSamplerLinear;
     TextureCube<float> gShadowMapCube[NUM_SHADOW_MAPS_CUBE];                        //(Point)ShadowMap with type float. Can be Null
     Texture2D<float> gShadowMap[NUM_SHADOW_MAPS_MISC];                              //(Spot)ShadowMap with type float. Can be Null
-    Texture2DArray<float> gCascadedShadowMap[NUM_SHADOW_MAPS_CASCADE];              //CascadedShadowMap with type float. Can be Null
+    Texture2DArray<float> gCascadedShadowMap;                                       //CascadedShadowMap with type float. Can be Null
     TextureCube<float2> gShadowMapVarianceCube[NUM_SHADOW_MAPS_CUBE];               //(Point)ShadowMap with type float2. Used in Variance SM. Can be Null
     Texture2D<float2> gShadowMapVariance[NUM_SHADOW_MAPS_MISC];                     //(Spot)ShadowMap with type float2. Used in Variance SM. Can be Null
-    Texture2DArray<float2> gCascadedShadowMapVariance[NUM_SHADOW_MAPS_CASCADE];     //CascadedShadowMap with type float2. Used in Variance SM. Can be Null
+    Texture2DArray<float2> gCascadedShadowMapVariance;                              //CascadedShadowMap with type float2. Used in Variance SM. Can be Null
     TextureCube<float4> gCubeShadowMapF4[NUM_SHADOW_MAPS_CUBE];                     //(Point)ShadowMap with type float4. Used in filtered SM. Can be Null
     Texture2D<float4> gShadowMapF4[NUM_SHADOW_MAPS_MISC];                           //(Spot)ShadowMap with type float4. Used in filtered SM. Can be Null
-    Texture2DArray<float4> gCascadedShadowMapF4[NUM_SHADOW_MAPS_CASCADE];           //CascadedShadowMap with type float4. Used in filtered SM. Can be Null
+    Texture2DArray<float4> gCascadedShadowMapF4;                                    //CascadedShadowMap with type float4. Used in filtered SM. Can be Null
     StructuredBuffer<uint> gShadowMapIndexMap;                                      //Maps global light index to local buffer index. Only used if kMultipleSMTypes == true
     StructuredBuffer<float4x4> gShadowMapVPBuffer;                                  //Buffer for the ViewProjection Matrices [Spot | Cascaded]           
     StructuredBuffer<float> gShadowMapNPSBuffer;                                    //Buffer for the Normalized Pixel Size [Point | Spot | Cascaded]
@@ -156,10 +153,10 @@ struct ShadowMap
                 sv = gShadowMap[index].SampleLevel(gShadowSamplerPoint, sampleVec.xy, mipLevel);
                 break;
             case LightTypeSM::Directional:
-                sv = gCascadedShadowMap[index].SampleLevel(gShadowSamplerPoint, float3(sampleVec.xy, level), mipLevel);
+                sv = gCascadedShadowMap.SampleLevel(gShadowSamplerPoint, float3(sampleVec.xy, level), mipLevel);
                 if(kUseDynamicSM)
                 {
-                    float svDyn = gCascadedShadowMap[index].SampleLevel(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level), mipLevel);
+                    float svDyn = gCascadedShadowMap.SampleLevel(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level), mipLevel);
                     sv = min(sv, svDyn);
                 }
                 break;
@@ -190,10 +187,10 @@ struct ShadowMap
                 sv = gShadowMap[index].Gather(gShadowSamplerPoint, sampleVec.xy);
                 break;
             case LightTypeSM::Directional:
-                sv = gCascadedShadowMap[index].Gather(gShadowSamplerPoint, float3(sampleVec.xy, level));
+                sv = gCascadedShadowMap.Gather(gShadowSamplerPoint, float3(sampleVec.xy, level));
                 if(kUseDynamicSM)
                 {
-                    float4 svDyn = gCascadedShadowMap[index].Gather(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level));
+                    float4 svDyn = gCascadedShadowMap.Gather(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level));
                     sv = min(sv, svDyn);
                 }
                 break;
@@ -224,14 +221,14 @@ struct ShadowMap
                 sv = gShadowMapVariance[index].SampleLevel(gShadowSamplerLinear, sampleVec.xy, mipLevel);
                 break;
             case LightTypeSM::Directional:
-                sv = gCascadedShadowMapVariance[index].SampleLevel(gShadowSamplerLinear, float3(sampleVec.xy, level), mipLevel);
+                sv = gCascadedShadowMapVariance.SampleLevel(gShadowSamplerLinear, float3(sampleVec.xy, level), mipLevel);
                 //Load dynamic values, take the min against shadow values and interpolate to recognize the edges
                 if(kUseDynamicSM)
                 {
                     float2 gatherUV;
                     float4 w = getGatherWeights(sampleVec.xy, kCascadedSMRes, gatherUV);
-                    float4 redComp = gCascadedShadowMapVariance[index].GatherRed(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
-                    float4 greenComp = gCascadedShadowMapVariance[index].GatherGreen(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 redComp = gCascadedShadowMapVariance.GatherRed(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 greenComp = gCascadedShadowMapVariance.GatherGreen(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
                     float2 svDyn[4];
                     for(uint i=0; i<4;i++)
                         svDyn[i] = min(float2(redComp[i],greenComp[i]), sv);
@@ -268,12 +265,12 @@ struct ShadowMap
                 greenComponent = gShadowMapVariance[index].GatherGreen(gShadowSamplerLinear, sampleVec.xy);
                 break;
             case LightTypeSM::Directional:
-                redComp = gCascadedShadowMapVariance[index].GatherRed(gShadowSamplerLinear, float3(sampleVec.xy, level));
-                greenComponent = gCascadedShadowMapVariance[index].GatherGreen(gShadowSamplerLinear, float3(sampleVec.xy, level));
+                redComp = gCascadedShadowMapVariance.GatherRed(gShadowSamplerLinear, float3(sampleVec.xy, level));
+                greenComponent = gCascadedShadowMapVariance.GatherGreen(gShadowSamplerLinear, float3(sampleVec.xy, level));
                 //Load dynamic values and take the min of both. Interpolation is handled later
                 if(kUseDynamicSM){
-                    float4 dynRed = gCascadedShadowMapVariance[index].GatherRed(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level));
-                    float4 dynGreen = gCascadedShadowMapVariance[index].GatherGreen(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level));
+                    float4 dynRed = gCascadedShadowMapVariance.GatherRed(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level));
+                    float4 dynGreen = gCascadedShadowMapVariance.GatherGreen(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level));
                     redComp = min(redComp, dynRed);
                     greenComponent = min(greenComponent, dynGreen);
                 }
@@ -304,16 +301,16 @@ struct ShadowMap
                 sv = gShadowMapF4[index].SampleLevel(gShadowSamplerLinear, sampleVec.xy, mipLevel);
                 break;
             case LightTypeSM::Directional:
-                sv = gCascadedShadowMapF4[index].SampleLevel(gShadowSamplerLinear, float3(sampleVec.xy, level), mipLevel);
+                sv = gCascadedShadowMapF4.SampleLevel(gShadowSamplerLinear, float3(sampleVec.xy, level), mipLevel);
                 //Load dynamic values, take the min against shadow values and interpolate to recognize the edges
                 if(kUseDynamicSM)
                 {
                     float2 gatherUV;
                     float4 w = getGatherWeights(sampleVec.xy, kCascadedSMRes, gatherUV);
-                    float4 redComp = gCascadedShadowMapF4[index].GatherRed(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
-                    float4 greenComp = gCascadedShadowMapF4[index].GatherGreen(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
-                    float4 blueComp = gCascadedShadowMapF4[index].GatherBlue(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
-                    float4 alphaComp = gCascadedShadowMapF4[index].GatherAlpha(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 redComp = gCascadedShadowMapF4.GatherRed(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 greenComp = gCascadedShadowMapF4.GatherGreen(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 blueComp = gCascadedShadowMapF4.GatherBlue(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 alphaComp = gCascadedShadowMapF4.GatherAlpha(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
                     float4 svDyn[4];
                     for(uint i=0; i<4;i++)
                         svDyn[i] = min(float4(redComp[i],greenComp[i],blueComp[i],alphaComp[i]), sv);
@@ -366,20 +363,20 @@ struct ShadowMap
                 break;
             case LightTypeSM::Directional:
                 w = getGatherWeights(sampleVec.xy, kCascadedSMRes, gatherUV);
-                red = gCascadedShadowMapF4[index].GatherRed(gShadowSamplerPoint, float3(gatherUV, level));
-                green = gCascadedShadowMapF4[index].GatherGreen(gShadowSamplerPoint, float3(gatherUV, level));
-                blue = gCascadedShadowMapF4[index].GatherBlue(gShadowSamplerPoint, float3(gatherUV, level));
-                alpha = gCascadedShadowMapF4[index].GatherAlpha(gShadowSamplerPoint, float3(gatherUV, level));
+                red = gCascadedShadowMapF4.GatherRed(gShadowSamplerPoint, float3(gatherUV, level));
+                green = gCascadedShadowMapF4.GatherGreen(gShadowSamplerPoint, float3(gatherUV, level));
+                blue = gCascadedShadowMapF4.GatherBlue(gShadowSamplerPoint, float3(gatherUV, level));
+                alpha = gCascadedShadowMapF4.GatherAlpha(gShadowSamplerPoint, float3(gatherUV, level));
                 for(uint i=0; i<4;i++){
                     sv[i] = float4(red[i], green[i], blue[i],alpha[i]);
                 }
                 //Load dynamic values, take the min against shadow values and interpolate to recognize the edges
                 if(kUseDynamicSM)
                 {
-                    float4 redComp = gCascadedShadowMapF4[index].GatherRed(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
-                    float4 greenComp = gCascadedShadowMapF4[index].GatherGreen(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
-                    float4 blueComp = gCascadedShadowMapF4[index].GatherBlue(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
-                    float4 alphaComp = gCascadedShadowMapF4[index].GatherAlpha(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 redComp = gCascadedShadowMapF4.GatherRed(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 greenComp = gCascadedShadowMapF4.GatherGreen(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 blueComp = gCascadedShadowMapF4.GatherBlue(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    float4 alphaComp = gCascadedShadowMapF4.GatherAlpha(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
                     for(uint i=0; i<4;i++)
                         sv[i] = min(float4(redComp[i],greenComp[i],blueComp[i],alphaComp[i]), sv[i]);
                 }
@@ -453,20 +450,18 @@ struct ShadowMap
     /** Converts world position to shadow map light projection space. Also calculates the cascaded level.
       * The cascaded level could be calculated a bit faster but this method is more flexible, especially with different
       * shadow map projections. 
-    \param[in] local shadow map texture index.
     \param[in] world position.
     \param[out] cascaded level.
     \param[out] shadow map sample vector.
     \param[out] the distance the shadow map should be compaired to.
     \return returns if the position is visible from the shadow map.
     */
-    bool directionalDistanceAndSampleVec(in uint index, in float3 posW, out uint level, out float2 shadowUV, out float lightDist)
+    bool directionalDistanceAndSampleVec(in float3 posW, out uint level, out float2 shadowUV, out float lightDist)
     {
-        uint bufferIdx = kCascadedMatOffset + index * kCascadedLevels;
         //Go through all levels
         for(level = 0; level < kCascadedLevels; level++)
         {
-            float4x4 viewProjectMat = gShadowMapVPBuffer[bufferIdx + level];
+            float4x4 viewProjectMat = gShadowMapVPBuffer[kCascadedMatOffset + level];
             float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
             projPos.xyz = (projPos.xyz / projPos.w); //This is actually not necessary for Directional Lights
             
@@ -525,7 +520,7 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(index, posW,cascLevel, shadowUV.xy, lightDist);
+                valid = directionalDistanceAndSampleVec(posW,cascLevel, shadowUV.xy, lightDist);
                 break;
             default:
                 break;
@@ -616,7 +611,7 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(index, posW, cascLevel, shadowUV.xy, lightDist);
+                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
                 break;
             default:
                 break;
@@ -817,7 +812,7 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(index, posW, cascLevel, shadowUV.xy, lightDist);
+                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
                 break;
             default:
                 break;
@@ -896,7 +891,7 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(index, posW, cascLevel, shadowUV.xy, lightDist);
+                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
                 break;
             default:
                 break;
@@ -966,7 +961,7 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(index, posW, cascLevel, shadowUV.xy, lightDist);
+                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
                 break;
             default:
                 break;
@@ -1120,7 +1115,7 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(index, posW, cascLevel, shadowUV.xy, lightDist);
+                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
                 break;
             default:
                 break;
@@ -1359,12 +1354,12 @@ struct ShadowMap
         uint texSize = k2DSMRes;
         uint cascLevel = 0;
         if(lightData.type == (uint)LightTypeSM::Directional){
-            //cascLevel = getCascadedLevel(posW);
+            cascLevel = getCascadedLevel(posW);
             float2 tmpUV;
             float tmpDist;
-            if (!directionalDistanceAndSampleVec(lightIdx, posW, cascLevel, tmpUV, tmpDist))
+            if (!directionalDistanceAndSampleVec(posW, cascLevel, tmpUV, tmpDist))
                 return 0.f;
-            bufferIdx = kCascadedMatOffset + bufferIdx * kCascadedLevels;
+            bufferIdx = kCascadedMatOffset + cascLevel;
             texSize = kCascadedSMRes;
         }
         

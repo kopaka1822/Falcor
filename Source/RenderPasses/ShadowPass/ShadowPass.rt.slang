@@ -187,7 +187,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
             uint cascLevel = 0;
             float2 tmpUV;
             float tmpDist;
-            bool valid = gShadowMap.directionalDistanceAndSampleVec(lightIdx, posW, cascLevel, tmpUV, tmpDist);
+            bool valid = gShadowMap.directionalDistanceAndSampleVec(posW, cascLevel, tmpUV, tmpDist);
 
             if (valid)
             {
