@@ -2878,6 +2878,33 @@ namespace Falcor
         mDrawArgs.clear();
         mDrawArgsInstanceIDs.clear();
 
+        //Correctly mark animated geometry
+
+        //Create a set containing all nodes with animation data
+        std::set<uint32_t> animatedNodes;
+        for (const auto& animation : mpAnimationController->getAnimations())
+        {
+            uint nodeID = animation->getNodeID().get();
+            if (nodeID != NodeID::kInvalidID)
+                animatedNodes.insert(nodeID);
+        }
+
+        for (const auto& instance : mGeometryInstanceData)
+        {
+            //Skip non triangles
+            if (instance.getType() != GeometryType::TriangleMesh)
+                continue;
+
+            const uint32_t instNodeID = instance.globalMatrixID;
+            //If node was found mark mesh as isAnimated
+            if (auto search = animatedNodes.find(instNodeID); search != animatedNodes.end())
+            {
+                auto& mesh = mMeshDesc[instance.geometryID];
+                if(!mesh.isAnimated())
+                    mesh.flags |= (uint32_t)MeshFlags::IsAnimated;
+            }
+        }
+
         // Helper to create the draw-indirect buffer.
         auto createDrawBuffer = [this](
                                     const auto& drawMeshes, bool ccw, bool ignoreWinding, bool isDynamic, bool isCastShadow, const std::vector<uint>& instanceIDs,
@@ -2915,7 +2942,7 @@ namespace Falcor
 
                 const auto& mesh = mMeshDesc[instance.geometryID];
                 bool use16Bit = mesh.use16BitIndices();
-                bool isDynamic = mesh.isAnimated() || mesh.isDynamic() || !mesh.isStatic(); 
+                bool isDynamic = mesh.isAnimated() || mesh.isDynamic(); 
                 const auto mat = getMaterial(MaterialID::fromSlang(mesh.materialID));
                 bool isCastShadow = mat->isCastShadow();
 
