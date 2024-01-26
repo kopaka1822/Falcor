@@ -1173,8 +1173,9 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMap(float3 posW, const in SMLightData lightData, float4 random, const float mipLevel , out float shadow)
+    bool evalShadowMap(float3 posW, const in SMLightData lightData, float4 random, float mipLevel , out float shadow)
     {
+        mipLevel = kUseSMMips ? mipLevel : 0.f; //Using mip level without mips can lead to a performance hit
         switch (ShadowMapType(kShadowMapMode))
         {
             case ShadowMapType::ShadowMap:
@@ -1202,8 +1203,9 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalHybridShadowMap(float3 posW, const in SMLightData lightData, float4 random, const float mipLevel, out float shadow)
+    bool evalHybridShadowMap(float3 posW, const in SMLightData lightData, float4 random, float mipLevel, out float shadow)
     {
+        mipLevel = kUseSMMips ? mipLevel : 0.f; //Using mip level without mips can lead to a performance hit
         switch (ShadowMapType(kShadowMapMode))
         {
             case ShadowMapType::ShadowMap:
