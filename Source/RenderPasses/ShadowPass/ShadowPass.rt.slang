@@ -112,7 +112,7 @@ float3 computeDdyPosW(float3 posW, float3 normW, float2 invFrameDim)
 }
 
 //Calculates the shadowed Li for a given light
-bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uint lightIdx, out float3 toLight, out float3 Li, inout float3 debug){
+bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uint lightIdx, float random, out float3 toLight, out float3 Li, inout float3 debug){
     Li = float3(0);
     toLight = float3(0);
     //Sample the light
@@ -141,7 +141,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
         float3 posWDdx = computeDdxPosW(posW, faceN, invFrameDim);
         float3 posWDdy = computeDdyPosW(posW, faceN, invFrameDim);
         lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);       
-        useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(0) /*random*/, lod /*MipLevel*/, shadow);
+        useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
     }
     
     //Shoot Shadow ray
@@ -187,7 +187,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
             uint cascLevel = 0;
             float2 tmpUV;
             float tmpDist;
-            bool valid = gShadowMap.directionalDistanceAndSampleVec(posW, cascLevel, tmpUV, tmpDist);
+            bool valid = gShadowMap.directionalDistanceAndSampleVec(posW,random, cascLevel, tmpUV, tmpDist);
 
             if (valid)
             {
@@ -319,6 +319,8 @@ void rayGen()
     float3 emissive = float3(0.f);
     float3 debugOut = float3(0.f);
 
+    SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 2 * 7);
+
     const uint lightCount = gScene.getLightCount();
         
     if (valid)
@@ -339,7 +341,7 @@ void rayGen()
         //Loop over all lights
         for(uint i=0 ; i<lightCount; i++){
             float3 Li, toLight;
-            if(!sampleLight(posW, normalW, faceNormalW, i, toLight, Li, debugOut))
+            if(!sampleLight(posW, normalW, faceNormalW, i, sampleNext1D(sg) , toLight, Li, debugOut))
                 continue;
 
             //Check if point can be shaded
@@ -374,7 +376,6 @@ void rayGen()
         uint4 materialInfo = gMaterialInfo[pixel];
         float4 grads = gTexGrads[pixel];
     
-        SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 2 * 7);
 
         //Fill Vertex Data struct for the shading
         VertexData v = { posW, normalW, tangentW, texCoord, faceNormalW, 0.f, 0.f };
@@ -395,7 +396,7 @@ void rayGen()
         for (uint i = 0; i < lightCount; i++)
         {
             float3 Li, toLight;
-            if (!sampleLight(sd.posW, bsdfProperties.guideNormal, sd.getOrientedFaceNormal(), i, toLight, Li, debugOut))
+            if (!sampleLight(sd.posW, bsdfProperties.guideNormal, sd.getOrientedFaceNormal(), i,sampleNext1D(sg), toLight, Li, debugOut))
                 continue;
 
             color += mi.eval(sd, toLight, sg) * Li;

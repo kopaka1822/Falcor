@@ -298,7 +298,7 @@ private:
     std::vector<float> mCascadedFrustumManualVals = {0.05f, 0.15f, 0.3f,1.f}; // Values for Manual set Cascaded frustum. Initialized for 3 Levels
     uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
     float mCascadedMaxFar = 1000000.f;
-    bool mCascadedFirstThisFrame = true;
+    float mCascadedStochasticRange = 0.05f;
     std::vector<float> mCascadedZSlices;
     std::vector<float2> mCascadedWidthHeight;
 

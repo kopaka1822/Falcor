@@ -70,6 +70,7 @@ struct ShadowMap
     static const float kMSMDepthBias = MSM_DEPTH_BIAS * 0.001f;            //Depth bias for the moment shadow map
     static const float kMSMMomentBias = MSM_MOMENT_BIAS * 0.001f;          //Moment bias for the moment shadow map
     static const float kAdditionalVarianceTestThreshold = MSM_VARIANCE_TEST_THRESHOLD; //Threshold for additional variance test in MSM
+    static const float kCascadedStochasticRange = CASC_STOCH_RANGE;
     
     static const bool kUseHybridShadowMap = USE_HYBRID_SM;
     static const bool kUseSMMips = USE_SM_MIP;
@@ -463,20 +464,52 @@ struct ShadowMap
         {
             float4x4 viewProjectMat = gShadowMapVPBuffer[kCascadedMatOffset + level];
             float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
-            projPos.xyz = (projPos.xyz / projPos.w); //This is actually not necessary for Directional Lights
-            
+           
             projPos.y *= -1; //Flip 
             projPos.xy = projPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
 
             shadowUV = projPos.xy;
             lightDist = projPos.z;
             
-            if (all(projPos.xyz >= 0.f) && all(projPos.xyz <= 1.f))   //Return if outside of the shadow map
+            if (all(projPos.xy >= 0.00f) && all(projPos.xy <= 1.f))   //Return if outside of the shadow map
                 return true;
         }
         return false;
     }
 
+    /** Converts world position to shadow map light projection space. Also calculates the cascaded level.
+      * The cascaded level could be calculated a bit faster but this method is more flexible, especially with different
+      * shadow map projections. 
+    \param[in] world position.
+    \param[in] random offset.
+    \param[out] cascaded level.
+    \param[out] shadow map sample vector.
+    \param[out] the distance the shadow map should be compaired to.
+    \return returns if the position is visible from the shadow map.
+    */
+    bool directionalDistanceAndSampleVec(in float3 posW, float random, out uint level, out float2 shadowUV, out float lightDist)
+    {
+        float upperBound = 1.f - kCascadedStochasticRange * random; 
+        float lowerBound = 0.f + kCascadedStochasticRange * random;
+        
+        //Go through all levels
+        for(level = 0; level < kCascadedLevels; level++)
+        {
+            float4x4 viewProjectMat = gShadowMapVPBuffer[kCascadedMatOffset + level];
+            float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
+           
+            projPos.y *= -1; //Flip 
+            projPos.xy = projPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+
+            shadowUV = projPos.xy;
+            lightDist = projPos.z;
+            
+            if (all(projPos.xy >= lowerBound) && all(projPos.xy <= upperBound))   //Return if outside of the shadow map
+                return true;
+        }
+        return false;
+    }
+    
     /** Standard shadow test for shadow map
     \param[in] local shadow map texture index.
     \param[in] cascaded level.
@@ -812,7 +845,7 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
+                valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
                 break;
             default:
                 break;
@@ -891,7 +924,7 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
+                valid = directionalDistanceAndSampleVec(posW,random , cascLevel, shadowUV.xy, lightDist);
                 break;
             default:
                 break;
@@ -961,7 +994,7 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
+                valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
                 break;
             default:
                 break;
@@ -1097,7 +1130,7 @@ struct ShadowMap
         return 1.0f - saturate(shadowIntensity);
     }
     
-    bool evalShadowMapMSM(float3 posW, const in SMLightData lightData, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapMSM(float3 posW, const in SMLightData lightData, const float mipLevel,const bool hybridSM , out float shadow, float random = 0.f)
     {
         uint index = lightData.index;
         
@@ -1115,7 +1148,7 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
+                valid = directionalDistanceAndSampleVec(posW, random, cascLevel, shadowUV.xy, lightDist);
                 break;
             default:
                 break;
@@ -1213,7 +1246,7 @@ struct ShadowMap
                 return evalShadowMapExponentialVariance(posW, lightData, random.x, mipLevel, true, shadow);
             case ShadowMapType::MSMHamburger:
             case ShadowMapType::MSMHausdorff:
-                return evalShadowMapMSM(posW, lightData, mipLevel, true, shadow);
+                return evalShadowMapMSM(posW, lightData, mipLevel, true, shadow, random.x);
             default:
                 shadow = 1.f;
                 return false;
@@ -1354,7 +1387,7 @@ struct ShadowMap
         uint texSize = k2DSMRes;
         uint cascLevel = 0;
         if(lightData.type == (uint)LightTypeSM::Directional){
-            cascLevel = getCascadedLevel(posW);
+            //cascLevel = getCascadedLevel(posW);
             float2 tmpUV;
             float tmpDist;
             if (!directionalDistanceAndSampleVec(posW, cascLevel, tmpUV, tmpDist))

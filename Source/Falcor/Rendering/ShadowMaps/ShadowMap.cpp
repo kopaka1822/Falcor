@@ -668,6 +668,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("MSM_DEPTH_BIAS", std::to_string(mMSMDepthBias));
     defines.add("MSM_MOMENT_BIAS", std::to_string(mMSMMomentBias));
     defines.add("MSM_VARIANCE_TEST_THRESHOLD", mMSMUseVarianceTest ? std::to_string(mMSMVarianceThreshold) : "-1.0f");
+    defines.add("CASC_STOCH_RANGE", std::to_string(mCascadedStochasticRange));
     defines.add("USE_RAY_OUTSIDE_SM", mUseRayOutsideOfShadowMap ? "1" : "0");
     defines.add("CASCADED_SM_RESOLUTION", std::to_string(mShadowMapSizeCascaded));
     defines.add("SM_RESOLUTION", std::to_string(mShadowMapSize));
@@ -1482,6 +1483,8 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
         const float maxSPZ = math::mul(casView, float4(sceneBounds.maxPoint, 1)).z;
         maxZ = std::max(maxZ, minSPZ);
         maxZ = std::max(maxZ, maxSPZ);
+        minZ = std::min(minZ, minSPZ);
+        minZ = std::min(minZ, maxSPZ);
 
         renderLevel[i] = !mEnableTemporalCascadedBoxTest;
 
@@ -2193,7 +2196,8 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
         }
     }
     break;
-    default:;
+    default:
+        break;
     }
     
     if (mpCascadedShadowMaps)
@@ -2246,6 +2250,8 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
                 dirty |= group.var("Reuse Enlarge Factor", mCascadedReuseEnlargeFactor, 0.f, 10.f, 0.001f);
                 group.tooltip("Factor by which the frustum of each cascaded level is enlarged by");
             }
+            dirty |= group.var("Stochastic Level Range", mCascadedStochasticRange, 0.f, 0.3f, 0.001f);
+            group.tooltip("Stochastically shifts the cascaded level by percentage (values * 2). ");
         }
     }
 
