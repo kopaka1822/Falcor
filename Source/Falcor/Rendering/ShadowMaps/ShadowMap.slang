@@ -953,7 +953,7 @@ struct ShadowMap
     \param[in] distance value of the current world position. The shadow map value is compaired against this
     \return 1 -> lit ; 0 -> shadowed
     */
-    float exponentialVarianceShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
+    float2 exponentialVarianceShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
     {
         float4 sv = getShadowValueF4(index, shadowUV, lightType, level, mipLevel);
         float depth = (lightDist * 2.f) - 1.f;
@@ -964,7 +964,7 @@ struct ShadowMap
         float pPosMax = ChebyshevUpperBound(sv.xy, warpedDepth.x, minVariance.x);
         float pNegMax = ChebyshevUpperBound(sv.zw, warpedDepth.y, minVariance.y);
         
-        return min(pNegMax,pPosMax);
+        return float2(pNegMax,pPosMax);
     }
     
     /** Exponential (Layered) Variance Shadow Mapping. https://dl.acm.org/doi/pdf/10.5555/1375714.1375739
@@ -1004,15 +1004,20 @@ struct ShadowMap
             return !kUseRayOutsideSM;   //Outside of shadow map
          
         //Shadow Test with shadow map
-        shadow = exponentialVarianceShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
+        
+        float2 upperLowerBound = exponentialVarianceShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
+        shadow = min(upperLowerBound.x, upperLowerBound.y);
 
+        bool useSM = true;
         if (hybridSM)
         {
             if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
-                return false;   //Shoot ray
+                useSM = false;   //Shoot ray
+            if(abs(upperLowerBound.x - upperLowerBound.y) > 0.01)
+                useSM = false;
         }
         
-        return true;
+        return useSM;
     }
 
     //From https://github.com/TheRealMJP/Shadows
