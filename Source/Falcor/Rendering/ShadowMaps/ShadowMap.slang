@@ -471,7 +471,7 @@ struct ShadowMap
             shadowUV = projPos.xy;
             lightDist = projPos.z;
             
-            if (all(projPos.xy >= 0.00f) && all(projPos.xy <= 1.f))   //Return if outside of the shadow map
+            if (all(shadowUV >= 0.00f) && all(shadowUV <= 1.f) && lightDist >= 0 && lightDist <= 1)   //Return if outside of the shadow map
                 return true;
         }
         return false;
@@ -504,7 +504,7 @@ struct ShadowMap
             shadowUV = projPos.xy;
             lightDist = projPos.z;
             
-            if (all(projPos.xy >= lowerBound) && all(projPos.xy <= upperBound))   //Return if outside of the shadow map
+            if (all(shadowUV >= lowerBound) && all(shadowUV <= upperBound) && lightDist >= 0 && lightDist <= 1)   //Return if outside of the shadow map
                 return true;
         }
         return false;
