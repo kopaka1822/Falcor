@@ -640,6 +640,7 @@ namespace Mogwai
         // Execute graph.
         auto& dict = pGraph->getPassesDictionary();
         dict[kRenderPassRefreshFlags] = RenderPassRefreshFlags::None;
+        dict[kRenderPassTime] = getGlobalClock().getTime();
         dict[kRenderGraph] = pGraph.get();
         pGraph->execute(pRenderContext);
     }

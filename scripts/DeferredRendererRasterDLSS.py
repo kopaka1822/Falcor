@@ -8,6 +8,7 @@ def render_graph_DeferredRenderer():
     g.create_pass('ShadowPass', 'ShadowPass', {})
     g.create_pass('VideoRecorder', 'VideoRecorder', {})
     g.create_pass('DLSSPass', 'DLSSPass', {'enabled': True, 'outputSize': 'Default', 'profile': 'Balanced', 'motionVectorScale': 'Relative', 'isHDR': True, 'sharpness': 0.0, 'exposure': 0.0})
+    g.create_pass('PathBenchmark', 'PathBenchmark', {})
     g.add_edge('GBufferRaster.posW', 'ShadowPass.posW')
     g.add_edge('GBufferRaster.faceNormalW', 'ShadowPass.faceNormalW')
     g.add_edge('GBufferRaster.tangentW', 'ShadowPass.tangentW')
@@ -17,13 +18,13 @@ def render_graph_DeferredRenderer():
     g.add_edge('GBufferRaster.diffuseOpacity', 'ShadowPass.diffuse')
     g.add_edge('GBufferRaster.specRough', 'ShadowPass.specularRoughness')
     g.add_edge('GBufferRaster.emissive', 'ShadowPass.emissive')
-    g.add_edge('VideoRecorder', 'GBufferRaster')
     g.add_edge('GBufferRaster.normW', 'ShadowPass.normalW')
     g.add_edge('GBufferRaster.guideNormalW', 'ShadowPass.guideNormalW')
     g.add_edge('ShadowPass.color', 'DLSSPass.color')
     g.add_edge('DLSSPass.output', 'ToneMapper.src')
     g.add_edge('GBufferRaster.depth', 'DLSSPass.depth')
     g.add_edge('GBufferRaster.mvec', 'DLSSPass.mvec')
+    g.add_edge('PathBenchmark', 'GBufferRaster')
     g.mark_output('ToneMapper.dst')
     return g
 
