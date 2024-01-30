@@ -400,6 +400,21 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         pStochasticDepthMap = mpStochasticDepthGraph->getOutput("StochasticDepthMap.stochasticDepth")->asTexture();
     }
 
+    // TEST
+    // retrieve data from pInternalRayMin to cpu
+    auto aomask = pRenderContext->readTextureSubresource(pAoMask.get(), 0);
+    std::vector<uint2> workBuffer;
+    workBuffer.reserve(aomask.size());
+
+    for(uint i = 0; i < uint(aomask.size()); ++i)
+    {
+        if(aomask[i] != 0)
+        {
+            workBuffer.emplace_back(i % pAoMask->getWidth(), i / pAoMask->getWidth());
+        }
+    }
+    auto workBuf = Buffer::createStructured(mpDevice, sizeof(uint2), workBuffer.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, workBuffer.data(), false);
+
     if (mUseRayPipeline && mSecondaryDepthMode != DepthMode::StochasticDepth) // RAY PIPELINE
     {
         // set raytracing data
@@ -440,10 +455,13 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         computeVars2["aoPrev"] = pAoDst;
         computeVars2["PerFrameCB"]["guardBand"] = guardBand;
 
+        computeVars2["work"] = workBuf;
+
         {
             FALCOR_PROFILE(pRenderContext, "AO 2 (raster)");
-            uint2 nThreads = renderData.getDefaultTextureDims() - uint2(2 * guardBand);
-            mpComputePass2->execute(pRenderContext, nThreads.x, nThreads.y);
+            //uint2 nThreads = renderData.getDefaultTextureDims() - uint2(2 * guardBand);
+            //mpComputePass2->execute(pRenderContext, nThreads.x, nThreads.y);
+            mpComputePass2->execute(pRenderContext, (uint)workBuffer.size(), 1);
         }
     }
 }

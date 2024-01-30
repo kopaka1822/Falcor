@@ -33,12 +33,16 @@ void traceAORay(RayDesc ray, inout RayData rayData)
     }
 }
 
-[numthreads(16, 16, 1)]
+Buffer<uint2> work;
+
+//[numthreads(16, 16, 1)]
+[numthreads(256, 1, 1)]
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
     uint2 offset = (group.xy / 2u) * 32u + 2u * localId.xy + (group.xy % 2u);
     //uint2 svPos = offset + uint2(guardBand); // pixel position
-    uint2 svPos = id.xy + uint2(guardBand); // pixel position
+    //uint2 svPos = id.xy + uint2(guardBand); // pixel position
+    uint2 svPos = work[id.x];
     float2 texC = (svPos + float2(0.5)) * gData.invResolution; // texture position
     
     uint mask = aoMask[uint2(svPos.xy)] & 0xFF;
