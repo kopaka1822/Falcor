@@ -325,7 +325,29 @@ void rayGen()
         
     if (valid)
     {
-    #if SIMPLIFIED_SHADING
+    #if SHADOW_ONLY
+        float3 normalW;
+        #if SIMPLIFIED_SHADING
+            normalW = gGuideNormalW[pixel].xyz;
+        #else
+            normalW = gNormalW[pixel].xyz;
+        #endif
+        //Flip Face Normal of double sided mats
+        if(dot(faceNormalW, view) <= 0.f)
+        {
+            faceNormalW = -faceNormalW;
+        }
+
+        adjustShadingNormal(view, faceNormalW, normalW);
+
+        //Loop over all lights
+        for(uint i=0 ; i<lightCount; i++){
+            float3 Li, toLight;
+            if(!sampleLight(posW, normalW, faceNormalW, i, sampleNext1D(sg) , toLight, Li, debugOut))
+                continue;
+            color += Li;
+        }
+    #elif SIMPLIFIED_SHADING
         float3 normalW = gGuideNormalW[pixel].xyz;
         float3 diffuse = gDiffuse[pixel].xyz;
         float4 specRough = gSpecRough[pixel];
@@ -345,8 +367,9 @@ void rayGen()
                 continue;
 
             //Check if point can be shaded
-            if(dot(faceNormalW, toLight) <= 0.f)
-                continue;
+            //if(dot(faceNormalW, toLight) <= 0.f)
+            //    continue;
+
             color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, toLight) * Li;
         }
 
@@ -420,7 +443,6 @@ void rayGen()
         
         emissive = bsdfProperties.emission;
 #endif
-
         //Add emissive after shading
         if (kUseEmissive)
             color += kEmissiveFactor * emissive;

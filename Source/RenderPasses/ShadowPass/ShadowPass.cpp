@@ -192,6 +192,7 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     mShadowTracer.pProgram->addDefine("USE_ENV_MAP", mpScene->useEnvBackground() ? "1" : "0");
     mShadowTracer.pProgram->addDefine("USE_EMISSIVE", mEmissiveFactor > 0.f ? "1" : "0");
     mShadowTracer.pProgram->addDefine("DEBUG_MODE", std::to_string(mDebugMode));
+    mShadowTracer.pProgram->addDefine("SHADOW_ONLY", mShadowOnly ? "1" : "0");
 
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
 
@@ -244,6 +245,9 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
     changed |= widget.dropdown("Shadow Mode", mShadowMode);
     if (mShadowMode != SPShadowMode::ShadowMap)
         changed |= widget.checkbox("Ray Alpha Test", mUseAlphaTest);
+
+    changed |= widget.checkbox("Shadow Only", mShadowOnly);
+    widget.tooltip("Disables shading. Guiding Normal (Textured normal) is used when using Simplified Shading");
 
     //Shading Model
     if (mSimplifiedShadingValid && mComplexShadingValid)

@@ -65,7 +65,8 @@ private:
 
     //Configuration
     bool mUseAlphaTest = true; ///< Alpha Test for ray tracing
-    bool mUseSimplifiedShading = false;     ///< Option to switch shading
+    bool mUseSimplifiedShading = true;     ///< Option to switch shading
+    bool mShadowOnly = false;               ///< Only output shadow
     float mAmbientFactor = 0.1f; //<Ambient light factor
     float mEnvMapFactor = 0.3f; //< Env Map factor
     float mEmissiveFactor = 1.f; //< Emissive Factor
