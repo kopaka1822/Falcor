@@ -70,9 +70,9 @@ struct ShadowMap
     static const float kMSMDepthBias = MSM_DEPTH_BIAS * 0.001f;            //Depth bias for the moment shadow map
     static const float kMSMMomentBias = MSM_MOMENT_BIAS * 0.001f;          //Moment bias for the moment shadow map
     static const float kAdditionalVarianceTestThreshold = MSM_VARIANCE_TEST_THRESHOLD; //Threshold for additional variance test in MSM
-    static const float kCascadedStochasticRange = CASC_STOCH_RANGE;
-    
-    static const bool kUseHybridShadowMap = USE_HYBRID_SM;
+    static const float kCascadedStochasticRange = CASC_STOCH_RANGE;         //Stochastic range for cascaded shadow maps
+    static const uint  kCascadedLevelTrace = CASCADE_LEVEL_TRACE;           //Traces only for the first X levels on hybrid
+
     static const bool kUseSMMips = USE_SM_MIP;
     static const float kMipBias = SM_MIP_BIAS;      //angle bias used in mip calculation (cos theta^bias)
     static const float kMinShadowValue = MIN_SHADOW_VALUE_FILTERED;
@@ -489,12 +489,60 @@ struct ShadowMap
     */
     bool directionalDistanceAndSampleVec(in float3 posW, float random, out uint level, out float2 shadowUV, out float lightDist)
     {
-        float upperBound = 1.f - kCascadedStochasticRange * random; 
-        float lowerBound = 0.f + kCascadedStochasticRange * random;
-        
+        float stochasticRange = kCascadedStochasticRange * random;
+        float near = gScene.camera.data.nearZ;
+        float linearZ = abs(mul(gScene.camera.data.viewMat, float4(posW, 1.f)).z);
+        for(level = 0; level < kCascadedLevels; level++)
+        {
+            float far = gCascadedZSlices[level];
+            float range = far - near;
+            float randomOffset = stochasticRange * range * 2;
+            float maxOffset = (kCascadedStochasticRange * range)/2;
+            range = (far - maxOffset) + randomOffset;
+            if (linearZ < range)
+                break;
+            near = far;
+        }
+
+        float4x4 viewProjectMat = gShadowMapVPBuffer[kCascadedMatOffset + level];
+        float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
+
+        projPos.y *= -1; //Flip 
+        projPos.xy = projPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+
+        shadowUV = projPos.xy;
+        lightDist = projPos.z;
+
+        bool valid = (all(shadowUV >= 0.f) && all(shadowUV <= 1.f) && lightDist >= 0 && lightDist <= 1) || (level == (kCascadedLevels-1));
+        //Fallback (Only used when stoachstic threshold is too big)
+        if(!valid){
+            level = min(kCascadedLevels-1, level + 1);
+            viewProjectMat = gShadowMapVPBuffer[kCascadedMatOffset + level];
+            projPos = mul(viewProjectMat, float4(posW, 1.f));
+
+            projPos.y *= -1; //Flip 
+            projPos.xy = projPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+
+            shadowUV = projPos.xy;
+            lightDist = projPos.z;
+
+            valid = (all(shadowUV >= 0.f) && all(shadowUV <= 1.f) && lightDist >= 0 && lightDist <= 1) || (level == (kCascadedLevels-1));
+        }
+        return (valid);
+
+        /* Old version
+        float stochasticRange = kCascadedStochasticRange * random;
+        float upperBound = 1.f - stochasticRange; 
+        float lowerBound = 0.f + stochasticRange;
         //Go through all levels
         for(level = 0; level < kCascadedLevels; level++)
         {
+            //Disable Stoachstic for last level
+            if(level == kCascadedLevels-1)
+            {
+                upperBound = 1.f;
+                lowerBound = 0.f;
+            }
             float4x4 viewProjectMat = gShadowMapVPBuffer[kCascadedMatOffset + level];
             float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
            
@@ -503,11 +551,13 @@ struct ShadowMap
 
             shadowUV = projPos.xy;
             lightDist = projPos.z;
-            
+
             if (all(shadowUV >= lowerBound) && all(shadowUV <= upperBound) && lightDist >= 0 && lightDist <= 1)   //Return if outside of the shadow map
                 return true;
         }
+
         return false;
+        */
     }
     
     /** Standard shadow test for shadow map
@@ -836,6 +886,7 @@ struct ShadowMap
         float3 shadowUV = float3(0);
         uint cascLevel = 0;
         bool valid = false;
+        bool cascadedHybrid = true;
         switch (lightData.type)
         {
             case LightTypeSM::Point:
@@ -846,6 +897,8 @@ struct ShadowMap
                 break;
             case LightTypeSM::Directional:
                 valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
+                if(kCascadedLevelTrace < cascLevel)
+                    cascadedHybrid = false;
                 break;
             default:
                 break;
@@ -862,7 +915,7 @@ struct ShadowMap
         else
             shadow = varianceShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
 
-        if (hybridSM)
+        if (hybridSM && cascadedHybrid)
         {               
             bool pcfAdditionalTest = true;
             if (kUsePCF)
@@ -915,6 +968,7 @@ struct ShadowMap
         float3 shadowUV = float3(0);
         uint cascLevel = 0;
         bool valid = false;
+        bool cascadedHybrid = true;
         switch (lightData.type)
         {
             case LightTypeSM::Point:
@@ -925,6 +979,8 @@ struct ShadowMap
                 break;
             case LightTypeSM::Directional:
                 valid = directionalDistanceAndSampleVec(posW,random , cascLevel, shadowUV.xy, lightDist);
+                if(kCascadedLevelTrace < cascLevel)
+                    cascadedHybrid = false;
                 break;
             default:
                 break;
@@ -936,7 +992,7 @@ struct ShadowMap
         //Shadow Test with shadow map
         shadow = exponentialShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
 
-        if (hybridSM)
+        if (hybridSM && cascadedHybrid)
         {
             if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
                 return false;   //Shoot ray
@@ -983,7 +1039,7 @@ struct ShadowMap
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint cascLevel = 0;
-        
+        bool cascadedHybrid = true;
         bool valid = false;
         switch (lightData.type)
         {
@@ -995,6 +1051,8 @@ struct ShadowMap
                 break;
             case LightTypeSM::Directional:
                 valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
+                if(kCascadedLevelTrace < cascLevel)
+                    cascadedHybrid = false;
                 break;
             default:
                 break;
@@ -1006,10 +1064,10 @@ struct ShadowMap
         //Shadow Test with shadow map
         
         float2 upperLowerBound = exponentialVarianceShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
-        shadow = min(upperLowerBound.x, upperLowerBound.y);
+        shadow = max(upperLowerBound.x, upperLowerBound.y);
 
         bool useSM = true;
-        if (hybridSM)
+        if (hybridSM && cascadedHybrid)
         {
             if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
                 useSM = false;   //Shoot ray
@@ -1144,6 +1202,7 @@ struct ShadowMap
         float3 shadowUV = float3(0);
         uint cascLevel = 0;
         bool valid = false;
+        bool cascadedHybrid = true;
         switch (lightData.type)
         {
             case LightTypeSM::Point:
@@ -1154,6 +1213,8 @@ struct ShadowMap
                 break;
             case LightTypeSM::Directional:
                 valid = directionalDistanceAndSampleVec(posW, random, cascLevel, shadowUV.xy, lightDist);
+                if(kCascadedLevelTrace < cascLevel)
+                    cascadedHybrid = false;
                 break;
             default:
                 break;
@@ -1171,7 +1232,7 @@ struct ShadowMap
             
         bool useShadow = true;
         
-        if (hybridSM)
+        if (hybridSM && cascadedHybrid)
         {
             if ((shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y))
                 useShadow = false;   //Shoot ray

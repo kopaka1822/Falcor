@@ -653,6 +653,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("CASCADED_MATRIX_OFFSET", std::to_string(mCascadedMatrixStartIndex));
     defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
     defines.add("CASCADED_SLICE_BUFFER_SIZE", std::to_string(cascadedSliceBufferSize));
+    defines.add("CASCADE_LEVEL_TRACE", std::to_string(mCascadedLevelTrace));
     defines.add("SM_USE_PCF", mUsePCF ? "1" : "0");
     defines.add("SM_USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
     defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
@@ -674,8 +675,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("SM_RESOLUTION", std::to_string(mShadowMapSize));
     defines.add("CUBE_SM_RESOLUTION", std::to_string(mShadowMapSizeCube));
     defines.add("CUBE_WORLD_BIAS", std::to_string(mSMCubeWorldBias));
-
-    defines.add("USE_HYBRID_SM", mUseHybridSM ? "1" : "0");
+   
     defines.add("USE_SM_MIP", mUseShadowMipMaps ? "1" : "0");
     defines.add("SM_MIP_BIAS", std::to_string(mShadowMipBias));
     defines.add("MIN_SHADOW_VALUE_FILTERED", mUseMinShadowValue ? std::to_string(mMinShadowValueVal) : "-1.f");
@@ -1987,9 +1987,6 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
         widget.tooltip("Rerenders the shadow map every frame");
     }
 
-    dirty |= widget.checkbox("Use Hybrid SM", mUseHybridSM);
-    widget.tooltip("Enables Hybrid Shadow Maps, where the edge of the shadow map is traced", true);
-
     static uint3 resolution = uint3(mShadowMapSize, mShadowMapSizeCube, mShadowMapSizeCascaded);
     widget.var("Shadow Map / Cube / Cascaded Res", resolution, 32u, 16384u, 32u);
     widget.tooltip("Change Resolution for the Shadow Map (x) or Shadow Cube Map (y) or Cascaded SM (z). Rebuilds all buffers!");
@@ -2240,9 +2237,9 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             default:
                 break;
             }
-           
-            dirty |= group.var("Z Value Multi", mCascZMult, 1.f, 1000.f, 0.1f);
-            group.tooltip("Pulls the Z-Values of each cascaded level apart. Is needed as not all Geometry is in the View-Frustum");
+
+            dirty |= group.var("Cascaded Level Trace Hybrid until", mCascadedLevelTrace, 0u, mCascadedLevelCount - 1, 1u);
+            group.tooltip("Uses Hybrid for X levels, starting from 0. Only used when Hybrid is active");
             dirty |= group.checkbox("Use Temporal Cascaded Reuse", mEnableTemporalCascadedBoxTest);
             group.tooltip("Enlarges the rendered cascade and reuses it in the next frame if camera has not moved so much");
             if (mEnableTemporalCascadedBoxTest)
@@ -2308,26 +2305,19 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
         {
             dirty |= group.var("Oracle Compaire Value", mOracleCompaireValue, 0.f, 64.f, 0.1f);
             group.tooltip("Compaire Value for the Oracle function. Is basically compaired against ShadowMapPixelArea/CameraPixelArea.");
-            if (mUseHybridSM)
-            {
-                dirty |= group.var("Oracle Upper Bound", mOracleCompaireUpperBound, mOracleCompaireValue, 2048.f, 0.1f);
-                group.tooltip(
-                    "Upper Bound for the oracle value. If oracle is above this value the shadow test is skipped and an ray is shot."
-                );
-            }
+            dirty |= group.var("Oracle Upper Bound", mOracleCompaireUpperBound, mOracleCompaireValue, 2048.f, 0.1f);
+            group.tooltip("Upper Bound for the oracle value. If oracle is above this value the shadow test is skipped and an ray is shot.");
+       
             dirty |= group.dropdown("Oracle Distance Mode", mOracleDistanceFunctionMode);
             group.tooltip("Mode for the distance factor applied on bounces.");
 
-            if (mUseHybridSM)
+            dirty |= group.checkbox("Ignore Oracle on direct hit", mOracleIgnoreDirect);
+            group.tooltip("Ignores the oracle on direct and very specular hits");
+            if (mOracleIgnoreDirect)
             {
-                dirty |= group.checkbox("Ignore Oracle on direct hit", mOracleIgnoreDirect);
-                group.tooltip("Ignores the oracle on direct and very specular hits");
-                if (mOracleIgnoreDirect)
-                {
-                    dirty |= group.var("Ignore Oracle Roughness", mOracleIgnoreDirectRoughness, 0.f, 1.f, 0.0001f);
-                    group.tooltip("The roughness that defines the very specular hits for the ignore oracle function");
-                }                 
-            }
+                dirty |= group.var("Ignore Oracle Roughness", mOracleIgnoreDirectRoughness, 0.f, 1.f, 0.0001f);
+                group.tooltip("The roughness that defines the very specular hits for the ignore oracle function");
+            } 
         }
     }
 

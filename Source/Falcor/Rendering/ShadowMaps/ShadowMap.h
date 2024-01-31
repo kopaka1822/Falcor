@@ -221,12 +221,11 @@ private:
     uint mCascadedLevelCount = 4;
     uint mCascadedTracedLevelsAtEnd = 0; //Adds N number of ray tracing only cascades at the end. Will only work on hybrid mode
     float mCascadedFrustumFix = 0.9f;
-    float mCascZMult = 16.f; // Pushes the z Values apart
+    uint mCascadedLevelTrace = 1;
     float mCascadedReuseEnlargeFactor = 0.1f; // Increases box size by the factor on each side
     bool mEnableTemporalCascadedBoxTest = true; //Tests the cascaded level against the cascaded level from last frame. Only updates if box is outside
 
     // Hybrid Shadow Maps
-    bool mUseHybridSM = true; ///< Uses the Hybrid Shadow Maps; For "Classic" Shadow Maps based on: https://gpuopen.com/fidelityfx-hybrid-shadows/#details
     float2 mHSMFilteredThreshold = float2(0.02f, 0.98f); // Threshold for filtered shadow map variants
 
     //Animated Light
