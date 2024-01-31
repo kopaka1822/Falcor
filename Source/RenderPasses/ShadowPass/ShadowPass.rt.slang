@@ -44,6 +44,7 @@ import ShadowPassData;
 //Inputs
 Texture2D<float4> gPosW;
 Texture2D<float4> gFaceNormalW;
+Texture2D<float2> gMVec;   //Optional
 Texture2D<float4> gEmissive;   //Optional
 
 //Optional Inputs Complex Shading
@@ -62,9 +63,14 @@ Texture2D<float4> gSpecRough;
 RWTexture2D<float4> gColor;
 RWTexture2D<float4> gDebug;
 
+//Hybrid Mask
+Texture2D<uint> gHybridMaskLastFrame;
+RWTexture2D<uint> gHybridMask;
+
 cbuffer CB
 {
     uint gFrameCount;   //Current Frame Count for the sample generator
+    bool gHybridMaskValid;  //Tells if the hybrid mask is valid
 }
 
 //Defines for syntax highlighting
@@ -79,12 +85,41 @@ cbuffer CB
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
 static const uint kShadowMode = SP_SHADOW_MODE;
+static const bool kUseHybridMask = USE_HYBRID_MASK;
 static const bool kRayAlphaTest = ALPHA_TEST;
 static const float kAmbientFactor = SP_AMBIENT;
 static const float kEnvMapFactor = SP_ENV_FACTOR;
 static const float kEmissiveFactor = SP_EMISSIVE;
 static const bool kUseEnvMap= USE_ENV_MAP;
 static const bool kUseEmissive = true;
+
+/** Struct for the hybrid mask
+*/
+struct HybridMask{
+    bool shootRay;
+    bool shadowSM;
+    bool shadowRay;
+
+    __init(uint mask){
+        shadowSM = mask & 0x01;
+        shootRay = mask & 0x02;
+        shadowRay = mask & 0x04;
+    }
+
+    __init(bool shadowSM, bool shootRay, bool shadowRay){
+        this.shadowSM = shadowSM;
+        this.shootRay = shootRay;
+        this.shadowRay = shadowRay;
+    }
+
+    uint maskOut(){
+        uint mask = 0;
+        if(shadowSM) mask += 1;
+        if(shootRay) mask += 2;
+        if(shadowRay) mask += 4;
+        return mask;
+    }
+}
 
 /** Payload for shadow ray.
 */
@@ -111,8 +146,40 @@ float3 computeDdyPosW(float3 posW, float3 normW, float2 invFrameDim)
     return distUp * projUp;
 }
 
+//Evaluate the hybrid mask
+bool evaluateHybridMask(float2 mvec, bool smUseRay, bool smShadowed){
+    
+    bool useRay = smUseRay;
+    //Get values from last frame
+    if(true){
+        float2 pixel = float2(DispatchRaysIndex().xy) + 0.5;
+        const float2 dims = float2(DispatchRaysDimensions().xy);
+        float2 pixelOffset = mvec * dims;
+        pixel += pixelOffset;
+
+        if(!useRay){
+            for(int x=-1; x <= 1; x+=2){
+                for(int y=-1; y <= 1; y+=2){
+                    int2 loopPixel = int2(pixel.x + x, pixel.y + y);
+                    if(any(loopPixel < 0) || loopPixel.x >= dims.x || loopPixel.y >= dims.y)
+                        continue;
+                    HybridMask mask = HybridMask(gHybridMaskLastFrame[loopPixel]);
+                    useRay |= mask.shootRay && mask.shadowRay && !smShadowed;
+                }
+            }
+        }
+    }
+    return useRay;
+   
+}
+
+void writeHybridMask(HybridMask mask){
+    const uint2 pixel = DispatchRaysIndex().xy;
+    gHybridMask[pixel] = mask.maskOut();
+}
+
 //Calculates the shadowed Li for a given light
-bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uint lightIdx, float random, out float3 toLight, out float3 Li, inout float3 debug){
+bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const float2 mvec, const uint lightIdx, float random, out float3 toLight, out float3 Li, inout float3 debug){
     Li = float3(0);
     toLight = float3(0);
     //Sample the light
@@ -143,7 +210,12 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
         lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);       
         useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
     }
-    
+
+    bool isSMIsShadowed = shadow < 0.5;
+
+    if(kUseHybridMask)
+        useRay = evaluateHybridMask(mvec, useRay,isSMIsShadowed);
+
     //Shoot Shadow ray
     if(useRay && kShadowMode != (uint)SPShadowMode::ShadowMap){
         RayDesc ray;
@@ -159,6 +231,12 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
 
         shadow = rayData.visible ? 1.f : 0.f;                
     }
+
+    if(kUseHybridMask){
+        HybridMask hybridMask = HybridMask(isSMIsShadowed, useRay, useRay && (shadow < 0.5));
+        writeHybridMask(hybridMask);
+    }
+        
 
     if (is_valid(gDebug))
     {
@@ -180,7 +258,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
         if(lod > 5)
             debug = float3(1,0,1);
             
-    #else //Cacaded Level Debug
+    #elif DEBUG_MODE == 2 //Cacaded Level Debug
         SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, lightIdx);
         if (smLightData.type == (uint) LightTypeSM::Directional)
         {
@@ -207,6 +285,20 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const uin
             }
             
         }
+    #else   //Hybrid mask texture
+        if(kUseHybridMask){
+            const uint2 pixel = DispatchRaysIndex().xy;
+            uint mask = gHybridMaskLastFrame[pixel];
+            bool maskUseRay = mask & 0x02;
+            bool maskIsShadowed = mask & 0x01;
+            bool maskRayShadow = mask & 0x04;
+
+            debug.x += maskUseRay ? 1.f : 0.f;
+            debug.y += maskIsShadowed ? 0.f : 1.f;
+            debug.z += maskRayShadow ? 1.0f : 0.f;
+        }else{
+            debug.x = shadow;
+        }        
     #endif
     }
 
@@ -311,6 +403,7 @@ void rayGen()
     float3 posW = posTex.xyz;
     bool valid = posTex.w > 0;
     float3 faceNormalW = gFaceNormalW[pixel].xyz;
+    float2 mvec = gMVec[pixel];
     
     //Get view dir from camera
     float3 view = -gScene.camera.computeRayPinhole(pixel, frameDim).dir;
@@ -343,7 +436,7 @@ void rayGen()
         //Loop over all lights
         for(uint i=0 ; i<lightCount; i++){
             float3 Li, toLight;
-            if(!sampleLight(posW, normalW, faceNormalW, i, sampleNext1D(sg) , toLight, Li, debugOut))
+            if(!sampleLight(posW, normalW, faceNormalW, mvec, i, sampleNext1D(sg) , toLight, Li, debugOut))
                 continue;
             color += Li;
         }
@@ -363,7 +456,7 @@ void rayGen()
         //Loop over all lights
         for(uint i=0 ; i<lightCount; i++){
             float3 Li, toLight;
-            if(!sampleLight(posW, normalW, faceNormalW, i, sampleNext1D(sg) , toLight, Li, debugOut))
+            if(!sampleLight(posW, normalW, faceNormalW, mvec, i, sampleNext1D(sg) , toLight, Li, debugOut))
                 continue;
 
             //Check if point can be shaded
@@ -419,7 +512,7 @@ void rayGen()
         for (uint i = 0; i < lightCount; i++)
         {
             float3 Li, toLight;
-            if (!sampleLight(sd.posW, bsdfProperties.guideNormal, sd.getOrientedFaceNormal(), i,sampleNext1D(sg), toLight, Li, debugOut))
+            if (!sampleLight(sd.posW, bsdfProperties.guideNormal, sd.getOrientedFaceNormal(), mvec, i,sampleNext1D(sg), toLight, Li, debugOut))
                 continue;
 
             color += mi.eval(sd, toLight, sg) * Li;

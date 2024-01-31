@@ -70,10 +70,13 @@ private:
     float mAmbientFactor = 0.1f; //<Ambient light factor
     float mEnvMapFactor = 0.3f; //< Env Map factor
     float mEmissiveFactor = 1.f; //< Emissive Factor
-    uint mDebugMode = 0;            //< Mode for the debug view
+    uint mDebugMode = 3;            //< Mode for the debug view
+    bool mHybridMaskFirstFrame = false; //< Marks if this is the first frame for the hybrid mask and all values are invalid
 
     bool mOptionsChanged = false;
     SPShadowMode mShadowMode = SPShadowMode::Hybrid;
+
+    ref<Texture> mpHybridMask[2];   //Ping Pong temporal hybrid mask
 
     // Ray tracing program.
     struct

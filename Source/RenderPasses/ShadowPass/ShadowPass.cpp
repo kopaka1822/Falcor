@@ -42,6 +42,7 @@ namespace
         {"posW", "gPosW", "World Position"},
         
         {"faceNormalW", "gFaceNormalW", "Face Normal"},
+        {"motionVector", "gMVec", "Motion Vector"},
         {"emissive", "gEmissive", "Emissive", true}
     };
 
@@ -67,7 +68,8 @@ namespace
     const Gui::DropdownList kDebugModes{
         {0, "Hybrid Mask"},
         {1, "Lod Level"},
-        {2, "Cascaded Level"}
+        {2, "Cascaded Level"},
+        {3, "Hybrid Mask Texture"},
     };
 
 } // namespace
@@ -142,7 +144,29 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
     if (mShadowMode != SPShadowMode::RayTraced)
         if (!mpShadowMap->update(pRenderContext))
             return;
-    
+
+    //If the hybrid mask does not exist, create it 
+    if (mShadowMode == SPShadowMode::Hybrid)
+    {
+        if (!mpHybridMask[0])
+        {
+            const auto& dims = renderData.getDefaultTextureDims();
+            for (uint i = 0; i < 2; i++)
+            {
+                mpHybridMask[i] =
+                    Texture::create2D(mpDevice, dims.x, dims.y, ResourceFormat::R8Uint, 1, 1, nullptr, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+                mpHybridMask[i]->setName("Hybrid Mask" + std::to_string(i));
+                
+            }
+            mHybridMaskFirstFrame = true;
+        }
+    }
+    else if (mpHybridMask)
+    {
+        mpHybridMask[0].reset();
+        mpHybridMask[1].reset();
+    }
+        
     shade(pRenderContext, renderData);
     mFrameCount++;
 }
@@ -184,6 +208,7 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
 
     // Add defines
     mShadowTracer.pProgram->addDefine("SP_SHADOW_MODE", std::to_string(uint32_t(mShadowMode)));
+    mShadowTracer.pProgram->addDefine("USE_HYBRID_MASK", mpHybridMask[0] ? "1" : "0");
     mShadowTracer.pProgram->addDefine("SIMPLIFIED_SHADING", mUseSimplifiedShading ? "1" : "0");
     mShadowTracer.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     mShadowTracer.pProgram->addDefine("SP_AMBIENT", std::to_string(mAmbientFactor));
@@ -216,6 +241,15 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     mpSampleGenerator->setShaderData(var);
 
     var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gHybridMaskValid"] = !mHybridMaskFirstFrame && mpHybridMask;
+
+    
+    if (mpHybridMask[0])
+    {
+        var["gHybridMask"] = mpHybridMask[mFrameCount % 2];
+        var["gHybridMaskLastFrame"] = mpHybridMask[(mFrameCount + 1) % 2];
+    }
+        
 
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)
