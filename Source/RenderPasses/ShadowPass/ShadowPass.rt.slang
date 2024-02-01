@@ -96,27 +96,36 @@ static const bool kUseEmissive = true;
 /** Struct for the hybrid mask
 */
 struct HybridMask{
-    bool shootRay;
-    bool shadowSM;
-    bool shadowRay;
+    uint mask;
+
+    __init(){
+        mask = 0;
+    }
 
     __init(uint mask){
-        shadowSM = mask & 0x01;
-        shootRay = mask & 0x02;
-        shadowRay = mask & 0x04;
+        this.mask = mask;
     }
 
     __init(bool shadowSM, bool shootRay, bool shadowRay){
-        this.shadowSM = shadowSM;
-        this.shootRay = shootRay;
-        this.shadowRay = shadowRay;
-    }
-
-    uint maskOut(){
-        uint mask = 0;
+        mask = 0;
         if(shadowSM) mask += 1;
         if(shootRay) mask += 2;
         if(shadowRay) mask += 4;
+    }
+
+    property bool shadowSM{
+        get { return (mask & 1) > 0; }
+    }
+
+    property bool shootRay{
+        get { return (mask & 2) > 0; }
+    }
+
+    property bool shadowRay{
+        get { return (mask & 4) > 0; }
+    }
+
+    uint maskOut(){
         return mask;
     }
 }
@@ -151,23 +160,43 @@ bool evaluateHybridMask(float2 mvec, bool smUseRay, bool smShadowed){
     
     bool useRay = smUseRay;
     //Get values from last frame
-    if(true){
+    if(gHybridMaskValid){
+        //Reproject with motion vectors
         float2 pixel = float2(DispatchRaysIndex().xy) + 0.5;
         const float2 dims = float2(DispatchRaysDimensions().xy);
         float2 pixelOffset = mvec * dims;
         pixel += pixelOffset;
-
-        if(!useRay){
-            for(int x=-1; x <= 1; x+=2){
-                for(int y=-1; y <= 1; y+=2){
-                    int2 loopPixel = int2(pixel.x + x, pixel.y + y);
-                    if(any(loopPixel < 0) || loopPixel.x >= dims.x || loopPixel.y >= dims.y)
-                        continue;
-                    HybridMask mask = HybridMask(gHybridMaskLastFrame[loopPixel]);
-                    useRay |= mask.shootRay && mask.shadowRay && !smShadowed;
-                }
-            }
+        
+        //Get the masks
+        HybridMask mask[5];
+        int2 indexOffsets[5] = {int2(0),int2(-1,0),int2(1,0),int2(0,-1),int2(0,1)};
+        uint maskIdx = 0;
+        for(uint i=0; i<5; i++){
+            int2 idx = int2(pixel + indexOffsets[i]);
+            if(any(idx < 0) || idx.x >= dims.x || idx.y >= dims.y)
+                continue;
+            mask[maskIdx] = HybridMask(gHybridMaskLastFrame[idx]);
+            maskIdx++;
         }
+
+        //Check if ray is necessary (removes ray from core shadow)
+        
+        if(useRay && smShadowed){
+            bool needRay = false;
+            for(uint i=0; i<maskIdx; i++){
+                needRay |= !mask[i].shadowSM || (mask[i].shootRay && !mask[i].shadowRay);
+            }
+            useRay = needRay;
+        }
+        
+        //Check if ray needs to be expanded (expands ray on shadow edges)
+        if(!useRay){
+            bool expandRay = false;
+            for(uint i=0; i<maskIdx; i++){
+                expandRay |= (mask[i].shootRay && mask[i].shadowRay && !smShadowed) || (mask[i].shootRay && !mask[i].shadowRay && smShadowed);
+            }
+            useRay |= expandRay;
+        }        
     }
     return useRay;
    
@@ -234,6 +263,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
 
     if(kUseHybridMask){
         HybridMask hybridMask = HybridMask(isSMIsShadowed, useRay, useRay && (shadow < 0.5));
+        shadow = shadow < 0.5 ? 0.f : 1.f;
         writeHybridMask(hybridMask);
     }
         
@@ -288,14 +318,11 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     #else   //Hybrid mask texture
         if(kUseHybridMask){
             const uint2 pixel = DispatchRaysIndex().xy;
-            uint mask = gHybridMaskLastFrame[pixel];
-            bool maskUseRay = mask & 0x02;
-            bool maskIsShadowed = mask & 0x01;
-            bool maskRayShadow = mask & 0x04;
-
-            debug.x += maskUseRay ? 1.f : 0.f;
-            debug.y += maskIsShadowed ? 0.f : 1.f;
-            debug.z += maskRayShadow ? 1.0f : 0.f;
+            HybridMask mask = HybridMask(gHybridMaskLastFrame[pixel]);
+           
+            debug.x += mask.shootRay ? 1.f : 0.f;
+            debug.y += mask.shadowSM ? 1.f : 0.f;
+            debug.z += mask.shadowRay ? 1.f : 0.f;
         }else{
             debug.x = shadow;
         }        

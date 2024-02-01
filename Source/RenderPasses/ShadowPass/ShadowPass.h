@@ -72,6 +72,8 @@ private:
     float mEmissiveFactor = 1.f; //< Emissive Factor
     uint mDebugMode = 3;            //< Mode for the debug view
     bool mHybridMaskFirstFrame = false; //< Marks if this is the first frame for the hybrid mask and all values are invalid
+    bool mClearHybridMask = false;
+    bool mEnableHybridMask = true;
 
     bool mOptionsChanged = false;
     SPShadowMode mShadowMode = SPShadowMode::Hybrid;

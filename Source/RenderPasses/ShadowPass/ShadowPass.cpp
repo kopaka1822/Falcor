@@ -156,7 +156,8 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
                 mpHybridMask[i] =
                     Texture::create2D(mpDevice, dims.x, dims.y, ResourceFormat::R8Uint, 1, 1, nullptr, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
                 mpHybridMask[i]->setName("Hybrid Mask" + std::to_string(i));
-                
+
+                pRenderContext->clearUAV(mpHybridMask[i]->getUAV().get(), uint4(0));
             }
             mHybridMaskFirstFrame = true;
         }
@@ -208,7 +209,7 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
 
     // Add defines
     mShadowTracer.pProgram->addDefine("SP_SHADOW_MODE", std::to_string(uint32_t(mShadowMode)));
-    mShadowTracer.pProgram->addDefine("USE_HYBRID_MASK", mpHybridMask[0] ? "1" : "0");
+    mShadowTracer.pProgram->addDefine("USE_HYBRID_MASK", mpHybridMask[0] && mEnableHybridMask ? "1" : "0");
     mShadowTracer.pProgram->addDefine("SIMPLIFIED_SHADING", mUseSimplifiedShading ? "1" : "0");
     mShadowTracer.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     mShadowTracer.pProgram->addDefine("SP_AMBIENT", std::to_string(mAmbientFactor));
@@ -271,6 +272,16 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
 
     // Execute shader
     mpScene->raytrace(pRenderContext, mShadowTracer.pProgram.get(), mShadowTracer.pVars, uint3(targetDim, 1));
+
+    mHybridMaskFirstFrame = false;
+
+    if (mClearHybridMask)
+    {
+        pRenderContext->clearUAV(mpHybridMask[0]->getUAV().get(), uint4(0));
+        pRenderContext->clearUAV(mpHybridMask[1]->getUAV().get(), uint4(0));
+        mHybridMaskFirstFrame = true;
+        mClearHybridMask = false;
+    }
 }
 
 void ShadowPass::renderUI(Gui::Widgets& widget)
@@ -282,6 +293,8 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
 
     changed |= widget.checkbox("Shadow Only", mShadowOnly);
     widget.tooltip("Disables shading. Guiding Normal (Textured normal) is used when using Simplified Shading");
+
+    changed |= widget.checkbox("DisableMask", mEnableHybridMask);
 
     //Shading Model
     if (mSimplifiedShadingValid && mComplexShadingValid)
@@ -310,6 +323,8 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
     changed |= widget.var("Emissive Factor", mEmissiveFactor, 0.f, 100.f, 0.01f);
 
     changed |= widget.dropdown("Debug Mode", kDebugModes, mDebugMode);
+
+    mClearHybridMask |= widget.button("Clear HybridMask");
 
     if (mShadowMode != SPShadowMode::RayTraced && mpShadowMap)
     {
