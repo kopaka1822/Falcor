@@ -1082,9 +1082,7 @@ struct ShadowMap
     float msmHamburger(in const float4 moments, in const float lightDist)
     {
         //Bias input data to avoid artifacts
-        float4 b;
-        b.x = moments.x;
-        b.yzw = lerp(moments.yzw, float3(0.5f), kMSMMomentBias);
+        float4 b = lerp(moments, float4(0.5f), kMSMMomentBias);
         float3 z;
         z[0] = lightDist - kMSMDepthBias;
 

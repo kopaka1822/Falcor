@@ -221,7 +221,7 @@ private:
     uint mCascadedLevelCount = 4;
     uint mCascadedTracedLevelsAtEnd = 0; //Adds N number of ray tracing only cascades at the end. Will only work on hybrid mode
     float mCascadedFrustumFix = 0.9f;
-    uint mCascadedLevelTrace = 1;
+    uint mCascadedLevelTrace = 2;       //Trace until level
     float mCascadedReuseEnlargeFactor = 0.1f; // Increases box size by the factor on each side
     bool mEnableTemporalCascadedBoxTest = true; //Tests the cascaded level against the cascaded level from last frame. Only updates if box is outside
 
@@ -253,7 +253,7 @@ private:
     float mMinShadowValueVal = 0.4f; // The min allowed shadow value, else it is set to 0
 
     float mMSMDepthBias = 0.0f;     //Depth Bias (x1000)
-    float mMSMMomentBias = 0.001f;  //Moment Bias (x1000)
+    float mMSMMomentBias = 0.003f;  //Moment Bias (x1000)
 
     bool mMSMUseVarianceTest = true;
     float mMSMVarianceThreshold = 0.05f; //Threshold for additional variance test in hybrid moment shadow maps
