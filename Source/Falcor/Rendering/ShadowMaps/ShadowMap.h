@@ -124,14 +124,6 @@ private:
         float nearPlane = 0.1f;
     };
 
-    struct PreviousCascade
-    {
-        bool valid = false;
-        float4x4 prevView;
-        float2 min;
-        float2 max;
-    };
-
     LightTypeSM getLightType(const ref<Light> light);
     void prepareShadowMapBuffers();
     void prepareRasterProgramms();
@@ -293,7 +285,7 @@ private:
 
     //Cascaded
     std::vector<float4x4> mCascadedVPMatrix;
-    std::vector<PreviousCascade> mPreviousCascades; //Previous cascade for rendering optimizations
+    std::vector<bool> mPreviousCascadeValid; //Previous cascade for rendering optimizations
     std::vector<float> mCascadedFrustumManualVals = {0.05f, 0.15f, 0.3f,1.f}; // Values for Manual set Cascaded frustum. Initialized for 3 Levels
     uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
     float mCascadedMaxFar = 1000000.f;

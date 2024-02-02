@@ -319,7 +319,7 @@ void ShadowMap::prepareShadowMapBuffers()
     }
 
     //For Cascaded optimizations
-    mPreviousCascades.resize(mCascadedLevelCount);
+    mPreviousCascadeValid.resize(mCascadedLevelCount,false);
 
     //Create Textures for scenes with dynamic geometry
     if (mSceneIsDynamic)
@@ -1424,6 +1424,7 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
                 // Copy to used cascade levels
                 for (uint i = 0; i < mCascadedZSlices.size(); i++)
                     mCascadedZSlices[i] = cascadedSlices[i];
+                //mCascadedZSlices[mCascadedZSlices.size() - 1] = mCascadedMaxFar;
             }
             break;
         }
@@ -1478,52 +1479,64 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
             maxZ = std::max(maxZ, vp.z);
         }
 
-        //Set the max to the scenes maximum to ensure all geometry is seen
-        const float minSPZ = math::mul(casView, float4(sceneBounds.minPoint,1)).z;
-        const float maxSPZ = math::mul(casView, float4(sceneBounds.maxPoint, 1)).z;
-        maxZ = std::max(maxZ, minSPZ);
-        maxZ = std::max(maxZ, maxSPZ);
-        minZ = std::min(minZ, minSPZ);
-        minZ = std::min(minZ, maxSPZ);
+        //Get the smallest and biggest Z for the box
+        float3 minMax[2] = {sceneBounds.minPoint, sceneBounds.maxPoint};
+        float3 sceneBoxPoints[8];
+        uint index = 0;
+        for(uint x=0; x<=1;x++)
+            for (uint y=0;y<=1;y++)
+                for (uint z = 0; z <= 1; z++)
+                {
+                    sceneBoxPoints[index] = float3(minMax[x].x, minMax[y].y, minMax[z].z);
+                    index++;
+                }
+
+        for (uint j = 0; j < 8; j++)
+        {
+            float sceneBoundPViewZ = math::mul(casView, float4(sceneBoxPoints[i], 1)).z;
+            maxZ = std::max(maxZ, sceneBoundPViewZ);
+            minZ = std::min(minZ, sceneBoundPViewZ);
+        }
 
         renderLevel[i] = !mEnableTemporalCascadedBoxTest;
 
         //Check the box from last frame and abourt rendering if current level is inside the last frames level
         if (mEnableTemporalCascadedBoxTest)
         {
-            // Check if the current cascade box fit into the box from last frame
-            if (mPreviousCascades[i].valid && !forceUpdate)
+            // Check if the cascaded from last frame is still valid
+            if (mPreviousCascadeValid[i] && !forceUpdate)
             {
-                // Get the AABB from the stored view
-                float2 minRepro = float2(std::numeric_limits<float>::max());
-                float2 maxRepro = float2(std::numeric_limits<float>::min());
+                bool temporalValid = true;
                 for (const float4& p : frustumCorners)
                 {
-                    const float4 vp = math::mul(mPreviousCascades[i].prevView, p);
-                    minRepro.x = std::min(minRepro.x, vp.x);
-                    maxRepro.x = std::max(maxRepro.x, vp.x);
-                    minRepro.y = std::min(minRepro.y, vp.y);
-                    maxRepro.y = std::max(maxRepro.y, vp.y);
+                    const float4 projP = math::mul(mCascadedVPMatrix[i], p);
+                    if (projP.x < -1.f || projP.x > 1.f || projP.y < -1.f || projP.y > 1.f || projP.z < 0.f && projP.z > 1.f)
+                        temporalValid = false;
                 }
 
-                // Test both points against the enlarged box. If the box is inside, skip calculation for this level
-                const float2& minPrev = mPreviousCascades[i].min;
-                const float2& maxPrev = mPreviousCascades[i].max;
-                if (math::all(minRepro >= minPrev) && math::all(minRepro <= maxPrev) && math::all(maxRepro >= minPrev) &&
-                    math::all(maxRepro <= maxPrev))
+                if (temporalValid)
                     continue;
             }
 
             // Enlarge the box in x,y and set the previous cascade
-            minX += minX * mCascadedReuseEnlargeFactor;
-            maxX += maxX * mCascadedReuseEnlargeFactor;
-            minY += minY * mCascadedReuseEnlargeFactor;
-            maxY += maxY * mCascadedReuseEnlargeFactor;
+            if (minX > 0)
+                minX -= minX * mCascadedReuseEnlargeFactor;
+            else
+                minX += minX * mCascadedReuseEnlargeFactor;
+            if (minY > 0)
+                minY -= minY * mCascadedReuseEnlargeFactor;
+            else
+                minY += minY * mCascadedReuseEnlargeFactor;
+            if (maxX < 0)
+                maxX -= maxX * mCascadedReuseEnlargeFactor;
+            else
+                maxX += maxX * mCascadedReuseEnlargeFactor;
+            if (maxY < 0)
+                maxY -= maxY * mCascadedReuseEnlargeFactor;
+            else
+                maxY += maxY * mCascadedReuseEnlargeFactor;
 
-            mPreviousCascades[i].valid = true;
-            mPreviousCascades[i].prevView = casView;
-            mPreviousCascades[i].min = float2(minX, minY);
-            mPreviousCascades[i].max = float2(maxX, maxY);
+            mPreviousCascadeValid[i] = true;
             renderLevel[i] = true;
         }
 
