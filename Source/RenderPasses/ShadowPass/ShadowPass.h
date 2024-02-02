@@ -88,7 +88,11 @@ private:
     bool mClearHybridMask = false;
     bool mEnableHybridMask = true;
     bool mHybridMaskRemoveRays = true;
+    bool mUseHybridMaskRemoveRaysMinDistance = true;
+    float mHybridMaskRemoveRaysMinDistance = 3.f;
     bool mHybridMaskExpandRays = true;
+    bool mUseHybridMaskExpandRaysMaxDistance = true;
+    float mHybridMaskExpandRaysMaxDistance = 70.f;
 
     ref<Texture> mpHybridMask[2];   //Ping Pong temporal hybrid mask
 

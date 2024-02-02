@@ -368,8 +368,14 @@ void ShadowPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
         }
 
         mShadowTracer.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
-    }
 
+
+        // Set starting values for the hybrid mask
+        auto& cameraData = mpScene->getCamera()->getData();
+        float maxDistance = cameraData.farZ - cameraData.nearZ;
+        mHybridMaskRemoveRaysMinDistance = cameraData.nearZ + maxDistance * 0.005;   //The first 0.5% of the visible scene
+        mHybridMaskExpandRaysMaxDistance = cameraData.nearZ + maxDistance * 0.25;   //Until 25% of visible scene
+    }
 }
 
 DefineList ShadowPass::hybridMaskDefines() {
@@ -390,6 +396,11 @@ DefineList ShadowPass::hybridMaskDefines() {
     defines.add("HYBRID_MASK_SAMPLE_PATTERN", std::to_string(samplePattern));
     uint32_t sampleCount = mHybridMaskSamplePattern == HybridMaskSamplePatterns::Box_3x3 ? 9 : 5;
     defines.add("HYBRID_MASK_SAMPLE_COUNT", std::to_string(sampleCount));
+
+    defines.add("HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE", mUseHybridMaskRemoveRaysMinDistance ? "1" : "0");
+    defines.add("HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE", mUseHybridMaskExpandRaysMaxDistance ? "1" : "0");
+    defines.add("HYBRID_MASK_REMOVE_RAYS_MIN_DISTANCE", std::to_string(mHybridMaskRemoveRaysMinDistance));
+    defines.add("HYBRID_MASK_EXPAND_RAYS_MAX_DISTANCE", std::to_string(mHybridMaskExpandRaysMaxDistance));
 
     //Set all enums in a very hacky way
     std::string base = "HYBRID_MASK_SAMPLE_PATTERN_";
@@ -421,8 +432,24 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
             changed |= group.dropdown("Sample Pattern", mHybridMaskSamplePattern);
             changed |= group.checkbox("Remove Rays", mHybridMaskRemoveRays);
             group.tooltip("Removes ray from core shadow. Can lead to temporal artifacts on dynamic objects");   //TODO fix dynamic
+            if (mHybridMaskRemoveRays)
+            {
+                changed |= group.checkbox("Remove Rays at Min distance", mUseHybridMaskRemoveRaysMinDistance);
+                if (mUseHybridMaskRemoveRaysMinDistance)
+                {
+                    group.var("Min Distance", mHybridMaskRemoveRaysMinDistance, 0.0f);
+                }
+            }
             changed |= group.checkbox("Expand Rays", mHybridMaskExpandRays);
             group.tooltip("Expands rays on shadow edges");
+            if (mHybridMaskExpandRays)
+            {
+                changed |= group.checkbox("Expand Rays until Max distance", mUseHybridMaskExpandRaysMaxDistance);
+                if (mUseHybridMaskExpandRaysMaxDistance)
+                {
+                    group.var("Max Distance", mHybridMaskExpandRaysMaxDistance, 0.0f);
+                }
+            }
             mClearHybridMask |= group.button("Clear HybridMask");
         }
     }

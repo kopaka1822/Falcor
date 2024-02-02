@@ -33,8 +33,9 @@ RWTexture2D<uint> gHybridMask;
 
 static const bool kUseHybridMask = USE_HYBRID_MASK;
 static const uint2 kHybridMaskDims = HYBRID_MASK_DIMS;
-static const bool kHybridMaskExpandRays = HYBRID_MASK_EXPAND_RAYS;
 static const uint kHMSampleCount = HYBRID_MASK_SAMPLE_COUNT;
+static const float kHybridMaskRemoveRaysMinDistance = HYBRID_MASK_REMOVE_RAYS_MIN_DISTANCE;
+static const float kHybridMaskExpandRaysMaxDistance = HYBRID_MASK_EXPAND_RAYS_MAX_DISTANCE;
 /** Struct for the hybrid mask
 */
 struct HybridMask{
@@ -73,7 +74,7 @@ struct HybridMask{
 }
 
 //Evaluate the hybrid mask
-bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed, bool frameCountEven = true){
+bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed, float linZ , bool frameCountEven = true){
     
     bool useRay = smUseRay;
     //Get values from last frame
@@ -111,7 +112,7 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
         indexOffsets = {int2(0),int2(-1,0),int2(1,0),int2(0,-1),int2(0,1)};//Count:5
     else        //Cross
         indexOffsets = {int2(0),int2(-1,-1),int2(-1,1),int2(1,-1),int2(1,1)};//Count:5
-#endif
+#endif //HYBRID_MASK_SAMPLE_PATTERN
 
     //Get the samples
     for(uint i=0; i<kHMSampleCount; i++){
@@ -122,27 +123,36 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
         maskCount++;
     }
 
-
     //Check if ray is necessary (removes ray from core shadow)
 #if HYBRID_MASK_REMOVE_RAYS
-    if(useRay && smShadowed){
-        bool needRay = false;
-        for(uint i=0; i<maskCount; i++){
-            needRay |= !mask[i].shadowSM || (mask[i].shootRay && !mask[i].shadowRay);
+    #if HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
+        if(useRay && smShadowed && (linZ > kHybridMaskRemoveRaysMinDistance))
+    #else //HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
+        if(useRay && smShadowed)
+    #endif //HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
+        {
+            bool needRay = false;
+            for(uint i=0; i<maskCount; i++){
+                needRay |= !mask[i].shadowSM || (mask[i].shootRay && !mask[i].shadowRay);
         }
         useRay = needRay;
     }
-#endif
+#endif //HYBRID_MASK_REMOVE_RAYS
     //Check if ray needs to be expanded (expands ray on shadow edges)
 #if HYBRID_MASK_EXPAND_RAYS
-    if(!useRay){
-        bool expandRay = false;
-        for(uint i=0; i<maskCount; i++){
-            expandRay |= (mask[i].shootRay && mask[i].shadowRay && !smShadowed) || (mask[i].shootRay && !mask[i].shadowRay && smShadowed);
+    #if HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE
+        if(!useRay && (linZ < kHybridMaskExpandRaysMaxDistance))
+    #else//HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE
+        if(!useRay)
+    #endif//HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE
+        {
+            bool expandRay = false;
+            for(uint i=0; i<maskCount; i++){
+                expandRay |= (mask[i].shootRay && mask[i].shadowRay && !smShadowed) || (mask[i].shootRay && !mask[i].shadowRay && smShadowed);
         }
         useRay |= expandRay;
     }
-#endif
+#endif //HYBRID_MASK_EXPAND_RAYS
 
     return useRay;
 }

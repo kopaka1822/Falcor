@@ -150,8 +150,11 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
 
     bool isSMIsShadowed = shadow < 0.5;
 
-    if(kUseHybridMask && gHybridMaskValid)
-        useRay = evaluateHybridMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed, (gFrameCount%2) == 0);
+    if(kUseHybridMask && gHybridMaskValid){
+        float camDist = distance(gScene.camera.getPosition(), posW);
+        useRay = evaluateHybridMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed,camDist , (gFrameCount%2) == 0);
+    }
+        
 
     //Shoot Shadow ray
     if(useRay && kShadowMode != (uint)SPShadowMode::ShadowMap){
