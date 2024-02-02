@@ -209,7 +209,6 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
 
     // Add defines
     mShadowTracer.pProgram->addDefine("SP_SHADOW_MODE", std::to_string(uint32_t(mShadowMode)));
-    mShadowTracer.pProgram->addDefine("USE_HYBRID_MASK", mpHybridMask[0] && mEnableHybridMask ? "1" : "0");
     mShadowTracer.pProgram->addDefine("SIMPLIFIED_SHADING", mUseSimplifiedShading ? "1" : "0");
     mShadowTracer.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     mShadowTracer.pProgram->addDefine("SP_AMBIENT", std::to_string(mAmbientFactor));
@@ -221,6 +220,7 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     mShadowTracer.pProgram->addDefine("SHADOW_ONLY", mShadowOnly ? "1" : "0");
 
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
+    mShadowTracer.pProgram->addDefines(hybridMaskDefines());
 
     // Prepare Vars
     if (!mShadowTracer.pVars)
@@ -244,14 +244,8 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gHybridMaskValid"] = !mHybridMaskFirstFrame && mpHybridMask;
 
+    setHybridMaskVars(var, mFrameCount);
     
-    if (mpHybridMask[0])
-    {
-        var["gHybridMask"] = mpHybridMask[mFrameCount % 2];
-        var["gHybridMaskLastFrame"] = mpHybridMask[(mFrameCount + 1) % 2];
-    }
-        
-
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)
     {
@@ -294,8 +288,6 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
     changed |= widget.checkbox("Shadow Only", mShadowOnly);
     widget.tooltip("Disables shading. Guiding Normal (Textured normal) is used when using Simplified Shading");
 
-    changed |= widget.checkbox("DisableMask", mEnableHybridMask);
-
     //Shading Model
     if (mSimplifiedShadingValid && mComplexShadingValid)
     {
@@ -324,7 +316,7 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
 
     changed |= widget.dropdown("Debug Mode", kDebugModes, mDebugMode);
 
-    mClearHybridMask |= widget.button("Clear HybridMask");
+    changed |= hybridMaskUI(widget);
 
     if (mShadowMode != SPShadowMode::RayTraced && mpShadowMap)
     {
@@ -378,4 +370,63 @@ void ShadowPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
         mShadowTracer.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
     }
 
+}
+
+DefineList ShadowPass::hybridMaskDefines() {
+    DefineList defines;
+    defines.add("USE_HYBRID_MASK", mpHybridMask[0] && mEnableHybridMask ? "1" : "0");
+    if (mpHybridMask[0])
+        defines.add(
+            "HYBRID_MASK_DIMS",
+            "uint2(" + std::to_string(mpHybridMask[0]->getWidth()) + "," + std::to_string(mpHybridMask[0]->getHeight()) + ")"
+        );
+    else
+        defines.add("HYBRID_MASK_DIMS", "uint2(0)");
+
+    defines.add("HYBRID_MASK_REMOVE_RAYS", mHybridMaskRemoveRays ? "1" : "0");
+    defines.add("HYBRID_MASK_EXPAND_RAYS", mHybridMaskExpandRays ? "1" : "0");
+
+    uint32_t samplePattern = uint32_t(mHybridMaskSamplePattern);
+    defines.add("HYBRID_MASK_SAMPLE_PATTERN", std::to_string(samplePattern));
+    uint32_t sampleCount = mHybridMaskSamplePattern == HybridMaskSamplePatterns::Box_3x3 ? 9 : 5;
+    defines.add("HYBRID_MASK_SAMPLE_COUNT", std::to_string(sampleCount));
+
+    //Set all enums in a very hacky way
+    std::string base = "HYBRID_MASK_SAMPLE_PATTERN_";
+    const auto& samplePatternItems = EnumInfo<HybridMaskSamplePatterns>::items();
+    for (const auto& samplePatternItem : samplePatternItems)
+    {
+        defines.add(base + samplePatternItem.second.c_str(), std::to_string(uint32_t(samplePatternItem.first)));
+    }
+
+    return defines;
+}
+
+void ShadowPass::setHybridMaskVars(ShaderVar& var, const uint frameCount) {
+    if (mpHybridMask[0])
+    {
+        var["gHybridMask"] = mpHybridMask[frameCount % 2];
+        var["gHybridMaskLastFrame"] = mpHybridMask[(frameCount + 1) % 2];
+    }
+}
+
+bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
+    bool changed = false;
+
+    if (auto group = widget.group("Hybrid Mask"))
+    {
+        changed |= group.checkbox("Enable", mEnableHybridMask);
+        if (mEnableHybridMask)
+        {
+            changed |= group.dropdown("Sample Pattern", mHybridMaskSamplePattern);
+            changed |= group.checkbox("Remove Rays", mHybridMaskRemoveRays);
+            group.tooltip("Removes ray from core shadow. Can lead to temporal artifacts on dynamic objects");   //TODO fix dynamic
+            changed |= group.checkbox("Expand Rays", mHybridMaskExpandRays);
+            group.tooltip("Expands rays on shadow edges");
+            mClearHybridMask |= group.button("Clear HybridMask");
+        }
+    }
+    
+
+    return changed;
 }

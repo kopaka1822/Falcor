@@ -40,6 +40,7 @@ import Rendering.Materials.Fresnel;
 import Rendering.ShadowMaps.ShadowMap;
 
 import ShadowPassData;
+import HybridMask;
 
 //Inputs
 Texture2D<float4> gPosW;
@@ -63,10 +64,6 @@ Texture2D<float4> gSpecRough;
 RWTexture2D<float4> gColor;
 RWTexture2D<float4> gDebug;
 
-//Hybrid Mask
-Texture2D<uint> gHybridMaskLastFrame;
-RWTexture2D<uint> gHybridMask;
-
 cbuffer CB
 {
     uint gFrameCount;   //Current Frame Count for the sample generator
@@ -85,50 +82,12 @@ cbuffer CB
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
 static const uint kShadowMode = SP_SHADOW_MODE;
-static const bool kUseHybridMask = USE_HYBRID_MASK;
 static const bool kRayAlphaTest = ALPHA_TEST;
 static const float kAmbientFactor = SP_AMBIENT;
 static const float kEnvMapFactor = SP_ENV_FACTOR;
 static const float kEmissiveFactor = SP_EMISSIVE;
 static const bool kUseEnvMap= USE_ENV_MAP;
 static const bool kUseEmissive = true;
-
-/** Struct for the hybrid mask
-*/
-struct HybridMask{
-    uint mask;
-
-    __init(){
-        mask = 0;
-    }
-
-    __init(uint mask){
-        this.mask = mask;
-    }
-
-    __init(bool shadowSM, bool shootRay, bool shadowRay){
-        mask = 0;
-        if(shadowSM) mask += 1;
-        if(shootRay) mask += 2;
-        if(shadowRay) mask += 4;
-    }
-
-    property bool shadowSM{
-        get { return (mask & 1) > 0; }
-    }
-
-    property bool shootRay{
-        get { return (mask & 2) > 0; }
-    }
-
-    property bool shadowRay{
-        get { return (mask & 4) > 0; }
-    }
-
-    uint maskOut(){
-        return mask;
-    }
-}
 
 /** Payload for shadow ray.
 */
@@ -155,57 +114,6 @@ float3 computeDdyPosW(float3 posW, float3 normW, float2 invFrameDim)
     return distUp * projUp;
 }
 
-//Evaluate the hybrid mask
-bool evaluateHybridMask(float2 mvec, bool smUseRay, bool smShadowed){
-    
-    bool useRay = smUseRay;
-    //Get values from last frame
-    if(gHybridMaskValid){
-        //Reproject with motion vectors
-        float2 pixel = float2(DispatchRaysIndex().xy) + 0.5;
-        const float2 dims = float2(DispatchRaysDimensions().xy);
-        float2 pixelOffset = mvec * dims;
-        pixel += pixelOffset;
-        
-        //Get the masks
-        HybridMask mask[5];
-        int2 indexOffsets[5] = {int2(0),int2(-1,0),int2(1,0),int2(0,-1),int2(0,1)};
-        uint maskIdx = 0;
-        for(uint i=0; i<5; i++){
-            int2 idx = int2(pixel + indexOffsets[i]);
-            if(any(idx < 0) || idx.x >= dims.x || idx.y >= dims.y)
-                continue;
-            mask[maskIdx] = HybridMask(gHybridMaskLastFrame[idx]);
-            maskIdx++;
-        }
-
-        //Check if ray is necessary (removes ray from core shadow)
-        
-        if(useRay && smShadowed){
-            bool needRay = false;
-            for(uint i=0; i<maskIdx; i++){
-                needRay |= !mask[i].shadowSM || (mask[i].shootRay && !mask[i].shadowRay);
-            }
-            useRay = needRay;
-        }
-        
-        //Check if ray needs to be expanded (expands ray on shadow edges)
-        if(!useRay){
-            bool expandRay = false;
-            for(uint i=0; i<maskIdx; i++){
-                expandRay |= (mask[i].shootRay && mask[i].shadowRay && !smShadowed) || (mask[i].shootRay && !mask[i].shadowRay && smShadowed);
-            }
-            useRay |= expandRay;
-        }        
-    }
-    return useRay;
-   
-}
-
-void writeHybridMask(HybridMask mask){
-    const uint2 pixel = DispatchRaysIndex().xy;
-    gHybridMask[pixel] = mask.maskOut();
-}
 
 //Calculates the shadowed Li for a given light
 bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const float2 mvec, const uint lightIdx, float random, out float3 toLight, out float3 Li, inout float3 debug){
@@ -242,8 +150,8 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
 
     bool isSMIsShadowed = shadow < 0.5;
 
-    if(kUseHybridMask)
-        useRay = evaluateHybridMask(mvec, useRay,isSMIsShadowed);
+    if(kUseHybridMask && gHybridMaskValid)
+        useRay = evaluateHybridMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed, (gFrameCount%2) == 0);
 
     //Shoot Shadow ray
     if(useRay && kShadowMode != (uint)SPShadowMode::ShadowMap){
@@ -262,9 +170,8 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     }
 
     if(kUseHybridMask){
-        HybridMask hybridMask = HybridMask(isSMIsShadowed, useRay, useRay && (shadow < 0.5));
-        shadow = shadow < 0.5 ? 0.f : 1.f;
-        writeHybridMask(hybridMask);
+        writeHybridMask(DispatchRaysIndex().xy, isSMIsShadowed, useRay, useRay && (shadow < 0.5));
+        shadow = shadow < 0.5 ? 0.f : 1.f; // Clamp Shadow
     }
         
 

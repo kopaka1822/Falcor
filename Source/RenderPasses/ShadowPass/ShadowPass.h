@@ -30,6 +30,7 @@
 #include "RenderGraph/RenderPass.h"
 #include "Rendering/ShadowMaps/ShadowMap.h"
 #include "ShadowPassData.slang"
+#include "HybridMaskSamplePatterns.slang"
 
 using namespace Falcor;
 
@@ -55,6 +56,11 @@ private:
     //Dispatches the shaders
     void shade(RenderContext* pRenderContext, const RenderData& renderData);
 
+    //Hybrid mask functions
+    DefineList hybridMaskDefines();
+    void setHybridMaskVars(ShaderVar& var, const uint frameCount);
+    bool hybridMaskUI(Gui::Widgets& widget);
+
     // Internal state
     ref<Scene> mpScene;                     ///< Current scene.
     std::unique_ptr<ShadowMap> mpShadowMap; ///< Shadow Map
@@ -71,12 +77,18 @@ private:
     float mEnvMapFactor = 0.3f; //< Env Map factor
     float mEmissiveFactor = 1.f; //< Emissive Factor
     uint mDebugMode = 3;            //< Mode for the debug view
+    bool mOptionsChanged = false;
+    SPShadowMode mShadowMode = SPShadowMode::Hybrid;
+
+    //Hybrid Mask
+
+    HybridMaskSamplePatterns mHybridMaskSamplePattern = HybridMaskSamplePatterns::Plus;
+
     bool mHybridMaskFirstFrame = false; //< Marks if this is the first frame for the hybrid mask and all values are invalid
     bool mClearHybridMask = false;
     bool mEnableHybridMask = true;
-
-    bool mOptionsChanged = false;
-    SPShadowMode mShadowMode = SPShadowMode::Hybrid;
+    bool mHybridMaskRemoveRays = true;
+    bool mHybridMaskExpandRays = true;
 
     ref<Texture> mpHybridMask[2];   //Ping Pong temporal hybrid mask
 
