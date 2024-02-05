@@ -123,6 +123,18 @@ private:
         float farPlane = 30.f;
         float nearPlane = 0.1f;
     };
+    struct VPMatrixBuffer
+    {
+        ref<Buffer> buffer = nullptr;
+        ref<Buffer> staging = nullptr;
+        std::array<uint64_t, kStagingBufferCount> stagingFenceWaitValues; // Fence wait values for staging cpu / gpu sync 
+        uint32_t stagingCount = 0;
+
+        void reset() {
+            buffer.reset();
+            staging.reset();
+        }
+    };
 
     LightTypeSM getLightType(const ref<Light> light);
     void prepareShadowMapBuffers();
@@ -135,6 +147,7 @@ private:
     void updateRasterizerStates();
     void handleNormalizedPixelSizeBuffer();
     void updateJitterSampleGenerator();
+    void updateSMVPBuffer(RenderContext* pRenderContext, VPMatrixBuffer& vpBuffer, std::vector<float4x4>& vpMatrix);
 
     DefineList getDefinesShadowMapGenPass(bool addAlphaModeDefines = true) const;
 
@@ -153,7 +166,7 @@ private:
     // Getter
     std::vector<ref<Texture>>& getShadowMapsCube() { return mpShadowMapsCube; }
     std::vector<ref<Texture>>& getShadowMaps() { return mpShadowMaps; }
-    ref<Buffer> getViewProjectionBuffer() { return mpVPMatrixBuffer; }
+    ref<Buffer> getViewProjectionBuffer() { return mpVPMatrixBuffer.buffer; }
     ref<Buffer> getLightMapBuffer() { return mpLightMapping; }
     ref<Sampler> getSampler() { return mpShadowSamplerPoint; }
     float getFarPlane() { return mFar; }
@@ -287,7 +300,6 @@ private:
     std::vector<float4x4> mCascadedVPMatrix;
     std::vector<bool> mPreviousCascadeValid; //Previous cascade for rendering optimizations
     std::vector<float> mCascadedFrustumManualVals = {0.05f, 0.15f, 0.3f,1.f}; // Values for Manual set Cascaded frustum. Initialized for 3 Levels
-    uint mCascadedMatrixStartIndex = 0;         //Start index for the matrix buffer
     float mCascadedMaxFar = 1000000.f;
     float mCascadedStochasticRange = 0.05f;
     std::vector<float> mCascadedZSlices;
@@ -298,7 +310,7 @@ private:
     uint2 mNPSOffsets = uint2(0);   //x = idx first spot; y = idx first cascade
     std::vector<float4x4> mSpotDirViewProjMat;      //Spot matrices
     std::vector<LightTypeSM> mPrevLightType;   // Vector to check if the Shadow Map Type is still correct
-    std::array<uint64_t, kStagingBufferCount> mStagingFenceWaitValues;  //Fence wait values for staging cpu / gpu sync               
+                  
 
     //Blur 
     std::unique_ptr<SMGaussianBlur> mpBlurShadowMap;
@@ -313,8 +325,9 @@ private:
     std::vector<ref<Texture>> mpShadowMapsStatic;     // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
     //std::vector<ref<Texture>> mpShadowMapsCascadedStatic; // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
     ref<Buffer> mpLightMapping;
-    ref<Buffer> mpVPMatrixBuffer;
-    ref<Buffer> mpVPMatrixStangingBuffer;
+    VPMatrixBuffer mpVPMatrixBuffer;
+    VPMatrixBuffer mpCascadedVPMatrixBuffer;
+    //ref<Buffer> mpVPMatrixStangingBuffer;
     ref<Buffer> mpNormalizedPixelSize;             //Buffer with the normalized pixel size for each ShadowMap
     ref<Texture> mpDepthCascaded;                  //Depth texture needed for some types of cascaded (can be null)
     ref<Texture> mpDepthCube;                      //Depth texture needed for the cube map

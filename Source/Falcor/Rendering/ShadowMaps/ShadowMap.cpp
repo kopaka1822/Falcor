@@ -115,7 +115,9 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
     mpShadowSamplerLinear = Sampler::create(mpDevice, samplerDesc);
 
     //Init Fence values
-    for (auto& waitVal : mStagingFenceWaitValues)
+    for (auto& waitVal : mpVPMatrixBuffer.stagingFenceWaitValues)
+        waitVal = 0;
+    for (auto& waitVal : mpCascadedVPMatrixBuffer.stagingFenceWaitValues)
         waitVal = 0;
 
     // Set RasterizerStateDescription
@@ -154,7 +156,7 @@ void ShadowMap::prepareShadowMapBuffers()
     {
         mpLightMapping.reset();
         mpVPMatrixBuffer.reset();
-        mpVPMatrixStangingBuffer.reset();
+        mpCascadedVPMatrixBuffer.reset();
     }
 
     //Initialize the Shadow Map Textures
@@ -404,26 +406,42 @@ void ShadowMap::prepareShadowMapBuffers()
         mpLightMapping->setName("ShadowMapLightMapping");
     }
 
-    if ((!mpVPMatrixBuffer) && (mpShadowMaps.size() > 0 || mpCascadedShadowMaps))
+    if ((!mpVPMatrixBuffer.buffer) && (mpShadowMaps.size() > 0))
     {
-        uint cascadedCount = mpCascadedShadowMaps ? 1 : 0;
-        size_t size = mpShadowMaps.size() + cascadedCount *  mCascadedLevelCount;
+        size_t size = mpShadowMaps.size();
         std::vector<float4x4> initData(size * kStagingBufferCount);
         for (size_t i = 0; i < initData.size(); i++)
             initData[i] = float4x4::identity();
 
-         mpVPMatrixBuffer = Buffer::createStructured(
+         mpVPMatrixBuffer.buffer = Buffer::createStructured(
             mpDevice, sizeof(float4x4), size, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false
         );
-        mpVPMatrixBuffer->setName("ShadowMapViewProjectionBuffer");
+        mpVPMatrixBuffer.buffer->setName("ShadowMap_VP");
 
-        mpVPMatrixStangingBuffer = Buffer::createStructured(
+        mpVPMatrixBuffer.staging = Buffer::createStructured(
             mpDevice, sizeof(float4x4), size * kStagingBufferCount, ResourceBindFlags::ShaderResource,
             Buffer::CpuAccess::Write, initData.data(), false
         );
-        mpVPMatrixStangingBuffer->setName("ShadowMapViewProjectionStagingBuffer");
-       
-        mCascadedMatrixStartIndex = mpShadowMaps.size();   //Set the start index for the cascaded VP Mats
+        mpVPMatrixBuffer.staging->setName("ShadowMap_VPStaging");
+    }
+
+    if ((!mpCascadedVPMatrixBuffer.buffer) && (mpCascadedShadowMaps))
+    {
+        size_t size = mCascadedLevelCount;
+        std::vector<float4x4> initData(size * kStagingBufferCount);
+        for (size_t i = 0; i < initData.size(); i++)
+            initData[i] = float4x4::identity();
+
+        mpCascadedVPMatrixBuffer.buffer = Buffer::createStructured(
+            mpDevice, sizeof(float4x4), size, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false
+        );
+        mpCascadedVPMatrixBuffer.buffer->setName("SMCascaded_VP");
+
+        mpCascadedVPMatrixBuffer.staging = Buffer::createStructured(
+            mpDevice, sizeof(float4x4), size * kStagingBufferCount, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::Write,
+            initData.data(), false
+        );
+        mpCascadedVPMatrixBuffer.staging->setName("SMCascaded_VPStaging");
     }
 
     mCascadedVPMatrix.resize(mCascadedLevelCount);
@@ -650,7 +668,6 @@ DefineList ShadowMap::getDefines() const
     defines.add("SHADOW_MAP_MODE", std::to_string((uint)mShadowMapType));
     defines.add("NUM_SHADOW_MAPS_CUBE", std::to_string(countShadowMapsCube));
     defines.add("NUM_SHADOW_MAPS_MISC", std::to_string(countShadowMapsMisc));
-    defines.add("CASCADED_MATRIX_OFFSET", std::to_string(mCascadedMatrixStartIndex));
     defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
     defines.add("CASCADED_SLICE_BUFFER_SIZE", std::to_string(cascadedSliceBufferSize));
     defines.add("CASCADE_LEVEL_TRACE", std::to_string(mCascadedLevelTrace));
@@ -771,7 +788,8 @@ void ShadowMap::setShaderData(const uint2 frameDim)
     }
      
     var["gShadowMapNPSBuffer"] = mpNormalizedPixelSize; //Can be Nullptr on init
-    var["gShadowMapVPBuffer"] = mpVPMatrixBuffer; // Can be Nullptr
+    var["gShadowMapVPBuffer"] = mpVPMatrixBuffer.buffer; // Can be Nullptr
+    var["gSMCascadedVPBuffer"] = mpCascadedVPMatrixBuffer.buffer; // Can be Nullptr
     var["gShadowMapIndexMap"] = mpLightMapping;   // Can be Nullptr
     var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
     var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
@@ -1497,7 +1515,7 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
             maxZ = std::max(maxZ, sceneBoundPViewZ);
             minZ = std::min(minZ, sceneBoundPViewZ);
         }
-
+        
         renderLevel[i] = !mEnableTemporalCascadedBoxTest;
 
         //Check the box from last frame and abourt rendering if current level is inside the last frames level
@@ -1677,9 +1695,13 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
                 mpCascadedShadowMaps->generateMips(pRenderContext,false, i);
         }
     }
-       
 
-    return true;
+    //Check if a cascaded was rendered (and the VP buffer should be updated
+    bool updateVP = false;
+    for (uint i = 0; i<renderCascadedLevel.size(); i++)
+        updateVP |= renderCascadedLevel[i];
+
+    return updateVP;
 }
 
 bool ShadowMap::rayGenCascaded(ref<Light> light, RenderContext* pRenderContext, bool cameraMoved)
@@ -1866,18 +1888,23 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 
     // Spot/Directional Lights
     std::vector<bool> wasRendered(lightRenderListMisc.size());
-    bool updateVPBuffer = false;
+    bool updateVP = false;
     // Render all spot / directional lights
     for (size_t i = 0; i < lightRenderListMisc.size(); i++)
     {
         if (mUseRaySMGen)
-            updateVPBuffer |= rayGenSpotLight(i, lightRenderListMisc[i], pRenderContext, wasRendered);
+            updateVP |= rayGenSpotLight(i, lightRenderListMisc[i], pRenderContext, wasRendered);
         else
-            updateVPBuffer |= rasterSpotLight(i, lightRenderListMisc[i], pRenderContext, wasRendered);
+            updateVP |= rasterSpotLight(i, lightRenderListMisc[i], pRenderContext, wasRendered);
     }
 
+    //Update VP
+    if (updateVP)
+        updateSMVPBuffer(pRenderContext, mpVPMatrixBuffer, mSpotDirViewProjMat);
+
     //Render cascaded
-    updateVPBuffer |= lightRenderListCascaded.size() > 0;
+    //updateVPBuffer |= lightRenderListCascaded.size() > 0;
+    bool updateCascadedVPBuffer = false;
     bool cascFirstThisFrame = true;
     const auto& camera = mpScene->getCamera();
     auto cameraChanges = camera->getChanges();
@@ -1887,54 +1914,47 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     if (lightRenderListCascaded.size() > 0)
     {
         if (mUseRaySMGen)
-            updateVPBuffer |= rayGenCascaded(lightRenderListCascaded[0], pRenderContext,cameraMoved);
+            updateCascadedVPBuffer |= rayGenCascaded(lightRenderListCascaded[0], pRenderContext, cameraMoved);
         else
-            updateVPBuffer |= rasterCascaded(lightRenderListCascaded[0], pRenderContext, cameraMoved);
+            updateCascadedVPBuffer |= rasterCascaded(lightRenderListCascaded[0], pRenderContext, cameraMoved);
     }
     
-
-    // Write all ViewProjectionMatrix to the buffer
-    // TODO optimize this depending on the number of active lights
-    if (updateVPBuffer)
-    {
-        static uint stagingCount = 0;
-
-        //Update staging values
-        mStagingFenceWaitValues[stagingCount] = mpScene->getLastFrameFenceValue();
-        stagingCount = (stagingCount + 1) % kStagingBufferCount;
-
-        uint cascadedCount = mpCascadedShadowMaps ? 1 : 0;
-
-        size_t totalSize = mpShadowMaps.size() + cascadedCount * mCascadedLevelCount;
-        auto& fenceWaitVal = mStagingFenceWaitValues[stagingCount];
-        const uint stagingOffset = totalSize * stagingCount;
-
-        //Wait for the GPU to finish copying from kStagingFramesInFlight frames back
-        mpScene->getFence()->syncCpu(fenceWaitVal);
-
-        float4x4* mats = (float4x4*)mpVPMatrixStangingBuffer->map(Buffer::MapType::Write);
-        for (size_t i = 0; i < mSpotDirViewProjMat.size(); i++)
-        {
-            if (!wasRendered[i])
-                continue;
-            mats[stagingOffset + i] = mSpotDirViewProjMat[i];
-        }
-
-        for (size_t i = 0; i < mCascadedLevelCount; i++)
-        {
-            mats[stagingOffset + mCascadedMatrixStartIndex + i] = mCascadedVPMatrix[i];
-        }
-
-        pRenderContext->copyBufferRegion(
-            mpVPMatrixBuffer.get(), 0, mpVPMatrixStangingBuffer.get(), sizeof(float4x4) * stagingOffset, sizeof(float4x4) * totalSize
-        );
-    }
+    //Update VP
+    if (updateCascadedVPBuffer)
+        updateSMVPBuffer(pRenderContext, mpCascadedVPMatrixBuffer, mCascadedVPMatrix);
 
     handleNormalizedPixelSizeBuffer();
 
     mUpdateShadowMap = false;
     return true;
 }
+
+void ShadowMap::updateSMVPBuffer(RenderContext* pRenderContext, VPMatrixBuffer& vpBuffer, std::vector<float4x4>& vpMatrix) {
+    auto& stagingCount = vpBuffer.stagingCount;
+
+    // Update staging values
+    vpBuffer.stagingFenceWaitValues[stagingCount] = mpScene->getLastFrameFenceValue();
+    stagingCount = (stagingCount + 1) % kStagingBufferCount;
+    
+
+    size_t totalSize = vpMatrix.size();
+    auto& fenceWaitVal = vpBuffer.stagingFenceWaitValues[stagingCount];
+    const uint stagingOffset = totalSize * stagingCount;
+
+    // Wait for the GPU to finish copying from kStagingFramesInFlight frames back
+    mpScene->getFence()->syncCpu(fenceWaitVal);
+    float4x4* mats = (float4x4*)vpBuffer.staging->map(Buffer::MapType::Write);
+
+    for (size_t i = 0; i < totalSize; i++)
+    {
+        mats[stagingOffset + i] = vpMatrix[i];
+    }
+
+    pRenderContext->copyBufferRegion(
+        vpBuffer.buffer.get(), 0, vpBuffer.staging.get(), sizeof(float4x4) * stagingOffset, sizeof(float4x4) * totalSize
+    );
+}
+
 
 bool ShadowMap::renderUI(Gui::Widgets& widget)
 {

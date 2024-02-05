@@ -37,7 +37,8 @@ struct ShadowMap
     Texture2D<float4> gShadowMapF4[NUM_SHADOW_MAPS_MISC];                           //(Spot)ShadowMap with type float4. Used in filtered SM. Can be Null
     Texture2DArray<float4> gCascadedShadowMapF4;                                    //CascadedShadowMap with type float4. Used in filtered SM. Can be Null
     StructuredBuffer<uint> gShadowMapIndexMap;                                      //Maps global light index to local buffer index. Only used if kMultipleSMTypes == true
-    StructuredBuffer<float4x4> gShadowMapVPBuffer;                                  //Buffer for the ViewProjection Matrices [Spot | Cascaded]           
+    StructuredBuffer<float4x4> gShadowMapVPBuffer;                                  //Buffer for the ViewProjection Matrices [Spot]           
+    StructuredBuffer<float4x4> gSMCascadedVPBuffer;                                 //Buffer for the ViewProjection Matrices [Cascaded] 
     StructuredBuffer<float> gShadowMapNPSBuffer;                                    //Buffer for the Normalized Pixel Size [Point | Spot | Cascaded]
 
     float gShadowMapFarPlane;                           //Far plane of the shadow map //TODO move to defines
@@ -51,7 +52,6 @@ struct ShadowMap
     //Static Constants
     static const bool kMultipleSMTypes = MULTIPLE_SHADOW_MAP_TYPES;         //Enabled if more than one type is present (e.g. point, spot, cascaded)
     static const uint kShadowMapMode = SHADOW_MAP_MODE;                     //Mode of the Shadow Map (e.g. normal, variance, exponential)
-    static const uint kCascadedMatOffset = CASCADED_MATRIX_OFFSET;          //Cascaded offset for gShadowMapVPBuffer
     static const uint kCascadedLevels = CASCADED_LEVEL;                     //Number of Cascaded Levels
     static const bool kUsePCF = SM_USE_PCF;                                 //Enables PCF (only supported for "normal" SM)
     static const bool kUsePoissonSampling = SM_USE_POISSON_SAMPLING;        //Enables Statisfied Poisson Sampling (only supported for "normal" SM)
@@ -462,7 +462,7 @@ struct ShadowMap
         //Go through all levels
         for(level = 0; level < kCascadedLevels; level++)
         {
-            float4x4 viewProjectMat = gShadowMapVPBuffer[kCascadedMatOffset + level];
+            float4x4 viewProjectMat = gSMCascadedVPBuffer[level];
             float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
            
             projPos.y *= -1; //Flip 
@@ -504,7 +504,7 @@ struct ShadowMap
             near = far;
         }
 
-        float4x4 viewProjectMat = gShadowMapVPBuffer[kCascadedMatOffset + level];
+        float4x4 viewProjectMat = gSMCascadedVPBuffer[level];
         float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
 
         projPos.y *= -1; //Flip 
@@ -517,7 +517,7 @@ struct ShadowMap
         //Fallback (Only used when stoachstic threshold is too big)
         if(!valid){
             level = min(kCascadedLevels-1, level + 1);
-            viewProjectMat = gShadowMapVPBuffer[kCascadedMatOffset + level];
+            viewProjectMat = gSMCascadedVPBuffer[level];
             projPos = mul(viewProjectMat, float4(posW, 1.f));
 
             projPos.y *= -1; //Flip 
@@ -543,7 +543,7 @@ struct ShadowMap
                 upperBound = 1.f;
                 lowerBound = 0.f;
             }
-            float4x4 viewProjectMat = gShadowMapVPBuffer[kCascadedMatOffset + level];
+            float4x4 viewProjectMat = gSMCascadedVPBuffer[level];
             float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
            
             projPos.y *= -1; //Flip 
@@ -1446,21 +1446,22 @@ struct ShadowMap
             return 0.f;
         
         uint lightIdx = lightData.index;
-        
+
+        float4x4 viewProjectMat;
         uint bufferIdx = lightIdx;
         uint texSize = k2DSMRes;
-        uint cascLevel = 0;
         if(lightData.type == (uint)LightTypeSM::Directional){
-            //cascLevel = getCascadedLevel(posW);
+            uint cascLevel = 0;
             float2 tmpUV;
             float tmpDist;
             if (!directionalDistanceAndSampleVec(posW, cascLevel, tmpUV, tmpDist))
                 return 0.f;
-            bufferIdx = kCascadedMatOffset + cascLevel;
             texSize = kCascadedSMRes;
+            viewProjectMat = gSMCascadedVPBuffer[cascLevel];
+        }else{
+            viewProjectMat = gShadowMapVPBuffer[bufferIdx];
         }
         
-        float4x4 viewProjectMat = gShadowMapVPBuffer[bufferIdx + cascLevel];
         //Get Projected Position
         float4 projPos      = mul(viewProjectMat, float4(posW, 1.f));
         float4 projPosDdx   = mul(viewProjectMat, float4(posW + ddxPosW, 1.f));
