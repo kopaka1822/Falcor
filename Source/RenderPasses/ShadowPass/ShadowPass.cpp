@@ -148,24 +148,11 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
     //If the hybrid mask does not exist, create it 
     if (mShadowMode == SPShadowMode::Hybrid)
     {
-        if (!mpHybridMask[0])
-        {
-            const auto& dims = renderData.getDefaultTextureDims();
-            for (uint i = 0; i < 2; i++)
-            {
-                mpHybridMask[i] =
-                    Texture::create2D(mpDevice, dims.x, dims.y, ResourceFormat::R8Uint, 1, 1, nullptr, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
-                mpHybridMask[i]->setName("Hybrid Mask" + std::to_string(i));
-
-                pRenderContext->clearUAV(mpHybridMask[i]->getUAV().get(), uint4(0));
-            }
-            mHybridMaskFirstFrame = true;
-        }
+        generateHybridMaskData(pRenderContext, renderData.getDefaultTextureDims());
     }
     else if (mpHybridMask)
     {
-        mpHybridMask[0].reset();
-        mpHybridMask[1].reset();
+        freeHybridMaskData();
     }
         
     shade(pRenderContext, renderData);
@@ -378,6 +365,43 @@ void ShadowPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
     }
 }
 
+void ShadowPass::generateHybridMaskData(RenderContext* pRenderContext,uint2 screenDims) {
+    //Create Textures if missing
+    if (!mpHybridMask[0] || !mpHybridMask[1])
+    {
+        for (uint i = 0; i < 2; i++)
+        {
+            mpHybridMask[i] = Texture::create2D(
+                mpDevice, screenDims.x, screenDims.y, ResourceFormat::R8Uint, 1, 1, nullptr,
+                ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+            );
+            mpHybridMask[i]->setName("Hybrid Mask" + std::to_string(i));
+
+            pRenderContext->clearUAV(mpHybridMask[i]->getUAV().get(), uint4(0));
+        }
+        mHybridMaskFirstFrame = true;
+    }
+
+    //Create the point sampler
+    if (!mpHybridSampler)
+    {
+        Sampler::Desc samplerDesc;
+        samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
+        samplerDesc.setAddressingMode(Sampler::AddressMode::Border, Sampler::AddressMode::Border, Sampler::AddressMode::Border);
+        samplerDesc.setBorderColor(float4(0.f));
+        mpHybridSampler = Sampler::create(mpDevice, samplerDesc);
+    }
+
+}
+void ShadowPass::freeHybridMaskData()
+{
+    //Free textures
+    mpHybridMask[0].reset();
+    mpHybridMask[1].reset();
+    //Free sampler
+    mpHybridSampler.reset();
+}
+
 DefineList ShadowPass::hybridMaskDefines() {
     DefineList defines;
     defines.add("USE_HYBRID_MASK", mpHybridMask[0] && mEnableHybridMask ? "1" : "0");
@@ -394,7 +418,8 @@ DefineList ShadowPass::hybridMaskDefines() {
 
     uint32_t samplePattern = uint32_t(mHybridMaskSamplePattern);
     defines.add("HYBRID_MASK_SAMPLE_PATTERN", std::to_string(samplePattern));
-    uint32_t sampleCount = mHybridMaskSamplePattern == HybridMaskSamplePatterns::Box_3x3 ? 9 : 5;
+    uint32_t sampleCount = mHybridMaskSamplePattern == HybridMaskSamplePatterns::Box_3x3 ? 9 : 5;   //Box 3x3 is bigger
+    sampleCount = (uint)mHybridMaskSamplePattern > (uint)HybridMaskSamplePatterns::PlusCross ? 4 : sampleCount; //Gather
     defines.add("HYBRID_MASK_SAMPLE_COUNT", std::to_string(sampleCount));
 
     defines.add("HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE", mUseHybridMaskRemoveRaysMinDistance ? "1" : "0");
@@ -414,11 +439,13 @@ DefineList ShadowPass::hybridMaskDefines() {
 }
 
 void ShadowPass::setHybridMaskVars(ShaderVar& var, const uint frameCount) {
-    if (mpHybridMask[0])
+    if (mpHybridMask[0] && mpHybridMask[1])
     {
         var["gHybridMask"] = mpHybridMask[frameCount % 2];
         var["gHybridMaskLastFrame"] = mpHybridMask[(frameCount + 1) % 2];
     }
+    if (mpHybridSampler)
+        var["gHybridMaskSampler"] = mpHybridSampler;
 }
 
 bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {

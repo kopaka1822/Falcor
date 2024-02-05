@@ -67,7 +67,9 @@ enum class HybridMaskSamplePatterns: uint32_t
         Cross = 1,              // 3x3 "X"
         Box_3x3 = 2,            // 3x3 Box
         Checkerbord_3x3 = 3,    //Plus Cross in an 3x3 Checkerboard pattern
-        PlusCross = 4           //Change between Plus and Cross depending if the frame is even or odd
+        PlusCross = 4,           //Change between Plus and Cross depending if the frame is even or odd
+        //Gather Patterns
+        Gather = 5              //Gather Clockwise (TODO more Patterns (Pattern type is TBD))
     };
 
 FALCOR_ENUM_INFO(HybridMaskSamplePatterns, {
@@ -76,6 +78,7 @@ FALCOR_ENUM_INFO(HybridMaskSamplePatterns, {
     { HybridMaskSamplePatterns::Box_3x3, "Box_3x3" },
     { HybridMaskSamplePatterns::Checkerbord_3x3, "Checkerbord_3x3" },
     { HybridMaskSamplePatterns::PlusCross, "PlusCross" },
+    { HybridMaskSamplePatterns::Gather, "Gather" },
 });
 FALCOR_ENUM_REGISTER(HybridMaskSamplePatterns);
 

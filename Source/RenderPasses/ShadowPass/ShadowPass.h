@@ -57,6 +57,8 @@ private:
     void shade(RenderContext* pRenderContext, const RenderData& renderData);
 
     //Hybrid mask functions
+    void generateHybridMaskData(RenderContext* pRenderContext, uint2 screenDims);   ///< Generates Textures if they are not set
+    void freeHybridMaskData();
     DefineList hybridMaskDefines();
     void setHybridMaskVars(ShaderVar& var, const uint frameCount);
     bool hybridMaskUI(Gui::Widgets& widget);
@@ -81,8 +83,7 @@ private:
     SPShadowMode mShadowMode = SPShadowMode::Hybrid;
 
     //Hybrid Mask
-
-    HybridMaskSamplePatterns mHybridMaskSamplePattern = HybridMaskSamplePatterns::Plus;
+    HybridMaskSamplePatterns mHybridMaskSamplePattern = HybridMaskSamplePatterns::Gather;
 
     bool mHybridMaskFirstFrame = false; //< Marks if this is the first frame for the hybrid mask and all values are invalid
     bool mClearHybridMask = false;
@@ -95,6 +96,7 @@ private:
     float mHybridMaskExpandRaysMaxDistance = 70.f;
 
     ref<Texture> mpHybridMask[2];   //Ping Pong temporal hybrid mask
+    ref<Sampler> mpHybridSampler;   //Sampler for the hybrid mask
 
     // Ray tracing program.
     struct

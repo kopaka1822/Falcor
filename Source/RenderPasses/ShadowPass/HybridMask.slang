@@ -31,6 +31,9 @@ import HybridMaskSamplePatterns;
 Texture2D<uint> gHybridMaskLastFrame;
 RWTexture2D<uint> gHybridMask;
 
+//Sampler
+SamplerState gHybridMaskSampler;    //Point sampler 
+
 static const bool kUseHybridMask = USE_HYBRID_MASK;
 static const uint2 kHybridMaskDims = HYBRID_MASK_DIMS;
 static const uint kHMSampleCount = HYBRID_MASK_SAMPLE_COUNT;
@@ -74,11 +77,10 @@ struct HybridMask{
 }
 
 //Evaluate the hybrid mask
-bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed, float linZ , bool frameCountEven = true){
+bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed, float linZ , uint frameCount = 0){
     
     bool useRay = smUseRay;
-    //Get values from last frame
-
+   
     //Reproject with motion vectors
     float2 pixelF = float2(DispatchRaysIndex().xy) + 0.5;
     const float2 dims = float2(kHybridMaskDims);
@@ -101,20 +103,21 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
     int2 indexOffsets[kHMSampleCount];
     int2 projectedPixel = int2(pixelF);
     bool2 even = (projectedPixel % 2) == 0;
-    bool usePlus = frameCountEven ? (even.x == even.y) : (even.x != even.y);
+    bool usePlus = (frameCount%2 == 0) ? (even.x == even.y) : (even.x != even.y);
     if(usePlus)    //Plus
         indexOffsets = {int2(0),int2(-1,0),int2(1,0),int2(0,-1),int2(0,1)};//Count:5
     else        //Cross
         indexOffsets = {int2(0),int2(-1,-1),int2(-1,1),int2(1,-1),int2(1,1)};//Count:5
 #elif HYBRID_MASK_SAMPLE_PATTERN == HYBRID_MASK_SAMPLE_PATTERN_PlusCross
     int2 indexOffsets[kHMSampleCount];
-    if(frameCountEven)    //Plus
+    if((frameCount%2 == 0))    //Plus
         indexOffsets = {int2(0),int2(-1,0),int2(1,0),int2(0,-1),int2(0,1)};//Count:5
     else        //Cross
         indexOffsets = {int2(0),int2(-1,-1),int2(-1,1),int2(1,-1),int2(1,1)};//Count:5
 #endif //HYBRID_MASK_SAMPLE_PATTERN
 
-    //Get the samples
+//Fetch the samples with for a 3x3 Pattern
+#if HYBRID_MASK_SAMPLE_PATTERN <= HYBRID_MASK_SAMPLE_PATTERN_PlusCross
     for(uint i=0; i<kHMSampleCount; i++){
         int2 idx = int2(pixelF + indexOffsets[i]);
         if(any(idx < 0) || idx.x >= dims.x || idx.y >= dims.y)
@@ -122,6 +125,17 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
         mask[maskCount] = HybridMask(gHybridMaskLastFrame[idx]);
         maskCount++;
     }
+#endif
+
+//Sample via Gather (TODO more Patterns?)
+#if HYBRID_MASK_SAMPLE_PATTERN == HYBRID_MASK_SAMPLE_PATTERN_Gather
+    const float2 gatherPixelOffsets[4] = {float2(-0.25), float2(0.25, -0.25), float2(0.25), float2(-0.25, 0.25)};
+    float2 uvs = (pixelF - gatherPixelOffsets[frameCount%4]) / float2(dims);
+    uint4 gatherMasks = gHybridMaskLastFrame.GatherRed(gHybridMaskSampler, uvs);
+    for(maskCount = 0; maskCount < 4; maskCount++)
+        mask[maskCount] = HybridMask(gatherMasks[maskCount]);
+#endif
+
 
     //Check if ray is necessary (removes ray from core shadow)
 #if HYBRID_MASK_REMOVE_RAYS
