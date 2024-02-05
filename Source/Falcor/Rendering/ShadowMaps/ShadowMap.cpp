@@ -1442,7 +1442,6 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
                 // Copy to used cascade levels
                 for (uint i = 0; i < mCascadedZSlices.size(); i++)
                     mCascadedZSlices[i] = cascadedSlices[i];
-                //mCascadedZSlices[mCascadedZSlices.size() - 1] = mCascadedMaxFar;
             }
             break;
         }
@@ -1471,14 +1470,18 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
         float3 center = float3(0);
         const float3 upVec = float3(0, 1, 0);
         //Cap to scene boundaries
+        /*
         for (auto& p : frustumCorners){
             p = float4(math::clamp(p.xyz(), sceneBounds.minPoint, sceneBounds.maxPoint),1.f);
         }
-
+        */
         for (const auto& p : frustumCorners)
             center += p.xyz();
         center /= 8.f;
         const float4x4 casView = math::matrixFromLookAt(center, center + lightData.dirW, upVec);
+
+        //Create a view space AABB to clamp cascaded values
+        AABB smViewAABB = sceneBounds.transform(casView);
 
         //Get Box for Orto
         float minX = std::numeric_limits<float>::max();
@@ -1488,7 +1491,8 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
         float minZ = std::numeric_limits<float>::max();
         float maxZ = std::numeric_limits<float>::lowest();
         for (const float4& p : frustumCorners){
-            const float4 vp = math::mul(casView, p);
+            float3 vp = math::mul(casView, p).xyz();
+            vp = math::clamp(vp, smViewAABB.minPoint, smViewAABB.maxPoint); //Clamp to scene extends
             minX = std::min(minX, vp.x);
             maxX = std::max(maxX, vp.x);
             minY = std::min(minY, vp.y);
@@ -1497,26 +1501,13 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
             maxZ = std::max(maxZ, vp.z);
         }
 
-        //Get the smallest and biggest Z for the box
-        float3 minMax[2] = {sceneBounds.minPoint, sceneBounds.maxPoint};
-        float3 sceneBoxPoints[8];
-        uint index = 0;
-        for(uint x=0; x<=1;x++)
-            for (uint y=0;y<=1;y++)
-                for (uint z = 0; z <= 1; z++)
-                {
-                    sceneBoxPoints[index] = float3(minMax[x].x, minMax[y].y, minMax[z].z);
-                    index++;
-                }
+        // Set the Z values to min and max for the scene so that all geometry in the way is rendered
+        maxZ = std::max(maxZ, smViewAABB.maxPoint.z);
+        minZ = std::min(minZ, smViewAABB.minPoint.z);
 
-        for (uint j = 0; j < 8; j++)
-        {
-            float sceneBoundPViewZ = math::mul(casView, float4(sceneBoxPoints[i], 1)).z;
-            maxZ = std::max(maxZ, sceneBoundPViewZ);
-            minZ = std::min(minZ, sceneBoundPViewZ);
-        }
-        
         renderLevel[i] = !mEnableTemporalCascadedBoxTest;
+
+        near = mCascadedZSlices[i];
 
         //Check the box from last frame and abourt rendering if current level is inside the last frames level
         if (mEnableTemporalCascadedBoxTest)
@@ -1570,7 +1561,7 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
             mFrustumCulling[cullingIndex]->updateFrustum(center, center + lightData.dirW, upVec, minX, maxX, minY, maxY, -1.f * maxZ, -1.f * minZ);
         }
 
-        near = mCascadedZSlices[i];
+        
     }        
 }
 
