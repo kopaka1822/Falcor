@@ -135,6 +135,13 @@ private:
             staging.reset();
         }
     };
+    struct CascadedTemporalReuse
+    {
+        bool valid = false;
+        AABB aabb = AABB();
+        float4x4 view = float4x4::identity();
+        float4x4 ortho = float4x4::identity();
+    };
 
     LightTypeSM getLightType(const ref<Light> light);
     void prepareShadowMapBuffers();
@@ -202,7 +209,7 @@ private:
     uint mShadowMapSizeCascaded = 2048;
 
     ResourceFormat mShadowMapFormat = ResourceFormat::D32Float;                 //Format D32 (F32 for most) and [untested] D16 (Unorm 16 for most) are supported
-    RasterizerState::CullMode mCullMode = RasterizerState::CullMode::Back;      //Cull mode. Double Sided Materials are not culled
+    RasterizerState::CullMode mCullMode = RasterizerState::CullMode::None;      //Cull mode. Double Sided Materials are not culled
     bool mUseFrustumCulling = true;
 
     float mNear = 0.1f;
@@ -268,7 +275,7 @@ private:
     uint mTemporalFilterLength = 10;                          // Temporal filter strength
     uint mJitterSampleCount = 16;                             // Number of Jitter samples
 
-    bool mUseGaussianBlur = false;
+    bool mUseGaussianBlur = true;
 
     //Oracle
     bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function
@@ -298,7 +305,7 @@ private:
 
     //Cascaded
     std::vector<float4x4> mCascadedVPMatrix;
-    std::vector<bool> mPreviousCascadeValid; //Previous cascade for rendering optimizations
+    std::vector<CascadedTemporalReuse> mCascadedTemporalReuse;  //Data for the temporal cascaded reuse
     std::vector<float> mCascadedFrustumManualVals = {0.05f, 0.15f, 0.3f,1.f}; // Values for Manual set Cascaded frustum. Initialized for 3 Levels
     float mCascadedMaxFar = 1000000.f;
     float mCascadedStochasticRange = 0.05f;

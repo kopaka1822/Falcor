@@ -320,9 +320,6 @@ void ShadowMap::prepareShadowMapBuffers()
         mpDepth->setName("ShadowMap2DPassDepthHelper");
     }
 
-    //For Cascaded optimizations
-    mPreviousCascadeValid.resize(mCascadedLevelCount,false);
-
     //Create Textures for scenes with dynamic geometry
     if (mSceneIsDynamic)
     {
@@ -1399,6 +1396,16 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
             mCascadedZSlices.resize(mCascadedLevelCount);
         }
 
+        //Temporal AABBs
+        if (mEnableTemporalCascadedBoxTest)
+        {
+            if (mCascadedTemporalReuse.size() != mCascadedLevelCount)
+            {
+                mCascadedTemporalReuse.clear();
+                mCascadedTemporalReuse.resize(mCascadedLevelCount);
+            }
+        }
+        
         switch (mCascadedFrustumMode)
         {
         case Falcor::ShadowMap::CascadedFrustumMode::Manual:
@@ -1513,12 +1520,16 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
         if (mEnableTemporalCascadedBoxTest)
         {
             // Check if the cascaded from last frame is still valid
-            if (mPreviousCascadeValid[i] && !forceUpdate)
+            if (mCascadedTemporalReuse[i].valid && !forceUpdate)
             {
                 bool temporalValid = true;
                 for (const float4& p : frustumCorners)
                 {
-                    const float4 projP = math::mul(mCascadedVPMatrix[i], p);
+                    //calc view and clamp to temporal view bounds
+                    float3 viewP = math::mul(mCascadedTemporalReuse[i].view, p).xyz();
+                    viewP = math::clamp(viewP, mCascadedTemporalReuse[i].aabb.minPoint, mCascadedTemporalReuse[i].aabb.maxPoint); 
+                    //Projection
+                    float3 projP = math::mul(mCascadedTemporalReuse[i].ortho, float4(viewP, 1.0f)).xyz();
                     if (projP.x < -1.f || projP.x > 1.f || projP.y < -1.f || projP.y > 1.f || projP.z < 0.f && projP.z > 1.f)
                         temporalValid = false;
                 }
@@ -1545,11 +1556,19 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
             else
                 maxY += maxY * mCascadedReuseEnlargeFactor;
 
-            mPreviousCascadeValid[i] = true;
+            mCascadedTemporalReuse[i].valid = true;
             renderLevel[i] = true;
         }
 
         const float4x4 casProj = math::ortho(minX, maxX, minY, maxY, -1.f * maxZ, -1.f * minZ);
+
+        //Set temporal data
+        if (mEnableTemporalCascadedBoxTest)
+        {
+            mCascadedTemporalReuse[i].aabb = smViewAABB;
+            mCascadedTemporalReuse[i].view = casView;
+            mCascadedTemporalReuse[i].ortho = casProj;
+        }
 
         mCascadedWidthHeight[i] = float2(abs(maxX - minX), abs(maxY - minY));
         mCascadedVPMatrix[i] = math::mul(casProj, casView);
