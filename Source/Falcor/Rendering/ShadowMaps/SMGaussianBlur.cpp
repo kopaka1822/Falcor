@@ -61,7 +61,10 @@ void SMGaussianBlur::execute(RenderContext* pRenderContext, ref<Texture>& pTextu
     {
         blur(pRenderContext, pTexture, texArrayIndex);
     }
-    
+}
+
+void SMGaussianBlur::profileDummy(RenderContext* pRenderContext) {
+    FALCOR_PROFILE(pRenderContext, "SM_GausBlur");
 }
 
 void SMGaussianBlur::blur(RenderContext* pRenderContext, ref<Texture>& pTexture, uint texArrayIndex) {

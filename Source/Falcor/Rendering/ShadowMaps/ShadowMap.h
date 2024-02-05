@@ -81,6 +81,8 @@ public:
     float getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect);
     float getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height);    //Ortho case
 
+    float getCascadedFarForLevel(uint level);
+
     enum class SMUpdateMode: uint
     {
         Static = 0,                 //Render once
@@ -181,6 +183,7 @@ private:
     uint getResolution() { return mShadowMapSize; }
     uint getCountShadowMapsCube() const { return mpShadowMapsCube.size(); }
     uint getCountShadowMaps() const { return mpShadowMaps.size(); }
+    
 
     //Internal Refs
     ref<Device> mpDevice;                               ///< Graphics device
@@ -232,9 +235,9 @@ private:
     CascadedFrustumMode mCascadedFrustumMode = CascadedFrustumMode::AutomaticNvidia;
     uint mCascadedLevelCount = 4;
     uint mCascadedTracedLevelsAtEnd = 0; //Adds N number of ray tracing only cascades at the end. Will only work on hybrid mode
-    float mCascadedFrustumFix = 0.9f;
+    float mCascadedFrustumFix = 0.85f;
     uint mCascadedLevelTrace = 2;       //Trace until level
-    float mCascadedReuseEnlargeFactor = 0.1f; // Increases box size by the factor on each side
+    float mCascadedReuseEnlargeFactor = 0.15f; // Increases box size by the factor on each side
     bool mEnableTemporalCascadedBoxTest = true; //Tests the cascaded level against the cascaded level from last frame. Only updates if box is outside
 
     // Hybrid Shadow Maps

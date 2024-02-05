@@ -59,6 +59,7 @@ public:
     SMGaussianBlur(ref<Device> pDevice, bool isCube = false) : mpDevice{pDevice}, mIsCube{isCube} {}
 
     void execute(RenderContext* pRenderContext, ref<Texture>& pTexture, uint texArrayIndex = 0);
+    void profileDummy(RenderContext* pRenderContext); //Dummy for profiling purposes
 
     bool renderUI(Gui::Widgets& widget);
 

@@ -1686,32 +1686,37 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
         
     }
 
+    // Check if a cascaded was rendered (and the VP buffer should be updated
+    bool oneStaticIsRendered = false;
+    for (uint i = 0; i < renderCascadedLevel.size(); i++)
+        oneStaticIsRendered |= renderCascadedLevel[i];
+
     // Blur all static shadow maps if it is enabled
     if (mpBlurCascaded)
     {
-        for (uint i = 0; i < mCascadedLevelCount; i++)
+        if (oneStaticIsRendered)
         {
-            if (renderCascadedLevel[i])
-                mpBlurCascaded->execute(pRenderContext, mpCascadedShadowMaps, i);
+            for (uint i = 0; i < mCascadedLevelCount; i++)
+            {
+                if (renderCascadedLevel[i])
+                    mpBlurCascaded->execute(pRenderContext, mpCascadedShadowMaps, i);
+            }
         }
+        else
+            mpBlurCascaded->profileDummy(pRenderContext);
     }
 
     //Generate Mips for static shadow maps modes that allow filter
     if (mUseShadowMipMaps)
     {
-        for (uint i = 0; i < mCascadedLevelCount; i++)
+        for (uint i = 0; (i < mCascadedLevelCount) && oneStaticIsRendered; i++)
         {
             if (renderCascadedLevel[i])
                 mpCascadedShadowMaps->generateMips(pRenderContext,false, i);
         }
     }
 
-    //Check if a cascaded was rendered (and the VP buffer should be updated
-    bool updateVP = false;
-    for (uint i = 0; i<renderCascadedLevel.size(); i++)
-        updateVP |= renderCascadedLevel[i];
-
-    return updateVP;
+    return oneStaticIsRendered; //Update VP when at least one was updated
 }
 
 bool ShadowMap::rayGenCascaded(ref<Light> light, RenderContext* pRenderContext, bool cameraMoved)
@@ -2442,6 +2447,14 @@ void ShadowMap::handleNormalizedPixelSizeBuffer()
     mpNormalizedPixelSize->setName("ShadowMap::NPSBuffer");
 }
 
+float ShadowMap::getCascadedFarForLevel(uint level) {
+    if (mCascadedZSlices.size() > level)
+    {
+        return mCascadedZSlices[level];
+    }
+    return 0.f;
+}
+
 void ShadowMap::dummyProfileRaster(RenderContext* pRenderContext) {
     FALCOR_PROFILE(pRenderContext, "rasterizeScene");
 }
@@ -2494,5 +2507,4 @@ void ShadowMap::RayTraceProgramHelper::initRTProgram(ref<Device> device,ref<Scen
 
     pProgram = RtProgram::create(device, desc, defines);
 }
-
 }

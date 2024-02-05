@@ -72,6 +72,13 @@ namespace
         {3, "Hybrid Mask Texture"},
     };
 
+    const Gui::DropdownList kDistanceSettings{
+        {0, "Casc Far Level 0"},
+        {1, "Casc Far Level 1"},
+        {2, "Casc Far Level 2"},
+        {3, "Manual"},
+    };
+
 } // namespace
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -403,6 +410,12 @@ void ShadowPass::freeHybridMaskData()
 }
 
 DefineList ShadowPass::hybridMaskDefines() {
+    // Set distances depending on cascaded level (had to be done here as UI code is only executed when open)
+    if (mHybridMaskRemoveRaysMinDistanceMode < 3)
+        mHybridMaskRemoveRaysMinDistance = mpShadowMap->getCascadedFarForLevel(mHybridMaskRemoveRaysMinDistanceMode);
+    if (mHybridMaskExpandRaysMaxDistanceMode < 3)
+        mHybridMaskExpandRaysMaxDistance = mpShadowMap->getCascadedFarForLevel(mHybridMaskExpandRaysMaxDistanceMode);
+
     DefineList defines;
     defines.add("USE_HYBRID_MASK", mpHybridMask[0] && mEnableHybridMask ? "1" : "0");
     if (mpHybridMask[0])
@@ -464,7 +477,10 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
                 changed |= group.checkbox("Remove Rays at Min distance", mUseHybridMaskRemoveRaysMinDistance);
                 if (mUseHybridMaskRemoveRaysMinDistance)
                 {
-                    group.var("Min Distance", mHybridMaskRemoveRaysMinDistance, 0.0f);
+                    changed |= group.dropdown("Min Distance", kDistanceSettings ,mHybridMaskRemoveRaysMinDistanceMode);
+                    if (mHybridMaskRemoveRaysMinDistanceMode >= 3)
+                        group.var("Manual Distance", mHybridMaskRemoveRaysMinDistance, 0.0f);
+                    //The auto set happens in hybridMaskDefines()
                 }
             }
             changed |= group.checkbox("Expand Rays", mHybridMaskExpandRays);
@@ -474,13 +490,15 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
                 changed |= group.checkbox("Expand Rays until Max distance", mUseHybridMaskExpandRaysMaxDistance);
                 if (mUseHybridMaskExpandRaysMaxDistance)
                 {
-                    group.var("Max Distance", mHybridMaskExpandRaysMaxDistance, 0.0f);
+                    changed |= group.dropdown("Max Distance", kDistanceSettings, mHybridMaskExpandRaysMaxDistanceMode);
+                    if (mHybridMaskExpandRaysMaxDistanceMode >= 3)
+                        group.var("Max Distance", mHybridMaskExpandRaysMaxDistance, 0.0f);
+                    // The auto set happens in hybridMaskDefines()
                 }
             }
             mClearHybridMask |= group.button("Clear HybridMask");
         }
     }
-    
 
     return changed;
 }
