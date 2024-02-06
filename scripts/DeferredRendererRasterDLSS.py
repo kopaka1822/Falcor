@@ -24,8 +24,9 @@ def render_graph_DeferredRenderer():
     g.add_edge('DLSSPass.output', 'ToneMapper.src')
     g.add_edge('GBufferRaster.depth', 'DLSSPass.depth')
     g.add_edge('GBufferRaster.mvec', 'DLSSPass.mvec')
-    g.add_edge('PathBenchmark', 'GBufferRaster')
     g.add_edge('GBufferRaster.mvec', 'ShadowPass.motionVector')
+    g.add_edge('VideoRecorder', 'GBufferRaster')
+    g.add_edge('PathBenchmark', 'VideoRecorder')
     g.mark_output('ToneMapper.dst')
     return g
 

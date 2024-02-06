@@ -72,11 +72,11 @@ void VideoRecorder::execute(RenderContext* pRenderContext, const RenderData& ren
     }
     mpRenderGraph = pRenderGraph;
 
+    //set GlobalClock
+    mpGlobalClock = static_cast<Clock*>(renderDict[kRenderGlobalClock]);
+
     // set guard band
     guardBand = renderDict.getValue("guardBand", 0);
-
-
-    mClock.tick();
 }
 
 // helper for fuzzy string matching
@@ -148,6 +148,7 @@ void VideoRecorder::renderUI(RenderContext* pRenderContext, Gui::Widgets& widget
 
     saveFrame(pRenderContext);
 
+    widget.checkbox("Record: Delete dublicate Points at Start and End", mDeleteDublicatesAtStartAndEnd);
     if (mState == State::Record)
     {
         if (widget.button("Record Stop"))
@@ -203,7 +204,6 @@ void VideoRecorder::renderUI(RenderContext* pRenderContext, Gui::Widgets& widget
         else
             widget.tooltip("FFMPEG is needed. Put in \"build/[buildname]/Source/Mogwai\"");
     }
-
     widget.textbox("Folder Prefix", mOutputPrefixFolder);
     widget.tooltip("Leave empty if no folder is desired");
     widget.textbox("Filename Prefix", mOutputPrefix);
@@ -279,6 +279,8 @@ void VideoRecorder::renderUI(RenderContext* pRenderContext, Gui::Widgets& widget
         }
     }
 
+    
+
     // logic
     updateCamera();
 }
@@ -299,15 +301,14 @@ PathPoint VideoRecorder::createFromCamera()
     PathPoint p;
     p.pos = cam->getPosition();
     p.dir = normalize(cam->getTarget() - p.pos);
-    assert(!mClock.isPaused());
-    p.time = (float)mClock.getTime();
+    p.time = (float)mpGlobalClock->getTime();
 
     return p;
 }
 
 float VideoRecorder::getTime() const
 {
-    return static_cast<float>(mClock.getTime()) * mTimeScale;
+    return static_cast<float>(mpGlobalClock->getTime()) * mTimeScale;
 }
 
 namespace fs = std::filesystem;
@@ -439,7 +440,7 @@ void VideoRecorder::updateCamera()
         {
             if(mLoop)
             {
-                mClock.setTime(0.0);
+                mpGlobalClock->setTime(getStartTime());
             }
             else // stop animation
                 stopPreview();
@@ -482,9 +483,6 @@ void VideoRecorder::startRecording()
     mState = State::Record;
     mPathPoints.clear();
     mSmoothPoints.clear();
-    mClock.play();
-    mClock.setTime(0);
-    mClock.setFramerate(0); // disabled framerate for record
 }
 
 void VideoRecorder::startPreview()
@@ -493,9 +491,10 @@ void VideoRecorder::startPreview()
     if(mState != State::Idle) return;
 
     mState = State::Preview;
-    mClock.play();
-    mClock.setTime(0);
-    mClock.setFramerate(0); // disabled framerate for preview
+    mpGlobalClock->play();
+    mpGlobalClock->setTime(getStartTime());
+    mpScene->getCamera()->setIsAnimated(false); //Disable camera animations
+   
 }
 
 void VideoRecorder::startRender()
@@ -504,9 +503,9 @@ void VideoRecorder::startRender()
     if(mState == State::Record) return;
 
     mState = State::Render;
-    mClock.play();
-    mClock.setTime(0);
-    mClock.setFramerate(mFps); // use framerate for render
+    mpGlobalClock->play();
+    mpGlobalClock->setFramerate(mFps);
+    
     mRenderIndex = 0;
 }
 
@@ -516,6 +515,9 @@ void VideoRecorder::startWarmup()
     if (mState == State::Record) return;
 
     mState = State::Warmup;
+    mpScene->getCamera()->setIsAnimated(false); // Disable camera animations
+    mpGlobalClock->setTime(getStartTime());
+    mpGlobalClock->pause();
     mRenderIndex = 0;
 }
 
@@ -528,24 +530,25 @@ void VideoRecorder::stopRecording()
 
     mState = State::Idle;
     // remove duplicate points from start and end
-    auto newStart = std::find_if(mPathPoints.begin(), mPathPoints.end(), [&](const PathPoint& p) { return any(p.pos != mPathPoints.begin()->pos); });
-    if (newStart != mPathPoints.end())
+    if (mDeleteDublicatesAtStartAndEnd)
     {
-        if (newStart != mPathPoints.begin()) --newStart;
-        auto newEnd = std::find_if(mPathPoints.rbegin(), mPathPoints.rend(), [&](const PathPoint& p) { return any(p.pos != mPathPoints.rbegin()->pos); }).base();
-        if (newEnd != mPathPoints.end()) ++newEnd;
-        mPathPoints = std::vector<PathPoint>(newStart, newEnd);
-
-        // fix times
-        if(mPathPoints.size())
+        auto newStart = std::find_if(
+            mPathPoints.begin(), mPathPoints.end(), [&](const PathPoint& p) { return any(p.pos != mPathPoints.begin()->pos); }
+        );
+        if (newStart != mPathPoints.end())
         {
-            const auto startTime = mPathPoints[0].time;
-            for(auto& p : mPathPoints)
-            {
-                p.time -= startTime;
-            }
+            if (newStart != mPathPoints.begin())
+                --newStart;
+            auto newEnd =
+                std::find_if(
+                    mPathPoints.rbegin(), mPathPoints.rend(), [&](const PathPoint& p) { return any(p.pos != mPathPoints.rbegin()->pos); }
+                ).base();
+            if (newEnd != mPathPoints.end())
+                ++newEnd;
+            mPathPoints = std::vector<PathPoint>(newStart, newEnd);
         }
     }
+    
 }
 
 void VideoRecorder::stopPreview()
@@ -562,6 +565,8 @@ void VideoRecorder::stopRender()
     if(mState != State::Render) return;
 
     mState = State::Idle;
+
+    mpGlobalClock->setFramerate(0); //Reset framerate simulation
 
     // create video files for each output
     for (const auto& target : mOutputs)
@@ -721,4 +726,12 @@ void VideoRecorder::forceIdle()
     }
 
     assert(mState == State::Idle);
+}
+
+double VideoRecorder::getStartTime()
+{
+    if (mPathPoints.size() > 0)
+        return static_cast<double>(mPathPoints[0].time);
+    else
+        return 0.0;
 }

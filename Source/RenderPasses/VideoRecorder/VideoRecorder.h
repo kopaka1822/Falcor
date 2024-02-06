@@ -75,7 +75,7 @@ private:
     void saveFrame(RenderContext* pRenderContext);
     void updateCamera();
 
-    void startRecording();
+    void startRecording(); 
     void stopRecording();
     void startPreview();
     void stopPreview();
@@ -84,6 +84,8 @@ private:
     void startWarmup();
     void stopWarmup();
     void smoothPath();
+
+    double getStartTime();
 
     void savePath(const std::string& filename) const;
     void loadPath(const std::string& filename);
@@ -95,7 +97,7 @@ private:
 
     std::vector<PathPoint> mPathPoints; // original recording
     std::vector<PathPoint> mSmoothPoints; // smoothed version
-    Clock mClock;
+    Clock* mpGlobalClock = nullptr;
 
     State mState = State::Idle;
     size_t mRenderIndex = 0;
@@ -112,6 +114,7 @@ private:
     std::string mOutputFilter;
     std::string mOutputPrefixFolder = "videos";
     std::string mOutputPrefix;
+    bool mDeleteDublicatesAtStartAndEnd = true;
 
     int guardBand = 0;
     ref<Texture> mpBlitTexture;
