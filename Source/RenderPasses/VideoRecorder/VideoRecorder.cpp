@@ -33,6 +33,10 @@
 #include <cstdio>
 #include <fstream>
 
+namespace{
+    const std::string kVersionControlHeader = "VideoRecorderVersion1_0";
+}
+
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
     registry.registerClass<RenderPass, VideoRecorder>();
@@ -301,6 +305,7 @@ PathPoint VideoRecorder::createFromCamera()
     PathPoint p;
     p.pos = cam->getPosition();
     p.dir = normalize(cam->getTarget() - p.pos);
+    p.up = cam->getUpVector();
     p.time = (float)mpGlobalClock->getTime();
 
     return p;
@@ -422,6 +427,7 @@ void VideoRecorder::updateCamera()
         res.time = time;
         res.pos = lerp(step1->pos, step2->pos, t);
         res.dir = lerp(step1->dir, step2->dir, t);
+        res.up = normalize(lerp(step1->up, step2->up, t));
         return res;
     };
 
@@ -436,6 +442,7 @@ void VideoRecorder::updateCamera()
         auto p = getInterpolatedPathPoint(time);
         cam->setPosition(p.pos);
         cam->setTarget(p.pos + p.dir);
+        cam->setUpVector(p.up);
         if(p.time >= mPathPoints.back().time)
         {
             if(mLoop)
@@ -452,6 +459,7 @@ void VideoRecorder::updateCamera()
         auto p = getInterpolatedPathPoint(time);
         cam->setPosition(p.pos);
         cam->setTarget(p.pos + p.dir);
+        cam->setUpVector(p.up);
         if (p.time >= mPathPoints.back().time)
         {
             // stop animation
@@ -466,6 +474,7 @@ void VideoRecorder::updateCamera()
         auto p = getInterpolatedPathPoint(t); // fix some issues with temporal passes 
         cam->setPosition(p.pos);
         cam->setTarget(p.pos + p.dir);
+        cam->setUpVector(p.up);
         if(mRenderIndex++ > warmupFrames)
         {
             startRender(); // after 100 warmup frames, start rendering
@@ -483,6 +492,7 @@ void VideoRecorder::startRecording()
     mState = State::Record;
     mPathPoints.clear();
     mSmoothPoints.clear();
+    mpGlobalClock->play();
 }
 
 void VideoRecorder::startPreview()
@@ -669,6 +679,8 @@ void VideoRecorder::savePath(const std::string& filename) const
     std::ofstream outFile(filename, std::ios::binary);
     if (outFile.is_open())
     {
+        //Write header
+        outFile.write(kVersionControlHeader.c_str(), kVersionControlHeader.size());
         for (const auto& point : path) {
             outFile.write(reinterpret_cast<const char*>(&point), sizeof(PathPoint));
         }
@@ -680,14 +692,56 @@ void VideoRecorder::loadPath(const std::string& filename)
 {
     forceIdle();
 
+    //Convert old format to the new one that includes the up vector
+    auto convertPathPointFormat = [](PathPointPre1_0& oldPoint) {
+        PathPoint p;
+        p.dir = oldPoint.dir;
+        p.pos = oldPoint.pos;
+        p.time = oldPoint.time;
+        p.up = float3(0, 1, 0);
+        return p;
+    };
+
     mPathPoints.clear();
     std::ifstream inFile(filename, std::ios::binary);
     if (inFile.is_open())
     {
-        PathPoint point;
-        while (inFile.read(reinterpret_cast<char*>(&point), sizeof(PathPoint))) {
-            mPathPoints.push_back(point);
+        bool isPre1_0 = false;  //If pre 1_0, it has no up vector
+        //Read header
+        std::vector<char> headerChecker(kVersionControlHeader.size());
+        if (inFile.read(headerChecker.data(), kVersionControlHeader.size()))
+        {
+            for (uint32_t i = 0; i < headerChecker.size(); i++)
+            {
+                if (headerChecker[i] != kVersionControlHeader[i])
+                {
+                    isPre1_0 = true;
+                    //Return to start of file
+                    inFile.clear();
+                    inFile.seekg(0);
+                    logInfo("Old path file format detected. Will be converted!");
+                    break;
+                }
+            }
         }
+
+        if (isPre1_0)
+        {
+            PathPointPre1_0 point;
+            while (inFile.read(reinterpret_cast<char*>(&point), sizeof(PathPointPre1_0)))
+            {
+                mPathPoints.push_back(convertPathPointFormat(point));
+            }
+        }
+        else
+        {
+            PathPoint point;
+            while (inFile.read(reinterpret_cast<char*>(&point), sizeof(PathPoint)))
+            {
+                mPathPoints.push_back(point);
+            }
+        }
+
         inFile.close();
     }
     else logError("Cannot open camera path file!");
