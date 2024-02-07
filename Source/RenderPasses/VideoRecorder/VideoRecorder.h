@@ -36,6 +36,7 @@ struct PathPoint
 {
     float3 pos;
     float3 dir;
+    float3 up;
     float time;
 };
 
@@ -66,6 +67,13 @@ public:
     void renderUI(RenderContext* pRenderContext, Gui::Widgets& widget) override;
 
 private:
+    struct PathPointPre1_0
+    {
+        float3 pos;
+        float3 dir;
+        float time;
+    };
+
     ref<Scene> mpScene;
     std::string mSceneDir = "."; // WD
 
