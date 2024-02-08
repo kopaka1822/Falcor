@@ -168,6 +168,46 @@ struct ShadowMap
         return sv;
     }
 
+    /** Gets the value from the shadow map depending on type. R32/16 case
+    \param[in] local shadow map texture index.
+    \param[in] texture sample index. z-component is only used in cube-case.
+    \param[in] light type from "LightTypeSM" casted to uint.
+    \param[in] cascaded level. Only used if type == LightTypeSM::Directional.
+    \param[in] used mipmap level.
+    \return value from shadow map.
+    */
+    float getShadowValueFiltered(uint index, float3 sampleVec, const uint lightType, uint level = 0, float mipLevel = 0.f)
+    {
+        float sv = 0.f;
+        switch (lightType)
+        {
+        case LightTypeSM::Point:
+                sv = gShadowMapCube[index].SampleLevel(gShadowSamplerLinear, sampleVec, 0.f);//TODO fix mip level
+                break;
+            case LightTypeSM::Spot:
+                sv = gShadowMap[index].SampleLevel(gShadowSamplerLinear, sampleVec.xy, mipLevel);
+                break;
+            case LightTypeSM::Directional:
+                sv = gCascadedShadowMap.SampleLevel(gShadowSamplerLinear, float3(sampleVec.xy, level), mipLevel);
+                if(kUseDynamicSM)
+                {
+                    float2 gatherUV = float2(0);
+                    float4 w = getGatherWeights(sampleVec.xy, kCascadedSMRes, gatherUV);
+                    float4 svDyn = gCascadedShadowMap.Gather(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
+                    for (uint i = 0; i < 4; i++)
+                        svDyn[i] = min(svDyn[i], sv);
+                    sv = 0.f;
+                    for (uint i = 0; i < 4; i++)
+                        sv += w[i] * svDyn[i];
+                }
+                break;
+            default:
+                break;
+        }
+
+        return sv;
+    }
+
     /** Gets the gathered shadow value from the shadow map depending on type. Always MIP = 0. R32/16 case
     \param[in] local shadow map texture index.
     \param[in] texture sample index. z-component is only used in cube-case.
@@ -946,7 +986,7 @@ struct ShadowMap
     */
     float exponentialShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
     {
-        float shadowDepth = getShadowValue(index, shadowUV, lightType, level, mipLevel);
+        float shadowDepth = getShadowValueFiltered(index, shadowUV, lightType, level, mipLevel);
         float depth = (lightDist * 2.f) - 1.f;
         return saturate(exp(-depth * kExponentialSMConstant) * shadowDepth);
     }
