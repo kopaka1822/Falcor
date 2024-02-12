@@ -547,6 +547,13 @@ namespace Falcor
         */
         ref<Light> getLight(const std::string& name) const;
 
+         /** Remove a light by name.
+            Note: This removes the first light found with a matching name.
+            \param name Light name.
+            \return Bool if a light was removed
+         */
+        bool removeLight(const std::string& name);
+
         /** Add a light source
             \param pLight The light object.
             \return The light ID

@@ -911,6 +911,27 @@ namespace Falcor
         return nullptr;
     }
 
+    bool SceneBuilder::removeLight(const std::string& name)
+    {
+        bool foundLight = false;
+        //Search the light
+        uint it;
+        for (it = 0; it < mSceneData.lights.size(); it++)
+        {
+            auto& pLight = mSceneData.lights[it];
+            if (pLight->getName() == name)
+            {
+                foundLight = true;
+                break;
+            }
+        }
+
+        if (foundLight)
+            mSceneData.lights.erase(mSceneData.lights.begin() + it);
+
+        return foundLight;
+    }
+
     LightID SceneBuilder::addLight(const ref<Light>& pLight)
     {
         checkArgument(pLight != nullptr, "'pLight' is missing");
@@ -2906,6 +2927,7 @@ namespace Falcor
         sceneBuilder.def("getVolume", &SceneBuilder::getGridVolume, "name"_a); // PYTHONDEPRECATED
         sceneBuilder.def("addLight", &SceneBuilder::addLight, "light"_a);
         sceneBuilder.def("getLight", &SceneBuilder::getLight, "name"_a);
+        sceneBuilder.def("removeLight", &SceneBuilder::removeLight, "name"_a);
         sceneBuilder.def("loadLightProfile", &SceneBuilder::loadLightProfile, "filename"_a, "normalize"_a = true);
         sceneBuilder.def("addCamera", &SceneBuilder::addCamera, "camera"_a);
         sceneBuilder.def("addAnimation", &SceneBuilder::addAnimation, "animation"_a);
