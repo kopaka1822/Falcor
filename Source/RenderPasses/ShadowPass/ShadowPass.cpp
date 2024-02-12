@@ -66,7 +66,7 @@ namespace
     };
 
     const Gui::DropdownList kDebugModes{
-        {0, "Hybrid Mask"},
+        {0, "Ray Shot"},
         {1, "Lod Level"},
         {2, "Cascaded Level"},
         {3, "Hybrid Mask Texture"},

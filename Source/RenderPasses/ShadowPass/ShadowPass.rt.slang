@@ -179,13 +179,11 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
             shadow = shadow < 0.5 ? 0.f : 1.f; // Clamp Shadow
     }
         
-
+    //Handle Debug
     if (is_valid(gDebug))
     {
-    #if DEBUG_MODE == 0 //Hybrid Mask debug
+    #if DEBUG_MODE == 0 //Use Ray
         debug.x += useRay && kShadowMode != (uint) SPShadowMode::ShadowMap ? 1.f : 0.f;
-        debug.y += any(ls.Li > 0) ? shadow : 0.f;
-        //debug.z = shadow;
         
     #elif DEBUG_MODE == 1 //Lod level debug
         debug = float3(1,0,0);
@@ -228,16 +226,9 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
             
         }
     #else   //Hybrid mask texture
-        if(kUseHybridMask){
-            const uint2 pixel = DispatchRaysIndex().xy;
-            HybridMask mask = HybridMask(gHybridMaskLastFrame[pixel]);
-           
-            debug.x += mask.shootRay ? 1.f : 0.f;
-            debug.y += mask.shadowSM ? 1.f : 0.f;
-            debug.z += mask.shadowRay ? 1.f : 0.f;
-        }else{
-            debug.x = shadow;
-        }        
+        debug.x += useRay ? 1.f : 0.f;
+        debug.y += isSMIsShadowed ? 1.f : 0.f;
+        debug.z += useRay && (shadow < 0.5) ? 1.f : 0.f;   
     #endif
     }
 

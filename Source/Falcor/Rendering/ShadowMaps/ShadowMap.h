@@ -241,7 +241,7 @@ private:
     bool mEnableTemporalCascadedBoxTest = true; //Tests the cascaded level against the cascaded level from last frame. Only updates if box is outside
 
     // Hybrid Shadow Maps
-    float2 mHSMFilteredThreshold = float2(0.02f, 0.98f); // Threshold for filtered shadow map variants
+    float2 mHSMFilteredThreshold = float2(0.01f, 0.99f); // Threshold for filtered shadow map variants
 
     //Animated Light
     bool mSceneIsDynamic = false;
@@ -270,7 +270,7 @@ private:
     float mMSMDepthBias = 0.0f;     //Depth Bias (x1000)
     float mMSMMomentBias = 0.003f;  //Moment Bias (x1000)
 
-    bool mMSMUseVarianceTest = true;
+    bool mMSMUseVarianceTest = false;
     float mMSMVarianceThreshold = 0.05f; //Threshold for additional variance test in hybrid moment shadow maps
 
     //Jitter And Blur
