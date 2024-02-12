@@ -88,6 +88,7 @@ static const float kEnvMapFactor = SP_ENV_FACTOR;
 static const float kEmissiveFactor = SP_EMISSIVE;
 static const bool kUseEnvMap= USE_ENV_MAP;
 static const bool kUseEmissive = true;
+static const bool kMipsEnabled = SHADOW_MIPS_ENABLED;
 
 /** Payload for shadow ray.
 */
@@ -140,11 +141,13 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     //Eval shadow map if mode is enabled
     if(!useRay){
         SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, lightIdx);
-        //Get lod level
-        float2 invFrameDim = 1.f / float2(DispatchRaysDimensions().xy);
-        float3 posWDdx = computeDdxPosW(posW, faceN, invFrameDim);
-        float3 posWDdy = computeDdyPosW(posW, faceN, invFrameDim);
-        lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);       
+        //Get lod mip level
+        if(kMipsEnabled){
+            float2 invFrameDim = 1.f / float2(DispatchRaysDimensions().xy);
+            float3 posWDdx = computeDdxPosW(posW, faceN, invFrameDim);
+            float3 posWDdy = computeDdyPosW(posW, faceN, invFrameDim);
+            lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);    
+        }
         useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
     }
 

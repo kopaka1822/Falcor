@@ -212,6 +212,7 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     mShadowTracer.pProgram->addDefine("USE_EMISSIVE", mEmissiveFactor > 0.f ? "1" : "0");
     mShadowTracer.pProgram->addDefine("DEBUG_MODE", std::to_string(mDebugMode));
     mShadowTracer.pProgram->addDefine("SHADOW_ONLY", mShadowOnly ? "1" : "0");
+    mShadowTracer.pProgram->addDefine("SHADOW_MIPS_ENABLED", mpShadowMap->getMipMapsEnabled() ? "1" : "0");
 
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
     mShadowTracer.pProgram->addDefines(hybridMaskDefines());

@@ -82,6 +82,7 @@ public:
     float getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height);    //Ortho case
 
     float getCascadedFarForLevel(uint level);
+    const bool getMipMapsEnabled() const { return mUseShadowMipMaps; }
 
     enum class SMUpdateMode: uint
     {
