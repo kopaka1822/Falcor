@@ -73,10 +73,11 @@ namespace
     };
 
     const Gui::DropdownList kDistanceSettings{
-        {0, "Casc Far Level 0"},
-        {1, "Casc Far Level 1"},
-        {2, "Casc Far Level 2"},
-        {3, "Manual"},
+        {0, "0"},
+        {1, "Casc Far Level 0"},
+        {2, "Casc Far Level 1"},
+        {3, "Casc Far Level 2"},
+        {4, "Manual"},
     };
 
 } // namespace
@@ -368,7 +369,8 @@ void ShadowPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
         // Set starting values for the hybrid mask
         auto& cameraData = mpScene->getCamera()->getData();
         float maxDistance = cameraData.farZ - cameraData.nearZ;
-        mHybridMaskRemoveRaysMinDistance = cameraData.nearZ + maxDistance * 0.005;   //The first 0.5% of the visible scene
+        mHybridMaskRemoveRaysSmallerAsDistance = cameraData.nearZ + maxDistance * 0.005; // Dont Remove the first 0.5 percent
+        mHybridMaskRemoveRaysGreaterAsDistance = cameraData.nearZ + maxDistance * 0.010; // Remove the next 0.5 percent
         mHybridMaskExpandRaysMaxDistance = cameraData.nearZ + maxDistance * 0.25;   //Until 25% of visible scene
     }
 }
@@ -412,10 +414,20 @@ void ShadowPass::freeHybridMaskData()
 
 DefineList ShadowPass::hybridMaskDefines() {
     // Set distances depending on cascaded level (had to be done here as UI code is only executed when open)
-    if (mHybridMaskRemoveRaysMinDistanceMode < 3)
-        mHybridMaskRemoveRaysMinDistance = mpShadowMap->getCascadedFarForLevel(mHybridMaskRemoveRaysMinDistanceMode);
-    if (mHybridMaskExpandRaysMaxDistanceMode < 3)
-        mHybridMaskExpandRaysMaxDistance = mpShadowMap->getCascadedFarForLevel(mHybridMaskExpandRaysMaxDistanceMode);
+    if (mHybridMaskRemoveRaysGreaterAsDistanceMode == 0)
+        mHybridMaskRemoveRaysGreaterAsDistance = 0.f;
+    else if (mHybridMaskRemoveRaysGreaterAsDistanceMode < 4)
+        mHybridMaskRemoveRaysGreaterAsDistance = mpShadowMap->getCascadedFarForLevel(mHybridMaskRemoveRaysGreaterAsDistanceMode - 1);
+
+    if (mHybridMaskRemoveRaysSmallerAsDistanceMode == 0)
+        mHybridMaskRemoveRaysSmallerAsDistance = 0.f;
+    else if (mHybridMaskRemoveRaysSmallerAsDistanceMode < 4)
+        mHybridMaskRemoveRaysSmallerAsDistance = mpShadowMap->getCascadedFarForLevel(mHybridMaskRemoveRaysSmallerAsDistanceMode - 1);
+
+    if (mHybridMaskExpandRaysMaxDistanceMode == 0)
+        mHybridMaskExpandRaysMaxDistance = 0.f;
+    else if (mHybridMaskExpandRaysMaxDistanceMode < 4)
+        mHybridMaskExpandRaysMaxDistance = mpShadowMap->getCascadedFarForLevel(mHybridMaskExpandRaysMaxDistanceMode - 1);
 
     DefineList defines;
     defines.add("USE_HYBRID_MASK", mpHybridMask[0] && mEnableHybridMask ? "1" : "0");
@@ -438,7 +450,8 @@ DefineList ShadowPass::hybridMaskDefines() {
 
     defines.add("HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE", mUseHybridMaskRemoveRaysMinDistance ? "1" : "0");
     defines.add("HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE", mUseHybridMaskExpandRaysMaxDistance ? "1" : "0");
-    defines.add("HYBRID_MASK_REMOVE_RAYS_MIN_DISTANCE", std::to_string(mHybridMaskRemoveRaysMinDistance));
+    defines.add("HYBRID_MASK_REMOVE_RAYS_SMALLER_AS_DISTANCE", std::to_string(mHybridMaskRemoveRaysSmallerAsDistance));
+    defines.add("HYBRID_MASK_REMOVE_RAYS_GREATER_AS_DISTANCE", std::to_string(mHybridMaskRemoveRaysGreaterAsDistance));
     defines.add("HYBRID_MASK_EXPAND_RAYS_MAX_DISTANCE", std::to_string(mHybridMaskExpandRaysMaxDistance));
 
     //Set all enums in a very hacky way
@@ -478,9 +491,13 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
                 changed |= group.checkbox("Remove Rays at Min distance", mUseHybridMaskRemoveRaysMinDistance);
                 if (mUseHybridMaskRemoveRaysMinDistance)
                 {
-                    changed |= group.dropdown("Min Distance", kDistanceSettings ,mHybridMaskRemoveRaysMinDistanceMode);
-                    if (mHybridMaskRemoveRaysMinDistanceMode >= 3)
-                        group.var("Manual Distance", mHybridMaskRemoveRaysMinDistance, 0.0f);
+                    changed |= group.dropdown("Smaller As Distance", kDistanceSettings, mHybridMaskRemoveRaysSmallerAsDistanceMode);
+                    if (mHybridMaskRemoveRaysSmallerAsDistanceMode >= 4)
+                        group.var("Manual Distance", mHybridMaskRemoveRaysSmallerAsDistance, 0.0f);
+
+                    changed |= group.dropdown("Greater As Distance", kDistanceSettings, mHybridMaskRemoveRaysGreaterAsDistanceMode);
+                    if (mHybridMaskRemoveRaysGreaterAsDistanceMode >= 4)
+                        group.var("Manual Distance", mHybridMaskRemoveRaysGreaterAsDistance, 0.0f);
                     //The auto set happens in hybridMaskDefines()
                 }
             }
@@ -492,7 +509,7 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
                 if (mUseHybridMaskExpandRaysMaxDistance)
                 {
                     changed |= group.dropdown("Max Distance", kDistanceSettings, mHybridMaskExpandRaysMaxDistanceMode);
-                    if (mHybridMaskExpandRaysMaxDistanceMode >= 3)
+                    if (mHybridMaskExpandRaysMaxDistanceMode >= 4)
                         group.var("Max Distance", mHybridMaskExpandRaysMaxDistance, 0.0f);
                     // The auto set happens in hybridMaskDefines()
                 }

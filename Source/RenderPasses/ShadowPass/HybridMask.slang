@@ -37,7 +37,8 @@ SamplerState gHybridMaskSampler;    //Point sampler
 static const bool kUseHybridMask = USE_HYBRID_MASK;
 static const uint2 kHybridMaskDims = HYBRID_MASK_DIMS;
 static const uint kHMSampleCount = HYBRID_MASK_SAMPLE_COUNT;
-static const float kHybridMaskRemoveRaysMinDistance = HYBRID_MASK_REMOVE_RAYS_MIN_DISTANCE;
+static const float kHybridMaskRemoveRaysGreaterAsDistance = HYBRID_MASK_REMOVE_RAYS_GREATER_AS_DISTANCE;
+static const float kHybridMaskRemoveRaysSmallerAsDistance = HYBRID_MASK_REMOVE_RAYS_SMALLER_AS_DISTANCE;
 static const float kHybridMaskExpandRaysMaxDistance = HYBRID_MASK_EXPAND_RAYS_MAX_DISTANCE;
 /** Struct for the hybrid mask
 */
@@ -140,17 +141,18 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
     //Check if ray is necessary (removes ray from core shadow)
 #if HYBRID_MASK_REMOVE_RAYS
     #if HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
-        if(useRay && smShadowed && (linZ > kHybridMaskRemoveRaysMinDistance))
+        if(useRay && ((linZ > kHybridMaskRemoveRaysGreaterAsDistance) || (linZ < kHybridMaskRemoveRaysSmallerAsDistance)))
     #else //HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
         if(useRay && smShadowed)
     #endif //HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
         {
             bool needRay = false;
             for(uint i=0; i<maskCount; i++){
-                needRay |= !mask[i].shadowSM || (mask[i].shootRay && !mask[i].shadowRay);
-        }
+                needRay |= smShadowed && (!mask[i].shadowSM || (mask[i].shootRay && !mask[i].shadowRay));
+                needRay |= !smShadowed && (mask[i].shadowSM || (mask[i].shootRay && mask[i].shadowRay));
+            }
         useRay = needRay;
-    }
+        }
 #endif //HYBRID_MASK_REMOVE_RAYS
     //Check if ray needs to be expanded (expands ray on shadow edges)
 #if HYBRID_MASK_EXPAND_RAYS

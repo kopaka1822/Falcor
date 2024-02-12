@@ -90,11 +90,13 @@ private:
     bool mEnableHybridMask = true;
     bool mHybridMaskRemoveRays = true;
     bool mUseHybridMaskRemoveRaysMinDistance = true;
-    uint mHybridMaskRemoveRaysMinDistanceMode = 1;      //UI mode
-    float mHybridMaskRemoveRaysMinDistance = 3.f;
+    uint mHybridMaskRemoveRaysGreaterAsDistanceMode = 2; // UI mode
+    float mHybridMaskRemoveRaysGreaterAsDistance = 20.f;
+    uint mHybridMaskRemoveRaysSmallerAsDistanceMode = 0; // UI mode
+    float mHybridMaskRemoveRaysSmallerAsDistance = 7.f;
     bool mHybridMaskExpandRays = true;
     bool mUseHybridMaskExpandRaysMaxDistance = true;
-    uint mHybridMaskExpandRaysMaxDistanceMode = 2;      //UI mode
+    uint mHybridMaskExpandRaysMaxDistanceMode = 3;      //UI mode
     float mHybridMaskExpandRaysMaxDistance = 70.f;
 
     ref<Texture> mpHybridMask[2];   //Ping Pong temporal hybrid mask
