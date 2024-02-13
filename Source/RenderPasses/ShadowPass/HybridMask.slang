@@ -143,7 +143,7 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
     #if HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
         if(useRay && ((linZ > kHybridMaskRemoveRaysGreaterAsDistance) || (linZ < kHybridMaskRemoveRaysSmallerAsDistance)))
     #else //HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
-        if(useRay && smShadowed)
+        if(useRay)
     #endif //HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
         {
             bool needRay = false;
