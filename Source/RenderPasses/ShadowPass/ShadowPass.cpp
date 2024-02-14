@@ -35,7 +35,7 @@ namespace
 
     // Ray tracing settings that affect the traversal stack size.
     // These should be set as small as possible.
-    const uint32_t kMaxPayloadSizeBytes = 4u;
+    const uint32_t kMaxPayloadSizeBytes = 8u;
     const uint32_t kMaxRecursionDepth = 1u;
 
     const ChannelList kInputChannels = {
@@ -202,10 +202,17 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
             mUseSimplifiedShading = false;
     }
 
+    //Get the define for the alpha test range
+    if (mCopyAlphaSettingsFromSM)
+        mUseAlphaTestUntilDistance = mpShadowMap->getCascadedAlphaTestDistance();
+    else
+        mUseAlphaTestUntilDistance = 100000.f;
+
     // Add defines
     mShadowTracer.pProgram->addDefine("SP_SHADOW_MODE", std::to_string(uint32_t(mShadowMode)));
     mShadowTracer.pProgram->addDefine("SIMPLIFIED_SHADING", mUseSimplifiedShading ? "1" : "0");
     mShadowTracer.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
+    mShadowTracer.pProgram->addDefine("DISABLE_ALPHATEST_DISTANCE", std::to_string(mUseAlphaTestUntilDistance));    
     mShadowTracer.pProgram->addDefine("SP_AMBIENT", std::to_string(mAmbientFactor));
     mShadowTracer.pProgram->addDefine("SP_ENV_FACTOR", std::to_string(mEnvMapFactor));
     mShadowTracer.pProgram->addDefine("SP_EMISSIVE", std::to_string(mEmissiveFactor));
@@ -279,7 +286,15 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
     bool changed = false;
     changed |= widget.dropdown("Shadow Mode", mShadowMode);
     if (mShadowMode != SPShadowMode::ShadowMap)
+    {
         changed |= widget.checkbox("Ray Alpha Test", mUseAlphaTest);
+        if (mUseAlphaTest)
+        {
+            changed |= widget.checkbox("Copy Alpha settings from SM", mCopyAlphaSettingsFromSM);
+            widget.tooltip("Uses the alpha settings from the shadow map. Especially, at which distance the alpha test should be disabled");
+        }
+    }
+        
 
     changed |= widget.checkbox("Shadow Only", mShadowOnly);
     widget.tooltip("Disables shading. Guiding Normal (Textured normal) is used when using Simplified Shading");
@@ -448,7 +463,7 @@ DefineList ShadowPass::hybridMaskDefines() {
     sampleCount = (uint)mHybridMaskSamplePattern > (uint)HybridMaskSamplePatterns::PlusCross ? 4 : sampleCount; //Gather
     defines.add("HYBRID_MASK_SAMPLE_COUNT", std::to_string(sampleCount));
 
-    defines.add("HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE", mUseHybridMaskRemoveRaysMinDistance ? "1" : "0");
+    defines.add("HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE", mUseHybridMaskRemoveRaysDistance ? "1" : "0");
     defines.add("HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE", mUseHybridMaskExpandRaysMaxDistance ? "1" : "0");
     defines.add("HYBRID_MASK_REMOVE_RAYS_SMALLER_AS_DISTANCE", std::to_string(mHybridMaskRemoveRaysSmallerAsDistance));
     defines.add("HYBRID_MASK_REMOVE_RAYS_GREATER_AS_DISTANCE", std::to_string(mHybridMaskRemoveRaysGreaterAsDistance));
@@ -488,8 +503,8 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
             group.tooltip("Removes ray from core shadow. Can lead to temporal artifacts on dynamic objects");   //TODO fix dynamic
             if (mHybridMaskRemoveRays)
             {
-                changed |= group.checkbox("Remove Rays at Min distance", mUseHybridMaskRemoveRaysMinDistance);
-                if (mUseHybridMaskRemoveRaysMinDistance)
+                changed |= group.checkbox("Remove Rays at Min distance", mUseHybridMaskRemoveRaysDistance);
+                if (mUseHybridMaskRemoveRaysDistance)
                 {
                     changed |= group.dropdown("Smaller As Distance", kDistanceSettings, mHybridMaskRemoveRaysSmallerAsDistanceMode);
                     if (mHybridMaskRemoveRaysSmallerAsDistanceMode >= 4)

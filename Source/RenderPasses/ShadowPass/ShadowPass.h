@@ -73,6 +73,8 @@ private:
 
     //Configuration
     bool mUseAlphaTest = true; ///< Alpha Test for ray tracing
+    bool mCopyAlphaSettingsFromSM = true;   ///< Copies settings when the alpha test should be used from the shadow map
+    float mUseAlphaTestUntilDistance = 1000000.f;
     bool mUseSimplifiedShading = true;     ///< Option to switch shading
     bool mShadowOnly = false;               ///< Only output shadow
     float mAmbientFactor = 0.1f; //<Ambient light factor
@@ -89,13 +91,13 @@ private:
     bool mClearHybridMask = false;
     bool mEnableHybridMask = true;
     bool mHybridMaskRemoveRays = true;
-    bool mUseHybridMaskRemoveRaysMinDistance = true;
+    bool mUseHybridMaskRemoveRaysDistance = false;
     uint mHybridMaskRemoveRaysGreaterAsDistanceMode = 2; // UI mode
     float mHybridMaskRemoveRaysGreaterAsDistance = 20.f;
     uint mHybridMaskRemoveRaysSmallerAsDistanceMode = 0; // UI mode
     float mHybridMaskRemoveRaysSmallerAsDistance = 7.f;
     bool mHybridMaskExpandRays = true;
-    bool mUseHybridMaskExpandRaysMaxDistance = true;
+    bool mUseHybridMaskExpandRaysMaxDistance = false;
     uint mHybridMaskExpandRaysMaxDistanceMode = 3;      //UI mode
     float mHybridMaskExpandRaysMaxDistance = 70.f;
 

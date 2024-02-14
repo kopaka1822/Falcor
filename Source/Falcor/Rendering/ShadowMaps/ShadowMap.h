@@ -82,6 +82,7 @@ public:
     float getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height);    //Ortho case
 
     float getCascadedFarForLevel(uint level);
+    float getCascadedAlphaTestDistance();
     const bool getMipMapsEnabled() const { return mUseShadowMipMaps; }
 
     enum class SMUpdateMode: uint
@@ -116,6 +117,7 @@ private:
 
         float3 lightPosition = float3(0, 0, 0);
         float farPlane = 30.f;
+        bool disableAlpha = false;
     };
     struct RayShaderParameters
     {
@@ -240,6 +242,8 @@ private:
     uint mCascadedLevelTrace = 2;       //Trace until level
     float mCascadedReuseEnlargeFactor = 0.15f; // Increases box size by the factor on each side
     bool mEnableTemporalCascadedBoxTest = true; //Tests the cascaded level against the cascaded level from last frame. Only updates if box is outside
+    std::vector<bool> mBlurForCascaded = {false, false, true, true};
+    uint mCascadedDisableAlphaLevel = 3;
 
     // Hybrid Shadow Maps
     float2 mHSMFilteredThreshold = float2(0.01f, 0.99f); // Threshold for filtered shadow map variants
@@ -279,7 +283,7 @@ private:
     uint mTemporalFilterLength = 10;                          // Temporal filter strength
     uint mJitterSampleCount = 16;                             // Number of Jitter samples
 
-    bool mUseGaussianBlur = true;
+    bool mUseGaussianBlur = false;
 
     //Oracle
     bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function

@@ -9,6 +9,8 @@ cbuffer CB
 
     float3 gLightPos;           //Light Position; Near is stored in x for spotlights
     float gFarPlane;            //Far plane of the shadow map
+
+    bool gDisableAlpha; 
 };
 
 #ifndef SM_EXPONENTIAL_CONSTANT
@@ -94,9 +96,10 @@ float2 rescaleDepth(float2 depth){
 // Classic Shadow Maps
 void psMain(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID)
 {
-    #if USE_ALPHA_TEST
+#if USE_ALPHA_TEST
+    if(!gDisableAlpha)
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
-    #endif
+#endif
 }
 
 float psMainCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
@@ -136,9 +139,10 @@ float2 psVariance(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_T
 
 float2 psVarianceCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target0
 {
-    #if USE_ALPHA_TEST
+#if USE_ALPHA_TEST
+    if(!gDisableAlpha)
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
-    #endif
+#endif
     
     float2 varianceSM = float2(1.f);
     varianceSM.x = vsOut.posH.z;
@@ -196,9 +200,10 @@ float psExponential(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV
 
 float psExponentialCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
 {
-    #if USE_ALPHA_TEST
+#if USE_ALPHA_TEST
+    if(!gDisableAlpha)
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
-    #endif
+#endif
 
     float depth = rescaleDepth(vsOut.posH.z);
     
@@ -244,9 +249,10 @@ float4 psExponentialVariance(ShadowVsOut vsOut, uint triangleIndex : SV_Primitiv
 
 float4 psExponentialVarianceCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
 {
-    #if USE_ALPHA_TEST
+#if USE_ALPHA_TEST
+    if(!gDisableAlpha)
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
-    #endif
+#endif
 
     float depth = rescaleDepth(vsOut.posH.z);   //Convert to [-1,1]
     
@@ -288,9 +294,10 @@ float4 psMSM(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
 
 float4 psMSMCascaded(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
 {
-    #if USE_ALPHA_TEST
+#if USE_ALPHA_TEST
+    if(!gDisableAlpha)
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
-    #endif
+#endif
         
     return getFourMoments(vsOut.posH.z);
 }

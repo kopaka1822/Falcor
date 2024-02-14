@@ -852,6 +852,7 @@ void ShadowMap::setSMShaderVars(ShaderVar& var, ShaderParameters& params)
     var["CB"]["gviewProjection"] = params.viewProjectionMatrix;
     var["CB"]["gLightPos"] = params.lightPosition;
     var["CB"]["gFarPlane"] = params.farPlane;
+    var["CB"]["gDisableAlpha"] = params.disableAlpha;
 }
 
 void ShadowMap::setSMRayShaderVars(ShaderVar& var, RayShaderParameters& params)
@@ -1643,6 +1644,7 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
         params.lightPosition = lightData.posW;
         params.farPlane = mFar;
         params.viewProjectionMatrix = mCascadedVPMatrix[cascLevel];
+        params.disableAlpha = cascLevel >= mCascadedDisableAlphaLevel;
 
         auto vars = mShadowMapCascadedRasterPass.pVars->getRootVar();
         setSMShaderVars(vars, params);
@@ -1694,11 +1696,26 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
     // Blur all static shadow maps if it is enabled
     if (mpBlurCascaded)
     {
+        //Check which if the blur enabled buffer is still valid
+        if (mBlurForCascaded.size() != mCascadedLevelCount)
+        {
+            mBlurForCascaded.resize(mCascadedLevelCount);
+            //Init default (disabled for the first two levels)
+            for (uint i = 0; i < mBlurForCascaded.size(); i++)
+            {
+                if (i < 2)
+                    mBlurForCascaded[i] = false;
+                else
+                    mBlurForCascaded[i] = true;
+            }
+        }
+
+
         if (oneStaticIsRendered)
         {
             for (uint i = 0; i < mCascadedLevelCount; i++)
             {
-                if (renderCascadedLevel[i])
+                if (renderCascadedLevel[i] && mBlurForCascaded[i])
                     mpBlurCascaded->execute(pRenderContext, mpCascadedShadowMaps, i);
             }
         }
@@ -2231,6 +2248,7 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             }
             
             dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
+            group.tooltip("Enables Gaussian Blur for shadow maps. For Cascaded, each level has a seperate checkbox (see Cascaded Options)");
             mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
             group.tooltip("Uses MipMaps for applyable shadow map variants", true);
             if (mUseShadowMipMaps)
@@ -2297,6 +2315,24 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             }
             dirty |= group.var("Stochastic Level Range", mCascadedStochasticRange, 0.f, 0.3f, 0.001f);
             group.tooltip("Stochastically shifts the cascaded level by percentage (values * 2). ");
+
+            dirty |= group.var("Use Alpha Test until level", mCascadedDisableAlphaLevel, 0u, mCascadedLevelCount, 1u);
+            group.tooltip("Disables alpha test for shadow map generation starting from that level. Set to CascadedCount + 1 to use Alpha test for every level");
+
+            if (mUseGaussianBlur)
+            {
+                if (auto group2 = group.group("Enable Blur per Cascaded Level", true))
+                {
+                    for (uint level = 0; level < mBlurForCascaded.size(); level++)
+                    {
+                        //Bool vectors are very lovely, therefore this solution :)
+                        bool currentLevel = mBlurForCascaded[level];
+                        std::string blurLevelName = "Level " + std::to_string(level) + ":";
+                        dirty |= group2.checkbox(blurLevelName.c_str(), currentLevel);
+                        mBlurForCascaded[level] = currentLevel;
+                    }
+                }
+            }
         }
     }
 
@@ -2450,9 +2486,18 @@ void ShadowMap::handleNormalizedPixelSizeBuffer()
 float ShadowMap::getCascadedFarForLevel(uint level) {
     if (mCascadedZSlices.size() > level)
     {
-        return mCascadedZSlices[level];
+        float range = mCascadedZSlices[level] - mNear;
+        return mCascadedZSlices[level] + mCascadedStochasticRange * range;
     }
     return 0.f;
+}
+
+float ShadowMap::getCascadedAlphaTestDistance() {
+    if (mCascadedDisableAlphaLevel < mCascadedLevelCount)
+    {
+        return getCascadedFarForLevel(mCascadedDisableAlphaLevel - 1);
+    }
+    return 100000.f;
 }
 
 void ShadowMap::dummyProfileRaster(RenderContext* pRenderContext) {

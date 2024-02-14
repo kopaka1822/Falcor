@@ -89,12 +89,14 @@ static const float kEmissiveFactor = SP_EMISSIVE;
 static const bool kUseEnvMap= USE_ENV_MAP;
 static const bool kUseEmissive = true;
 static const bool kMipsEnabled = SHADOW_MIPS_ENABLED;
+static const float kDisableAlphaTestAtDistance = DISABLE_ALPHATEST_DISTANCE;
 
 /** Payload for shadow ray.
 */
 struct ShadowRayData
 {
     bool visible;
+    bool disableAlphaTest;
 };
 
  float3 computeDdxPosW(float3 posW, float3 normW, float2 invFrameDim)
@@ -170,6 +172,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
 
         ShadowRayData rayData;
         rayData.visible = false;  // Set to true by miss shader if ray is not terminated before
+        rayData.disableAlphaTest = camDist > kDisableAlphaTestAtDistance;
             
         TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
@@ -317,6 +320,12 @@ void anyHit(inout ShadowRayData rayData, BuiltInTriangleIntersectionAttributes a
     // Alpha test for non-opaque geometry.
     if (kRayAlphaTest)
     {
+        if(rayData.disableAlphaTest){
+            AcceptHitAndEndSearch();
+            return;
+        }
+            
+            
         GeometryInstanceID instanceID = getGeometryInstanceID();
         VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
         const uint materialID = gScene.getMaterialID(instanceID);
