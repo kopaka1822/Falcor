@@ -31,7 +31,7 @@ cbuffer CB
     uint gHashSize;     //Size is always 2^x
     int gCausticsBounces;    //Number of diffuse bounces allowed for caustic photons
     float gGenerationLampIntersectGuard;    //Guard for the first hit of photons
-    uint2 _pad;
+    float gGenerationLampIntersectGuardStoreProbability; //Percentage a photon is stored
 };
 
 #if USE_EMISSIVE_LIGHT  //Buffer is only valid if emissive light is enabled
@@ -392,12 +392,15 @@ void rayGen()
         //rejection
         float rndRoulette = sampleNext1D(rayData.sg);
         bool roulette = rndRoulette <= gRejection;
+        bool minDistanceRoulette = true;
 
-        if(rayData.distance < gGenerationLampIntersectGuard)
-            roulette = false;
-            
+        if(rayData.distance < gGenerationLampIntersectGuard){
+            minDistanceRoulette = sampleNext1D(rayData.sg) < gGenerationLampIntersectGuardStoreProbability;
+            photon.flux *= 1.f/gGenerationLampIntersectGuardStoreProbability;
+        }
+                       
         //store photon light
-        if (reflectedDiffuse && (roulette || storeAsCaustic))
+        if (reflectedDiffuse && (roulette || storeAsCaustic) && minDistanceRoulette)
         {
             uint photonType = storeAsCaustic ? 1 : 0; //Global = 0 or caustic = 1
             bool storePhoton = true;

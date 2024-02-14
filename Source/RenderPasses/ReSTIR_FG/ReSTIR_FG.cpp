@@ -320,7 +320,9 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         group.tooltip("Maximum number of diffuse bounces that are allowed for a caustic photon.");
 
         changed |= group.var("Min Photon Travel Distance", mPhotonFirstHitGuard, 0.0f);
-        group.tooltip("Distance a photon needs to travel to be stored in the photon map. Can drastically increase performance on certrain lamps.");
+        group.tooltip("A photon has a decreased probability (below) to be stored if it traveled less distace than set here. Can drastically increase performance on certrain lamps.");
+        changed |= group.var("Probability Min Travel Dist", mPhotonFirstHitGuardStoreProb, 0.0f, 1.f);
+        group.tooltip("The probability a photon is stored if it is under the mininmal store probablilty.");
 
         bool radiusChanged = group.var("Collection Radius", mPhotonCollectionRadiusStart, 0.00001f, 1000.f, 0.00001f, false);
         mPhotonCollectionRadiusStart.y = std::min(mPhotonCollectionRadiusStart.y, mPhotonCollectionRadiusStart.x);
@@ -496,7 +498,7 @@ void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
     if (mpScene)
     {
         const auto& bounds= mpScene->getSceneBounds();
-        mPhotonFirstHitGuard = math::length(bounds.extent()) * 0.005f;   //Init to 0.5 % of scene size
+        mPhotonFirstHitGuard = math::length(bounds.extent()) * 0.01f;   //Init to 1% of scene size
 
         if (mpScene->hasGeometryType(Scene::GeometryType::Custom))
         {
@@ -978,6 +980,7 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
     var[nameBuf]["gHashSize"] = 1 << mCullingHashBufferSizeBits; // Size of the Photon Culling buffer. 2^x
     var[nameBuf]["gCausticsBounces"] = mMaxCausticBounces;
     var[nameBuf]["gGenerationLampIntersectGuard"] =  mPhotonFirstHitGuard;
+    var[nameBuf]["gGenerationLampIntersectGuardStoreProbability"] = mPhotonFirstHitGuardStoreProb;
 
      if (mpEmissiveLightSampler)
         mpEmissiveLightSampler->setShaderData(var["Light"]["gEmissiveSampler"]);

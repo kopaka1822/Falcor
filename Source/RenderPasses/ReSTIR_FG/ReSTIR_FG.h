@@ -219,7 +219,8 @@ private:
     float mASBuildBufferPhotonOverestimate = 1.15f;
     float2 mPhotonCollectionRadiusStart = float2(0.020f, 0.005f);
     float2 mPhotonCollectRadius = mPhotonCollectionRadiusStart;     // Radius for collection
-    float mPhotonFirstHitGuard = 0.1f;
+    float mPhotonFirstHitGuard = 0.3f;                          //Phontons that traveled less than this distance are stored with a reduced probability
+    float mPhotonFirstHitGuardStoreProb = 0.1f;                 //Probability for a photon to be stored if it traveled under a minimal distance
     bool mChangePhotonLightBufferSize = false;
     bool mPhotonUseAlphaTest = true;
     bool mPhotonAdjustShadingNormal = true;
