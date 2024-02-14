@@ -192,7 +192,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     //Set shadow value
     if(clampShadow && !useRay)
         rtShadow = shadow < 0.5 ? 0.f : 1.f;
-    if(kEnableHybridBlending){
+    if(kEnableHybridBlending && kShadowMode != (uint)SPShadowMode::RayTraced){
         float blendT = saturate((camDist - kHybridBlendingRange.x)/kHybridBlendingRange.y);
         shadow = lerp(rtShadow, shadow, blendT);
     }else
