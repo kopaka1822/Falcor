@@ -83,6 +83,9 @@ private:
     uint mDebugMode = 3;            //< Mode for the debug view
     bool mOptionsChanged = false;
     SPShadowMode mShadowMode = SPShadowMode::Hybrid;
+    bool mEnableHybridRTBlend = true;
+    float2 mHybridRTBlend = float2(100000.f, 1.f);
+    float mHybridRTBlendDistancePercentage = 0.05f;
 
     //Hybrid Mask
     HybridMaskSamplePatterns mHybridMaskSamplePattern = HybridMaskSamplePatterns::Gather;
@@ -97,7 +100,7 @@ private:
     uint mHybridMaskRemoveRaysSmallerAsDistanceMode = 0; // UI mode
     float mHybridMaskRemoveRaysSmallerAsDistance = 7.f;
     bool mHybridMaskExpandRays = true;
-    bool mUseHybridMaskExpandRaysMaxDistance = false;
+    bool mUseHybridMaskExpandRaysMaxDistance = true;
     uint mHybridMaskExpandRaysMaxDistanceMode = 3;      //UI mode
     float mHybridMaskExpandRaysMaxDistance = 70.f;
 

@@ -78,10 +78,10 @@ struct HybridMask{
 }
 
 //Evaluate the hybrid mask
-bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed, float linZ , uint frameCount = 0){
+bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed,out bool clampShadow, float linZ , uint frameCount = 0){
     
     bool useRay = smUseRay;
-   
+    clampShadow = false;
     //Reproject with motion vectors
     float2 pixelF = float2(DispatchRaysIndex().xy) + 0.5;
     const float2 dims = float2(kHybridMaskDims);
@@ -151,6 +151,7 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
                 needRay |= smShadowed && (!mask[i].shadowSM || (mask[i].shootRay && !mask[i].shadowRay));
                 needRay |= !smShadowed && (mask[i].shadowSM || (mask[i].shootRay && mask[i].shadowRay));
             }
+        clampShadow = !needRay;
         useRay = needRay;
         }
 #endif //HYBRID_MASK_REMOVE_RAYS

@@ -208,6 +208,23 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     else
         mUseAlphaTestUntilDistance = 100000.f;
 
+    //BlendRange
+    if (mEnableHybridRTBlend)
+    {
+        float maxDist = mpShadowMap->getCascadedFarLastHybridLevel();
+        if (maxDist > 0)
+        {
+            float range = maxDist * mHybridRTBlendDistancePercentage;
+            float minDist = maxDist - range;
+            mHybridRTBlend = float2(minDist, range);
+        }else
+            mHybridRTBlend = float2(100000.f, 1.f);
+    }
+    else
+    {
+        mHybridRTBlend = float2(100000.f, 1.f);
+    }
+
     // Add defines
     mShadowTracer.pProgram->addDefine("SP_SHADOW_MODE", std::to_string(uint32_t(mShadowMode)));
     mShadowTracer.pProgram->addDefine("SIMPLIFIED_SHADING", mUseSimplifiedShading ? "1" : "0");
@@ -221,6 +238,10 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     mShadowTracer.pProgram->addDefine("DEBUG_MODE", std::to_string(mDebugMode));
     mShadowTracer.pProgram->addDefine("SHADOW_ONLY", mShadowOnly ? "1" : "0");
     mShadowTracer.pProgram->addDefine("SHADOW_MIPS_ENABLED", mpShadowMap->getMipMapsEnabled() ? "1" : "0");
+    mShadowTracer.pProgram->addDefine("HYBRID_USE_BLENDING", mEnableHybridRTBlend ? "1" : "0");
+    mShadowTracer.pProgram->addDefine(
+        "HYBRID_BLENDING_RANGE", "float2(" + std::to_string(mHybridRTBlend.x) + "," + std::to_string(mHybridRTBlend.y) + ")"
+    );
 
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
     mShadowTracer.pProgram->addDefines(hybridMaskDefines());
@@ -326,6 +347,12 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
     changed |= widget.var("Emissive Factor", mEmissiveFactor, 0.f, 100.f, 0.01f);
 
     changed |= widget.dropdown("Debug Mode", kDebugModes, mDebugMode);
+
+    changed |= widget.checkbox("Use Hybrid Blend", mEnableHybridRTBlend);
+    if (mEnableHybridRTBlend)
+    {
+        changed |= widget.var("Blend Percentage", mHybridRTBlendDistancePercentage);
+    }
 
     changed |= hybridMaskUI(widget);
 

@@ -554,7 +554,9 @@ struct ShadowMap
         lightDist = projPos.z;
 
         bool valid = (all(shadowUV >= 0.f) && all(shadowUV <= 1.f) && lightDist >= 0 && lightDist <= 1) || (level == (kCascadedLevels-1));
-        //Fallback (Only used when stoachstic threshold is too big)
+        return valid;
+        //Fallback (Only used when stochastic threshold is too big)
+        /*
         if(!valid){
             level = min(kCascadedLevels-1, level + 1);
             viewProjectMat = gSMCascadedVPBuffer[level];
@@ -569,7 +571,7 @@ struct ShadowMap
             valid = (all(shadowUV >= 0.f) && all(shadowUV <= 1.f) && lightDist >= 0 && lightDist <= 1) || (level == (kCascadedLevels-1));
         }
         return (valid);
-
+        */
         /* Old version
         float stochasticRange = kCascadedStochasticRange * random;
         float upperBound = 1.f - stochasticRange; 
@@ -1235,7 +1237,7 @@ struct ShadowMap
     {
         uint index = lightData.index;
         
-        shadow = 0.f;
+        shadow = 0.5f;
         float lightDist = 0.f;
         float3 shadowUV = float3(0);
         uint cascLevel = 0;
@@ -1257,6 +1259,7 @@ struct ShadowMap
             default:
                 break;
         }
+
         
         if (!valid)
             return !kUseRayOutsideSM;   //Outside of shadow map

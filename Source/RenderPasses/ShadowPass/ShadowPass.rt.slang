@@ -90,6 +90,8 @@ static const bool kUseEnvMap= USE_ENV_MAP;
 static const bool kUseEmissive = true;
 static const bool kMipsEnabled = SHADOW_MIPS_ENABLED;
 static const float kDisableAlphaTestAtDistance = DISABLE_ALPHATEST_DISTANCE;
+static const bool kEnableHybridBlending = HYBRID_USE_BLENDING;
+static const float2 kHybridBlendingRange = HYBRID_BLENDING_RANGE;   //x=Min; y=Range
 
 /** Payload for shadow ray.
 */
@@ -156,13 +158,13 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     bool isSMIsShadowed = shadow < 0.5;
     float camDist = distance(gScene.camera.getPosition(), posW);
 
+    bool clampShadow = false;
     if(kUseHybridMask && gHybridMaskValid){
-        
-        useRay = evaluateHybridMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed,camDist , gFrameCount);
+        useRay = evaluateHybridMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed,clampShadow,camDist, gFrameCount);
     }
         
-
     //Shoot Shadow ray
+    float rtShadow = shadow;
     if(useRay && kShadowMode != (uint)SPShadowMode::ShadowMap){
         RayDesc ray;
         ray.Origin = computeRayOrigin(posW, faceN);
@@ -176,14 +178,25 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
             
         TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
-        shadow = rayData.visible ? 1.f : 0.f;                
+        rtShadow = rayData.visible ? 1.f : 0.f;
+
+        float blendT = saturate((camDist - kHybridBlendingRange.x)/kHybridBlendingRange.y);
+        
+        shadow = lerp(rtShadow, shadow, blendT);
     }
 
     if(kUseHybridMask){
-        writeHybridMask(DispatchRaysIndex().xy, isSMIsShadowed, useRay, useRay && (shadow < 0.5));
-        if(camDist < kHybridMaskExpandRaysMaxDistance) //In Hybrid mask distance
-            shadow = shadow < 0.5 ? 0.f : 1.f; // Clamp Shadow
+        writeHybridMask(DispatchRaysIndex().xy, isSMIsShadowed, useRay, useRay && (rtShadow < 0.5));
     }
+
+    //Set shadow value
+    if(clampShadow && !useRay)
+        rtShadow = shadow < 0.5 ? 0.f : 1.f;
+    if(kEnableHybridBlending){
+        float blendT = saturate((camDist - kHybridBlendingRange.x)/kHybridBlendingRange.y);
+        shadow = lerp(rtShadow, shadow, blendT);
+    }else
+        shadow = rtShadow;
         
     //Handle Debug
     if (is_valid(gDebug))
