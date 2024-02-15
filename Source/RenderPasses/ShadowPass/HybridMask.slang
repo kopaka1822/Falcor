@@ -148,8 +148,8 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
         {
             bool needRay = false;
             for(uint i=0; i<maskCount; i++){
-                needRay |= smShadowed && (!mask[i].shadowSM || (mask[i].shootRay && !mask[i].shadowRay));
-                needRay |= !smShadowed && (mask[i].shadowSM || (mask[i].shootRay && mask[i].shadowRay));
+                needRay |= smShadowed && (!mask[i].shadowSM || (mask[i].shootRay && !mask[i].shadowRay)); // Remove Shadowed
+                needRay |= !smShadowed && (mask[i].shadowSM || (mask[i].shootRay && mask[i].shadowRay));  // Remove Lit
             }
         clampShadow = !needRay;
         useRay = needRay;
@@ -165,7 +165,8 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
         {
             bool expandRay = false;
             for(uint i=0; i<maskCount; i++){
-                expandRay |= (mask[i].shootRay && mask[i].shadowRay && !smShadowed) || (mask[i].shootRay && !mask[i].shadowRay && smShadowed);
+                //expandRay |= (mask[i].shootRay && mask[i].shadowRay && !smShadowed) || (mask[i].shootRay && !mask[i].shadowRay && smShadowed);    //Unsimplifed
+                expandRay |= mask[i].shootRay && (mask[i].shadowRay != smShadowed);     //Simplfied, does the same as the above with less operations
         }
         useRay |= expandRay;
     }
