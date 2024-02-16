@@ -87,6 +87,7 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
     const float2 dims = float2(kHybridMaskDims);
     float2 pixelOffset = mvec * dims;
     pixelF += pixelOffset;
+    pixelF = floor(pixelF) + 0.5;
         
     //Get the masks
     uint maskCount = 0;
@@ -130,7 +131,7 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
 
 //Sample via Gather (TODO more Patterns?)
 #if HYBRID_MASK_SAMPLE_PATTERN == HYBRID_MASK_SAMPLE_PATTERN_Gather
-    const float2 gatherPixelOffsets[4] = {float2(-0.25), float2(0.25, -0.25), float2(0.25), float2(-0.25, 0.25)};
+    const float2 gatherPixelOffsets[4] = {float2(0.25, -0.25), float2(-0.25, -0.25), float2(0.25, 0.25), float2(-0.25, 0.25)};
     float2 uvs = (pixelF - gatherPixelOffsets[frameCount%4]) / float2(dims);
     uint4 gatherMasks = gHybridMaskLastFrame.GatherRed(gHybridMaskSampler, uvs);
     for(maskCount = 0; maskCount < 4; maskCount++)
@@ -165,9 +166,10 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
         {
             bool expandRay = false;
             for(uint i=0; i<maskCount; i++){
-                //expandRay |= (mask[i].shootRay && mask[i].shadowRay && !smShadowed) || (mask[i].shootRay && !mask[i].shadowRay && smShadowed);    //Unsimplifed
-                expandRay |= mask[i].shootRay && (mask[i].shadowRay != smShadowed);     //Simplfied, does the same as the above with less operations
-        }
+                //expandRay |= (mask[i].shootRay && mask[i].shadowRay && !smShadowed) || (mask[i].shootRay && !mask[i].shadowRay && smShadowed) || (mask[i].shadowSM != smShadowed);    //Unsimplifed
+                //expandRay |= (mask[i].shootRay && (mask[i].shadowRay != smShadowed));     //Simplfied, does the same as the above with less operations
+                expandRay |= (mask[i].shootRay && (mask[i].shadowRay != smShadowed)) || (mask[i].shadowSM != smShadowed);     //Simplfied, does the same as the above with less operations
+            }
         useRay |= expandRay;
     }
 #endif //HYBRID_MASK_EXPAND_RAYS
