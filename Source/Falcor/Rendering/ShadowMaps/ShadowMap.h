@@ -244,7 +244,7 @@ private:
     float mCascadedReuseEnlargeFactor = 0.15f; // Increases box size by the factor on each side
     bool mEnableTemporalCascadedBoxTest = true; //Tests the cascaded level against the cascaded level from last frame. Only updates if box is outside
     std::vector<bool> mBlurForCascaded = {false, false, true, true};
-    uint mCascadedDisableAlphaLevel = 3;
+    uint mCascadedDisableAlphaLevel = 4;
 
     // Hybrid Shadow Maps
     float2 mHSMFilteredThreshold = float2(0.01f, 0.99f); // Threshold for filtered shadow map variants
@@ -284,7 +284,7 @@ private:
     uint mTemporalFilterLength = 10;                          // Temporal filter strength
     uint mJitterSampleCount = 16;                             // Number of Jitter samples
 
-    bool mUseGaussianBlur = false;
+    bool mUseGaussianBlur = true;
 
     //Oracle
     bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function

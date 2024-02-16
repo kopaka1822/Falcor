@@ -1686,12 +1686,7 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
             );
         }
         
-    }
-
-    // Check if a cascaded was rendered (and the VP buffer should be updated
-    bool oneStaticIsRendered = false;
-    for (uint i = 0; i < renderCascadedLevel.size(); i++)
-        oneStaticIsRendered |= renderCascadedLevel[i];
+    }   
 
     // Blur all static shadow maps if it is enabled
     if (mpBlurCascaded)
@@ -1710,22 +1705,29 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
             }
         }
 
-
-        if (oneStaticIsRendered)
+        bool blurRendered = false;
+        for (uint i = 0; i < mCascadedLevelCount; i++)
         {
-            for (uint i = 0; i < mCascadedLevelCount; i++)
+            if (renderCascadedLevel[i] && mBlurForCascaded[i])
             {
-                if (renderCascadedLevel[i] && mBlurForCascaded[i])
-                    mpBlurCascaded->execute(pRenderContext, mpCascadedShadowMaps, i);
+                mpBlurCascaded->execute(pRenderContext, mpCascadedShadowMaps, i);
+                blurRendered |= true;
             }
         }
-        else
+
+        if (!blurRendered)
             mpBlurCascaded->profileDummy(pRenderContext);
     }
+
+    //Determine if a static shadow map was rendered
+    bool oneStaticIsRendered = false;
+    for (uint i = 0; i < renderCascadedLevel.size(); i++)
+        oneStaticIsRendered |= renderCascadedLevel[i];
 
     //Generate Mips for static shadow maps modes that allow filter
     if (mUseShadowMipMaps)
     {
+       
         for (uint i = 0; (i < mCascadedLevelCount) && oneStaticIsRendered; i++)
         {
             if (renderCascadedLevel[i])
@@ -2319,20 +2321,7 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             dirty |= group.var("Use Alpha Test until level", mCascadedDisableAlphaLevel, 0u, mCascadedLevelCount, 1u);
             group.tooltip("Disables alpha test for shadow map generation starting from that level. Set to CascadedCount + 1 to use Alpha test for every level");
 
-            if (mUseGaussianBlur)
-            {
-                if (auto group2 = group.group("Enable Blur per Cascaded Level", true))
-                {
-                    for (uint level = 0; level < mBlurForCascaded.size(); level++)
-                    {
-                        //Bool vectors are very lovely, therefore this solution :)
-                        bool currentLevel = mBlurForCascaded[level];
-                        std::string blurLevelName = "Level " + std::to_string(level) + ":";
-                        dirty |= group2.checkbox(blurLevelName.c_str(), currentLevel);
-                        mBlurForCascaded[level] = currentLevel;
-                    }
-                }
-            }
+            
         }
     }
 
@@ -2349,7 +2338,20 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             if (mpBlurCascaded)
             {
                 if (auto group2 = group.group("Cascaded"))
+                {
                     blurSettingsChanged |= mpBlurCascaded->renderUI(group2);
+                    if (auto group3 = group2.group("Enable Blur per Cascaded Level", true))
+                    {
+                        for (uint level = 0; level < mBlurForCascaded.size(); level++)
+                        {
+                            // Bool vectors are very lovely, therefore this solution :)
+                            bool currentLevel = mBlurForCascaded[level];
+                            std::string blurLevelName = "Level " + std::to_string(level) + ":";
+                            dirty |= group3.checkbox(blurLevelName.c_str(), currentLevel);
+                            mBlurForCascaded[level] = currentLevel;
+                        }
+                    }   
+                }  
             }
             if (mpBlurCube)
             {

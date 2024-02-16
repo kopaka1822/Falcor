@@ -61,8 +61,8 @@ namespace
     };
 
     const ChannelList kOutputChannels = {
-        {"color", "gColor", "(Shadowed) Color for the direct light", false, ResourceFormat::RGBA16Float},
-        {"debug", "gDebug", "Debug Image", true, ResourceFormat::RGBA16Float},
+        {"color", "gColor", "(Shadowed) Color for the direct light", false, ResourceFormat::RGBA8Unorm},
+        {"debug", "gDebug", "Debug Image", true, ResourceFormat::RGBA8Unorm},
     };
 
     const Gui::DropdownList kDebugModes{
@@ -439,8 +439,8 @@ void ShadowPass::generateHybridMaskData(RenderContext* pRenderContext,uint2 scre
     {
         Sampler::Desc samplerDesc;
         samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
-        samplerDesc.setAddressingMode(Sampler::AddressMode::Border, Sampler::AddressMode::Border, Sampler::AddressMode::Border);
-        samplerDesc.setBorderColor(float4(0.f));
+        samplerDesc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
+        //samplerDesc.setBorderColor(float4(0.f));
         mpHybridSampler = Sampler::create(mpDevice, samplerDesc);
     }
 
