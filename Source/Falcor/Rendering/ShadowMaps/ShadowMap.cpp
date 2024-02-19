@@ -2178,10 +2178,10 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
         break;
     }
     case ShadowMapType::Variance:
+    case ShadowMapType::SDVariance:
     {
         if (auto group = widget.group("Variance Shadow Map Options"))
         {
-            dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
             dirty |= group.checkbox("Use Min Shadow Value", mUseMinShadowValue);
             group.tooltip("Enables a minimum allowed shadow value. Every shadow value gets reduced to 0. Prevents some light leaking with the cost of reducing the soft shadow effect");
             dirty |= group.var("Min Shadow Value", mMinShadowValueVal, 0.f , 1.f, 0.0001f);
@@ -2192,16 +2192,21 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip("Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [TH.x, TH.y]", true);
             if (mHSMFilteredThreshold.x > mHSMFilteredThreshold.y)
                 mHSMFilteredThreshold.y = mHSMFilteredThreshold.x;
-            mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
-            group.tooltip("Uses MipMaps for applyable shadow map variants", true);
-            if (mUseShadowMipMaps)
-            {
-                dirty |= group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
-                group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
-            }
 
-            dirty |= group.checkbox("Use PCF", mUsePCF);
-            group.tooltip("Enable to use Percentage closer filtering");
+            if (mShadowMapType == ShadowMapType::Variance)
+            {
+                dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
+                mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
+                group.tooltip("Uses MipMaps for applyable shadow map variants", true);
+                if (mUseShadowMipMaps)
+                {
+                    dirty |= group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+                    group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
+                }
+
+                dirty |= group.checkbox("Use PCF", mUsePCF);
+                group.tooltip("Enable to use Percentage closer filtering");
+            }
         }
         
         break;
@@ -2228,10 +2233,10 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
         break;
     }
     case ShadowMapType::ExponentialVariance:
+    case ShadowMapType::SDExponentialVariance:
     {
         if (auto group = widget.group("Exponential Variance Shadow Map Options"))
-        {
-            dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
+        {          
             dirty |= group.var("Exponential Constant", mEVSMConstant, 1.f, kEVSM_ExponentialConstantMax, 0.1f);
             group.tooltip("Constant for exponential shadow map");
             dirty |= group.var("Exponential Negative Constant", mEVSMNegConstant, 1.f, kEVSM_ExponentialConstantMax, 0.1f);
@@ -2240,18 +2245,24 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip(
                 "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [x, y]", true
             );
-            mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
-            group.tooltip("Uses MipMaps for applyable shadow map variants", true);
-            if (mUseShadowMipMaps)
+
+            if (mShadowMapType == ShadowMapType::ExponentialVariance)
             {
-                dirty |= group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
-                group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
+                dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
+                mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
+                group.tooltip("Uses MipMaps for applyable shadow map variants", true);
+                if (mUseShadowMipMaps)
+                {
+                    dirty |= group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+                    group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
+                }
             }
         }
         break;
     }
     case ShadowMapType::MSMHamburger:
     case ShadowMapType::MSMHausdorff:
+    case ShadowMapType::SDMSM:
     {
         if (auto group = widget.group("Moment Shadow Maps Options"))
         {
@@ -2282,16 +2293,22 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
                 dirty |= group.var("HSM Variance Difference", mMSMVarianceThreshold, 0.f, 1.f, 0.001f);
                 group.tooltip("Threshold difference for the additional variance test. A ray is shot if difference is bigger than the threshold");
             }
-            
-            dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
-            group.tooltip("Enables Gaussian Blur for shadow maps. For Cascaded, each level has a seperate checkbox (see Cascaded Options)");
-            mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
-            group.tooltip("Uses MipMaps for applyable shadow map variants", true);
-            if (mUseShadowMipMaps)
+
+            if (mShadowMapType != ShadowMapType::SDMSM)
             {
-                dirty |= group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
-                group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
+                dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
+                group.tooltip(
+                    "Enables Gaussian Blur for shadow maps. For Cascaded, each level has a seperate checkbox (see Cascaded Options)"
+                );
+                mResetShadowMapBuffers |= group.checkbox("Use Mip Maps", mUseShadowMipMaps);
+                group.tooltip("Uses MipMaps for applyable shadow map variants", true);
+                if (mUseShadowMipMaps)
+                {
+                    dirty |= group.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+                    group.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
+                }
             }
+            
         }
     }
     break;
