@@ -23,6 +23,10 @@ __exported import Rendering.ShadowMaps.ShadowMapHelpers;
 #define CASCADED_SLICE_BUFFER_SIZE 4
 #endif
 
+#ifndef CASC_USE_STOCH_LEVEL
+#define CASC_USE_STOCH_LEVEL 0
+#endif
+
 struct ShadowMap
 {
     SamplerState gShadowSamplerPoint;
@@ -555,8 +559,8 @@ struct ShadowMap
 
         bool valid = (all(shadowUV >= 0.f) && all(shadowUV <= 1.f) && lightDist >= 0 && lightDist <= 1) || (level == (kCascadedLevels-1));
         return valid;
-        //Fallback (Only used when stochastic threshold is too big)
         /*
+        //Fallback (Only used when stochastic threshold is too big)
         if(!valid){
             level = min(kCascadedLevels-1, level + 1);
             viewProjectMat = gSMCascadedVPBuffer[level];
@@ -571,34 +575,6 @@ struct ShadowMap
             valid = (all(shadowUV >= 0.f) && all(shadowUV <= 1.f) && lightDist >= 0 && lightDist <= 1) || (level == (kCascadedLevels-1));
         }
         return (valid);
-        */
-        /* Old version
-        float stochasticRange = kCascadedStochasticRange * random;
-        float upperBound = 1.f - stochasticRange; 
-        float lowerBound = 0.f + stochasticRange;
-        //Go through all levels
-        for(level = 0; level < kCascadedLevels; level++)
-        {
-            //Disable Stoachstic for last level
-            if(level == kCascadedLevels-1)
-            {
-                upperBound = 1.f;
-                lowerBound = 0.f;
-            }
-            float4x4 viewProjectMat = gSMCascadedVPBuffer[level];
-            float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
-           
-            projPos.y *= -1; //Flip 
-            projPos.xy = projPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
-
-            shadowUV = projPos.xy;
-            lightDist = projPos.z;
-
-            if (all(shadowUV >= lowerBound) && all(shadowUV <= upperBound) && lightDist >= 0 && lightDist <= 1)   //Return if outside of the shadow map
-                return true;
-        }
-
-        return false;
         */
     }
     
@@ -938,7 +914,11 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
+            #if CASC_USE_STOCH_LEVEL
                 valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
+            #else
+                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
+            #endif
                 if(kCascadedLevelTrace < cascLevel)
                     cascadedHybrid = false;
                 break;
@@ -1020,7 +1000,11 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(posW,random , cascLevel, shadowUV.xy, lightDist);
+            #if CASC_USE_STOCH_LEVEL
+                valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
+            #else
+                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
+            #endif
                 if(kCascadedLevelTrace < cascLevel)
                     cascadedHybrid = false;
                 break;
@@ -1105,7 +1089,11 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
+            #if CASC_USE_STOCH_LEVEL
                 valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
+            #else
+                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
+            #endif
                 if(kCascadedLevelTrace < cascLevel)
                     cascadedHybrid = false;
                 break;
@@ -1265,7 +1253,11 @@ struct ShadowMap
                 valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(posW, random, cascLevel, shadowUV.xy, lightDist);
+            #if CASC_USE_STOCH_LEVEL
+                valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
+            #else
+                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
+            #endif
                 if(kCascadedLevelTrace < cascLevel)
                     cascadedHybrid = false;
                 break;
@@ -1337,7 +1329,11 @@ struct ShadowMap
                 shadowUV.xy = gatherUV;
                 break;
             case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(posW, random, cascLevel, shadowUV.xy, lightDist);
+            #if CASC_USE_STOCH_LEVEL
+                valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
+            #else
+                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
+            #endif
                 lerpWeights = getGatherWeights(shadowUV.xy, kCascadedSMRes, gatherUV);
                 shadowUV.xy = gatherUV;
                 if(kCascadedLevelTrace < cascLevel)

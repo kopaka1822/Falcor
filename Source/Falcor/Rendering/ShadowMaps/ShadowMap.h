@@ -85,6 +85,7 @@ public:
     float getCascadedFarLastHybridLevel() { return getCascadedFarForLevel(mCascadedLevelTrace); }
     float getCascadedAlphaTestDistance();
     const bool getMipMapsEnabled() const { return mUseShadowMipMaps; }
+    const bool getIsStochasticCascadedLevelEnabled() const { return mUseStochasticCascadedLevels; }
 
     enum class SMUpdateMode: uint
     {
@@ -317,6 +318,7 @@ private:
     std::vector<CascadedTemporalReuse> mCascadedTemporalReuse;  //Data for the temporal cascaded reuse
     std::vector<float> mCascadedFrustumManualVals = {0.05f, 0.15f, 0.3f,1.f}; // Values for Manual set Cascaded frustum. Initialized for 3 Levels
     float mCascadedMaxFar = 1000000.f;
+    bool mUseStochasticCascadedLevels = false;
     float mCascadedStochasticRange = 0.05f;
     std::vector<float> mCascadedZSlices;
     std::vector<float2> mCascadedWidthHeight;

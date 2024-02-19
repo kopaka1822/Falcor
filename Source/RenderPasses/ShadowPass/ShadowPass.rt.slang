@@ -92,6 +92,7 @@ static const bool kMipsEnabled = SHADOW_MIPS_ENABLED;
 static const float kDisableAlphaTestAtDistance = DISABLE_ALPHATEST_DISTANCE;
 static const bool kEnableHybridBlending = HYBRID_USE_BLENDING;
 static const float2 kHybridBlendingRange = HYBRID_BLENDING_RANGE;   //x=Min; y=Range
+static const bool kStochasticCascadedLevelEnabled = DEBUG_STOCH_CASC_ENABLED;
 
 /** Payload for shadow ray.
 */
@@ -224,7 +225,11 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
             uint cascLevel = 0;
             float2 tmpUV;
             float tmpDist;
-            bool valid = gShadowMap.directionalDistanceAndSampleVec(posW,random, cascLevel, tmpUV, tmpDist);
+            bool valid;
+            if(kStochasticCascadedLevelEnabled)
+                valid = gShadowMap.directionalDistanceAndSampleVec(posW,random, cascLevel, tmpUV, tmpDist);
+            else
+                valid = gShadowMap.directionalDistanceAndSampleVec(posW, cascLevel, tmpUV, tmpDist);
 
             if (valid)
             {

@@ -225,6 +225,11 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
         mHybridRTBlend = float2(100000.f, 1.f);
     }
 
+    //Stoch cascaded level
+    bool useStochCascLevel = false;
+    if (mDebugMode == 2)
+        useStochCascLevel = mpShadowMap->getIsStochasticCascadedLevelEnabled();
+
     // Add defines
     mShadowTracer.pProgram->addDefine("SP_SHADOW_MODE", std::to_string(uint32_t(mShadowMode)));
     mShadowTracer.pProgram->addDefine("SIMPLIFIED_SHADING", mUseSimplifiedShading ? "1" : "0");
@@ -242,6 +247,7 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     mShadowTracer.pProgram->addDefine(
         "HYBRID_BLENDING_RANGE", "float2(" + std::to_string(mHybridRTBlend.x) + "," + std::to_string(mHybridRTBlend.y) + ")"
     );
+    mShadowTracer.pProgram->addDefine("DEBUG_STOCH_CASC_ENABLED", useStochCascLevel ? "1" : "0");
 
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
     mShadowTracer.pProgram->addDefines(hybridMaskDefines());

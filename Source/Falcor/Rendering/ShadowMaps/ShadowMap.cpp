@@ -708,6 +708,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("MSM_DEPTH_BIAS", std::to_string(mMSMDepthBias));
     defines.add("MSM_MOMENT_BIAS", std::to_string(mMSMMomentBias));
     defines.add("MSM_VARIANCE_TEST_THRESHOLD", mMSMUseVarianceTest ? std::to_string(mMSMVarianceThreshold) : "-1.0f");
+    defines.add("CASC_USE_STOCH_LEVEL", mUseStochasticCascadedLevels ? "1" : "0");
     defines.add("CASC_STOCH_RANGE", std::to_string(mCascadedStochasticRange));
     defines.add("USE_RAY_OUTSIDE_SM", mUseRayOutsideOfShadowMap ? "1" : "0");
     defines.add("CASCADED_SM_RESOLUTION", std::to_string(mShadowMapSizeCascaded));
@@ -2348,13 +2349,16 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
                 dirty |= group.var("Reuse Enlarge Factor", mCascadedReuseEnlargeFactor, 0.f, 10.f, 0.001f);
                 group.tooltip("Factor by which the frustum of each cascaded level is enlarged by");
             }
-            dirty |= group.var("Stochastic Level Range", mCascadedStochasticRange, 0.f, 0.3f, 0.001f);
-            group.tooltip("Stochastically shifts the cascaded level by percentage (values * 2). ");
 
+            group.checkbox("Use Stochastic Cascaded Level", mUseStochasticCascadedLevels);
+            if (mUseStochasticCascadedLevels)
+            {
+                dirty |= group.var("Stochastic Level Range", mCascadedStochasticRange, 0.f, 0.3f, 0.001f);
+                group.tooltip("Stochastically shifts the cascaded level by percentage (values * 2). ");
+            }
+            
             dirty |= group.var("Use Alpha Test until level", mCascadedDisableAlphaLevel, 0u, mCascadedLevelCount, 1u);
             group.tooltip("Disables alpha test for shadow map generation starting from that level. Set to CascadedCount + 1 to use Alpha test for every level");
-
-            
         }
     }
 
