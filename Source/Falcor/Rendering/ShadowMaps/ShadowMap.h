@@ -74,6 +74,13 @@ public:
     // Sets the shader data and binds the block to var "gShadowMap"
     void setShaderDataAndBindBlock(ShaderVar rootVar, const uint2 frameDim = uint2(1920u, 1080u));
 
+    //Set if ray tracing is enabled in the used render
+    void setEnableRayTracing(bool enableRayTracing)
+    {
+        mCanUseRayTracing = enableRayTracing;
+        mUpdateShadowMap |= true;
+    }
+
     // Gets the parameter block needed for shader usage
     ref<ParameterBlock> getParameterBlock() const { return mpShadowMapParameterBlock; }
 
@@ -86,6 +93,8 @@ public:
     float getCascadedAlphaTestDistance();
     const bool getMipMapsEnabled() const { return mUseShadowMipMaps; }
     const bool getIsStochasticCascadedLevelEnabled() const { return mUseStochasticCascadedLevels; }
+    const bool getFullTracedCascadedUsed() const { return mCascadedLastLevelRayTrace; }
+    const uint getCascadedLevelHybridIsUsed() const { return mCascadedLevelTrace; }
 
     enum class SMUpdateMode: uint
     {
@@ -239,9 +248,9 @@ private:
     //Cascaded
     CascadedFrustumMode mCascadedFrustumMode = CascadedFrustumMode::AutomaticNvidia;
     uint mCascadedLevelCount = 4;
-    uint mCascadedTracedLevelsAtEnd = 0; //Adds N number of ray tracing only cascades at the end. Will only work on hybrid mode
     float mCascadedFrustumFix = 0.85f;
     uint mCascadedLevelTrace = 2;       //Trace until level
+    bool mCascadedLastLevelRayTrace = true;  //Traces every cascaded level after the option above. Shadow map is still reserved in memory but is not used/rendered 
     float mCascadedReuseEnlargeFactor = 0.15f; // Increases box size by the factor on each side
     bool mEnableTemporalCascadedBoxTest = true; //Tests the cascaded level against the cascaded level from last frame. Only updates if box is outside
     std::vector<bool> mBlurForCascaded = {false, false, true, true};
@@ -308,6 +317,9 @@ private:
     //
     //Internal
     //
+
+    //General
+    bool mCanUseRayTracing = true;  //RayTracing can be disabled for some settings
 
     //Frustum Culling
     uint2 mFrustumCullingVectorOffsets = uint2(0, 0);   //Cascaded / Point

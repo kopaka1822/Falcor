@@ -686,6 +686,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("CASCADED_LEVEL", std::to_string(mCascadedLevelCount));
     defines.add("CASCADED_SLICE_BUFFER_SIZE", std::to_string(cascadedSliceBufferSize));
     defines.add("CASCADE_LEVEL_TRACE", std::to_string(mCascadedLevelTrace));
+    defines.add("CASCADE_RAYTRACING_AFTER_HYBRID", mCascadedLastLevelRayTrace ? "1" : "0");
     defines.add("SM_USE_PCF", mUsePCF ? "1" : "0");
     defines.add("SM_USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
     defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
@@ -1473,8 +1474,8 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
             {
                 // Z slizes formula by:
                 // https://developer.download.nvidia.com/SDK/10.5/opengl/src/cascaded_shadow_maps/doc/cascaded_shadow_maps.pdf
-                std::vector<float> cascadedSlices(mCascadedLevelCount + mCascadedTracedLevelsAtEnd);
-                const uint N = mCascadedLevelCount + mCascadedTracedLevelsAtEnd;
+                std::vector<float> cascadedSlices(mCascadedLevelCount);
+                const uint N = mCascadedLevelCount;
                 for (uint i = 1; i <= N; i++)
                 {
                     cascadedSlices[i - 1] = mCascadedFrustumFix * (cameraData.nearZ * pow((mCascadedMaxFar / cameraData.nearZ), float(i) / N));
@@ -1512,12 +1513,6 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
         //Get Centerpoint for view
         float3 center = float3(0);
         const float3 upVec = float3(0, 1, 0);
-        //Cap to scene boundaries
-        /*
-        for (auto& p : frustumCorners){
-            p = float4(math::clamp(p.xyz(), sceneBounds.minPoint, sceneBounds.maxPoint),1.f);
-        }
-        */
         for (const auto& p : frustumCorners)
             center += p.xyz();
         center /= 8.f;
@@ -1615,8 +1610,6 @@ void ShadowMap::calcProjViewForCascaded(const LightData& lightData, std::vector<
             const uint cullingIndex = mFrustumCullingVectorOffsets.x + i; //i is cascaded level
             mFrustumCulling[cullingIndex]->updateFrustum(center, center + lightData.dirW, upVec, minX, maxX, minY, maxY, -1.f * maxZ, -1.f * minZ);
         }
-
-        
     }        
 }
 
@@ -1662,6 +1655,10 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
 
         //Skip static cascaded levels if no update is necessary
         if (!renderCascadedLevel[cascLevel] && !isDynamic)
+            continue;
+
+        //Check if the level is fully ray traced
+        if (mCanUseRayTracing && mCascadedLastLevelRayTrace && (cascLevel > mCascadedLevelTrace))
             continue;
 
         // If depth tex is set, Render to RenderTarget
@@ -2343,12 +2340,6 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
                 break;
             case Falcor::ShadowMap::CascadedFrustumMode::AutomaticNvidia:
                 {
-                    group.var("Virtual RayTraced Casc Level at end", mCascadedTracedLevelsAtEnd, 0u, 8u, 1u);
-                    group.tooltip(
-                        "Adds N virtual cascaded levels that will be fully ray traced. Does not generate extra shadow maps.\n \" Use Ray "
-                        "outside "
-                        "Shadow Map \" needs to be activated for the virtual cascaded levels to work"
-                    );
                     dirty |= group.var("Z Slize Exp influence", mCascadedFrustumFix, 0.f, 1.f, 0.001f);
                     group.tooltip("Influence of the Exponentenial part in the zSlice calculation. (1-Value) is used for the linear part");
                 }
@@ -2357,8 +2348,10 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
                 break;
             }
 
-            dirty |= group.var("Cascaded Level Trace Hybrid until", mCascadedLevelTrace, 0u, mCascadedLevelCount - 1, 1u);
+            mUpdateShadowMap |= group.var("Hybrid: Use for cascaded levels:", mCascadedLevelTrace, 0u, mCascadedLevelCount - 1, 1u);
             group.tooltip("Uses Hybrid for X levels, starting from 0. Only used when Hybrid is active");
+            mUpdateShadowMap |= group.checkbox("Use full ray shadows after hybrid cutoff", mCascadedLastLevelRayTrace);
+            group.tooltip("Uses ray traced shadows instead of the shadow map after the hybrid cutoff. Only used in hybrid mode");
             dirty |= group.checkbox("Use Temporal Cascaded Reuse", mEnableTemporalCascadedBoxTest);
             group.tooltip("Enlarges the rendered cascade and reuses it in the next frame if camera has not moved so much");
             if (mEnableTemporalCascadedBoxTest)

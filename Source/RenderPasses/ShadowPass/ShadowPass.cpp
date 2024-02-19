@@ -77,7 +77,8 @@ namespace
         {1, "Casc Far Level 0"},
         {2, "Casc Far Level 1"},
         {3, "Casc Far Level 2"},
-        {4, "Manual"},
+        {4, "Casc Far Level 3"},
+        {5, "Manual"},
     };
 
 } // namespace
@@ -202,6 +203,13 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
             mUseSimplifiedShading = false;
     }
 
+    if (mShadowModeChanged)
+    {
+        mpShadowMap->setEnableRayTracing(mShadowMode != SPShadowMode::ShadowMap);
+        mShadowModeChanged = false;
+    }
+    
+
     //Get the define for the alpha test range
     if (mCopyAlphaSettingsFromSM)
         mUseAlphaTestUntilDistance = mpShadowMap->getCascadedAlphaTestDistance();
@@ -311,7 +319,8 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
 void ShadowPass::renderUI(Gui::Widgets& widget)
 {
     bool changed = false;
-    changed |= widget.dropdown("Shadow Mode", mShadowMode);
+    mShadowModeChanged |= widget.dropdown("Shadow Mode", mShadowMode);
+    changed |= mShadowModeChanged;
     if (mShadowMode != SPShadowMode::ShadowMap)
     {
         changed |= widget.checkbox("Ray Alpha Test", mUseAlphaTest);
@@ -353,12 +362,6 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
     changed |= widget.var("Emissive Factor", mEmissiveFactor, 0.f, 100.f, 0.01f);
 
     changed |= widget.dropdown("Debug Mode", kDebugModes, mDebugMode);
-
-    changed |= widget.checkbox("Use Hybrid Blend", mEnableHybridRTBlend);
-    if (mEnableHybridRTBlend)
-    {
-        changed |= widget.var("Blend Percentage", mHybridRTBlendDistancePercentage);
-    }
 
     changed |= hybridMaskUI(widget);
 
@@ -461,20 +464,42 @@ void ShadowPass::freeHybridMaskData()
 }
 
 DefineList ShadowPass::hybridMaskDefines() {
+    //Check if a cascaded level is fully traced
+    if (mpShadowMap->getFullTracedCascadedUsed())
+    {
+        if (!mFullyTracedCascadedLevelsEnabled)
+        {
+            mFullyTracedCascadedLevelsEnabled = true;
+            mEnableHybridRTBlend = false;
+            mUseHybridMaskRemoveRaysDistance = true; // Disable for the last level
+            mHybridMaskRemoveRaysSmallerAsDistanceMode = std::min(mpShadowMap->getCascadedLevelHybridIsUsed() + 1, 4u); // Until traced cascaded level
+            mHybridMaskRemoveRaysGreaterAsDistanceMode = 4;                                                             // Disabled
+        }
+    }
+    //Restore default settings
+    else if (mFullyTracedCascadedLevelsEnabled)
+    {
+        mFullyTracedCascadedLevelsEnabled = false;
+        mEnableHybridRTBlend = true;
+        mUseHybridMaskRemoveRaysDistance = false;
+        mHybridMaskRemoveRaysSmallerAsDistanceMode = 0;
+        mHybridMaskRemoveRaysGreaterAsDistanceMode = 2;
+    }
+
     // Set distances depending on cascaded level (had to be done here as UI code is only executed when open)
     if (mHybridMaskRemoveRaysGreaterAsDistanceMode == 0)
         mHybridMaskRemoveRaysGreaterAsDistance = 0.f;
-    else if (mHybridMaskRemoveRaysGreaterAsDistanceMode < 4)
+    else if (mHybridMaskRemoveRaysGreaterAsDistanceMode < 5)
         mHybridMaskRemoveRaysGreaterAsDistance = mpShadowMap->getCascadedFarForLevel(mHybridMaskRemoveRaysGreaterAsDistanceMode - 1);
 
     if (mHybridMaskRemoveRaysSmallerAsDistanceMode == 0)
         mHybridMaskRemoveRaysSmallerAsDistance = 0.f;
-    else if (mHybridMaskRemoveRaysSmallerAsDistanceMode < 4)
+    else if (mHybridMaskRemoveRaysSmallerAsDistanceMode < 5)
         mHybridMaskRemoveRaysSmallerAsDistance = mpShadowMap->getCascadedFarForLevel(mHybridMaskRemoveRaysSmallerAsDistanceMode - 1);
 
     if (mHybridMaskExpandRaysMaxDistanceMode == 0)
         mHybridMaskExpandRaysMaxDistance = 0.f;
-    else if (mHybridMaskExpandRaysMaxDistanceMode < 4)
+    else if (mHybridMaskExpandRaysMaxDistanceMode < 5)
         mHybridMaskExpandRaysMaxDistance = mpShadowMap->getCascadedFarForLevel(mHybridMaskExpandRaysMaxDistanceMode - 1);
 
     DefineList defines;
@@ -526,6 +551,15 @@ void ShadowPass::setHybridMaskVars(ShaderVar& var, const uint frameCount) {
 bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
     bool changed = false;
 
+    if (!mFullyTracedCascadedLevelsEnabled)
+    {
+        changed |= widget.checkbox("Use Hybrid Blend", mEnableHybridRTBlend);
+        if (mEnableHybridRTBlend)
+        {
+            changed |= widget.var("Blend Percentage", mHybridRTBlendDistancePercentage);
+        }
+    }
+
     if (auto group = widget.group("Hybrid Mask"))
     {
         changed |= group.checkbox("Enable", mEnableHybridMask);
@@ -540,11 +574,11 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
                 if (mUseHybridMaskRemoveRaysDistance)
                 {
                     changed |= group.dropdown("Smaller As Distance", kDistanceSettings, mHybridMaskRemoveRaysSmallerAsDistanceMode);
-                    if (mHybridMaskRemoveRaysSmallerAsDistanceMode >= 4)
+                    if (mHybridMaskRemoveRaysSmallerAsDistanceMode >= 5)
                         group.var("Manual Distance", mHybridMaskRemoveRaysSmallerAsDistance, 0.0f);
 
                     changed |= group.dropdown("Greater As Distance", kDistanceSettings, mHybridMaskRemoveRaysGreaterAsDistanceMode);
-                    if (mHybridMaskRemoveRaysGreaterAsDistanceMode >= 4)
+                    if (mHybridMaskRemoveRaysGreaterAsDistanceMode >= 5)
                         group.var("Manual Distance", mHybridMaskRemoveRaysGreaterAsDistance, 0.0f);
                     //The auto set happens in hybridMaskDefines()
                 }
@@ -557,7 +591,7 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
                 if (mUseHybridMaskExpandRaysMaxDistance)
                 {
                     changed |= group.dropdown("Max Distance", kDistanceSettings, mHybridMaskExpandRaysMaxDistanceMode);
-                    if (mHybridMaskExpandRaysMaxDistanceMode >= 4)
+                    if (mHybridMaskExpandRaysMaxDistanceMode >= 5)
                         group.var("Max Distance", mHybridMaskExpandRaysMaxDistance, 0.0f);
                     // The auto set happens in hybridMaskDefines()
                 }

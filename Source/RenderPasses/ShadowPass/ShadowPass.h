@@ -70,6 +70,7 @@ private:
     uint mFrameCount = 0;
     bool mSimplifiedShadingValid = true;
     bool mComplexShadingValid = false;
+    bool mShadowModeChanged = false;
 
     //Configuration
     bool mUseAlphaTest = true; ///< Alpha Test for ray tracing
@@ -86,7 +87,8 @@ private:
     bool mEnableHybridRTBlend = true;
     float2 mHybridRTBlend = float2(100000.f, 1.f);
     float mHybridRTBlendDistancePercentage = 0.05f;
-
+    bool mFullyTracedCascadedLevelsEnabled = false;
+    
     //Hybrid Mask
     HybridMaskSamplePatterns mHybridMaskSamplePattern = HybridMaskSamplePatterns::Gather;
 

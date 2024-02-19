@@ -153,7 +153,10 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
             float3 posWDdy = computeDdyPosW(posW, faceN, invFrameDim);
             lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);    
         }
-        useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
+        if(kShadowMode == (uint)SPShadowMode::Hybrid)
+            useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
+        else
+            useRay = !gShadowMap.evalShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
     }
 
     bool isSMIsShadowed = shadow < 0.5;

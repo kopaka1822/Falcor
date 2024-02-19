@@ -76,6 +76,7 @@ struct ShadowMap
     static const float kAdditionalVarianceTestThreshold = MSM_VARIANCE_TEST_THRESHOLD; //Threshold for additional variance test in MSM
     static const float kCascadedStochasticRange = CASC_STOCH_RANGE;         //Stochastic range for cascaded shadow maps
     static const uint  kCascadedLevelTrace = CASCADE_LEVEL_TRACE;           //Traces only for the first X levels on hybrid
+    static const bool  kCascadedRayTracingAfterHybrid = CASCADE_RAYTRACING_AFTER_HYBRID; //Uses ray tracing for the higher cascaded levels (when higher than option directly above)
 
     static const bool kUseSMMips = USE_SM_MIP;
     static const float kMipBias = SM_MIP_BIAS;      //angle bias used in mip calculation (cos theta^bias)
@@ -926,7 +927,7 @@ struct ShadowMap
                 break;
         }
         
-        if (!valid)
+        if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
             return !kUseRayOutsideSM; //Ray is needed
 
 
@@ -1012,7 +1013,7 @@ struct ShadowMap
                 break;
         }
         
-        if (!valid)
+        if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
             return !kUseRayOutsideSM;   //Outside of shadow map
          
         //Shadow Test with shadow map
@@ -1101,7 +1102,7 @@ struct ShadowMap
                 break;
         }
         
-        if (!valid)
+        if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
             return !kUseRayOutsideSM;   //Outside of shadow map
          
         //Shadow Test with shadow map
@@ -1265,8 +1266,7 @@ struct ShadowMap
                 break;
         }
 
-        
-        if (!valid)
+        if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
             return !kUseRayOutsideSM;   //Outside of shadow map
 
         float4 moments = getShadowValueF4(index, shadowUV, lightData.type, cascLevel, mipLevel);
@@ -1343,7 +1343,7 @@ struct ShadowMap
                 break;
         }
 
-        if (!valid)
+        if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
             return !kUseRayOutsideSM;   //Outside of shadow map
 
         float4 gatherDepths = getShadowValueGather(index, shadowUV, lightData.type, cascLevel);
