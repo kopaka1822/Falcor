@@ -206,6 +206,9 @@ void ShadowMap::prepareShadowMapBuffers()
         break;
     }
     case ShadowMapType::ShadowMap: // No special format needed
+    case ShadowMapType::SDVariance:
+    case ShadowMapType::SDExponentialVariance:
+    case ShadowMapType::SDMSM:
     {
         if (mUseRaySMGen)
         {
@@ -469,6 +472,9 @@ void ShadowMap::prepareRasterProgramms()
         switch (mShadowMapType)
         {
         case ShadowMapType::ShadowMap:
+        case ShadowMapType::SDVariance:
+        case ShadowMapType::SDExponentialVariance:
+        case ShadowMapType::SDMSM:
             desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMainCube");
             break;
         case ShadowMapType::Variance:
@@ -502,6 +508,9 @@ void ShadowMap::prepareRasterProgramms()
         switch (mShadowMapType)
         {
         case ShadowMapType::ShadowMap:
+        case ShadowMapType::SDVariance:
+        case ShadowMapType::SDExponentialVariance:
+        case ShadowMapType::SDMSM:
             desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMain");
             break;
         case ShadowMapType::Variance:
@@ -535,6 +544,9 @@ void ShadowMap::prepareRasterProgramms()
         switch (mShadowMapType)
         {
         case ShadowMapType::ShadowMap:
+        case ShadowMapType::SDVariance:
+        case ShadowMapType::SDExponentialVariance:
+        case ShadowMapType::SDMSM:
             desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMain");
             break;
         case ShadowMapType::Variance:
@@ -612,7 +624,13 @@ void ShadowMap::prepareProgramms()
 void ShadowMap::prepareGaussianBlur() {
     bool blurChanged = false;
 
-    if (mUseGaussianBlur && mShadowMapType != ShadowMapType::ShadowMap)
+    bool filterableShadowMapType = true;
+    filterableShadowMapType &= mShadowMapType != ShadowMapType::ShadowMap;
+    filterableShadowMapType &= mShadowMapType != ShadowMapType::SDVariance;
+    filterableShadowMapType &= mShadowMapType != ShadowMapType::SDExponentialVariance;
+    filterableShadowMapType &= mShadowMapType != ShadowMapType::SDMSM;
+
+    if (mUseGaussianBlur && filterableShadowMapType)
     {
         if (!mpBlurShadowMap && mpShadowMaps.size() > 0)
         {
@@ -673,7 +691,14 @@ DefineList ShadowMap::getDefines() const
     defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
     defines.add("NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
     defines.add("ORACLE_DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
-    defines.add("SM_EXPONENTIAL_CONSTANT", std::to_string(mShadowMapType == ShadowMapType::ExponentialVariance ? mEVSMConstant : mExponentialSMConstant));
+    defines.add(
+        "SM_EXPONENTIAL_CONSTANT",
+        std::to_string(
+            mShadowMapType == ShadowMapType::ExponentialVariance || mShadowMapType == ShadowMapType::SDExponentialVariance
+                ? mEVSMConstant
+                : mExponentialSMConstant
+        )
+    );
     defines.add("SM_NEGATIVE_EXPONENTIAL_CONSTANT", std::to_string(mEVSMNegConstant));
     defines.add("SM_NEAR", std::to_string(mNear));
     defines.add(
@@ -748,6 +773,9 @@ void ShadowMap::setShaderData(const uint2 frameDim)
     switch (mShadowMapType)
     {
     case Falcor::ShadowMapType::ShadowMap:
+    case Falcor::ShadowMapType::SDVariance:
+    case Falcor::ShadowMapType::SDExponentialVariance:
+    case Falcor::ShadowMapType::SDMSM:
     case Falcor::ShadowMapType::Exponential:
         {
             for (uint32_t i = 0; i < mpShadowMapsCube.size(); i++)
@@ -1103,6 +1131,9 @@ void ShadowMap::rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* 
         switch (mShadowMapType)
         {
         case Falcor::ShadowMapType::ShadowMap:
+        case Falcor::ShadowMapType::SDVariance:
+        case Falcor::ShadowMapType::SDExponentialVariance:
+        case Falcor::ShadowMapType::SDMSM:
         case Falcor::ShadowMapType::Exponential:
             vars["gOutSM"].setUav(mpShadowMapsCube[index]->getUAV(0,face,1));
             break;
@@ -1350,6 +1381,9 @@ bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRe
     switch (mShadowMapType)
     {
     case Falcor::ShadowMapType::ShadowMap:
+    case Falcor::ShadowMapType::SDVariance:
+    case Falcor::ShadowMapType::SDExponentialVariance:
+    case Falcor::ShadowMapType::SDMSM:
     case Falcor::ShadowMapType::Exponential:
         vars["gOutSM"] = mpShadowMaps[index];
         break;
@@ -1661,7 +1695,10 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
         }
 
         //Clear
-        pRenderContext->clearFbo(mShadowMapCascadedRasterPass.pState->getFbo().get(), clearColor, 1.f, 0);
+        if (mpDepthCascaded)
+            pRenderContext->clearFbo(mShadowMapCascadedRasterPass.pState->getFbo().get(), clearColor, 1.f, 0);
+        else
+            pRenderContext->clearDsv(mShadowMapCascadedRasterPass.pState->getFbo()->getDepthStencilView().get(), 1.f, 0.f, true, false);
 
         //Set mesh render mode
         auto meshRenderMode = RasterizerState::MeshRenderMode::All;
@@ -1727,7 +1764,6 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
     //Generate Mips for static shadow maps modes that allow filter
     if (mUseShadowMipMaps)
     {
-       
         for (uint i = 0; (i < mCascadedLevelCount) && oneStaticIsRendered; i++)
         {
             if (renderCascadedLevel[i])
@@ -1793,6 +1829,9 @@ bool ShadowMap::rayGenCascaded(ref<Light> light, RenderContext* pRenderContext, 
         switch (mShadowMapType)
         {
         case Falcor::ShadowMapType::ShadowMap:
+        case Falcor::ShadowMapType::SDVariance:
+        case Falcor::ShadowMapType::SDExponentialVariance:
+        case Falcor::ShadowMapType::SDMSM:
         case Falcor::ShadowMapType::Exponential:
             vars["gOutSM"].setUav(mpCascadedShadowMaps->getUAV(0,cascLevel,1));
             break;
@@ -2014,12 +2053,6 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             mBias = classicBias;
             mSlopeBias = classicSlopeBias;
             mSMCubeWorldBias = cubeBias;
-            break;
-        case Falcor::ShadowMapType::Variance:
-        case Falcor::ShadowMapType::Exponential:
-            mBias = 0;
-            mSlopeBias = 0.f;
-            mSMCubeWorldBias = 0.f;
             break;
         default:
             mBias = 0;

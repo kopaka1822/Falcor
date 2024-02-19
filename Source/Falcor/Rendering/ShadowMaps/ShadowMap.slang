@@ -1064,6 +1064,19 @@ struct ShadowMap
         
         return float2(pNegMax,pPosMax);
     }
+
+    float2 exponentialVarianceShadowTest(in float4 sv, in const float lightDist)
+    {
+        float depth = (lightDist * 2.f) - 1.f;
+        float2 warpedDepth = float2(exp(depth * kExponentialSMConstant),  -exp(-depth * kEVSMNegConstant));
+        float2 minVariance = float2(0.0001f * kExponentialSMConstant * warpedDepth.x, 0.0001f * kEVSMNegConstant * warpedDepth.y); 
+        minVariance *= minVariance;
+        
+        float pPosMax = ChebyshevUpperBound(sv.xy, warpedDepth.x, minVariance.x);
+        float pNegMax = ChebyshevUpperBound(sv.zw, warpedDepth.y, minVariance.y);
+        
+        return float2(pNegMax,pPosMax);
+    }
     
     /** Exponential (Layered) Variance Shadow Mapping. https://dl.acm.org/doi/pdf/10.5555/1375714.1375739
     \param[in] analytical light index.
@@ -1299,6 +1312,94 @@ struct ShadowMap
             
         return useShadow;
     }
+
+    //Eval the single depth version of the filterable shadow maps.
+    bool evalShadowMapFilterSD(float3 posW, const in SMLightData lightData, const float mipLevel,const bool hybridSM , out float shadow, float random = 0.f)
+    {
+        uint index = lightData.index;
+        
+        shadow = 0.5f;
+        float lightDist = 0.f;
+        float3 shadowUV = float3(0);
+        uint cascLevel = 0;
+        bool valid = false;
+        bool cascadedHybrid = true;
+        float4 lerpWeights = float4(0.25);
+        float2 gatherUV = float2(0);
+        switch (lightData.type)
+        {
+            case LightTypeSM::Point:
+                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
+                break;
+            case LightTypeSM::Spot:
+                valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
+                lerpWeights = getGatherWeights(shadowUV.xy, k2DSMRes, gatherUV);
+                shadowUV.xy = gatherUV;
+                break;
+            case LightTypeSM::Directional:
+                valid = directionalDistanceAndSampleVec(posW, random, cascLevel, shadowUV.xy, lightDist);
+                lerpWeights = getGatherWeights(shadowUV.xy, kCascadedSMRes, gatherUV);
+                shadowUV.xy = gatherUV;
+                if(kCascadedLevelTrace < cascLevel)
+                    cascadedHybrid = false;
+                break;
+            default:
+                break;
+        }
+
+        if (!valid)
+            return !kUseRayOutsideSM;   //Outside of shadow map
+
+        float4 gatherDepths = getShadowValueGather(index, shadowUV, lightData.type, cascLevel);
+        
+        bool useShadow = true;
+        //Evaluate the shadow map
+        if(ShadowMapType(kShadowMapMode) == ShadowMapType::SDVariance){
+            float2 varianceSV = float2(0);
+            for(uint i=0; i<4;i++)
+                varianceSV += lerpWeights[i] * float2(gatherDepths[i], gatherDepths[i]* gatherDepths[i]);
+
+            shadow = ChebyshevUpperBound(varianceSV, lightDist, 1e-10f);
+        }else if (ShadowMapType(kShadowMapMode) == ShadowMapType::SDExponentialVariance){
+            float4 expVarianceSV = float4(0);
+            for(uint i=0; i<4;i++){
+                float rescaledDepth = (2.f * gatherDepths[i]) - 1.f;
+                float4 evsm;
+                evsm.x = exp(rescaledDepth * SM_EXPONENTIAL_CONSTANT);              //Moment1
+                evsm.y = evsm.x * evsm.x;                                   //Moment2
+                evsm.z = -exp(-(rescaledDepth * SM_NEGATIVE_EXPONENTIAL_CONSTANT)); //Negative Moment1
+                evsm.w = evsm.z * evsm.z;
+
+                expVarianceSV += lerpWeights[i] * evsm;
+            }
+            float2 upperLowerBound = exponentialVarianceShadowTest(expVarianceSV, lightDist);
+            shadow = max(upperLowerBound.x, upperLowerBound.y);
+            if (hybridSM && cascadedHybrid)
+                if(abs(upperLowerBound.x - upperLowerBound.y) > kHSMFilteredThreshold.x)
+                    useShadow = false;
+        }else{
+            float4 moments = float4(0);
+            for(uint i=0; i<4;i++)
+                moments += lerpWeights[i] * float4(gatherDepths[i], gatherDepths[i]* gatherDepths[i], gatherDepths[i]* gatherDepths[i] * gatherDepths[i],
+                                                   gatherDepths[i]* gatherDepths[i] * gatherDepths[i]* gatherDepths[i]);
+
+            shadow = msmHamburger(moments, lightDist);
+        }
+        
+        if (hybridSM && cascadedHybrid)
+        {
+            if ((shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y))
+                useShadow = false;   //Shoot ray
+        }
+        
+        //Clamp Shadow Value depending on the threshold
+        if(shadow <= kHSMFilteredThreshold.x)
+            shadow = 0.0;
+        else if (shadow >= kHSMFilteredThreshold.y)
+            shadow = 1.f;
+                       
+        return useShadow;
+    }
     /** Shadow Map overview function. Calls the corresponding implementation based on the current mode
     \param[in] analytical light index.
     \param[in] world position.
@@ -1324,6 +1425,10 @@ struct ShadowMap
             case ShadowMapType::MSMHamburger:
             case ShadowMapType::MSMHausdorff:
                 return evalShadowMapMSM(posW, lightData, mipLevel, false, shadow);
+            case ShadowMapType::SDVariance:
+            case ShadowMapType::SDExponentialVariance:
+            case ShadowMapType::SDMSM:
+                return evalShadowMapFilterSD(posW, lightData, mipLevel, false, shadow);
             default:
                 shadow = 1.f;
                 return false;
@@ -1354,6 +1459,10 @@ struct ShadowMap
             case ShadowMapType::MSMHamburger:
             case ShadowMapType::MSMHausdorff:
                 return evalShadowMapMSM(posW, lightData, mipLevel, true, shadow, random.x);
+            case ShadowMapType::SDVariance:
+            case ShadowMapType::SDExponentialVariance:
+            case ShadowMapType::SDMSM:
+                return evalShadowMapFilterSD(posW, lightData, mipLevel, true, shadow, random.x);
             default:
                 shadow = 1.f;
                 return false;

@@ -209,7 +209,7 @@ private:
 
     // Common Settings
     bool mUseRaySMGen = false;                                  //Generate Shadow Map with Ray Tracing
-    ShadowMapType mShadowMapType = ShadowMapType::MSMHamburger;     //Type
+    ShadowMapType mShadowMapType = ShadowMapType::SDExponentialVariance;     //Type
 
     uint mShadowMapSize = 2048;
     uint mShadowMapSizeCube = 1024;

@@ -43,6 +43,9 @@ enum class ShadowMapType : uint32_t
         ExponentialVariance = 3,
         MSMHamburger = 4,
         MSMHausdorff = 5,
+        SDVariance = 6,
+        SDExponentialVariance = 7,
+        SDMSM = 8,
 };
 FALCOR_ENUM_INFO(ShadowMapType, {
     { ShadowMapType::ShadowMap, "ShadowMap" },
@@ -51,6 +54,9 @@ FALCOR_ENUM_INFO(ShadowMapType, {
     { ShadowMapType::ExponentialVariance, "ExponentialVariance" },
     { ShadowMapType::MSMHamburger, "MSMHamburger" },
     { ShadowMapType::MSMHausdorff, "MSMHausdorff" },
+    { ShadowMapType::SDVariance, "SDVariance" },
+    { ShadowMapType::SDExponentialVariance, "SDExponentialVariance" },
+    { ShadowMapType::SDMSM, "SDMSM" },
 });
 FALCOR_ENUM_REGISTER(ShadowMapType);
 
