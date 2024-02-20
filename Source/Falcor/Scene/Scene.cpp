@@ -537,10 +537,13 @@ namespace Falcor
                     const auto& instance = mGeometryInstanceData[instanceID];
                     const auto& worldMat = globalMatrices[instance.globalMatrixID];
                     const AABB& meshBB = mMeshBBs[instance.geometryID];
+                    const auto& mesh = mMeshDesc[instance.geometryID];
+
                     //If the mesh passes the culling test, add to draw buffer
-                    if (pFrustumCulling->isInFrustum(meshBB.transform(worldMat)))
+                    // TODO: Add a better/functioning precalculated BB for skinned meshes
+                    if (pFrustumCulling->isInFrustum(meshBB.transform(worldMat)) || mesh.isSkinned())
                     {
-                        const auto& mesh = mMeshDesc[instance.geometryID];
+                        
                         DrawIndexedArguments drawArg;
                         drawArg.IndexCountPerInstance = mesh.indexCount;
                         drawArg.InstanceCount = 1;
@@ -569,10 +572,12 @@ namespace Falcor
                     const auto& instance = mGeometryInstanceData[instanceID];
                     const auto& worldMat = globalMatrices[instance.globalMatrixID];
                     const AABB& meshBB = mMeshBBs[instance.geometryID];
+                    const auto& mesh = mMeshDesc[instance.geometryID];
                     // If the mesh passes the culling test, add to draw buffer
-                    if (pFrustumCulling->isInFrustum(meshBB.transform(worldMat)))
+                    // TODO: Add a better/functioning precalculated BB for skinned meshes
+                    if (pFrustumCulling->isInFrustum(meshBB.transform(worldMat)) || mesh.isSkinned())
                     {
-                        const auto& mesh = mMeshDesc[instance.geometryID];
+                        
                         DrawArguments drawArg;
                         drawArg.VertexCountPerInstance = mesh.vertexCount;
                         drawArg.InstanceCount = 1;
