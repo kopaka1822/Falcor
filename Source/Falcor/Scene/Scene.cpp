@@ -2885,8 +2885,21 @@ namespace Falcor
         for (const auto& animation : mpAnimationController->getAnimations())
         {
             uint nodeID = animation->getNodeID().get();
-            if (nodeID != NodeID::kInvalidID)
+            if (nodeID != NodeID::kInvalidID) {
                 animatedNodes.insert(nodeID);
+            } 
+        }
+        //Add all changed matrixes to the node map
+        for (uint node = 0; node < mpAnimationController->getGlobalMatrices().size(); node++)
+        {
+            NodeID nodeID = NodeID{node};
+            if (mpAnimationController->isMatrixChanged(nodeID))
+            {
+                if (node != NodeID::kInvalidID)
+                {
+                    animatedNodes.insert(node);
+                } 
+            }
         }
 
         for (const auto& instance : mGeometryInstanceData)
@@ -2896,10 +2909,11 @@ namespace Falcor
                 continue;
 
             const uint32_t instNodeID = instance.globalMatrixID;
+            auto& mesh = mMeshDesc[instance.geometryID];
             //If node was found mark mesh as isAnimated
             if (auto search = animatedNodes.find(instNodeID); search != animatedNodes.end())
             {
-                auto& mesh = mMeshDesc[instance.geometryID];
+                //auto& mesh = mMeshDesc[instance.geometryID];
                 if(!mesh.isAnimated())
                     mesh.flags |= (uint32_t)MeshFlags::IsAnimated;
             }
