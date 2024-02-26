@@ -40,6 +40,7 @@ const char kOutputSize[] = "outputSize";
 const char kProfile[] = "profile";
 const char kMotionVectorScale[] = "motionVectorScale";
 const char kIsHDR[] = "isHDR";
+const char kUseJitteredMV[] = "useJitteredMV";
 const char kSharpness[] = "sharpness";
 const char kExposure[] = "exposure";
 }; // namespace
@@ -69,6 +70,8 @@ DLSSPass::DLSSPass(ref<Device> pDevice, const Properties& props) : RenderPass(pD
             mMotionVectorScale = value;
         else if (key == kIsHDR)
             mIsHDR = value;
+        else if (key == kUseJitteredMV)
+            mUseJitterMVFlag = value;
         else if (key == kSharpness)
             mSharpness = value;
         else if (key == kExposure)
@@ -91,6 +94,7 @@ Properties DLSSPass::getProperties() const
     props[kProfile] = mProfile;
     props[kMotionVectorScale] = mMotionVectorScale;
     props[kIsHDR] = mIsHDR;
+    props[kUseJitteredMV] = mUseJitterMVFlag;
     props[kSharpness] = mSharpness;
     props[kExposure] = mExposure;
     return props;
@@ -153,6 +157,9 @@ void DLSSPass::renderUI(Gui::Widgets& widget)
         mRecreate |= widget.checkbox("HDR", mIsHDR);
         widget.tooltip("Enable if input color is HDR.");
 
+        mRecreate |= widget.checkbox("MVecJitterFlag", mUseJitterMVFlag);
+        widget.tooltip("Should be technically wrong as the jitter is removed from the motion vectory, but fixes the ghosting error on moving geometry");
+
         widget.slider("Sharpness", mSharpness, -1.f, 1.f);
         widget.tooltip("Sharpening value between 0.0 and 1.0.");
 
@@ -195,7 +202,7 @@ void DLSSPass::initializeDLSS(RenderContext* pRenderContext)
     );
 
     mpNGXWrapper->releaseDLSS();
-    mpNGXWrapper->initializeDLSS(pRenderContext, mInputSize, mDLSSOutputSize, target, mIsHDR, depthInverted, perfQuality);
+    mpNGXWrapper->initializeDLSS(pRenderContext, mInputSize, mDLSSOutputSize, target, mIsHDR, depthInverted, mUseJitterMVFlag, perfQuality);
 }
 
 void DLSSPass::executeInternal(RenderContext* pRenderContext, const RenderData& renderData)

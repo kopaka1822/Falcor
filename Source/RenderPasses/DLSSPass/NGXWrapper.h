@@ -68,6 +68,7 @@ public:
         Texture* pTarget,
         bool isContentHDR,
         bool depthInverted,
+        bool useMVJitteredFlag,
         NVSDK_NGX_PerfQuality_Value perfQuality = NVSDK_NGX_PerfQuality_Value_MaxPerf
     );
 

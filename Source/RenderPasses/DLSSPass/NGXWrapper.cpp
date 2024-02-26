@@ -224,6 +224,7 @@ void NGXWrapper::initializeDLSS(
     Texture* pTarget,
     bool isContentHDR,
     bool depthInverted,
+    bool useMVJitteredFlag,
     NVSDK_NGX_PerfQuality_Value perfQuality
 )
 {
@@ -233,6 +234,7 @@ void NGXWrapper::initializeDLSS(
     // Next create features
     int createFlags = NVSDK_NGX_DLSS_Feature_Flags_None;
     createFlags |= NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
+    createFlags |= useMVJitteredFlag ? NVSDK_NGX_DLSS_Feature_Flags_MVJittered : 0;
     createFlags |= isContentHDR ? NVSDK_NGX_DLSS_Feature_Flags_IsHDR : 0;
     createFlags |= depthInverted ? NVSDK_NGX_DLSS_Feature_Flags_DepthInverted : 0;
 
