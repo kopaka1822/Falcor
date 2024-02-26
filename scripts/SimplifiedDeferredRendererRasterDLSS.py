@@ -6,7 +6,7 @@ def render_graph_DeferredRenderer():
     g.create_pass('GBufferRaster', 'GBufferRaster', {'outputSize': 'Default', 'samplePattern': 'Halton', 'sampleCount': 32, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': 'Back'})
     g.create_pass('ShadowPass', 'ShadowPass', {})
     g.create_pass('VideoRecorder', 'VideoRecorder', {})
-    g.create_pass('DLSSPass', 'DLSSPass', {'enabled': True, 'outputSize': 'Default', 'profile': 'Balanced', 'motionVectorScale': 'Relative', 'isHDR': False, 'useJitteredMV': True, 'sharpness': 0.0, 'exposure': 0.0})
+    g.create_pass('DLSSPass', 'DLSSPass', {'enabled': True, 'outputSize': 'Default', 'profile': 'Balanced', 'motionVectorScale': 'Relative', 'isHDR': False, 'useJitteredMV': False, 'sharpness': 0.0, 'exposure': 0.0})
     g.create_pass('PathBenchmark', 'PathBenchmark', {})
     g.add_edge('GBufferRaster.posW', 'ShadowPass.posW')
     g.add_edge('GBufferRaster.faceNormalW', 'ShadowPass.faceNormalW')

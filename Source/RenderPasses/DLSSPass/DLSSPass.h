@@ -87,7 +87,7 @@ private:
     Profile mProfile = Profile::Balanced;
     MotionVectorScale mMotionVectorScale = MotionVectorScale::Relative;
     bool mIsHDR = true;
-    bool mUseJitterMVFlag = true;   //This seems to fix the ghosting issue
+    bool mUseJitterMVFlag = false;   //This seems to fix the ghosting issue
     float mSharpness = 0.f;
     float mExposure = 0.f;
     bool mExposureUpdated = true;
