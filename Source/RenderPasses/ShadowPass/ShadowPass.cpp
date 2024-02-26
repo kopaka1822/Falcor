@@ -256,6 +256,7 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
         "HYBRID_BLENDING_RANGE", "float2(" + std::to_string(mHybridRTBlend.x) + "," + std::to_string(mHybridRTBlend.y) + ")"
     );
     mShadowTracer.pProgram->addDefine("DEBUG_STOCH_CASC_ENABLED", useStochCascLevel ? "1" : "0");
+    mShadowTracer.pProgram->addDefine("HYBRID_ALPHA_ONLY", mpShadowMap->getRenderDoubleSidedOnly() ? "1" : "0");
 
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
     mShadowTracer.pProgram->addDefines(hybridMaskDefines());

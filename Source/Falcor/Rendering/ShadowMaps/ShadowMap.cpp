@@ -1707,7 +1707,10 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
             if (mClearDynamicSM && isDynamic)
                 continue;
         }
-            
+        if (mSMDoubleSidedOnly)
+        {
+            meshRenderMode |= RasterizerState::MeshRenderMode::SkipNonDoubleSided;
+        }
 
         if (mUseFrustumCulling)
         {
@@ -2109,8 +2112,10 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
      widget.dummy("", float2(1.5f)); //Spacing
 
     //Common options used in all shadow map variants
-    if (auto group = widget.group("Common Settings"))
-    {
+     if (auto group = widget.group("Common Settings"))
+     {
+        mUpdateShadowMap |= group.checkbox("Render Double Sided Only", mSMDoubleSidedOnly);
+        group.tooltip("Only renders materials flagged as double sided (often alpha tested). Can be used as an optimization");
         mRasterDefinesChanged |= group.checkbox("Alpha Test", mUseAlphaTest);
         if (mUseAlphaTest)
         {

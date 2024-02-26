@@ -95,6 +95,7 @@ public:
     const bool getIsStochasticCascadedLevelEnabled() const { return mUseStochasticCascadedLevels; }
     const bool getFullTracedCascadedUsed() const { return mCascadedLastLevelRayTrace; }
     const uint getCascadedLevelHybridIsUsed() const { return mCascadedLevelTrace; }
+    const bool getRenderDoubleSidedOnly() const { return mSMDoubleSidedOnly; }
 
     enum class SMUpdateMode: uint
     {
@@ -241,6 +242,7 @@ private:
     uint mAlphaMode = 1; // Mode for the alpha test ; 1 = Basic, 2 = HashedIsotropic, 3 = HashedAnisotropic
 
     bool mUseRayOutsideOfShadowMap = true;
+    bool mSMDoubleSidedOnly = false;
 
     bool mUseShadowMipMaps = false; ///< Uses mip maps for applyable shadow maps
     float mShadowMipBias = 1.5f;    ///< Bias used in mips (cos theta)^bias

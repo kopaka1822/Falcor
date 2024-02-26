@@ -80,7 +80,7 @@ cbuffer CB
 #endif
 
 #ifndef HYBRID_ALPHA_ONLY
-#define HYBRID_ALPHA_ONLY 1
+#define HYBRID_ALPHA_ONLY 0
 #endif
 
 // Static configuration based on defines set from the host.
@@ -188,8 +188,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
         rayData.visible = false;  // Set to true by miss shader if ray is not terminated before
         rayData.disableAlphaTest = camDist > kDisableAlphaTestAtDistance;
 
-        uint instanceMask = HYBRID_ALPHA_ONLY ? 0xFF : kShadowRayInstanceMask;
-        TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, instanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+        TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
     
         rtShadow = rayData.visible ? 1.f : 0.f;
 
