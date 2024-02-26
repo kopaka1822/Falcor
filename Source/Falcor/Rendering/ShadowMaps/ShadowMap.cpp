@@ -991,21 +991,21 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
 
     // Render the static shadow map
     if (mShadowMapUpdateMode != SMUpdateMode::Static && !mStaticTexturesReady[1])
-        meshRenderMode = RasterizerState::MeshRenderMode::Static;
+        meshRenderMode |= RasterizerState::MeshRenderMode::SkipDynamic;
     else if (mShadowMapUpdateMode != SMUpdateMode::Static)
-        meshRenderMode = RasterizerState::MeshRenderMode::Dynamic;
+        meshRenderMode |= RasterizerState::MeshRenderMode::SkipStatic;
 
 
     for (size_t face = 0; face < 6; face++)
     {
-        if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
+        if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic))
         {
             uint cubeDepthIdx = index * 6 + face;
             //  Attach Render Targets
             mpFboCube->attachColorTarget(mpShadowMapsCubeStatic[index], 0, 0, face, 1);
             mpFboCube->attachDepthStencilTarget(mpDepthCubeStatic[cubeDepthIdx]);
         }
-        else if (meshRenderMode == RasterizerState::MeshRenderMode::Dynamic)
+        else if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic))
         {
             uint cubeDepthIdx = index * 6 + face;
             // Copy the resources
@@ -1036,7 +1036,7 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
         setSMShaderVars(vars, params);
 
         mShadowCubeRasterPass.pState->setFbo(mpFboCube);
-        if (meshRenderMode != RasterizerState::MeshRenderMode::Dynamic)
+        if (!is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic))
         {
             float4 clearColor = float4(1.f);
             if (mShadowMapType == ShadowMapType::Exponential)
@@ -1066,7 +1066,7 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
     }
 
     // Blur if it is activated/enabled
-    if (mpBlurCube && (meshRenderMode != RasterizerState::MeshRenderMode::Static) )
+    if (mpBlurCube && (!is_set(meshRenderMode,  RasterizerState::MeshRenderMode::SkipDynamic)) )
         mpBlurCube->execute(pRenderContext, mpShadowMapsCube[index]);
     
     /* TODO doesnt work, needs fixing
@@ -1074,7 +1074,7 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
         mpShadowMapsCube[index]->generateMips(pRenderContext);
     */
 
-     if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
+     if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic))
         mStaticTexturesReady[1] = true;
 }
 
@@ -1206,20 +1206,20 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
 
     //Render the static shadow map
     if (mShadowMapUpdateMode != SMUpdateMode::Static && !mStaticTexturesReady[0])
-        meshRenderMode = RasterizerState::MeshRenderMode::Static;
+        meshRenderMode |= RasterizerState::MeshRenderMode::SkipDynamic;
     else if (mShadowMapUpdateMode != SMUpdateMode::Static)
-        meshRenderMode = RasterizerState::MeshRenderMode::Dynamic;
+        meshRenderMode |= RasterizerState::MeshRenderMode::SkipStatic;
 
     //If depth tex is set, Render to RenderTarget
     if (mpDepth)
     {
-        if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
+        if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic))
         {
             // Attach Render Targets
             mpFbo->attachColorTarget(mpShadowMapsStatic[index], 0, 0, 0, 1);
             mpFbo->attachDepthStencilTarget(mpDepthStatic[index]);
         }
-        else if (meshRenderMode == RasterizerState::MeshRenderMode::Dynamic)
+        else if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic))
         {
             //Copy the resources
             pRenderContext->copyResource(mpDepth.get(), mpDepthStatic[index].get());
@@ -1237,12 +1237,12 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
     }
     else //Else only render to DepthStencil
     {
-        if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
+        if (is_set(meshRenderMode,RasterizerState::MeshRenderMode::SkipDynamic))
         {
             // Attach Render Targets
             mpFbo->attachDepthStencilTarget(mpShadowMapsStatic[index]);
         }
-        else if (meshRenderMode == RasterizerState::MeshRenderMode::Dynamic)
+        else if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic))
         {
             // Copy the resources
             pRenderContext->copyResource(mpShadowMaps[index].get(), mpShadowMapsStatic[index].get());
@@ -1279,7 +1279,7 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
     setSMShaderVars(vars, params);
 
     mShadowMapRasterPass.pState->setFbo(mpFbo);
-    if (meshRenderMode != RasterizerState::MeshRenderMode::Dynamic)
+    if (! is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic))
     {
         float4 clearColor = float4(1.f);
         if (mShadowMapType == ShadowMapType::Exponential)
@@ -1308,14 +1308,14 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
     
 
     //Blur if it is activated/enabled
-    if (mpBlurShadowMap && (meshRenderMode != RasterizerState::MeshRenderMode::Static))
+    if (mpBlurShadowMap && !is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic))
         mpBlurShadowMap->execute(pRenderContext, mpShadowMaps[index]);
 
     // generate Mips for shadow map modes that allow filter
-    if (mUseShadowMipMaps && (meshRenderMode != RasterizerState::MeshRenderMode::Static))
+    if (mUseShadowMipMaps && !is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic))
         mpShadowMaps[index]->generateMips(pRenderContext);
 
-    if (meshRenderMode == RasterizerState::MeshRenderMode::Static)
+    if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic))
         mStaticTexturesReady[0] = true;
 
     return true;
@@ -1625,7 +1625,7 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
     }
     dummyProfileRaster(pRenderContext); // Show the render scene every frame
 
-    bool dynamicMode = mShadowMapUpdateMode != SMUpdateMode::Static;
+    bool dynamicMode = (mShadowMapUpdateMode != SMUpdateMode::Static) || mClearDynamicSM;
     
     auto changes = light->getChanges();
 
@@ -1701,7 +1701,13 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
         //Set mesh render mode
         auto meshRenderMode = RasterizerState::MeshRenderMode::All;
         if (dynamicMode)
-            meshRenderMode = isDynamic ? RasterizerState::MeshRenderMode::Dynamic : RasterizerState::MeshRenderMode::Static;
+        {
+            meshRenderMode |= isDynamic ? RasterizerState::MeshRenderMode::SkipStatic : RasterizerState::MeshRenderMode::SkipDynamic;
+            //When we want to clear the dynamic SM, jump out here
+            if (mClearDynamicSM && isDynamic)
+                continue;
+        }
+            
 
         if (mUseFrustumCulling)
         {
@@ -1996,6 +2002,9 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 
     handleNormalizedPixelSizeBuffer();
 
+    if (mClearDynamicSM)
+        mClearDynamicSM = false;
+
     mUpdateShadowMap = false;
     return true;
 }
@@ -2064,9 +2073,9 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
 
     if (mSceneIsDynamic)
     {
-        widget.dropdown("Update Mode", kShadowMapUpdateModeDropdownList, (uint&)mShadowMapUpdateMode);
+        mClearDynamicSM |= widget.dropdown("Update Mode", kShadowMapUpdateModeDropdownList, (uint&)mShadowMapUpdateMode);
         widget.tooltip("Specify the update mode for shadow maps"); // TODO add more detail to each mode
-       
+
         if (mShadowMapUpdateMode != SMUpdateMode::Static)
         {
             bool resetStaticSM = widget.button("Reset Static SM");

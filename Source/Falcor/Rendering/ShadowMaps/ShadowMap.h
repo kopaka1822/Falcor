@@ -320,6 +320,7 @@ private:
 
     //General
     bool mCanUseRayTracing = true;  //RayTracing can be disabled for some settings
+    bool mClearDynamicSM = false;
 
     //Frustum Culling
     uint2 mFrustumCullingVectorOffsets = uint2(0, 0);   //Cascaded / Point

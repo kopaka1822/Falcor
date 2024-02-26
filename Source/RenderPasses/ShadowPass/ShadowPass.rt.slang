@@ -79,6 +79,10 @@ cbuffer CB
 #define DEBUG_MODE 0
 #endif
 
+#ifndef HYBRID_ALPHA_ONLY
+#define HYBRID_ALPHA_ONLY 1
+#endif
+
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
 static const uint kShadowMode = SP_SHADOW_MODE;
@@ -166,7 +170,11 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     if(kUseHybridMask && gHybridMaskValid){
         useRay = evaluateHybridMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed,clampShadow,camDist, gFrameCount);
     }
-        
+
+#if HYBRID_ALPHA_ONLY
+    if(!isSMIsShadowed)
+        useRay |= true;
+#endif
     //Shoot Shadow ray
     float rtShadow = shadow;
     if(useRay && kShadowMode != (uint)SPShadowMode::ShadowMap){
@@ -179,9 +187,10 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
         ShadowRayData rayData;
         rayData.visible = false;  // Set to true by miss shader if ray is not terminated before
         rayData.disableAlphaTest = camDist > kDisableAlphaTestAtDistance;
-            
-        TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
+        uint instanceMask = HYBRID_ALPHA_ONLY ? 0xFF : kShadowRayInstanceMask;
+        TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, instanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+    
         rtShadow = rayData.visible ? 1.f : 0.f;
 
         float blendT = saturate((camDist - kHybridBlendingRange.x)/kHybridBlendingRange.y);

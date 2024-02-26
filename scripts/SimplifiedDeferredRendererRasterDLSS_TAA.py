@@ -3,12 +3,12 @@ from falcor import *
 
 def render_graph_DeferredRenderer():
     g = RenderGraph('DeferredRenderer')
-    g.create_pass('GBufferRaster', 'GBufferRaster', {'outputSize': 'Default', 'samplePattern': 'DirectX', 'sampleCount': 8, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': 'Back'})
-    g.create_pass('ToneMapper', 'ToneMapper', {'outputSize': 'Default', 'useSceneMetadata': True, 'exposureCompensation': 0.0, 'autoExposure': False, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': 'Aces', 'clamp': True, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': 'AperturePriority'})
+    g.create_pass('GBufferRaster', 'GBufferRaster', {'outputSize': 'Default', 'samplePattern': 'Halton', 'sampleCount': 32, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': 'Back'})
     g.create_pass('ShadowPass', 'ShadowPass', {})
     g.create_pass('VideoRecorder', 'VideoRecorder', {})
-    g.create_pass('DLSSPass', 'DLSSPass', {'enabled': True, 'outputSize': 'Default', 'profile': 'Balanced', 'motionVectorScale': 'Relative', 'isHDR': False, 'sharpness': 0.0, 'exposure': 0.0})
+    g.create_pass('DLSSPass', 'DLSSPass', {'enabled': True, 'outputSize': 'Default', 'profile': 'Balanced', 'motionVectorScale': 'Relative', 'isHDR': False, 'useJitteredMV': True, 'sharpness': 0.0, 'exposure': 0.0})
     g.create_pass('PathBenchmark', 'PathBenchmark', {})
+    g.create_pass('TAA', 'TAA', {'alpha': 0.10000000149011612, 'colorBoxSigma': 1.0, 'antiFlicker': True})
     g.add_edge('GBufferRaster.posW', 'ShadowPass.posW')
     g.add_edge('GBufferRaster.faceNormalW', 'ShadowPass.faceNormalW')
     g.add_edge('GBufferRaster.diffuseOpacity', 'ShadowPass.diffuse')
@@ -21,9 +21,10 @@ def render_graph_DeferredRenderer():
     g.add_edge('GBufferRaster.mvec', 'ShadowPass.motionVector')
     g.add_edge('VideoRecorder', 'GBufferRaster')
     g.add_edge('PathBenchmark', 'VideoRecorder')
-    g.add_edge('GBufferRaster.mvec', 'ToneMapper.src')
+    g.add_edge('ShadowPass.color', 'TAA.colorIn')
+    g.add_edge('GBufferRaster.mvec', 'TAA.motionVecs')
     g.mark_output('DLSSPass.output')
-    g.mark_output('ToneMapper.dst')
+    g.mark_output('TAA.colorOut')
     return g
 
 DeferredRenderer = render_graph_DeferredRenderer()

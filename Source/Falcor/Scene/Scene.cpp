@@ -378,12 +378,16 @@ namespace Falcor
             if (!draw.isCastShadow && !drawShadowCastable)
                 continue;
 
-            //Skip dynamic meshes if desired
-            if (meshRenderMode == RasterizerState::MeshRenderMode::Dynamic && !draw.isDynamic)
+            //Skip static meshes if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic) && !draw.isDynamic)
                 continue;
 
-            // Skip static meshes if desired
-            if (meshRenderMode == RasterizerState::MeshRenderMode::Static && draw.isDynamic)
+            // Skip dynamic meshes if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic) && draw.isDynamic)
+                continue;
+
+            //Skip non double sided if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipNonDoubleSided) && !draw.ignoreWinding)
                 continue;
 
             // Set state.
@@ -518,12 +522,16 @@ namespace Falcor
             if (!draw.isCastShadow && !drawShadowCastable)
                 continue;
 
-            //Skip dynamic meshes if desired
-            if (meshRenderMode == RasterizerState::MeshRenderMode::Dynamic && !draw.isDynamic)
+            // Skip static meshes if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic) && !draw.isDynamic)
                 continue;
 
-            //Skip static meshes if desired
-            if (meshRenderMode == RasterizerState::MeshRenderMode::Static && draw.isDynamic)
+            // Skip dynamic meshes if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic) && draw.isDynamic)
+                continue;
+
+            // Skip non double sided if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipNonDoubleSided) && !draw.ignoreWinding)
                 continue;
 
             bool bufferValid = pFrustumCulling->isBufferValid(i);
