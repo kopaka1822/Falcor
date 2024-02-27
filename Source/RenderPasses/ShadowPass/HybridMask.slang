@@ -31,6 +31,10 @@ import HybridMaskSamplePatterns;
 Texture2D<uint> gHybridMaskLastFrame;
 RWTexture2D<uint> gHybridMask;
 
+// Reprojection
+Texture2D<float> gPrevDepth;
+RWTexture2D<float> gPrevDepthWrite;
+
 //Sampler
 SamplerState gHybridMaskSampler;    //Point sampler 
 
@@ -40,6 +44,8 @@ static const uint kHMSampleCount = HYBRID_MASK_SAMPLE_COUNT;
 static const float kHybridMaskRemoveRaysGreaterAsDistance = HYBRID_MASK_REMOVE_RAYS_GREATER_AS_DISTANCE;
 static const float kHybridMaskRemoveRaysSmallerAsDistance = HYBRID_MASK_REMOVE_RAYS_SMALLER_AS_DISTANCE;
 static const float kHybridMaskExpandRaysMaxDistance = HYBRID_MASK_EXPAND_RAYS_MAX_DISTANCE;
+static const float kHybridDistanceDiffFactor = HYBRID_TEMPORAL_DEPTH_TEST_MAX_DEPTH_DIFF;
+
 /** Struct for the hybrid mask
 */
 struct HybridMask{
@@ -88,7 +94,19 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
     float2 pixelOffset = mvec * dims;
     pixelF += pixelOffset;
     pixelF = floor(pixelF) + 0.5;
-        
+    
+
+    if (any(pixelF < 0) || (pixelF.x >= dims.x) || (pixelF.y >= dims.y)) {
+        return useRay;
+    }
+
+    bool tempDepthTest = true;
+#if HYBRID_USE_TEMPORAL_DEPTH_TEST
+    float prevLinZ = gPrevDepth[uint2(pixelF)];
+    float maxDistDiff = linZ * kHybridDistanceDiffFactor;
+    tempDepthTest = abs(linZ - prevLinZ) < maxDistDiff;
+#endif // USE_TEMPORAL_DEPTH_TEST
+
     //Get the masks
     uint maskCount = 0;
     HybridMask mask[kHMSampleCount];
@@ -142,9 +160,9 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
     //Check if ray is necessary (removes ray from core shadow)
 #if HYBRID_MASK_REMOVE_RAYS
     #if HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
-        if(useRay && ((linZ > kHybridMaskRemoveRaysGreaterAsDistance) || (linZ < kHybridMaskRemoveRaysSmallerAsDistance)))
-    #else //HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
-        if(useRay)
+        if (useRay && tempDepthTest &&((linZ > kHybridMaskRemoveRaysGreaterAsDistance) || (linZ < kHybridMaskRemoveRaysSmallerAsDistance)))
+    #else  // HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
+        if (useRay && tempDepthTest)
     #endif //HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
         {
             bool needRay = false;
@@ -175,6 +193,14 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
 #endif //HYBRID_MASK_EXPAND_RAYS
 
     return useRay;
+}
+
+void writeHybridMask(const uint2 pixel, bool shadowSM, bool shootRay, bool shadowRay, float camDist) {
+    HybridMask mask = HybridMask(shadowSM, shootRay, shadowRay);
+    gHybridMask[pixel] = mask.maskOut();
+#if HYBRID_USE_TEMPORAL_DEPTH_TEST
+    gPrevDepthWrite[pixel] = camDist;
+#endif // USE_TEMPORAL_DEPTH_TEST
 }
 
 void writeHybridMask(const uint2 pixel, bool shadowSM, bool shootRay, bool shadowRay){

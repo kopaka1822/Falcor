@@ -57,8 +57,7 @@ private:
     void shade(RenderContext* pRenderContext, const RenderData& renderData);
 
     //Hybrid mask functions
-    void generateHybridMaskData(RenderContext* pRenderContext, uint2 screenDims);   ///< Generates Textures if they are not set
-    void freeHybridMaskData();
+    void handleHybridMaskData(RenderContext* pRenderContext, uint2 screenDims); ///< Handles Textures for the hybrid mask
     DefineList hybridMaskDefines();
     void setHybridMaskVars(ShaderVar& var, const uint frameCount);
     bool hybridMaskUI(Gui::Widgets& widget);
@@ -93,6 +92,8 @@ private:
     HybridMaskSamplePatterns mHybridMaskSamplePattern = HybridMaskSamplePatterns::Gather;
 
     bool mHybridMaskFirstFrame = false; //< Marks if this is the first frame for the hybrid mask and all values are invalid
+    bool mHybridUseTemporalDepthTest = false;
+    float mHybridTemporalDepthTestPercentage = 0.1f;
     bool mClearHybridMask = false;
     bool mEnableHybridMask = true;
     bool mHybridMaskRemoveRays = true;
@@ -108,6 +109,7 @@ private:
 
     ref<Texture> mpHybridMask[2];   //Ping Pong temporal hybrid mask
     ref<Sampler> mpHybridSampler;   //Sampler for the hybrid mask
+    ref<Texture> mpPrevDepth[2];       //Previous depth
 
     // Ray tracing program.
     struct

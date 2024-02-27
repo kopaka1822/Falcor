@@ -167,7 +167,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     float camDist = distance(gScene.camera.getPosition(), posW);
 
     bool clampShadow = false;
-    if(kUseHybridMask && gHybridMaskValid){
+    if (kUseHybridMask && gHybridMaskValid) {
         useRay = evaluateHybridMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed,clampShadow,camDist, gFrameCount);
     }
 
@@ -198,7 +198,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     }
 
     if(kUseHybridMask){
-        writeHybridMask(DispatchRaysIndex().xy, isSMIsShadowed, useRay, useRay && (rtShadow < 0.5));
+        writeHybridMask(DispatchRaysIndex().xy, isSMIsShadowed, useRay, useRay && (rtShadow < 0.5), camDist);
     }
 
     //Set shadow value

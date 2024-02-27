@@ -154,16 +154,9 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
         if (!mpShadowMap->update(pRenderContext))
             return;
 
-    //If the hybrid mask does not exist, create it 
-    if (mShadowMode == SPShadowMode::Hybrid)
-    {
-        generateHybridMaskData(pRenderContext, renderData.getDefaultTextureDims());
-    }
-    else if (mpHybridMask)
-    {
-        freeHybridMaskData();
-    }
-        
+    //Handle hybrid mask textures
+    handleHybridMaskData(pRenderContext, renderData.getDefaultTextureDims());
+ 
     shade(pRenderContext, renderData);
     mFrameCount++;
 }
@@ -427,41 +420,79 @@ void ShadowPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
     }
 }
 
-void ShadowPass::generateHybridMaskData(RenderContext* pRenderContext,uint2 screenDims) {
+void ShadowPass::handleHybridMaskData(RenderContext* pRenderContext,uint2 screenDims) {
+    bool isHybridMode = mShadowMode == SPShadowMode::Hybrid;
     //Create Textures if missing
-    if (!mpHybridMask[0] || !mpHybridMask[1])
+    if (isHybridMode)
     {
-        for (uint i = 0; i < 2; i++)
+        //Create the hybrid masks
+        if (!mpHybridMask[0] || !mpHybridMask[1])
         {
-            mpHybridMask[i] = Texture::create2D(
-                mpDevice, screenDims.x, screenDims.y, ResourceFormat::R8Uint, 1, 1, nullptr,
-                ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
-            );
-            mpHybridMask[i]->setName("Hybrid Mask" + std::to_string(i));
+            // Hybrid Mask
+            for (uint i = 0; i < 2; i++)
+            {
+                mpHybridMask[i] = Texture::create2D(
+                    mpDevice, screenDims.x, screenDims.y, ResourceFormat::R8Uint, 1, 1, nullptr,
+                    ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+                );
+                mpHybridMask[i]->setName("Hybrid Mask" + std::to_string(i));
 
-            pRenderContext->clearUAV(mpHybridMask[i]->getUAV().get(), uint4(0));
+                pRenderContext->clearUAV(mpHybridMask[i]->getUAV().get(), uint4(0));
+            }
+            mHybridMaskFirstFrame = true;
         }
-        mHybridMaskFirstFrame = true;
-    }
 
-    //Create the point sampler
-    if (!mpHybridSampler)
+        //Create prev depth textures
+        if (mHybridUseTemporalDepthTest)
+        {
+            if (!mpPrevDepth[0] || !mpPrevDepth[1])
+            {
+                for (uint i = 0; i < 2; i++)
+                {
+                    // Prev Depth
+                    mpPrevDepth[i] = Texture::create2D(
+                        mpDevice, screenDims.x, screenDims.y, ResourceFormat::R16Float, 1u, 1u, nullptr,
+                        ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+                    );
+                    mpPrevDepth[i]->setName("Hybrid Mask Prev Depth" + std::to_string(i));
+                    pRenderContext->clearUAV(mpPrevDepth[i]->getUAV().get(), uint4(0));
+                }
+                mHybridMaskFirstFrame = true;
+            }
+        }
+        
+        // Create the point sampler
+        if (!mpHybridSampler)
+        {
+            Sampler::Desc samplerDesc;
+            samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
+            samplerDesc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
+            // samplerDesc.setBorderColor(float4(0.f));
+            mpHybridSampler = Sampler::create(mpDevice, samplerDesc);
+        }
+    }
+    else
     {
-        Sampler::Desc samplerDesc;
-        samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
-        samplerDesc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
-        //samplerDesc.setBorderColor(float4(0.f));
-        mpHybridSampler = Sampler::create(mpDevice, samplerDesc);
+        // Free hybridMasks
+        if (mpHybridMask[0] || mpHybridMask[1])
+        {
+            mpHybridMask[0].reset();
+            mpHybridMask[1].reset();
+        }
+        // Free sampler
+        if (mpHybridSampler)
+            mpHybridSampler.reset();
     }
 
-}
-void ShadowPass::freeHybridMaskData()
-{
-    //Free textures
-    mpHybridMask[0].reset();
-    mpHybridMask[1].reset();
-    //Free sampler
-    mpHybridSampler.reset();
+    if (!mHybridUseTemporalDepthTest || !isHybridMode)
+    {
+        //Free depth textures
+        if (mpPrevDepth[0] || mpPrevDepth[1])
+        {
+            mpPrevDepth[0].reset();
+            mpPrevDepth[1].reset();
+        }
+    }
 }
 
 DefineList ShadowPass::hybridMaskDefines() {
@@ -527,6 +558,8 @@ DefineList ShadowPass::hybridMaskDefines() {
     defines.add("HYBRID_MASK_REMOVE_RAYS_SMALLER_AS_DISTANCE", std::to_string(mHybridMaskRemoveRaysSmallerAsDistance));
     defines.add("HYBRID_MASK_REMOVE_RAYS_GREATER_AS_DISTANCE", std::to_string(mHybridMaskRemoveRaysGreaterAsDistance));
     defines.add("HYBRID_MASK_EXPAND_RAYS_MAX_DISTANCE", std::to_string(mHybridMaskExpandRaysMaxDistance));
+    defines.add("HYBRID_USE_TEMPORAL_DEPTH_TEST", mHybridUseTemporalDepthTest ? "1" : "0");
+    defines.add("HYBRID_TEMPORAL_DEPTH_TEST_MAX_DEPTH_DIFF", std::to_string(mHybridTemporalDepthTestPercentage));
 
     //Set all enums in a very hacky way
     std::string base = "HYBRID_MASK_SAMPLE_PATTERN_";
@@ -545,6 +578,12 @@ void ShadowPass::setHybridMaskVars(ShaderVar& var, const uint frameCount) {
         var["gHybridMask"] = mpHybridMask[frameCount % 2];
         var["gHybridMaskLastFrame"] = mpHybridMask[(frameCount + 1) % 2];
     }
+    if (mpPrevDepth[0] && mpPrevDepth[1])
+    {
+        var["gPrevDepth"] = mpPrevDepth[frameCount % 2];
+        var["gPrevDepthWrite"] = mpPrevDepth[(frameCount + 1) % 2];
+    }
+        
     if (mpHybridSampler)
         var["gHybridMaskSampler"] = mpHybridSampler;
 }
@@ -583,7 +622,20 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
                         group.var("Manual Distance", mHybridMaskRemoveRaysGreaterAsDistance, 0.0f);
                     //The auto set happens in hybridMaskDefines()
                 }
+                group.checkbox("Use additional Temporal Depth test", mHybridUseTemporalDepthTest);
+                group.tooltip("Uses depth from last frame and disables remove rays if the difference is too big");
+                if (mHybridUseTemporalDepthTest)
+                {
+                    group.var("Max depth difference", mHybridTemporalDepthTestPercentage, 0.0f, 1.f, 0.001f);
+                    group.tooltip("Max depth difference. Test: abs(linZ - prevLinZ) < (linZ * maxDepthDiff).");
+                }
             }
+            else
+            {
+                if (mHybridUseTemporalDepthTest)
+                    mHybridUseTemporalDepthTest = false;
+            }
+
             changed |= group.checkbox("Expand Rays", mHybridMaskExpandRays);
             group.tooltip("Expands rays on shadow edges");
             if (mHybridMaskExpandRays)
@@ -597,6 +649,9 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
                     // The auto set happens in hybridMaskDefines()
                 }
             }
+
+            
+
             mClearHybridMask |= group.button("Clear HybridMask");
         }
     }
