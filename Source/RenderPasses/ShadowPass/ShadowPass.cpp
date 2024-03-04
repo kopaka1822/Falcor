@@ -109,7 +109,12 @@ RenderPassReflection ShadowPass::reflect(const CompileData& compileData)
     addRenderPassInputs(reflector, kInputChannels);
     addRenderPassInputs(reflector, kOptionalInputsShading);
     addRenderPassInputs(reflector, kOptionalInputsSimplifiedShading);
-    addRenderPassOutputs(reflector, kOutputChannels);
+
+    //Set starting size
+    if (mOutputSize.x == 0 && mOutputSize.y == 0)
+        mOutputSize = compileData.defaultTexDims;
+
+    addRenderPassOutputs(reflector, kOutputChannels, ResourceBindFlags::UnorderedAccess, mOutputSize);
 
     return reflector;
 }
@@ -124,6 +129,16 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
         auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
         dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
         mOptionsChanged = false;
+    }
+
+    //TODO add a dict flag
+    // Check if Input Size matches the output size
+    const auto inTex = renderData.getTexture(kInputChannels[0].name);
+    if (mOutputSize.x != inTex->getWidth() || mOutputSize.y != inTex->getHeight())
+    {
+        mOutputSize = uint2(inTex->getWidth(), inTex->getHeight());
+        requestRecompile();
+        return;
     }
 
     //Clear Outputs Lamda
@@ -149,13 +164,14 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
         return;
     }
 
+
     // Calculate and update the shadow map
     if (mShadowMode != SPShadowMode::RayTraced)
         if (!mpShadowMap->update(pRenderContext))
             return;
 
     //Handle hybrid mask textures
-    handleHybridMaskData(pRenderContext, renderData.getDefaultTextureDims());
+    handleHybridMaskData(pRenderContext, mOutputSize);
  
     shade(pRenderContext, renderData);
     mFrameCount++;
@@ -263,14 +279,14 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     }
 
     // Get dimensions of ray dispatch.
-    const uint2 targetDim = renderData.getDefaultTextureDims();
+    const uint2 targetDim = mOutputSize;
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
 
     // Bind Resources
     auto var = mShadowTracer.pVars->getRootVar();
 
     // Set Shadow Map per Iteration Shader Data
-    mpShadowMap->setShaderDataAndBindBlock(var, renderData.getDefaultTextureDims());
+    mpShadowMap->setShaderDataAndBindBlock(var, mOutputSize);
     mpSampleGenerator->setShaderData(var);
 
     var["CB"]["gFrameCount"] = mFrameCount;
@@ -425,8 +441,16 @@ void ShadowPass::handleHybridMaskData(RenderContext* pRenderContext,uint2 screen
     //Create Textures if missing
     if (isHybridMode)
     {
+        bool sizeChanged = false;
+
+        if (mpHybridMask[0]) // testing one texture for this is sufficent
+        {
+            if (mpHybridMask[0]->getWidth() != mOutputSize.x || mpHybridMask[0]->getHeight() != mOutputSize.y)
+                sizeChanged = true;
+        }
+
         //Create the hybrid masks
-        if (!mpHybridMask[0] || !mpHybridMask[1])
+        if (!mpHybridMask[0] || !mpHybridMask[1]|| sizeChanged)
         {
             // Hybrid Mask
             for (uint i = 0; i < 2; i++)
@@ -445,7 +469,7 @@ void ShadowPass::handleHybridMaskData(RenderContext* pRenderContext,uint2 screen
         //Create prev depth textures
         if (mHybridUseTemporalDepthTest)
         {
-            if (!mpPrevDepth[0] || !mpPrevDepth[1])
+            if (!mpPrevDepth[0] || !mpPrevDepth[1] || sizeChanged)
             {
                 for (uint i = 0; i < 2; i++)
                 {

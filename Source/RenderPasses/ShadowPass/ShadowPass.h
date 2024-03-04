@@ -45,7 +45,7 @@ public:
 
     virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
+    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {};
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
@@ -66,6 +66,7 @@ private:
     ref<Scene> mpScene;                     ///< Current scene.
     std::unique_ptr<ShadowMap> mpShadowMap; ///< Shadow Map
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
+    uint2 mOutputSize = uint2(0);           ///< Output texture size
     uint mFrameCount = 0;
     bool mSimplifiedShadingValid = true;
     bool mComplexShadingValid = false;

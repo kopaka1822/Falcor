@@ -587,8 +587,8 @@ bool RenderGraph::isGraphOutput(const std::string& name) const
 
 ref<Resource> RenderGraph::getOutput(const std::string& name)
 {
-    if (mRecompile)
-        throw RuntimeError("Can't fetch the output '{}'. The graph wasn't successfuly compiled yet.", name);
+    //if (mRecompile)
+    //    throw RuntimeError("Can't fetch the output '{}'. The graph wasn't successfuly compiled yet.", name);
 
     str_pair strPair;
     getRenderPassAndNamePair(false, name, strPair);
