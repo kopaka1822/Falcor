@@ -163,6 +163,9 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
         else
             useRay = !gShadowMap.evalShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
     }
+#if DISABLE_DYNAMIC_GEOMETRY_CHECK
+    isDynamic = false;
+#endif
 
     bool isSMIsShadowed = shadow < 0.5;
     float camDist = distance(gScene.camera.getPosition(), posW);

@@ -584,6 +584,7 @@ DefineList ShadowPass::hybridMaskDefines() {
     defines.add("HYBRID_MASK_EXPAND_RAYS_MAX_DISTANCE", std::to_string(mHybridMaskExpandRaysMaxDistance));
     defines.add("HYBRID_USE_TEMPORAL_DEPTH_TEST", mHybridUseTemporalDepthTest ? "1" : "0");
     defines.add("HYBRID_TEMPORAL_DEPTH_TEST_MAX_DEPTH_DIFF", std::to_string(mHybridTemporalDepthTestPercentage));
+    defines.add("DISABLE_DYNAMIC_GEOMETRY_CHECK", mHybridMaskDisableDynamicGeometryCheck ? "1" : "0");
 
     //Set all enums in a very hacky way
     std::string base = "HYBRID_MASK_SAMPLE_PATTERN_";
@@ -653,6 +654,8 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
                     group.var("Max depth difference", mHybridTemporalDepthTestPercentage, 0.0f, 1.f, 0.001f);
                     group.tooltip("Max depth difference. Test: abs(linZ - prevLinZ) < (linZ * maxDepthDiff).");
                 }
+                group.checkbox("Disable Dynamic Geometry Check", mHybridMaskDisableDynamicGeometryCheck);
+                group.tooltip("Remove ray is used on static and dynamic shadows if enables. Not adversed as this produces visible discretization artifacts.");
             }
             else
             {

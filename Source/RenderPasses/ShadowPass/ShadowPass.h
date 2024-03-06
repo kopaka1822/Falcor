@@ -107,6 +107,7 @@ private:
     bool mUseHybridMaskExpandRaysMaxDistance = true;
     uint mHybridMaskExpandRaysMaxDistanceMode = 3;      //UI mode
     float mHybridMaskExpandRaysMaxDistance = 70.f;
+    bool mHybridMaskDisableDynamicGeometryCheck = false;   //Disable the geometry check
 
     ref<Texture> mpHybridMask[2];   //Ping Pong temporal hybrid mask
     ref<Sampler> mpHybridSampler;   //Sampler for the hybrid mask
