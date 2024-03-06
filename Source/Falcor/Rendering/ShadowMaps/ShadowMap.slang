@@ -147,7 +147,7 @@ struct ShadowMap
     \param[in] used mipmap level.
     \return value from shadow map.
     */
-    float getShadowValue(uint index, float3 sampleVec, const uint lightType, uint level = 0, float mipLevel = 0.f)
+    float getShadowValue(uint index, float3 sampleVec, const uint lightType,  uint level = 0, float mipLevel = 0.f)
     {
         float sv = 0.f;
         switch (lightType)
@@ -181,8 +181,9 @@ struct ShadowMap
     \param[in] used mipmap level.
     \return value from shadow map.
     */
-    float getShadowValueFiltered(uint index, float3 sampleVec, const uint lightType, uint level = 0, float mipLevel = 0.f)
+    float getShadowValueFiltered(uint index, float3 sampleVec, const uint lightType, out bool isDynamic, uint level = 0, float mipLevel = 0.f)
     {
+        isDynamic = false;
         float sv = 0.f;
         switch (lightType)
         {
@@ -199,8 +200,10 @@ struct ShadowMap
                     float2 gatherUV = float2(0);
                     float4 w = getGatherWeights(sampleVec.xy, kCascadedSMRes, gatherUV);
                     float4 svDyn = gCascadedShadowMap.Gather(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
-                    for (uint i = 0; i < 4; i++)
+                    for (uint i = 0; i < 4; i++){
+                        isDynamic |= any(sv > svDyn[i]);
                         svDyn[i] = min(svDyn[i], sv);
+                    }
                     sv = 0.f;
                     for (uint i = 0; i < 4; i++)
                         sv += w[i] * svDyn[i];
@@ -221,8 +224,9 @@ struct ShadowMap
     \param[in] used mipmap level.
     \return value from shadow map.
     */
-    float4 getShadowValueGather(uint index, float3 sampleVec, const uint lightType, uint level = 0)
+    float4 getShadowValueGather(uint index, float3 sampleVec, const uint lightType, out bool isDynamic , uint level = 0)
     {
+        isDynamic = false;
         float4 sv = float4(0);
         switch (lightType)
         {
@@ -237,6 +241,7 @@ struct ShadowMap
                 if(kUseDynamicSM)
                 {
                     float4 svDyn = gCascadedShadowMap.Gather(gShadowSamplerPoint, float3(sampleVec.xy, kCascadedLevels + level));
+                    isDynamic = any(sv > svDyn);
                     sv = min(sv, svDyn);
                 }
                 break;
@@ -255,8 +260,9 @@ struct ShadowMap
     \param[in] used mipmap level.
     \return value from shadow map.
     */
-    float2 getShadowVarianceValue(uint index, float3 sampleVec, const uint lightType, uint level = 0, float mipLevel = 0.f)
+    float2 getShadowVarianceValue(uint index, float3 sampleVec, const uint lightType,out bool isDynamic, uint level = 0, float mipLevel = 0.f)
     {
+        isDynamic = false;
         float2 sv = float2(0.f);
         switch (lightType)
         {
@@ -276,8 +282,12 @@ struct ShadowMap
                     float4 redComp = gCascadedShadowMapVariance.GatherRed(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
                     float4 greenComp = gCascadedShadowMapVariance.GatherGreen(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
                     float2 svDyn[4];
-                    for(uint i=0; i<4;i++)
-                        svDyn[i] = min(float2(redComp[i],greenComp[i]), sv);
+                    for(uint i=0; i<4;i++){
+                        float2 dynamicShadowValue = float2(redComp[i],greenComp[i]);
+                        isDynamic |= any(sv > dynamicShadowValue);
+                        svDyn[i] = min(dynamicShadowValue, sv);
+                    }
+                        
                     sv = float2(0);
                     for(uint i=0; i<4;i++)
                         sv += w[i] * svDyn[i];
@@ -335,8 +345,9 @@ struct ShadowMap
     \param[in] used mipmap level.
     \return value from shadow map.
     */
-    float4 getShadowValueF4(uint index, float3 sampleVec, const uint lightType, uint level = 0, float mipLevel = 0.f)
+    float4 getShadowValueF4(uint index, float3 sampleVec, const uint lightType, out bool isDynamic, uint level = 0, float mipLevel = 0.f)
     {
+        isDynamic = false;
         float4 sv = float4(0.f);
         switch (lightType)
         {
@@ -358,8 +369,12 @@ struct ShadowMap
                     float4 blueComp = gCascadedShadowMapF4.GatherBlue(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
                     float4 alphaComp = gCascadedShadowMapF4.GatherAlpha(gShadowSamplerPoint, float3(gatherUV, kCascadedLevels + level));
                     float4 svDyn[4];
-                    for(uint i=0; i<4;i++)
-                        svDyn[i] = min(float4(redComp[i],greenComp[i],blueComp[i],alphaComp[i]), sv);
+                    for(uint i=0; i<4;i++){
+                        float4 dynamicSV = float4(redComp[i],greenComp[i],blueComp[i],alphaComp[i]);
+                        isDynamic |= any(sv > dynamicSV);
+                        svDyn[i] = min(dynamicSV, sv);
+                    }
+                        
                     sv = float4(0);
                     for(uint i=0; i<4;i++)
                         sv += w[i] * svDyn[i];
@@ -603,7 +618,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapClassic(float3 posW, const in SMLightData lightData, float4 random, out float shadow)
+    bool evalShadowMapClassic(float3 posW, const in SMLightData lightData, float4 random, out float shadow, inout bool isDynamic)
     {
         uint index = lightData.index;
         
@@ -675,7 +690,7 @@ struct ShadowMap
                 // (-,+),(+,+)(+,-)(-,-)
                 w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
             }
-            shadowVals = getShadowValueGather(index, gatherUV, lightData.type, cascLevel);
+            shadowVals = getShadowValueGather(index, gatherUV, lightData.type, isDynamic, cascLevel);
 
             for (uint k = 0; k < 4; k++)
             {
@@ -695,7 +710,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool hybridShadowMapClassic(float3 posW, const in SMLightData lightData, float4 random, out float shadow)
+    bool hybridShadowMapClassic(float3 posW, const in SMLightData lightData, float4 random, out float shadow , inout bool isDynamic)
     {
         uint index = lightData.index;
         
@@ -741,7 +756,7 @@ struct ShadowMap
                 // (-,+),(+,+)(+,-)(-,-)
                 w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
             }
-            shadowVals = getShadowValueGather(index, gatherUV, lightData.type, cascLevel);
+            shadowVals = getShadowValueGather(index, gatherUV, lightData.type,isDynamic, cascLevel);
         }
         else //Poisson Sampling
         {
@@ -802,60 +817,6 @@ struct ShadowMap
     return (mean <= moments.x ? 1.0f : pMax);
     }
     
-    /** Variance shadow test
-    \param[in] local shadow map texture index.
-    \param[in] cascaded level.
-    \param[in] shadow map sample vector.
-    \param[in] shadow map light type.
-    \param[in] distance value of the current world position. The shadow map value is compaired against this
-    \return 1 -> lit ; 0 -> shadowed
-    */
-    float varianceShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
-    {
-        float2 varianceSV = getShadowVarianceValue(index, shadowUV, lightType, level, mipLevel);
-
-        
-        return ChebyshevUpperBound(varianceSV, lightDist, 1e-10f);
-    }
-
-    float varianceShadowTestPCF(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
-    {
-        float3 gatherUV = shadowUV;
-        float4 w = float4(0.25f);
-        const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
-        
-        if (lightType != (uint) LightTypeSM::Point)
-        {
-            gatherUV.xy = (floor(shadowUV.xy * float(shadowMapRes) - 0.5) + 1.0f) / float(shadowMapRes);
-            float2 f = frac(shadowUV.xy * float(shadowMapRes) - 0.5f);
-            // (-,+),(+,+)(+,-)(-,-)
-            w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
-        }
-        
-        float4 variances = float4(0);
-        float4 sv = getShadowVarianceValueGather(index, gatherUV, lightType, level, variances);
-       
-        bool allLit = true;
-        for (uint i = 0; i < 4; i++)
-        {
-            if (lightDist >= sv[i])
-                allLit = false;
-        }
-        if (allLit)
-            return 1.f;
-
-        float pMax = 0.f;
-        for (uint i = 0; i < 4; i++)
-        {
-            float variance = variances[i] - (sv[i] * sv[i]);
-
-            float diff = (lightDist - sv[i]);
-            pMax += w[i] * (variance / (variance + diff * diff));
-        }
-       
-        return saturate(pMax);
-    }
-
     //Variance Hybrid shadow PCF style
      bool varianceShadowTestHybridPCF(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
      {
@@ -896,7 +857,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapVariance(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapVariance(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow , inout bool isDynamic)
     {
         uint index = lightData.index;
         
@@ -933,10 +894,9 @@ struct ShadowMap
 
         bool useShadow = true;
         //Shadow Test with shadow map
-        if (kUsePCF && !hybridSM)
-            shadow = varianceShadowTestPCF(index, cascLevel, shadowUV, lightData.type, lightDist);
-        else
-            shadow = varianceShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
+        //TODO add gather case back
+        float2 varianceSV = getShadowVarianceValue(index, shadowUV, lightData.type, isDynamic, cascLevel, mipLevel);
+        shadow = ChebyshevUpperBound(varianceSV, lightDist, 1e-10f);
 
         if (hybridSM && cascadedHybrid)
         {               
@@ -967,9 +927,8 @@ struct ShadowMap
     \param[in] distance value of the current world position. The shadow map value is compaired against this
     \return 1 -> lit ; 0 -> shadowed
     */
-    float exponentialShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
+    float exponentialShadowTest(in const float shadowDepth, in const float lightDist)
     {
-        float shadowDepth = getShadowValueFiltered(index, shadowUV, lightType, level, mipLevel);
         float depth = (lightDist * 2.f) - 1.f;
         return saturate(exp(-depth * kExponentialSMConstant) * shadowDepth);
     }
@@ -982,7 +941,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapExponential(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapExponential(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow , inout bool isDynamic)
     {
         uint index = lightData.index;
         
@@ -1017,7 +976,8 @@ struct ShadowMap
             return !kUseRayOutsideSM;   //Outside of shadow map
          
         //Shadow Test with shadow map
-        shadow = exponentialShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
+        float shadowMapDepth = getShadowValueFiltered(index, shadowUV, lightData.type, isDynamic, cascLevel, mipLevel);
+        shadow = exponentialShadowTest(shadowMapDepth, lightDist);
 
         if (hybridSM && cascadedHybrid)
         {
@@ -1029,27 +989,10 @@ struct ShadowMap
     }
 
     /** Exponential Variance shadow test
-    \param[in] local shadow map texture index.
-    \param[in] cascaded level.
-    \param[in] shadow map sample vector.
-    \param[in] shadow map light type.
-    \param[in] distance value of the current world position. The shadow map value is compaired against this
-    \return 1 -> lit ; 0 -> shadowed
+    \param[in] Exponentially warped shadow map depths.
+    \param[in] camera distance from the perspective of the light.
+    \return Upper-bound approximation of the positive exponent (x) and negative exponent (y)
     */
-    float2 exponentialVarianceShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist, const float mipLevel = 0.f)
-    {
-        float4 sv = getShadowValueF4(index, shadowUV, lightType, level, mipLevel);
-        float depth = (lightDist * 2.f) - 1.f;
-        float2 warpedDepth = float2(exp(depth * kExponentialSMConstant),  -exp(-depth * kEVSMNegConstant));
-        float2 minVariance = float2(0.0001f * kExponentialSMConstant * warpedDepth.x, 0.0001f * kEVSMNegConstant * warpedDepth.y); 
-        minVariance *= minVariance;
-        
-        float pPosMax = ChebyshevUpperBound(sv.xy, warpedDepth.x, minVariance.x);
-        float pNegMax = ChebyshevUpperBound(sv.zw, warpedDepth.y, minVariance.y);
-        
-        return float2(pNegMax,pPosMax);
-    }
-
     float2 exponentialVarianceShadowTest(in float4 sv, in const float lightDist)
     {
         float depth = (lightDist * 2.f) - 1.f;
@@ -1071,7 +1014,7 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMapExponentialVariance(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow)
+    bool evalShadowMapExponentialVariance(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow , inout bool isDynamic)
     {
         uint index = lightData.index;
         
@@ -1106,8 +1049,8 @@ struct ShadowMap
             return !kUseRayOutsideSM;   //Outside of shadow map
          
         //Shadow Test with shadow map
-        
-        float2 upperLowerBound = exponentialVarianceShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist, mipLevel);
+        float4 sv = getShadowValueF4(index, shadowUV, lightData.type, isDynamic, cascLevel, mipLevel);
+        float2 upperLowerBound = exponentialVarianceShadowTest(sv, lightDist);
         shadow = max(upperLowerBound.x, upperLowerBound.y);
 
         bool useSM = true;
@@ -1235,7 +1178,7 @@ struct ShadowMap
         return 1.0f - saturate(shadowIntensity);
     }
     
-    bool evalShadowMapMSM(float3 posW, const in SMLightData lightData, const float mipLevel,const bool hybridSM , out float shadow, float random = 0.f)
+    bool evalShadowMapMSM(float3 posW, const in SMLightData lightData, const float mipLevel,const bool hybridSM , out float shadow, inout bool isDynamic, float random = 0.f)
     {
         uint index = lightData.index;
         
@@ -1269,7 +1212,7 @@ struct ShadowMap
         if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
             return !kUseRayOutsideSM;   //Outside of shadow map
 
-        float4 moments = getShadowValueF4(index, shadowUV, lightData.type, cascLevel, mipLevel);
+        float4 moments = getShadowValueF4(index, shadowUV, lightData.type, isDynamic, cascLevel, mipLevel);
         //Shadow Test with shadow map
         if(ShadowMapType(kShadowMapMode) == ShadowMapType::MSMHamburger)
             shadow = msmHamburger(moments, lightDist);
@@ -1306,7 +1249,7 @@ struct ShadowMap
     }
 
     //Eval the single depth version of the filterable shadow maps.
-    bool evalShadowMapFilterSD(float3 posW, const in SMLightData lightData, const float mipLevel,const bool hybridSM , out float shadow, float random = 0.f)
+    bool evalShadowMapFilterSD(float3 posW, const in SMLightData lightData, const float mipLevel,const bool hybridSM , out float shadow, inout bool isDynamic, float random = 0.f)
     {
         uint index = lightData.index;
         
@@ -1346,7 +1289,7 @@ struct ShadowMap
         if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
             return !kUseRayOutsideSM;   //Outside of shadow map
 
-        float4 gatherDepths = getShadowValueGather(index, shadowUV, lightData.type, cascLevel);
+        float4 gatherDepths = getShadowValueGather(index, shadowUV, lightData.type,isDynamic ,cascLevel);
         
         bool useShadow = true;
         //Evaluate the shadow map
@@ -1405,26 +1348,27 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMap(float3 posW, const in SMLightData lightData, float4 random, float mipLevel , out float shadow)
+    bool evalShadowMap(float3 posW, const in SMLightData lightData, float4 random, float mipLevel, out float shadow)
     {
+        bool isDynamic = false;
         mipLevel = kUseSMMips ? mipLevel : 0.f; //Using mip level without mips can lead to a performance hit
         switch (ShadowMapType(kShadowMapMode))
         {
             case ShadowMapType::ShadowMap:
-                return evalShadowMapClassic(posW, lightData, random, shadow);
+                return evalShadowMapClassic(posW, lightData, random, shadow, isDynamic);
             case ShadowMapType::Variance:
-                return evalShadowMapVariance(posW, lightData, random.x, mipLevel, false ,shadow);
+                return evalShadowMapVariance(posW, lightData, random.x, mipLevel, false ,shadow, isDynamic);
             case ShadowMapType::Exponential:
-                return evalShadowMapExponential(posW, lightData, random.x, mipLevel, false, shadow);
+                return evalShadowMapExponential(posW, lightData, random.x, mipLevel, false, shadow, isDynamic);
             case ShadowMapType::ExponentialVariance:
-                return evalShadowMapExponentialVariance(posW, lightData, random.x, mipLevel, false, shadow);
+                return evalShadowMapExponentialVariance(posW, lightData, random.x, mipLevel, false, shadow, isDynamic);
             case ShadowMapType::MSMHamburger:
             case ShadowMapType::MSMHausdorff:
-                return evalShadowMapMSM(posW, lightData, mipLevel, false, shadow);
+                return evalShadowMapMSM(posW, lightData, mipLevel, false, shadow, isDynamic);
             case ShadowMapType::SDVariance:
             case ShadowMapType::SDExponentialVariance:
             case ShadowMapType::SDMSM:
-                return evalShadowMapFilterSD(posW, lightData, mipLevel, false, shadow);
+                return evalShadowMapFilterSD(posW, lightData, mipLevel, false, shadow, isDynamic);
             default:
                 shadow = 1.f;
                 return false;
@@ -1439,26 +1383,27 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalHybridShadowMap(float3 posW, const in SMLightData lightData, float4 random, float mipLevel, out float shadow)
+    bool evalHybridShadowMap(float3 posW, const in SMLightData lightData, float4 random, float mipLevel, out float shadow, out bool isDynamic)
     {
+        isDynamic = false;
         mipLevel = kUseSMMips ? mipLevel : 0.f; //Using mip level without mips can lead to a performance hit
         switch (ShadowMapType(kShadowMapMode))
         {
             case ShadowMapType::ShadowMap:
-                return hybridShadowMapClassic(posW, lightData, random, shadow);
+                return hybridShadowMapClassic(posW, lightData, random, shadow, isDynamic);
             case ShadowMapType::Variance:
-                return evalShadowMapVariance(posW, lightData, random.x, mipLevel ,true ,shadow);
+                return evalShadowMapVariance(posW, lightData, random.x, mipLevel ,true ,shadow, isDynamic);
             case ShadowMapType::Exponential:
-                return evalShadowMapExponential(posW, lightData, random.x, mipLevel, true , shadow);
+                return evalShadowMapExponential(posW, lightData, random.x, mipLevel, true , shadow, isDynamic);
             case ShadowMapType::ExponentialVariance:
-                return evalShadowMapExponentialVariance(posW, lightData, random.x, mipLevel, true, shadow);
+                return evalShadowMapExponentialVariance(posW, lightData, random.x, mipLevel, true, shadow, isDynamic);
             case ShadowMapType::MSMHamburger:
             case ShadowMapType::MSMHausdorff:
-                return evalShadowMapMSM(posW, lightData, mipLevel, true, shadow, random.x);
+                return evalShadowMapMSM(posW, lightData, mipLevel, true, shadow, isDynamic, random.x);
             case ShadowMapType::SDVariance:
             case ShadowMapType::SDExponentialVariance:
             case ShadowMapType::SDMSM:
-                return evalShadowMapFilterSD(posW, lightData, mipLevel, true, shadow, random.x);
+                return evalShadowMapFilterSD(posW, lightData, mipLevel, true, shadow,isDynamic, random.x);
             default:
                 shadow = 1.f;
                 return false;

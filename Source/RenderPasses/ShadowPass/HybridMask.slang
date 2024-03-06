@@ -84,7 +84,7 @@ struct HybridMask{
 }
 
 //Evaluate the hybrid mask
-bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed,out bool clampShadow, float linZ , uint frameCount = 0){
+bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed,out bool clampShadow, float linZ , uint frameCount = 0, bool isDynamic = false){
     
     bool useRay = smUseRay;
     clampShadow = false;
@@ -156,13 +156,31 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
         mask[maskCount] = HybridMask(gatherMasks[maskCount]);
 #endif
 
+bool expandRay = false;
+    //Check if ray needs to be expanded (expands ray on shadow edges)
+#if HYBRID_MASK_EXPAND_RAYS
+    #if HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE
+        if(!useRay && (linZ < kHybridMaskExpandRaysMaxDistance))
+    #else//HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE
+        if(!useRay)
+    #endif//HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE
+        {
+            for(uint i=0; i<maskCount; i++){
+                //expandRay |= (mask[i].shootRay && mask[i].shadowRay && !smShadowed) || (mask[i].shootRay && !mask[i].shadowRay && smShadowed) || (mask[i].shadowSM != smShadowed);    //Unsimplifed
+                //expandRay |= (mask[i].shootRay && (mask[i].shadowRay != smShadowed));     //Simplfied, does the same as the above with less operations
+                expandRay |= (mask[i].shootRay && (mask[i].shadowRay != smShadowed)) || (mask[i].shadowSM != smShadowed);     //Simplfied, does the same as the above with less operations
+            }
+        useRay |= expandRay;
+    }
+#endif //HYBRID_MASK_EXPAND_RAYS
 
     //Check if ray is necessary (removes ray from core shadow)
 #if HYBRID_MASK_REMOVE_RAYS
+    bool removeRayTest = useRay && !expandRay && !isDynamic;
     #if HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
-        if (useRay && tempDepthTest &&((linZ > kHybridMaskRemoveRaysGreaterAsDistance) || (linZ < kHybridMaskRemoveRaysSmallerAsDistance)))
+        if (removeRayTest && tempDepthTest &&((linZ > kHybridMaskRemoveRaysGreaterAsDistance) || (linZ < kHybridMaskRemoveRaysSmallerAsDistance)))
     #else  // HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
-        if (useRay && tempDepthTest)
+        if (removeRayTest && tempDepthTest)
     #endif //HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
         {
             bool needRay = false;
@@ -174,23 +192,6 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
         useRay = needRay;
         }
 #endif //HYBRID_MASK_REMOVE_RAYS
-    //Check if ray needs to be expanded (expands ray on shadow edges)
-#if HYBRID_MASK_EXPAND_RAYS
-    #if HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE
-        if(!useRay && (linZ < kHybridMaskExpandRaysMaxDistance))
-    #else//HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE
-        if(!useRay)
-    #endif//HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE
-        {
-            bool expandRay = false;
-            for(uint i=0; i<maskCount; i++){
-                //expandRay |= (mask[i].shootRay && mask[i].shadowRay && !smShadowed) || (mask[i].shootRay && !mask[i].shadowRay && smShadowed) || (mask[i].shadowSM != smShadowed);    //Unsimplifed
-                //expandRay |= (mask[i].shootRay && (mask[i].shadowRay != smShadowed));     //Simplfied, does the same as the above with less operations
-                expandRay |= (mask[i].shootRay && (mask[i].shadowRay != smShadowed)) || (mask[i].shadowSM != smShadowed);     //Simplfied, does the same as the above with less operations
-            }
-        useRay |= expandRay;
-    }
-#endif //HYBRID_MASK_EXPAND_RAYS
 
     return useRay;
 }

@@ -145,6 +145,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
 
     //Shadow test
     float shadow = 0.f;
+    bool isDynamic = false;
     bool useRay = (kShadowMode == (uint)SPShadowMode::RayTraced);
     float lod = 0.f;
     //Eval shadow map if mode is enabled
@@ -158,7 +159,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
             lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);    
         }
         if(kShadowMode == (uint)SPShadowMode::Hybrid)
-            useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
+            useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow, isDynamic);
         else
             useRay = !gShadowMap.evalShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
     }
@@ -168,7 +169,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
 
     bool clampShadow = false;
     if (kUseHybridMask && gHybridMaskValid) {
-        useRay = evaluateHybridMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed,clampShadow,camDist, gFrameCount);
+        useRay = evaluateHybridMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed,clampShadow,camDist, gFrameCount, isDynamic);
     }
 
 #if HYBRID_ALPHA_ONLY
