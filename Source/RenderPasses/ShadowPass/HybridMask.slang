@@ -183,6 +183,7 @@ bool expandRay = false;
         if (removeRayTest && tempDepthTest)
     #endif //HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE
         {
+            /*
             bool needRay = false;
             for(uint i=0; i<maskCount; i++){
                 needRay |= smShadowed && (!mask[i].shadowSM || (mask[i].shootRay && !mask[i].shadowRay)); // Remove Shadowed
@@ -190,6 +191,16 @@ bool expandRay = false;
             }
         clampShadow = !needRay;
         useRay = needRay;
+        */
+        ///*
+        bool removeRay = true;
+            for(uint i=0; i<maskCount; i++){
+                //removeRay &= (!mask[i].shootRay && (smShadowed == mask[i].shadowSM)) || (mask[i].shootRay && (smShadowed == mask[i].shadowSM) && (smShadowed == mask[i].shadowRay));
+                removeRay &= (smShadowed == mask[i].shadowSM) && (!mask[i].shootRay || (smShadowed == mask[i].shadowRay)); //Simplyfied version of the above
+            }
+        clampShadow = removeRay;
+        useRay = !removeRay;
+        //*/
         }
 #endif //HYBRID_MASK_REMOVE_RAYS
 
