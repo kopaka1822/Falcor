@@ -76,7 +76,8 @@ struct ShadowMap
     static const float kAdditionalVarianceTestThreshold = MSM_VARIANCE_TEST_THRESHOLD; //Threshold for additional variance test in MSM
     static const float kCascadedStochasticRange = CASC_STOCH_RANGE;         //Stochastic range for cascaded shadow maps
     static const uint  kCascadedLevelTrace = CASCADE_LEVEL_TRACE;           //Traces only for the first X levels on hybrid
-    static const bool  kCascadedRayTracingAfterHybrid = CASCADE_RAYTRACING_AFTER_HYBRID; //Uses ray tracing for the higher cascaded levels (when higher than option directly above)
+    static const bool kCascadedRayTracingAfterHybrid = CASCADE_RAYTRACING_AFTER_HYBRID; // Uses ray tracing for the higher cascaded levels (when higher than option directly above)
+    static const bool kUseEVSMExtraTest = EVSM_EXTRA_TEST;
 
     static const bool kUseSMMips = USE_SM_MIP;
     static const float kMipBias = SM_MIP_BIAS;      //angle bias used in mip calculation (cos theta^bias)
@@ -1057,9 +1058,11 @@ struct ShadowMap
         if (hybridSM && cascadedHybrid)
         {
             if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
-                useSM = false;   //Shoot ray
-            if(abs(upperLowerBound.x - upperLowerBound.y) > 0.01)
-                useSM = false;
+                useSM = false; // Shoot ray
+            if (kUseEVSMExtraTest) {
+                if (abs(upperLowerBound.x - upperLowerBound.y) > 0.01)
+                    useSM = false;
+            }
         }
         
         return useSM;
@@ -1312,8 +1315,8 @@ struct ShadowMap
                 expVarianceSV += lerpWeights[i] * evsm;
             }
             float2 upperLowerBound = exponentialVarianceShadowTest(expVarianceSV, lightDist);
-            shadow = max(upperLowerBound.x, upperLowerBound.y);
-            if (hybridSM && cascadedHybrid)
+            shadow = min(upperLowerBound.x, upperLowerBound.y);
+            if (kUseEVSMExtraTest && hybridSM && cascadedHybrid)
                 if(abs(upperLowerBound.x - upperLowerBound.y) > kHSMFilteredThreshold.x)
                     useShadow = false;
         }else{

@@ -278,6 +278,7 @@ private:
     float mExponentialSMConstant = 80.f;            //Value used in the paper
     float mEVSMConstant = 20.f;                     //Exponential Variance Shadow Map constant. Needs to be lower than the exponential counterpart
     float mEVSMNegConstant = 5.f;                   //Exponential Variance Shadow Map negative constant. Usually lower than the positive counterpart
+    bool mEVSMExtraTest = false;                    //Uses an extra test abs(posEXP - negEXP)<e
 
     //Variance and MSM
     bool mVarianceUseSelfShadowVariant = false;

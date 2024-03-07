@@ -687,6 +687,7 @@ DefineList ShadowMap::getDefines() const
     defines.add("CASCADED_SLICE_BUFFER_SIZE", std::to_string(cascadedSliceBufferSize));
     defines.add("CASCADE_LEVEL_TRACE", std::to_string(mCascadedLevelTrace));
     defines.add("CASCADE_RAYTRACING_AFTER_HYBRID", mCascadedLastLevelRayTrace ? "1" : "0");
+    defines.add("EVSM_EXTRA_TEST", mEVSMExtraTest ? "1" : "0");
     defines.add("SM_USE_PCF", mUsePCF ? "1" : "0");
     defines.add("SM_USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
     defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
@@ -2256,7 +2257,8 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             group.tooltip(
                 "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [x, y]", true
             );
-
+            group.checkbox("Enable extra hybrid test", mEVSMExtraTest);
+            group.tooltip("Enables an additionall test on top of LTT. A ray is traced if LTT or abs(posEXP - negEXP)<e.");
             if (mShadowMapType == ShadowMapType::ExponentialVariance)
             {
                 dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
