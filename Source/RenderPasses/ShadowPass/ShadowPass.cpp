@@ -584,6 +584,7 @@ DefineList ShadowPass::hybridMaskDefines() {
     defines.add("HYBRID_MASK_EXPAND_RAYS_MAX_DISTANCE", std::to_string(mHybridMaskExpandRaysMaxDistance));
     defines.add("HYBRID_USE_TEMPORAL_DEPTH_TEST", mHybridUseTemporalDepthTest ? "1" : "0");
     defines.add("HYBRID_TEMPORAL_DEPTH_TEST_MAX_DEPTH_DIFF", std::to_string(mHybridTemporalDepthTestPercentage));
+    defines.add("HYBRID_USE_RAY_WHEN_OUTSIDE_MASK", mHybridUseRayWhenOutsideMask ? "1" : "0");
     defines.add("DISABLE_DYNAMIC_GEOMETRY_CHECK", mHybridMaskDisableDynamicGeometryCheck ? "1" : "0");
 
     //Set all enums in a very hacky way
@@ -677,7 +678,9 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
                 }
             }
 
-            
+            changed |= group.checkbox("Use Ray when sample is outside of the mask", mHybridUseRayWhenOutsideMask);
+            group.tooltip("Always uses a ray when the sample is outside of the mask");
+                        
 
             mClearHybridMask |= group.button("Clear HybridMask");
         }

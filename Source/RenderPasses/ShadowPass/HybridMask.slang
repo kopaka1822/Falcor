@@ -45,6 +45,7 @@ static const float kHybridMaskRemoveRaysGreaterAsDistance = HYBRID_MASK_REMOVE_R
 static const float kHybridMaskRemoveRaysSmallerAsDistance = HYBRID_MASK_REMOVE_RAYS_SMALLER_AS_DISTANCE;
 static const float kHybridMaskExpandRaysMaxDistance = HYBRID_MASK_EXPAND_RAYS_MAX_DISTANCE;
 static const float kHybridDistanceDiffFactor = HYBRID_TEMPORAL_DEPTH_TEST_MAX_DEPTH_DIFF;
+static const bool kUseRayWhenOutsideOfMask = HYBRID_USE_RAY_WHEN_OUTSIDE_MASK;
 
 /** Struct for the hybrid mask
 */
@@ -97,7 +98,7 @@ bool evaluateHybridMask(uint2 pixel, float2 mvec, bool smUseRay, bool smShadowed
     
 
     if (any(pixelF < 0) || (pixelF.x >= dims.x) || (pixelF.y >= dims.y)) {
-        return useRay;
+        return kUseRayWhenOutsideOfMask || useRay;
     }
 
     bool tempDepthTest = true;
