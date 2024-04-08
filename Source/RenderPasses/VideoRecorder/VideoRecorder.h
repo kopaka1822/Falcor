@@ -124,6 +124,8 @@ private:
     std::string mOutputPrefix;
     bool mDeleteDublicatesAtStartAndEnd = true;
 
+    PathPoint mLastFramePathPoint; 
+
     int guardBand = 0;
     ref<Texture> mpBlitTexture;
 };

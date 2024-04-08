@@ -431,6 +431,21 @@ void VideoRecorder::updateCamera()
         return res;
     };
 
+    auto updateCamera = [&](const PathPoint& curr) {
+        bool updatePoint = false;
+        const float error = 0.001f;
+
+        updatePoint |= any(abs(mLastFramePathPoint.pos - curr.pos) > 0.001f);
+        auto lastTarget = mLastFramePathPoint.pos + mLastFramePathPoint.dir;
+        auto currentTarget = curr.pos + curr.dir;
+        updatePoint |= any(abs(lastTarget - currentTarget) > 0.001f);
+        updatePoint |= any(abs(mLastFramePathPoint.pos - curr.pos) > 0.001f);
+
+        if (updatePoint)
+            mLastFramePathPoint = curr;
+
+        return updatePoint;
+    };
 
     switch (mState)
     {
@@ -440,9 +455,13 @@ void VideoRecorder::updateCamera()
     case State::Preview:
     {
         auto p = getInterpolatedPathPoint(time);
-        cam->setPosition(p.pos);
-        cam->setTarget(p.pos + p.dir);
-        cam->setUpVector(p.up);
+        if (updateCamera(p))
+        {
+            cam->setPosition(p.pos);
+            cam->setTarget(p.pos + p.dir);
+            cam->setUpVector(p.up);
+        }
+        
         if(p.time >= mPathPoints.back().time)
         {
             if(mLoop)
@@ -457,9 +476,13 @@ void VideoRecorder::updateCamera()
     case State::Render:
     {
         auto p = getInterpolatedPathPoint(time);
-        cam->setPosition(p.pos);
-        cam->setTarget(p.pos + p.dir);
-        cam->setUpVector(p.up);
+        if (updateCamera(p))
+        {
+            cam->setPosition(p.pos);
+            cam->setTarget(p.pos + p.dir);
+            cam->setUpVector(p.up);
+        }
+        
         if (p.time >= mPathPoints.back().time)
         {
             // stop animation
@@ -472,9 +495,13 @@ void VideoRecorder::updateCamera()
         size_t warmupFrames = 120;
         float t = 1.0f - (float)mRenderIndex / (float)warmupFrames;
         auto p = getInterpolatedPathPoint(t); // fix some issues with temporal passes 
-        cam->setPosition(p.pos);
-        cam->setTarget(p.pos + p.dir);
-        cam->setUpVector(p.up);
+        if (updateCamera(p))
+        {
+            cam->setPosition(p.pos);
+            cam->setTarget(p.pos + p.dir);
+            cam->setUpVector(p.up);
+        }
+
         if(mRenderIndex++ > warmupFrames)
         {
             startRender(); // after 100 warmup frames, start rendering
