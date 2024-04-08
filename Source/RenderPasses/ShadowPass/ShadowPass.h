@@ -30,7 +30,7 @@
 #include "RenderGraph/RenderPass.h"
 #include "Rendering/ShadowMaps/ShadowMap.h"
 #include "ShadowPassData.slang"
-#include "HybridMaskSamplePatterns.slang"
+#include "LTTMaskSamplePatterns.slang"
 
 using namespace Falcor;
 
@@ -90,7 +90,7 @@ private:
     bool mFullyTracedCascadedLevelsEnabled = false;
     
     //Hybrid Mask
-    HybridMaskSamplePatterns mHybridMaskSamplePattern = HybridMaskSamplePatterns::Gather;
+    LTTMaskSamplePatterns mHybridMaskSamplePattern = LTTMaskSamplePatterns::Gather;
 
     bool mHybridMaskFirstFrame = false; //< Marks if this is the first frame for the hybrid mask and all values are invalid
     bool mHybridUseTemporalDepthTest = false;

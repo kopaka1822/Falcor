@@ -40,7 +40,7 @@ import Rendering.Materials.Fresnel;
 import Rendering.ShadowMaps.ShadowMap;
 
 import ShadowPassData;
-import HybridMask;
+import LTTMask;
 
 //Inputs
 Texture2D<float4> gPosW;
@@ -67,7 +67,7 @@ RWTexture2D<float4> gDebug;
 cbuffer CB
 {
     uint gFrameCount;   //Current Frame Count for the sample generator
-    bool gHybridMaskValid;  //Tells if the hybrid mask is valid
+    bool gLTTMaskValid;  //Tells if the hybrid mask is valid
 }
 
 //Defines for syntax highlighting
@@ -170,7 +170,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     bool isSMIsShadowed = shadow < 0.5;
     float camDist = distance(gScene.camera.getPosition(), posW);
     bool clampShadow = false;
-    if (kUseHybridMask && gHybridMaskValid) {
+    if (kUseLTTMask && gLTTMaskValid) {
         useRay = evaluateHybridMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed,clampShadow,camDist, gFrameCount, isDynamic);
     }
 
@@ -200,8 +200,8 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
         shadow = lerp(rtShadow, shadow, blendT);
     }
 
-    if(kUseHybridMask){
-        writeHybridMask(DispatchRaysIndex().xy, isSMIsShadowed, useRay, useRay && (rtShadow < 0.5), camDist);
+    if(kUseLTTMask){
+        writeLTTMask(DispatchRaysIndex().xy, isSMIsShadowed, useRay, useRay && (rtShadow < 0.5), camDist);
     }
 
     //Set shadow value

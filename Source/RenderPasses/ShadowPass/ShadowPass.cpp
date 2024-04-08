@@ -290,7 +290,7 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     mpSampleGenerator->setShaderData(var);
 
     var["CB"]["gFrameCount"] = mFrameCount;
-    var["CB"]["gHybridMaskValid"] = !mHybridMaskFirstFrame && mpHybridMask;
+    var["CB"]["gLTTMaskValid"] = !mHybridMaskFirstFrame && mpHybridMask;
 
     setHybridMaskVars(var, mFrameCount);
     
@@ -559,37 +559,37 @@ DefineList ShadowPass::hybridMaskDefines() {
         mHybridMaskExpandRaysMaxDistance = mpShadowMap->getCascadedFarForLevel(mHybridMaskExpandRaysMaxDistanceMode - 1);
 
     DefineList defines;
-    defines.add("USE_HYBRID_MASK", mpHybridMask[0] && mEnableHybridMask ? "1" : "0");
+    defines.add("USE_LTT_MASK", mpHybridMask[0] && mEnableHybridMask ? "1" : "0");
     if (mpHybridMask[0])
         defines.add(
-            "HYBRID_MASK_DIMS",
+            "LTT_MASK_DIMS",
             "uint2(" + std::to_string(mpHybridMask[0]->getWidth()) + "," + std::to_string(mpHybridMask[0]->getHeight()) + ")"
         );
     else
-        defines.add("HYBRID_MASK_DIMS", "uint2(0)");
+        defines.add("LTT_MASK_DIMS", "uint2(0)");
 
-    defines.add("HYBRID_MASK_REMOVE_RAYS", mHybridMaskRemoveRays ? "1" : "0");
-    defines.add("HYBRID_MASK_EXPAND_RAYS", mHybridMaskExpandRays ? "1" : "0");
+    defines.add("LTT_MASK_REMOVE_RAYS", mHybridMaskRemoveRays ? "1" : "0");
+    defines.add("LTT_MASK_EXPAND_RAYS", mHybridMaskExpandRays ? "1" : "0");
 
     uint32_t samplePattern = uint32_t(mHybridMaskSamplePattern);
-    defines.add("HYBRID_MASK_SAMPLE_PATTERN", std::to_string(samplePattern));
-    uint32_t sampleCount = mHybridMaskSamplePattern == HybridMaskSamplePatterns::Box_3x3 ? 9 : 5;   //Box 3x3 is bigger
-    sampleCount = (uint)mHybridMaskSamplePattern > (uint)HybridMaskSamplePatterns::PlusCross ? 4 : sampleCount; //Gather
-    defines.add("HYBRID_MASK_SAMPLE_COUNT", std::to_string(sampleCount));
+    defines.add("LTT_MASK_SAMPLE_PATTERN", std::to_string(samplePattern));
+    uint32_t sampleCount = mHybridMaskSamplePattern == LTTMaskSamplePatterns::Box_3x3 ? 9 : 5;   //Box 3x3 is bigger
+    sampleCount = (uint)mHybridMaskSamplePattern > (uint)LTTMaskSamplePatterns::PlusCross ? 4 : sampleCount; //Gather
+    defines.add("LTT_MASK_SAMPLE_COUNT", std::to_string(sampleCount));
 
-    defines.add("HYBRID_MASK_REMOVE_RAYS_USE_MIN_DISTANCE", mUseHybridMaskRemoveRaysDistance ? "1" : "0");
-    defines.add("HYBRID_MASK_EXPAND_RAYS_USE_MAX_DISTANCE", mUseHybridMaskExpandRaysMaxDistance ? "1" : "0");
-    defines.add("HYBRID_MASK_REMOVE_RAYS_SMALLER_AS_DISTANCE", std::to_string(mHybridMaskRemoveRaysSmallerAsDistance));
-    defines.add("HYBRID_MASK_REMOVE_RAYS_GREATER_AS_DISTANCE", std::to_string(mHybridMaskRemoveRaysGreaterAsDistance));
-    defines.add("HYBRID_MASK_EXPAND_RAYS_MAX_DISTANCE", std::to_string(mHybridMaskExpandRaysMaxDistance));
-    defines.add("HYBRID_USE_TEMPORAL_DEPTH_TEST", mHybridUseTemporalDepthTest ? "1" : "0");
-    defines.add("HYBRID_TEMPORAL_DEPTH_TEST_MAX_DEPTH_DIFF", std::to_string(mHybridTemporalDepthTestPercentage));
-    defines.add("HYBRID_USE_RAY_WHEN_OUTSIDE_MASK", mHybridUseRayWhenOutsideMask ? "1" : "0");
+    defines.add("LTT_MASK_REMOVE_RAYS_USE_MIN_DISTANCE", mUseHybridMaskRemoveRaysDistance ? "1" : "0");
+    defines.add("LTT_MASK_EXPAND_RAYS_USE_MAX_DISTANCE", mUseHybridMaskExpandRaysMaxDistance ? "1" : "0");
+    defines.add("LTT_MASK_REMOVE_RAYS_SMALLER_AS_DISTANCE", std::to_string(mHybridMaskRemoveRaysSmallerAsDistance));
+    defines.add("LTT_MASK_REMOVE_RAYS_GREATER_AS_DISTANCE", std::to_string(mHybridMaskRemoveRaysGreaterAsDistance));
+    defines.add("LTT_MASK_EXPAND_RAYS_MAX_DISTANCE", std::to_string(mHybridMaskExpandRaysMaxDistance));
+    defines.add("LTT_MASK_USE_TEMPORAL_DEPTH_TEST", mHybridUseTemporalDepthTest ? "1" : "0");
+    defines.add("LTT_TEMPORAL_DEPTH_TEST_MAX_DEPTH_DIFF", std::to_string(mHybridTemporalDepthTestPercentage));
+    defines.add("LTT_MASK_USE_RAY_WHEN_OUTSIDE", mHybridUseRayWhenOutsideMask ? "1" : "0");
     defines.add("DISABLE_DYNAMIC_GEOMETRY_CHECK", mHybridMaskDisableDynamicGeometryCheck ? "1" : "0");
 
     //Set all enums in a very hacky way
-    std::string base = "HYBRID_MASK_SAMPLE_PATTERN_";
-    const auto& samplePatternItems = EnumInfo<HybridMaskSamplePatterns>::items();
+    std::string base = "LTT_MASK_SAMPLE_PATTERN_";
+    const auto& samplePatternItems = EnumInfo<LTTMaskSamplePatterns>::items();
     for (const auto& samplePatternItem : samplePatternItems)
     {
         defines.add(base + samplePatternItem.second.c_str(), std::to_string(uint32_t(samplePatternItem.first)));
@@ -601,8 +601,8 @@ DefineList ShadowPass::hybridMaskDefines() {
 void ShadowPass::setHybridMaskVars(ShaderVar& var, const uint frameCount) {
     if (mpHybridMask[0] && mpHybridMask[1])
     {
-        var["gHybridMask"] = mpHybridMask[frameCount % 2];
-        var["gHybridMaskLastFrame"] = mpHybridMask[(frameCount + 1) % 2];
+        var["gLTTMask"] = mpHybridMask[frameCount % 2];
+        var["gLTTMaskLastFrame"] = mpHybridMask[(frameCount + 1) % 2];
     }
     if (mpPrevDepth[0] && mpPrevDepth[1])
     {
@@ -611,7 +611,7 @@ void ShadowPass::setHybridMaskVars(ShaderVar& var, const uint frameCount) {
     }
         
     if (mpHybridSampler)
-        var["gHybridMaskSampler"] = mpHybridSampler;
+        var["gLTTMaskSampler"] = mpHybridSampler;
 }
 
 bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {

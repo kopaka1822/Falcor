@@ -5,8 +5,8 @@ target_sources(ShadowPass PRIVATE
     ShadowPass.h
 	ShadowPass.rt.slang
 	ShadowPassData.slang
-	HybridMask.slang
-	HybridMaskSamplePatterns.slang
+	LTTMask.slang
+	LTTMaskSamplePatterns.slang
 )
 
 target_copy_shaders(ShadowPass RenderPasses/ShadowPass)
