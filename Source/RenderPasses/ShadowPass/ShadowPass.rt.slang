@@ -146,7 +146,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     //Shadow test
     float shadow = 0.f;
     bool isDynamic = false;
-    bool useRay = (kShadowMode == (uint)SPShadowMode::RayTraced);
+    bool useRay = (kShadowMode == (uint)SPShadowMode::RayShadows);
     float lod = 0.f;
     //Eval shadow map if mode is enabled
     if(!useRay){
@@ -158,7 +158,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
             float3 posWDdy = computeDdyPosW(posW, faceN, invFrameDim);
             lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);    
         }
-        if(kShadowMode == (uint)SPShadowMode::Hybrid)
+        if(kShadowMode == (uint)SPShadowMode::LeakTracing)
             useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow, isDynamic);
         else
             useRay = !gShadowMap.evalShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
@@ -207,7 +207,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     //Set shadow value
     if(clampShadow && !useRay)
         rtShadow = shadow < 0.5 ? 0.f : 1.f;
-    if(kEnableHybridBlending && kShadowMode != (uint)SPShadowMode::RayTraced){
+    if(kEnableHybridBlending && kShadowMode != (uint)SPShadowMode::RayShadows){
         float blendT = saturate((camDist - kHybridBlendingRange.x)/kHybridBlendingRange.y);
         shadow = lerp(rtShadow, shadow, blendT);
     }else

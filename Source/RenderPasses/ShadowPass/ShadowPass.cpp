@@ -67,9 +67,9 @@ namespace
 
     const Gui::DropdownList kDebugModes{
         {0, "Ray Shot"},
-        {1, "Lod Level"},
+        //{1, "Lod Level"},
         {2, "Cascaded Level"},
-        {3, "Hybrid Mask Texture"},
+        {3, "LTT Mask Texture"},
     };
 
     const Gui::DropdownList kDistanceSettings{
@@ -166,7 +166,7 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
 
 
     // Calculate and update the shadow map
-    if (mShadowMode != SPShadowMode::RayTraced)
+    if (mShadowMode != SPShadowMode::RayShadows)
         if (!mpShadowMap->update(pRenderContext))
             return;
 
@@ -341,45 +341,52 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
         }
     }
         
-
-    changed |= widget.checkbox("Shadow Only", mShadowOnly);
-    widget.tooltip("Disables shading. Guiding Normal (Textured normal) is used when using Simplified Shading");
-
-    //Shading Model
-    if (mSimplifiedShadingValid && mComplexShadingValid)
+    if (auto group = widget.group("Shading Settings"))
     {
-        changed |= widget.checkbox("Use Simplified Shading", mUseSimplifiedShading);
-        widget.tooltip(
-            "Change the used shading model. For better overall performance please only bind the input textures for one shading model"
-        );
-    }
-    else
-    {
-        if (mComplexShadingValid)
-            widget.text("Complex Shading Model in use");
-        else if (mSimplifiedShadingValid)
-            widget.text("Simplified Shading Model in use");
+        group.separator();
+        changed |= group.checkbox("Shadow Only", mShadowOnly);
+        group.tooltip("Disables shading. Guiding Normal (Textured normal) is used when using Simplified Shading");
+
+        // Shading Model
+        if (mSimplifiedShadingValid && mComplexShadingValid)
+        {
+            changed |= group.checkbox("Use Simplified Shading", mUseSimplifiedShading);
+            group.tooltip(
+                "Change the used shading model. For better overall performance please only bind the input textures for one shading model"
+            );
+        }
         else
         {
-            widget.text("Not enough resources bound for either shading model! (Not updated in RenderGraphEditor)");
-            widget.text("Simplified Model: diffuse , specularRoughness");
-            widget.text("Complex Model: tangentW, texCoords, texGrads, MaterialInfo");
+            if (mComplexShadingValid)
+                group.text("Complex Shading Model in use");
+            else if (mSimplifiedShadingValid)
+                group.text("Simplified Shading Model in use");
+            else
+            {
+                group.text("Not enough resources bound for either shading model! (Not updated in RenderGraphEditor)");
+                group.text("Simplified Model: diffuse , specularRoughness");
+                group.text("Complex Model: tangentW, texCoords, texGrads, MaterialInfo");
+            }
         }
+
+        changed |= group.var("Ambient Factor", mAmbientFactor, 0.0f, 1.f, 0.01f);
+        changed |= group.var("Env Map Factor", mEnvMapFactor, 0.f, 100.f, 0.01f);
+        group.tooltip("Scale factor for the Enviroment Map.");
+        changed |= group.var("Emissive Factor", mEmissiveFactor, 0.f, 100.f, 0.01f);
+        group.tooltip("Scale factor for the Emissive materials.");
+        group.separator();
     }
-        
-    changed |= widget.var("Ambient Factor", mAmbientFactor,0.0f, 1.f, 0.01f);
-    changed |= widget.var("Env Map Factor", mEnvMapFactor, 0.f, 100.f, 0.01f);
-    changed |= widget.var("Emissive Factor", mEmissiveFactor, 0.f, 100.f, 0.01f);
+  
+    changed |= lttMaskUI(widget);
 
-    changed |= widget.dropdown("Debug Mode", kDebugModes, mDebugMode);
-
-    changed |= hybridMaskUI(widget);
-
-    if (mShadowMode != SPShadowMode::RayTraced && mpShadowMap)
+    if (mShadowMode != SPShadowMode::RayShadows && mpShadowMap)
     {
         if (auto group = widget.group("Shadow Map Options", true))
             changed |= mpShadowMap->renderUI(group);
     }
+
+    changed |= widget.dropdown("Debug Mode", kDebugModes, mDebugMode);
+    widget.tooltip("Changes the shown debug image for the debug texture. \"Show in Debug Window\" -> \"ShadowPass.debug\"");
 
     mOptionsChanged |= changed;
 }
@@ -437,7 +444,7 @@ void ShadowPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
 }
 
 void ShadowPass::handleHybridMaskData(RenderContext* pRenderContext,uint2 screenDims) {
-    bool isHybridMode = mShadowMode == SPShadowMode::Hybrid;
+    bool isHybridMode = mShadowMode == SPShadowMode::LeakTracing;
     //Create Textures if missing
     if (isHybridMode)
     {
@@ -614,7 +621,7 @@ void ShadowPass::setHybridMaskVars(ShaderVar& var, const uint frameCount) {
         var["gLTTMaskSampler"] = mpHybridSampler;
 }
 
-bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
+bool ShadowPass::lttMaskUI(Gui::Widgets& widget) {
     bool changed = false;
 
     if (!mFullyTracedCascadedLevelsEnabled)
@@ -626,64 +633,77 @@ bool ShadowPass::hybridMaskUI(Gui::Widgets& widget) {
         }
     }
 
-    if (auto group = widget.group("Hybrid Mask"))
+    if (auto group = widget.group("LTT Mask"))
     {
+        group.separator();
         changed |= group.checkbox("Enable", mEnableHybridMask);
         if (mEnableHybridMask)
         {
             changed |= group.dropdown("Sample Pattern", mHybridMaskSamplePattern);
-            changed |= group.checkbox("Remove Rays", mHybridMaskRemoveRays);
-            group.tooltip("Removes ray from core shadow. Can lead to temporal artifacts on dynamic objects");   //TODO fix dynamic
-            if (mHybridMaskRemoveRays)
-            {
-                changed |= group.checkbox("Remove Rays at Min distance", mUseHybridMaskRemoveRaysDistance);
-                if (mUseHybridMaskRemoveRaysDistance)
-                {
-                    changed |= group.dropdown("Smaller As Distance", kDistanceSettings, mHybridMaskRemoveRaysSmallerAsDistanceMode);
-                    if (mHybridMaskRemoveRaysSmallerAsDistanceMode >= 5)
-                        group.var("Manual Distance", mHybridMaskRemoveRaysSmallerAsDistance, 0.0f);
-
-                    changed |= group.dropdown("Greater As Distance", kDistanceSettings, mHybridMaskRemoveRaysGreaterAsDistanceMode);
-                    if (mHybridMaskRemoveRaysGreaterAsDistanceMode >= 5)
-                        group.var("Manual Distance", mHybridMaskRemoveRaysGreaterAsDistance, 0.0f);
-                    //The auto set happens in hybridMaskDefines()
-                }
-                group.checkbox("Use additional Temporal Depth test", mHybridUseTemporalDepthTest);
-                group.tooltip("Uses depth from last frame and disables remove rays if the difference is too big");
-                if (mHybridUseTemporalDepthTest)
-                {
-                    group.var("Max depth difference", mHybridTemporalDepthTestPercentage, 0.0f, 1.f, 0.001f);
-                    group.tooltip("Max depth difference. Test: abs(linZ - prevLinZ) < (linZ * maxDepthDiff).");
-                }
-                group.checkbox("Disable Dynamic Geometry Check", mHybridMaskDisableDynamicGeometryCheck);
-                group.tooltip("Remove ray is used on static and dynamic shadows if enables. Not adversed as this produces visible discretization artifacts.");
-            }
-            else
-            {
-                if (mHybridUseTemporalDepthTest)
-                    mHybridUseTemporalDepthTest = false;
-            }
-
             changed |= group.checkbox("Expand Rays", mHybridMaskExpandRays);
             group.tooltip("Expands rays on shadow edges");
-            if (mHybridMaskExpandRays)
-            {
-                changed |= group.checkbox("Expand Rays until Max distance", mUseHybridMaskExpandRaysMaxDistance);
-                if (mUseHybridMaskExpandRaysMaxDistance)
-                {
-                    changed |= group.dropdown("Max Distance", kDistanceSettings, mHybridMaskExpandRaysMaxDistanceMode);
-                    if (mHybridMaskExpandRaysMaxDistanceMode >= 5)
-                        group.var("Max Distance", mHybridMaskExpandRaysMaxDistance, 0.0f);
-                    // The auto set happens in hybridMaskDefines()
-                }
-            }
-
-            changed |= group.checkbox("Use Ray when sample is outside of the mask", mHybridUseRayWhenOutsideMask);
-            group.tooltip("Always uses a ray when the sample is outside of the mask");
+            
+            changed |= group.checkbox("Remove Rays", mHybridMaskRemoveRays);
+            group.tooltip("Removes ray from core shadow. Can lead to temporal artifacts on dynamic objects");   //TODO fix dynamic
                         
+            if (auto group2 = widget.group("Settings"))
+            {
+                group.separator();
+                if (mHybridMaskExpandRays)
+                {
+                    group2.text("---------- Expand Ray Settings ----------");
+                    changed |= group2.checkbox("Expand Rays until Max distance", mUseHybridMaskExpandRaysMaxDistance);
+                    if (mUseHybridMaskExpandRaysMaxDistance)
+                    {
+                        changed |= group2.dropdown("Max Distance", kDistanceSettings, mHybridMaskExpandRaysMaxDistanceMode);
+                        if (mHybridMaskExpandRaysMaxDistanceMode >= 5)
+                            group2.var("Max Distance", mHybridMaskExpandRaysMaxDistance, 0.0f);
+                        // The auto set happens in hybridMaskDefines()
+                    }
+                }
+                if (mHybridMaskRemoveRays)
+                {
+                    group2.text("---------- Remove Ray Settings ----------");
+                    changed |= group2.checkbox("Remove Rays at Min distance", mUseHybridMaskRemoveRaysDistance);
+                    if (mUseHybridMaskRemoveRaysDistance)
+                    {
+                        changed |= group2.dropdown("Smaller As Distance", kDistanceSettings, mHybridMaskRemoveRaysSmallerAsDistanceMode);
+                        if (mHybridMaskRemoveRaysSmallerAsDistanceMode >= 5)
+                            group2.var("Manual Distance", mHybridMaskRemoveRaysSmallerAsDistance, 0.0f);
 
+                        changed |= group2.dropdown("Greater As Distance", kDistanceSettings, mHybridMaskRemoveRaysGreaterAsDistanceMode);
+                        if (mHybridMaskRemoveRaysGreaterAsDistanceMode >= 5)
+                            group2.var("Manual Distance", mHybridMaskRemoveRaysGreaterAsDistance, 0.0f);
+                        // The auto set happens in hybridMaskDefines()
+                    }
+                    group2.checkbox("Use additional Temporal Depth test", mHybridUseTemporalDepthTest);
+                    group2.tooltip("Uses depth from last frame and disables remove rays if the difference is too big");
+                    if (mHybridUseTemporalDepthTest)
+                    {
+                        group2.var("Max depth difference", mHybridTemporalDepthTestPercentage, 0.0f, 1.f, 0.001f);
+                        group2.tooltip("Max depth difference. Test: abs(linZ - prevLinZ) < (linZ * maxDepthDiff).");
+                    }
+                    group2.checkbox("Disable Dynamic Geometry Check", mHybridMaskDisableDynamicGeometryCheck);
+                    group2.tooltip(
+                        "Remove ray is used on static and dynamic shadows if enables. Not adversed as this produces visible discretization "
+                        "artifacts."
+                    );
+                }
+                else
+                {
+                    if (mHybridUseTemporalDepthTest)
+                        mHybridUseTemporalDepthTest = false;
+                }
+
+                group2.text("---------- General ----------");
+                changed |= group2.checkbox("Use Ray when sample is outside of the mask", mHybridUseRayWhenOutsideMask);
+                group2.tooltip("Always uses a ray when the sample is outside of the mask");
+                group2.separator();
+            }
             mClearHybridMask |= group.button("Clear HybridMask");
+            group.tooltip("Clears the mask");
         }
+        group.separator();
     }
 
     return changed;

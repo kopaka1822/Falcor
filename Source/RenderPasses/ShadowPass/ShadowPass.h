@@ -60,7 +60,7 @@ private:
     void handleHybridMaskData(RenderContext* pRenderContext, uint2 screenDims); ///< Handles Textures for the hybrid mask
     DefineList hybridMaskDefines();
     void setHybridMaskVars(ShaderVar& var, const uint frameCount);
-    bool hybridMaskUI(Gui::Widgets& widget);
+    bool lttMaskUI(Gui::Widgets& widget);
 
     // Internal state
     ref<Scene> mpScene;                     ///< Current scene.
@@ -83,7 +83,7 @@ private:
     float mEmissiveFactor = 1.f; //< Emissive Factor
     uint mDebugMode = 3;            //< Mode for the debug view
     bool mOptionsChanged = false;
-    SPShadowMode mShadowMode = SPShadowMode::Hybrid;
+    SPShadowMode mShadowMode = SPShadowMode::LeakTracing;
     bool mEnableHybridRTBlend = true;
     float2 mHybridRTBlend = float2(100000.f, 1.f);
     float mHybridRTBlendDistancePercentage = 0.05f;

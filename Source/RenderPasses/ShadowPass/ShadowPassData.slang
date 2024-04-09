@@ -33,14 +33,14 @@ BEGIN_NAMESPACE_FALCOR
 
 enum class SPShadowMode : uint32_t
     {
-        Hybrid = 0,
-        ShadowMap = 1,
-        RayTraced = 2,
+        ShadowMap = 0,
+        LeakTracing = 1,
+        RayShadows = 2,
     };
-FALCOR_ENUM_INFO(SPShadowMode, {
-    { SPShadowMode::Hybrid, "Hybrid" },
+    FALCOR_ENUM_INFO(SPShadowMode, {
     { SPShadowMode::ShadowMap, "ShadowMap" },
-    { SPShadowMode::RayTraced, "RayTraced" },
+    { SPShadowMode::LeakTracing, "LeakTracing" },
+    { SPShadowMode::RayShadows, "RayShadows" },
 });
 FALCOR_ENUM_REGISTER(SPShadowMode);
 
