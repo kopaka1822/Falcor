@@ -180,6 +180,7 @@ void VideoRecorder::renderUI(RenderContext* pRenderContext, Gui::Widgets& widget
     {
         if(widget.button("Preview Start") && mPathPoints.size() && mState == State::Idle)
         {
+            mLastFramePathPointValid = false;
             startPreview();
         }
     }
@@ -201,6 +202,7 @@ void VideoRecorder::renderUI(RenderContext* pRenderContext, Gui::Widgets& widget
         if(widget.button("Render Start") && mPathPoints.size() && mState == State::Idle && mOutputs.size())
         {
             //startRender();
+            mLastFramePathPointValid = false;
             startWarmup();
         }
         if (mOutputs.empty())
@@ -432,14 +434,20 @@ void VideoRecorder::updateCamera()
     };
 
     auto updateCamera = [&](const PathPoint& curr) {
+        if (!mLastFramePathPointValid)
+        {
+            mLastFramePathPoint = curr;
+            mLastFramePathPointValid = true;
+        }
+            
         bool updatePoint = false;
-        const float error = 0.001f;
+        const float error = 0.00001f;
 
-        updatePoint |= any(abs(mLastFramePathPoint.pos - curr.pos) > 0.001f);
+        updatePoint |= any(abs(mLastFramePathPoint.pos - curr.pos) > error);
         auto lastTarget = mLastFramePathPoint.pos + mLastFramePathPoint.dir;
         auto currentTarget = curr.pos + curr.dir;
-        updatePoint |= any(abs(lastTarget - currentTarget) > 0.001f);
-        updatePoint |= any(abs(mLastFramePathPoint.pos - curr.pos) > 0.001f);
+        updatePoint |= any(abs(lastTarget - currentTarget) > error);
+        updatePoint |= any(abs(mLastFramePathPoint.pos - curr.pos) > error);
 
         if (updatePoint)
             mLastFramePathPoint = curr;
