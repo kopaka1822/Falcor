@@ -213,7 +213,7 @@ private:
     float mPhotonRejection = 0.3f;                                  //Probability a global photon is stored
     uint mNumDispatchedPhotons = 2000000;                           //Number of Photons dispatched
     uint mPhotonYExtent = 512;                                      //Dispatch Y extend
-    uint2 mNumMaxPhotons = uint2(400000, 100000);                   // Size of the photon buffer
+    uint2 mNumMaxPhotons = uint2(400000, 300000);                   // Size of the photon buffer
     uint2 mNumMaxPhotonsUI = mNumMaxPhotons;
     uint2 mCurrentPhotonCount = uint2(1000000, 1000000);            // Gets data from GPU buffer
     float mASBuildBufferPhotonOverestimate = 1.15f;
