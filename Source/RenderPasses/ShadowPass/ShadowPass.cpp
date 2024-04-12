@@ -445,6 +445,14 @@ void ShadowPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
         mHybridMaskRemoveRaysSmallerAsDistance = cameraData.nearZ + maxDistance * 0.005; // Dont Remove the first 0.5 percent
         mHybridMaskRemoveRaysGreaterAsDistance = cameraData.nearZ + maxDistance * 0.010; // Remove the next 0.5 percent
         mHybridMaskExpandRaysMaxDistance = cameraData.nearZ + maxDistance * 0.25;   //Until 25% of visible scene
+
+        //Disable all non directional lights
+        auto activeLights = mpScene->getActiveLights();
+        for (auto light : activeLights)
+        {
+            if (light->getType() != LightType::Directional)
+                light->setActive(false);
+        }
     }
 }
 

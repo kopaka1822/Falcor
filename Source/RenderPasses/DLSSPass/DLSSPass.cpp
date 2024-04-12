@@ -157,8 +157,8 @@ void DLSSPass::renderUI(Gui::Widgets& widget)
         mRecreate |= widget.checkbox("HDR", mIsHDR);
         widget.tooltip("Enable if input color is HDR.");
 
-        mRecreate |= widget.checkbox("MVecJitterFlag", mUseJitterMVFlag);
-        widget.tooltip("Should be technically wrong as the jitter is removed from the motion vectory, but fixes the ghosting error on moving geometry");
+        //mRecreate |= widget.checkbox("MVecJitterFlag", mUseJitterMVFlag);
+        //widget.tooltip("Should be technically wrong as the jitter is removed from the motion vectory, but fixes the ghosting error on moving geometry");
 
         widget.slider("Sharpness", mSharpness, -1.f, 1.f);
         widget.tooltip("Sharpening value between 0.0 and 1.0.");
