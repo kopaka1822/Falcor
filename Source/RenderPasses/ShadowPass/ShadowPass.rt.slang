@@ -171,7 +171,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     float camDist = distance(gScene.camera.getPosition(), posW);
     bool clampShadow = false;
     if (kUseLTTMask && gLTTMaskValid) {
-        useRay = evaluateHybridMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed,clampShadow,camDist, gFrameCount, isDynamic);
+        useRay = evaluateLTTMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed,clampShadow,camDist, gFrameCount, isDynamic);
     }
 
 #if HYBRID_ALPHA_ONLY

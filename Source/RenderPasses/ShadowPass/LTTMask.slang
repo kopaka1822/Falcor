@@ -20,7 +20,7 @@ static const float kLTTMaskExpandRaysMaxDistance = LTT_MASK_EXPAND_RAYS_MAX_DIST
 static const float kLTTMaskDistanceDiffFactor = LTT_TEMPORAL_DEPTH_TEST_MAX_DEPTH_DIFF;
 static const bool kUseRayWhenOutsideOfMask = LTT_MASK_USE_RAY_WHEN_OUTSIDE;
 
-/** Struct for the hybrid mask
+/** Struct for the LTT mask
 */
 struct LTTMask{
     uint mask;
@@ -57,8 +57,8 @@ struct LTTMask{
     }
 }
 
-//Evaluate the hybrid mask
-bool evaluateHybridMask(uint2 pixel, float2 mvec, bool ltt, bool shadowTest, out bool clampShadow, float linZ , uint frameCount = 0, bool isDynamic = false){
+//Evaluate the LTT mask
+bool evaluateLTTMask(uint2 pixel, float2 mvec, bool ltt, bool shadowTest, out bool clampShadow, float linZ , uint frameCount = 0, bool isDynamic = false){
     
     clampShadow = false;
     //Reproject with motion vectors
