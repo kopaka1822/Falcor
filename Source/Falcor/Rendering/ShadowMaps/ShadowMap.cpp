@@ -71,6 +71,11 @@ const Gui::DropdownList kCascadedFrustumModeList{
     {(uint)ShadowMap::CascadedFrustumMode::Manual, "Manual"},
     {(uint)ShadowMap::CascadedFrustumMode::AutomaticNvidia, "AutomaticNvidia"},
 };
+
+const Gui::DropdownList kCascadedModeForEndOfLevels{
+    {0u, "Shadow Map"},
+    {1u, "Ray Shadow"},
+};
 } // namespace
 
 ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, mpScene{scene}
@@ -1743,9 +1748,9 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
             //Init default (disabled for the first two levels)
             for (uint i = 0; i < mBlurForCascaded.size(); i++)
             {
-                if (i < 2)
-                    mBlurForCascaded[i] = false;
-                else
+                //if (i < 2)
+                //    mBlurForCascaded[i] = false;
+                //else
                     mBlurForCascaded[i] = true;
             }
         }
@@ -2039,6 +2044,319 @@ void ShadowMap::updateSMVPBuffer(RenderContext* pRenderContext, VPMatrixBuffer& 
     );
 }
 
+bool ShadowMap::renderUILeakTracing(Gui::Widgets& widget, bool leakTracingEnabled)
+{
+    bool dirty = false;
+
+    static uint classicBias = mBias;
+    static float classicSlopeBias = mSlopeBias;
+    static float cubeBias = mSMCubeWorldBias;
+    if (widget.dropdown("Shadow Map Type", mShadowMapType))
+    { // If changed, reset all buffers
+        mTypeChanged = true;
+        // Change Settings depending on type
+        switch (mShadowMapType)
+        {
+        case Falcor::ShadowMapType::ShadowMap:
+            mBias = classicBias;
+            mSlopeBias = classicSlopeBias;
+            mSMCubeWorldBias = cubeBias;
+            break;
+        default:
+            mBias = 0;
+            mSlopeBias = 0.f;
+            mSMCubeWorldBias = 0.f;
+            break;
+        }
+        dirty = true;
+    }
+    widget.tooltip("Changes the Shadow Map Type. SD indicates the optimized single-depth version", true);
+
+    static uint resolution = uint(mShadowMapSizeCascaded);
+    widget.var("Shadow Map Cascaded Resolution", resolution, 32u, 16384u, 32u);
+    widget.tooltip("Change the shadow map resolution. Rebuilds all buffers!");
+    if (widget.button("Apply Change"))
+    {
+        mShadowMapSizeCascaded = resolution;
+        mShadowResChanged = true;
+        dirty = true;
+    }
+
+    // Common options used in all shadow map variants
+    if (auto group = widget.group("Common Settings"))
+    {
+        group.separator();
+        mRasterDefinesChanged |= group.checkbox("Alpha Test", mUseAlphaTest);
+        if (mUseAlphaTest)
+        {
+            mRasterDefinesChanged |= group.dropdown("Alpha Test Mode", kShadowMapRasterAlphaModeDropdown, mAlphaMode);
+            group.tooltip("Alpha Mode for the rasterized shadow map");
+        }
+
+        if (group.dropdown("Cull Mode", kShadowMapCullMode, (uint32_t&)mCullMode))
+            mUpdateShadowMap = true; // Render all shadow maps again
+
+        mResetShadowMapBuffers |= widget.checkbox("Use FrustumCulling", mUseFrustumCulling); // To Common
+        widget.tooltip("Enables Frustum Culling for the shadow map generation");
+
+        if (mShadowMapUpdateMode == SMUpdateMode::Static) // To common
+        {
+            widget.checkbox("Render every frame", mRerenderStatic);
+            widget.tooltip("Rerenders the shadow map every frame");
+        }
+        group.separator();
+    }
+
+    auto lTTThreshold = [&](Gui::Widgets& guiWidget) {
+        dirty |= guiWidget.var("Leak Tracing Test Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
+        guiWidget.tooltip(
+            "Leak Tracing Test Threshold (epsilon). Ray is needed if shadow value between [TH.x, TH.y]", true
+        );
+        if (mHSMFilteredThreshold.x > mHSMFilteredThreshold.y)
+            mHSMFilteredThreshold.y = mHSMFilteredThreshold.x;
+    };
+
+    //BlurMips
+    auto blurMipUi = [&](Gui::Widgets& guiWidget) {
+        dirty |= guiWidget.checkbox("Enable Blur", mUseGaussianBlur);
+        guiWidget.tooltip("Enables a gaussian blur for filterable shadow maps. See \"Gaussian Blur Options\" for Settings.");
+        mResetShadowMapBuffers |= guiWidget.checkbox("Use Mip Maps", mUseShadowMipMaps);
+        guiWidget.tooltip("Uses MipMaps for applyable shadow map variants. Not recommended for LTT", true);
+        if (mUseShadowMipMaps)
+        {
+            dirty |= guiWidget.var("MIP Bias", mShadowMipBias, 0.5f, 4.f, 0.001f);
+            guiWidget.tooltip("Bias used in Shadow Map MIP Calculation. (cos theta)^bias", true);
+        }
+    };
+
+    // Type specific UI group
+    switch (mShadowMapType)
+    {
+    case ShadowMapType::ShadowMap:
+    {
+        if (auto group = widget.group("Shadow Map Options"))
+        {
+            group.separator();
+            if (leakTracingEnabled)
+            {
+                group.text("Hybrid Shadows (AMD FideletyFX) with 2x2 PCF used!. LTT Mask settings still apply");
+            }
+            bool biasChanged = false;
+            biasChanged |= group.var("Bias", mBias, 0, 256, 1);
+            biasChanged |= group.var("Slope Bias", mSlopeBias, 0.f, 50.f, 0.001f);
+
+            if (biasChanged)
+            {
+                classicBias = mBias;
+                classicSlopeBias = mSlopeBias;
+                cubeBias = mSMCubeWorldBias;
+                mBiasSettingsChanged = true;
+            }
+
+            dirty |= biasChanged;
+
+            if (!leakTracingEnabled)
+            {
+                dirty |= group.checkbox("Use PCF", mUsePCF);
+                group.tooltip("Enable to use Percentage closer filtering");
+                dirty |= group.checkbox("Use Poisson Disc Sampling", mUsePoissonDisc);
+                group.tooltip("Use Poisson Disc Sampling, only enabled if rng of the eval function is filled");
+                if (mUsePoissonDisc)
+                {
+                    if (mpCascadedShadowMaps)
+                        dirty |= group.var("Poisson Disc Rad", mPoissonDiscRad, 0.f, 50.f, 0.001f);
+                }
+            }
+            group.separator();
+        }
+        break;
+    }
+    case ShadowMapType::Variance:
+    case ShadowMapType::SDVariance:
+    {
+        if (auto group = widget.group("Variance Shadow Map Options"))
+        {
+            group.separator();
+
+            dirty |= group.checkbox("Variance SelfShadow Variant", mVarianceUseSelfShadowVariant);
+            group.tooltip("From GPU Gems 3, Chapter 8. Uses part of ddx and ddy depth in variance calculation.");
+
+            lTTThreshold(group);
+
+            if (mShadowMapType == ShadowMapType::Variance)
+            {
+                blurMipUi(group);
+            }
+            group.separator();
+        }
+
+        break;
+    }
+    case ShadowMapType::Exponential:
+    {
+        if (auto group = widget.group("Exponential Shadow Map Options"))
+        {
+            group.separator();
+            dirty |= group.checkbox("Enable Blur", mUseGaussianBlur);
+            dirty |= group.var("Exponential Constant", mExponentialSMConstant, 1.f, kESM_ExponentialConstantMax, 0.1f);
+            group.tooltip("Constant for exponential shadow map");
+
+            lTTThreshold(group);
+            blurMipUi(group);
+
+            group.separator();
+        }
+        break;
+    }
+    case ShadowMapType::ExponentialVariance:
+    case ShadowMapType::SDExponentialVariance:
+    {
+        if (auto group = widget.group("Exponential Variance Shadow Map Options"))
+        {
+            group.separator();
+            dirty |= group.var("Exponential Constant", mEVSMConstant, 1.f, kEVSM_ExponentialConstantMax, 0.1f);
+            group.tooltip("Constant for exponential shadow map");
+            dirty |= group.var("Exponential Negative Constant", mEVSMNegConstant, 1.f, kEVSM_ExponentialConstantMax, 0.1f);
+            group.tooltip("Constant for the negative part");
+
+            lTTThreshold(group);
+            
+            if (mShadowMapType == ShadowMapType::ExponentialVariance)
+            {
+                blurMipUi(group);
+            }
+            group.separator();
+        }
+        break;
+    }
+    case ShadowMapType::MSMHamburger:
+    case ShadowMapType::MSMHausdorff:
+    case ShadowMapType::SDMSM:
+    {
+        if (auto group = widget.group("Moment Shadow Maps Options"))
+        {
+            group.separator();
+            dirty |= group.var("Depth Bias (x1000)", mMSMDepthBias, 0.f, 10.f, 0.001f);
+            group.tooltip("Depth bias subtracted from the depth value the moment shadow map is tested against");
+            dirty |= group.var("Moment Bias (x1000)", mMSMMomentBias, 0.f, 10.f, 0.001f);
+            group.tooltip("Moment bias which pulls all values a bit to 0.5. Needs to be >0 for MSM to be stable");
+
+            lTTThreshold(group);
+
+            if (mShadowMapType != ShadowMapType::SDMSM)
+            {
+                blurMipUi(group);
+            }
+            group.separator();
+        }
+    }
+    break;
+    default:
+        break;
+    }
+
+    if (mpCascadedShadowMaps)
+    {
+        if (auto group = widget.group("CascadedOptions"))
+        {
+            group.separator();
+            if (group.var("Cacaded Level", mCascadedLevelCount, 1u, 8u, 1u))
+            {
+                mResetShadowMapBuffers = true;
+                mShadowResChanged = true;
+            }
+            group.tooltip("Changes the number of cascaded levels");
+
+            group.text("--- Cascaded Frustum Settings ---");
+
+            group.dropdown("Cascaded Frustum Mode", kCascadedFrustumModeList, (uint32_t&)mCascadedFrustumMode);
+
+            switch (mCascadedFrustumMode)
+            {
+            case Falcor::ShadowMap::CascadedFrustumMode::Manual:
+                group.text("Set Cascaded Levels:");
+                group.tooltip("Max Z-Level is set between 0 and 1. If last level has a Z-Value smaller than 1, it is ray traced");
+                for (uint i = 0; i < mCascadedFrustumManualVals.size(); i++)
+                {
+                    const std::string name = "Level " + std::to_string(i);
+                    group.var(name.c_str(), mCascadedFrustumManualVals[i], 0.f, 1.0f, 0.001f);
+                }
+                group.text("--------------------");
+                break;
+            case Falcor::ShadowMap::CascadedFrustumMode::AutomaticNvidia:
+            {
+                dirty |= group.var("Z Slize Exp influence", mCascadedFrustumFix, 0.f, 1.f, 0.001f);
+                group.tooltip("Influence of the Exponentenial part in the zSlice calculation. (1-Value) is used for the linear part");
+            }
+            break;
+            default:
+                break;
+            }
+
+            if (leakTracingEnabled)
+            {
+                group.text("---- Cascaded LTT Settings ----");
+
+                mUpdateShadowMap |= group.var("LTT: Use for cascaded levels:", mCascadedLevelTrace, 0u, mCascadedLevelCount - 1, 1u);
+                group.tooltip("Uses LTT only for the first X levels, starting from 0. Only used when LTT is active");
+                if (mCascadedLevelTrace < (mCascadedLevelCount - 1))
+                {
+                    uint lastLevelTraceSetting = mCascadedLastLevelRayTrace ? 1 : 0;
+                    group.text("Shadow mode after:");
+                    bool lastLevelTracedChanged = group.dropdown(" ", kCascadedModeForEndOfLevels, lastLevelTraceSetting);
+                    group.tooltip("Mode for cascaded levels after LTT is not used.");
+                    if (lastLevelTracedChanged)
+                    {
+                        mUpdateShadowMap = true;
+                        mCascadedLastLevelRayTrace = lastLevelTraceSetting == 1;
+                    }
+                }
+            }
+            
+            group.text("---- Cascaded Reuse ----");
+            dirty |= group.checkbox("Enable Cascaded Reuse", mEnableTemporalCascadedBoxTest);
+            group.tooltip("Enlarges the rendered cascade and reuses it in the next frame if cascaded level is still valid");
+            if (mEnableTemporalCascadedBoxTest)
+            {
+                dirty |= group.var("Reuse Enlarge Factor", mCascadedReuseEnlargeFactor, 0.f, 10.f, 0.001f);
+                group.tooltip("Factor by which the frustum of each cascaded level is enlarged by");
+            }
+
+            group.separator();
+        }
+    }
+
+    if (mUseGaussianBlur && mpBlurCascaded)
+    {
+        bool blurSettingsChanged = false;
+        if (auto group = widget.group("Gaussian Blur Options"))
+        {
+            group.separator();
+            
+            blurSettingsChanged |= mpBlurCascaded->renderUI(group);
+            if (auto group3 = group.group("Enable Blur per Cascaded Level", true))
+            {
+                for (uint level = 0; level < mBlurForCascaded.size(); level++)
+                {
+                    // Bool vectors are very lovely, therefore this solution :)
+                    bool currentLevel = mBlurForCascaded[level];
+                    std::string blurLevelName = "Level " + std::to_string(level) + ":";
+                    dirty |= group3.checkbox(blurLevelName.c_str(), currentLevel);
+                    mBlurForCascaded[level] = currentLevel;
+                }
+            }
+            group.separator();
+        }
+
+        dirty |= blurSettingsChanged;
+        mUpdateShadowMap |= blurSettingsChanged; // Rerender Shadow maps if the blur settings changed
+    }
+
+    dirty |= mRasterDefinesChanged;
+    dirty |= mResetShadowMapBuffers;
+
+    return dirty;
+}
 
 bool ShadowMap::renderUI(Gui::Widgets& widget)
 {
@@ -2112,7 +2430,7 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
 
      widget.dummy("", float2(1.5f)); //Spacing
 
-    //Common options used in all shadow map variants
+     //Common options used in all shadow map variants
      if (auto group = widget.group("Common Settings"))
      {
         mUpdateShadowMap |= group.checkbox("Render Double Sided Only", mSMDoubleSidedOnly);

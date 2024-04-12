@@ -66,6 +66,9 @@ public:
     //Shadow map render UI, returns a boolean if the renderer should be refreshed
     bool renderUI(Gui::Widgets& widget);
 
+    // Shadow map render UI for Leak Tracing paper, returns a boolean if the renderer should be refreshed
+    bool renderUILeakTracing(Gui::Widgets& widget, bool leakTracingEnabled);
+
     // Returns a define List with all the defines. Need to be called once per frame to update defines
     DefineList getDefines() const;
     // Sets Shader data
@@ -245,7 +248,7 @@ private:
     bool mSMDoubleSidedOnly = false;
 
     bool mUseShadowMipMaps = false; ///< Uses mip maps for applyable shadow maps
-    float mShadowMipBias = 1.5f;    ///< Bias used in mips (cos theta)^bias
+    float mShadowMipBias = 1.0f;    ///< Bias used in mips (cos theta)^bias
 
     //Cascaded
     CascadedFrustumMode mCascadedFrustumMode = CascadedFrustumMode::AutomaticNvidia;
@@ -255,7 +258,7 @@ private:
     bool mCascadedLastLevelRayTrace = true;  //Traces every cascaded level after the option above. Shadow map is still reserved in memory but is not used/rendered 
     float mCascadedReuseEnlargeFactor = 0.15f; // Increases box size by the factor on each side
     bool mEnableTemporalCascadedBoxTest = true; //Tests the cascaded level against the cascaded level from last frame. Only updates if box is outside
-    std::vector<bool> mBlurForCascaded = {false, false, true, true};
+    std::vector<bool> mBlurForCascaded = {true, true, true, true};
     uint mCascadedDisableAlphaLevel = 4;
 
     // Hybrid Shadow Maps
@@ -297,7 +300,7 @@ private:
     uint mTemporalFilterLength = 10;                          // Temporal filter strength
     uint mJitterSampleCount = 16;                             // Number of Jitter samples
 
-    bool mUseGaussianBlur = true;
+    bool mUseGaussianBlur = false;
 
     //Oracle
     bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function

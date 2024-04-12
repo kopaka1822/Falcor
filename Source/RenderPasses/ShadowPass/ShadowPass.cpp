@@ -382,7 +382,12 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
     if (mShadowMode != SPShadowMode::RayShadows && mpShadowMap)
     {
         if (auto group = widget.group("Shadow Map Options", true))
-            changed |= mpShadowMap->renderUI(group);
+        {
+            group.separator();
+            changed |= mpShadowMap->renderUILeakTracing(group, mShadowMode == SPShadowMode::LeakTracing);
+            group.separator();
+        }
+            
     }
 
     changed |= widget.dropdown("Debug Mode", kDebugModes, mDebugMode);

@@ -902,8 +902,8 @@ struct ShadowMap
         if (hybridSM && cascadedHybrid)
         {               
             bool pcfAdditionalTest = true;
-            if (kUsePCF)
-                pcfAdditionalTest = varianceShadowTestHybridPCF(index, cascLevel, shadowUV, lightData.type, lightDist);
+            //if (kUsePCF)
+            //    pcfAdditionalTest = varianceShadowTestHybridPCF(index, cascLevel, shadowUV, lightData.type, lightDist);
             if ((shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y) || !pcfAdditionalTest)
                 useShadow =  false;   //Shoot ray
         }
