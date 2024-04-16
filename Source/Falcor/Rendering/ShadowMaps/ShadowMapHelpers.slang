@@ -20,4 +20,12 @@ uint getShadowMapLightType(const in LightData lightData)
 
     return lightType;
 }
-    
+
+float4 getGatherWeights(const float2 uv, const float smRes, out float2 gatherUV) {
+    gatherUV = (floor(uv * float(smRes) - 0.5) + 1.0f) / float(smRes);
+    float2 f = frac(uv * float(smRes) - 0.5f);
+    // (-,+),(+,+)(+,-)(-,-)
+    return float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
+}
+
+

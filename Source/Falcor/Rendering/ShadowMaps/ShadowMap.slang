@@ -77,7 +77,7 @@ struct ShadowMap
     static const bool kUseSMMips = USE_SM_MIP;
     static const float kMipBias = SM_MIP_BIAS;      //angle bias used in mip calculation (cos theta^bias)
 
-    static const float kUseDynamicSM = USE_DYNAMIC_SM;
+    static const bool kUseDynamicSM = USE_DYNAMIC_SM;
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] =
@@ -118,13 +118,6 @@ struct ShadowMap
             smLightData.index = index;
             
         return smLightData;
-    }
-
-    float4 getGatherWeights(const float2 uv, const float smRes, out float2 gatherUV){
-         gatherUV= (floor(uv * float(smRes) - 0.5) + 1.0f) / float(smRes);
-         float2 f = frac(uv * float(smRes) - 0.5f);
-         // (-,+),(+,+)(+,-)(-,-)
-         return float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
     }
     
     /** Gets the value from the shadow map depending on type. R32/16 case

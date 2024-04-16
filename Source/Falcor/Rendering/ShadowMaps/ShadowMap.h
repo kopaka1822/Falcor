@@ -41,7 +41,7 @@
 #include "Scene/Scene.h"
 
 #include "ShadowMapData.slang"
-#include "SMGaussianBlur.h"
+#include "Blur/SMGaussianBlur.h"
 #include "Oracle/ShadowMapOracle.h"
 
 #include <memory>
