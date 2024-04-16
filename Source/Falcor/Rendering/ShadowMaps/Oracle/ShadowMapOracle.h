@@ -49,11 +49,6 @@ public:
     bool renderUI(Gui::Widgets& widget);
     void resetBuffers() { mpNormalizedPixelSize.reset(); }
     void bindShaderData(ShaderVar rootVar) { rootVar["gShadowMapOracle"] = mpShadowMapOracleParameterBlock; }
-
-private:
-    // Get Normalized pixel size used in oracle function
-    float getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect);
-    float getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height); // Ortho case
     void handleNormalizedPixelSizeBuffer(
         ref<Scene> pScene,
         uint shadowMapSize,
@@ -62,6 +57,11 @@ private:
         uint cascadedLevelCount,
         std::vector<float2>& cascadedWidthHeight
     );
+
+private:
+    // Get Normalized pixel size used in oracle function
+    float getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect);
+    float getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height); // Ortho case
 
     ref<Device> mpDevice;
     ref<ParameterBlock> mpShadowMapOracleParameterBlock; // Parameter Block

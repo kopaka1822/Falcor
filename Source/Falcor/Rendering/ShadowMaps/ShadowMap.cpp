@@ -1697,6 +1697,11 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     if (mClearDynamicSM)
         mClearDynamicSM = false;
 
+    if (mpOracle)
+        mpOracle->handleNormalizedPixelSizeBuffer(
+            mpScene, mShadowMapSize, mShadowMapSizeCube, mShadowMapSizeCascaded, mCascadedLevelCount, mCascadedWidthHeight
+        );
+
     mUpdateShadowMap = false;
     return true;
 }
