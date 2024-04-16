@@ -42,6 +42,7 @@
 
 #include "ShadowMapData.slang"
 #include "SMGaussianBlur.h"
+#include "Oracle/ShadowMapOracle.h"
 
 #include <memory>
 #include <type_traits>
@@ -58,7 +59,7 @@ class RenderContext;
 class FALCOR_API ShadowMap
 {
 public:
-    ShadowMap(ref<Device> device, ref<Scene> scene);
+    ShadowMap(ref<Device> device, ref<Scene> scene, bool enableOracle = false);
 
     // Renders and updates the shadow maps if necessary
     bool update(RenderContext* pRenderContext);
@@ -87,10 +88,6 @@ public:
     // Gets the parameter block needed for shader usage
     ref<ParameterBlock> getParameterBlock() const { return mpShadowMapParameterBlock; }
 
-    //Get Normalized pixel size used in oracle function
-    float getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect);
-    float getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height);    //Ortho case
-
     float getCascadedFarForLevel(uint level);
     float getCascadedFarLastHybridLevel() { return getCascadedFarForLevel(mCascadedLevelTrace); }
     float getCascadedAlphaTestDistance();
@@ -104,15 +101,6 @@ public:
     {
         Static = 0,                 //Render once
         Dynamic = 1,              //Render every frame
-    };
-
-    //Sample Pattern for Shadow Map Jitter
-    enum class SamplePattern : uint32_t
-    {
-        None,
-        DirectX,
-        Halton,
-        Stratified,
     };
 
     enum class CascadedFrustumMode : uint32_t
@@ -133,15 +121,6 @@ private:
         float3 lightPosition = float3(0, 0, 0);
         float farPlane = 30.f;
         bool disableAlpha = false;
-    };
-    struct RayShaderParameters
-    {
-        float4x4 viewProjectionMatrix = float4x4();
-        float4x4 invViewProjectionMatrix = float4x4();
-
-        float3 lightPosition = float3(0, 0, 0);
-        float farPlane = 30.f;
-        float nearPlane = 0.1f;
     };
     struct VPMatrixBuffer
     {
@@ -166,14 +145,10 @@ private:
     LightTypeSM getLightType(const ref<Light> light);
     void prepareShadowMapBuffers();
     void prepareRasterProgramms();
-    void prepareRayProgramms(const Program::TypeConformanceList& globalTypeConformances);
     void prepareProgramms();
     void prepareGaussianBlur();
     void setSMShaderVars(ShaderVar& var, ShaderParameters& params);
-    void setSMRayShaderVars(ShaderVar& var, RayShaderParameters& params);
     void updateRasterizerStates();
-    void handleNormalizedPixelSizeBuffer();
-    void updateJitterSampleGenerator();
     void updateSMVPBuffer(RenderContext* pRenderContext, VPMatrixBuffer& vpBuffer, std::vector<float4x4>& vpMatrix);
 
     DefineList getDefinesShadowMapGenPass(bool addAlphaModeDefines = true) const;
@@ -181,14 +156,10 @@ private:
     void rasterCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
     bool rasterSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
     bool rasterCascaded(ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
-    void rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
-    bool rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
-    bool rayGenCascaded(ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix, float3& lightTarget, float3& up);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix);
     void calcProjViewForCascaded(const LightData& lightData, std::vector<bool>& renderLevel, bool forceUpdate = false);
     void dummyProfileRaster(RenderContext* pRenderContext); // Shows the rasterizeSzene profile even if nothing was rendered
-    void dummyProfileRayTrace(RenderContext* pRenderContext); // Shows the raytraceScene profile even if nothing was rendered
 
     // Getter
     std::vector<ref<Texture>>& getShadowMapsCube() { return mpShadowMapsCube; }
@@ -205,13 +176,15 @@ private:
 
     //Internal Refs
     ref<Device> mpDevice;                               ///< Graphics device
-    ref<Scene> mpScene;                                 ///< Scene                          
-    ref<CPUSampleGenerator> mpCPUJitterSampleGenerator; ///< Sample generator for shadow map jitter
+    ref<Scene> mpScene;                                 ///< Scene                       
 
     //FBOs
     ref<Fbo> mpFbo;
     ref<Fbo> mpFboCube;
     ref<Fbo> mpFboCascaded;  
+
+    //Oracle
+    std::unique_ptr<ShadowMapOracle> mpOracle;
 
     //Additional Cull states
     std::map<RasterizerState::CullMode, ref<RasterizerState>> mFrontClockwiseRS;
@@ -286,32 +259,14 @@ private:
     //Variance and MSM
     bool mVarianceUseSelfShadowVariant = false;
 
-    bool mUseMinShadowValue = false; // Sets if there should be a minimum shadow value
-    float mMinShadowValueVal = 0.4f; // The min allowed shadow value, else it is set to 0
-
     float mMSMDepthBias = 0.0f;     //Depth Bias (x1000)
     float mMSMMomentBias = 0.003f;  //Moment Bias (x1000)
 
     bool mMSMUseVarianceTest = false;
     float mMSMVarianceThreshold = 0.05f; //Threshold for additional variance test in hybrid moment shadow maps
 
-    //Jitter And Blur
-    SamplePattern mJitterSamplePattern = SamplePattern::None; // Sets the CPU Jitter generator
-    uint mTemporalFilterLength = 10;                          // Temporal filter strength
-    uint mJitterSampleCount = 16;                             // Number of Jitter samples
-
+    //Blur
     bool mUseGaussianBlur = false;
-
-    //Oracle
-    bool mUseSMOracle = true;         ///< Enables Shadow Map Oracle function
-    bool mUseOracleDistFactor = true; ///< Enables a lobe distance factor that is used in the oracle function 
-    OracleDistFunction mOracleDistanceFunctionMode = OracleDistFunction::RoughnessSquare;   //Distance functions used in Oracle
-   
-    float mOracleCompaireValue = 1.f/9.f; ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea.
-    float mOracleCompaireUpperBound = 32.f;  ///< Hybrid mode only. If oracle is over this value, shoot an ray
-
-    bool mOracleIgnoreDirect = true;            ///< Skip the Oracle function for direct hits and very specular (under the rougness thrs. below)
-    float mOracleIgnoreDirectRoughness = 0.085f;  ///< Roughness threshold for which hits are counted as very specular    
 
     //UI
     bool mApplyUiSettings = false;
@@ -344,10 +299,9 @@ private:
 
     //Misc
     bool mMultipleSMTypes = false;
-    uint2 mNPSOffsets = uint2(0);   //x = idx first spot; y = idx first cascade
+    
     std::vector<float4x4> mSpotDirViewProjMat;      //Spot matrices
-    std::vector<LightTypeSM> mPrevLightType;   // Vector to check if the Shadow Map Type is still correct
-                  
+    std::vector<LightTypeSM> mPrevLightType;   // Vector to check if the Shadow Map Type is still correct            
 
     //Blur 
     std::unique_ptr<SMGaussianBlur> mpBlurShadowMap;
@@ -360,18 +314,14 @@ private:
     std::vector<ref<Texture>> mpShadowMaps;         // 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights)
     std::vector<ref<Texture>> mpShadowMapsCubeStatic;     // Static Cube Shadow Maps. Only used if scene has animations
     std::vector<ref<Texture>> mpShadowMapsStatic;     // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
-    //std::vector<ref<Texture>> mpShadowMapsCascadedStatic; // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
     ref<Buffer> mpLightMapping;
     VPMatrixBuffer mpVPMatrixBuffer;
     VPMatrixBuffer mpCascadedVPMatrixBuffer;
-    //ref<Buffer> mpVPMatrixStangingBuffer;
-    ref<Buffer> mpNormalizedPixelSize;             //Buffer with the normalized pixel size for each ShadowMap
     ref<Texture> mpDepthCascaded;                  //Depth texture needed for some types of cascaded (can be null)
     ref<Texture> mpDepthCube;                      //Depth texture needed for the cube map
     ref<Texture> mpDepth;                          //Depth texture needed for some types of 2D SM (can be null)
     std::vector<ref<Texture>> mpDepthCubeStatic;   // Static cube depth map copy per shadow map
     std::vector<ref<Texture>> mpDepthStatic;       // Static 2D depth map copy per shadow map
-    //std::vector<ref<Texture>> mpDepthCascadedStatic; // Static 2D depth map copy per shadow map
 
     //Samplers
     ref<Sampler> mpShadowSamplerPoint;
@@ -396,36 +346,9 @@ private:
         }
     };
 
-    struct RayTraceProgramHelper
-    {
-        ref<RtProgram> pProgram;
-        ref<RtBindingTable> pBindingTable;
-        ref<RtProgramVars> pVars;
-
-        static const RayTraceProgramHelper create()
-        {
-            RayTraceProgramHelper r;
-            r.pProgram = nullptr;
-            r.pBindingTable = nullptr;
-            r.pVars = nullptr;
-            return r;
-        }
-
-        void initRTProgram(
-            ref<Device> device,
-            ref<Scene> scene,
-            const std::string& shaderName,
-            DefineList& defines,
-            const Program::TypeConformanceList& globalTypeConformances
-        );
-    };
-
     RasterizerPass mShadowCubeRasterPass;
     RasterizerPass mShadowMapRasterPass;
     RasterizerPass mShadowMapCascadedRasterPass;
-    RayTraceProgramHelper mShadowCubeRayPass;
-    RayTraceProgramHelper mShadowMapRayPass;
-    RayTraceProgramHelper mShadowMapCascadedRayPass;
 };
 
 }

@@ -7,6 +7,9 @@
  */
 
 import ShadowMap;
+#ifdef ORACLE_VALID
+import Oracle.ShadowMapOracle;
+#endif
 
 StructuredBuffer<uint> gShadowMapIndexMap;
 StructuredBuffer<float4x4> gShadowMapVPBuffer;
