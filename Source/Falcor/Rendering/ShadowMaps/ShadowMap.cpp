@@ -183,7 +183,7 @@ void ShadowMap::prepareShadowMapBuffers()
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::RG32Float : ResourceFormat::RG16Unorm;
         shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
-        generateAdditionalDepthTextures = !mUseRaySMGen;
+        generateAdditionalDepthTextures = true;
         genMipMaps = mUseShadowMipMaps;
         break;
     }
@@ -191,7 +191,7 @@ void ShadowMap::prepareShadowMapBuffers()
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::R32Float : ResourceFormat::R16Float;
         shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
-        generateAdditionalDepthTextures = !mUseRaySMGen;
+        generateAdditionalDepthTextures = true;
         genMipMaps = mUseShadowMipMaps;
         break;
     }
@@ -201,7 +201,7 @@ void ShadowMap::prepareShadowMapBuffers()
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::RGBA32Float : ResourceFormat::RGBA16Float;
         shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
-        generateAdditionalDepthTextures = !mUseRaySMGen;
+        generateAdditionalDepthTextures = true;
         genMipMaps = mUseShadowMipMaps;
         break;
     }
@@ -210,17 +210,8 @@ void ShadowMap::prepareShadowMapBuffers()
     case ShadowMapType::SDExponentialVariance:
     case ShadowMapType::SDMSM:
     {
-        if (mUseRaySMGen)
-        {
-            shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::R32Float : ResourceFormat::R16Float;
-            shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
-        }
-        else
-        {
-            shadowMapFormat = mShadowMapFormat;
-            shadowMapBindFlags |= ResourceBindFlags::DepthStencil;
-        }
-        
+        shadowMapFormat = mShadowMapFormat;
+        shadowMapBindFlags |= ResourceBindFlags::DepthStencil; 
     }
     }
 
@@ -257,7 +248,7 @@ void ShadowMap::prepareShadowMapBuffers()
             }
 
             auto cubeBindFlags = ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget;
-            if (mShadowMapType != ShadowMapType::ShadowMap || mUseRaySMGen)
+            if (mShadowMapType != ShadowMapType::ShadowMap)
                 cubeBindFlags |= ResourceBindFlags::UnorderedAccess;
 
             //TODO fix mips

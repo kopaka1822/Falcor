@@ -447,12 +447,14 @@ void ShadowPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
         mHybridMaskExpandRaysMaxDistance = cameraData.nearZ + maxDistance * 0.25;   //Until 25% of visible scene
 
         //Disable all non directional lights
+        /*
         auto activeLights = mpScene->getActiveLights();
         for (auto light : activeLights)
         {
             if (light->getType() != LightType::Directional)
                 light->setActive(false);
         }
+        */
     }
 }
 
