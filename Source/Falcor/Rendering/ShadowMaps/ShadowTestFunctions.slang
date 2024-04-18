@@ -41,6 +41,20 @@ float ChebyshevUpperBound(float2 moments, float mean, float minVariance)
     return (mean <= moments.x ? 1.0f : pMax);
 }
 
+/** Recreates EVSM float4 from a single depth value
+    \param[in] Depth in [-1,1]
+    \return float4 EVSM values
+*/
+float4 recreateEVSMFromSingleDepth(float depth){
+    float4 evsm;
+    evsm.x = exp(depth * kExponentialSMConstant);       //Moment1
+    evsm.y = evsm.x * evsm.x;                           //Moment2
+    evsm.z = -exp(-(depth * kEVSMNegConstant));         //Negative Moment1
+    evsm.w = evsm.z * evsm.z;                           //Negative Moment2
+
+    return evsm;
+}
+
 /** Exponential Variance shadow test
     \param[in] Exponentially warped shadow map depths.
     \param[in] camera distance from the perspective of the light.

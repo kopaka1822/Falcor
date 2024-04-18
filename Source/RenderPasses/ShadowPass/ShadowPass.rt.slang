@@ -159,7 +159,7 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
             lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);    
         }
         if(kShadowMode == (uint)SPShadowMode::LeakTracing)
-            useRay = !gShadowMap.evalHybridShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow, isDynamic);
+            useRay = !gShadowMap.evalShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow, isDynamic, true);
         else
             useRay = !gShadowMap.evalShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
     }
