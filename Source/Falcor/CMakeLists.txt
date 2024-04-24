@@ -294,16 +294,19 @@ target_sources(Falcor PRIVATE
     Rendering/RTXDI/SurfaceData.slang
 
 	Rendering/ShadowMaps/GenerateShadowMap.3d.slang
-	Rendering/ShadowMaps/GenerateShadowMap.rt.slang
 	Rendering/ShadowMaps/ReflectTypesForParameterBlock.cs.slang
 	Rendering/ShadowMaps/ShadowMap.cpp
 	Rendering/ShadowMaps/ShadowMap.h
 	Rendering/ShadowMaps/ShadowMap.slang
 	Rendering/ShadowMaps/ShadowMapHelpers.slang
 	Rendering/ShadowMaps/ShadowMapData.slang
-	Rendering/ShadowMaps/SMGaussianBlur.cs.slang
-	Rendering/ShadowMaps/SMGaussianBlur.cpp
-	Rendering/ShadowMaps/SMGaussianBlur.h
+    Rendering/ShadowMaps/ShadowTestFunctions.slang
+	Rendering/ShadowMaps/Blur/SMGaussianBlur.cs.slang
+	Rendering/ShadowMaps/Blur/SMGaussianBlur.cpp
+	Rendering/ShadowMaps/Blur/SMGaussianBlur.h
+    Rendering/ShadowMaps/Oracle/ShadowMapOracle.cpp
+    Rendering/ShadowMaps/Oracle/ShadowMapOracle.h
+    Rendering/ShadowMaps/Oracle/ShadowMapOracle.slang
 
     Rendering/Utils/PixelStats.cpp
     Rendering/Utils/PixelStats.cs.slang

@@ -38,7 +38,6 @@ namespace Falcor
 namespace
 {
 const std::string kShadowGenRasterShader = "Rendering/ShadowMaps/GenerateShadowMap.3d.slang";
-const std::string kShadowGenRayShader = "Rendering/ShadowMaps/GenerateShadowMap.rt.slang";
 const std::string kReflectTypesFile = "Rendering/ShadowMaps/ReflectTypesForParameterBlock.cs.slang";
 const std::string kShaderModel = "6_5";
 const uint kRayPayloadMaxSize = 4u;
@@ -60,13 +59,6 @@ const Gui::DropdownList kShadowMapUpdateModeDropdownList{
     {(uint)ShadowMap::SMUpdateMode::Dynamic, "Dynamic"},
 };
 
-const Gui::DropdownList kJitterModeDropdownList{
-    {(uint)ShadowMap::SamplePattern::None, "None"},
-    {(uint)ShadowMap::SamplePattern::DirectX, "DirectX"},
-    {(uint)ShadowMap::SamplePattern::Halton, "Halton"},
-    {(uint)ShadowMap::SamplePattern::Stratified, "Stratified"},
-};
-
 const Gui::DropdownList kCascadedFrustumModeList{
     {(uint)ShadowMap::CascadedFrustumMode::Manual, "Manual"},
     {(uint)ShadowMap::CascadedFrustumMode::AutomaticNvidia, "AutomaticNvidia"},
@@ -78,7 +70,7 @@ const Gui::DropdownList kCascadedModeForEndOfLevels{
 };
 } // namespace
 
-ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, mpScene{scene}
+ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene, bool enableOracle) : mpDevice{device}, mpScene{scene}
 {
     FALCOR_ASSERT(mpScene);
 
@@ -86,6 +78,10 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
     mpFbo = Fbo::create(mpDevice);
     mpFboCube = Fbo::create(mpDevice);
     mpFboCascaded = Fbo::create(mpDevice);
+
+    //Create Oracle Pointer
+    if (enableOracle)
+        mpOracle = std::make_unique<ShadowMapOracle>(mpDevice);
 
     // Update all shadow maps every frame
     if (mpScene->hasDynamicGeometry())
@@ -109,13 +105,11 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, m
 
     prepareProgramms();
 
-    // Create sampler.
+    // Create samplers.
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
     samplerDesc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpShadowSamplerPoint = Sampler::create(mpDevice, samplerDesc);
-
-    //TODO add anisotropy ? Can this be used in ray tracing shaders?
     samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear);
     mpShadowSamplerLinear = Sampler::create(mpDevice, samplerDesc);
 
@@ -153,7 +147,8 @@ void ShadowMap::prepareShadowMapBuffers()
         mpDepthStatic.clear();
 
         //Misc
-        mpNormalizedPixelSize.reset();
+        if (mpOracle)
+            mpOracle->resetBuffers();
     }
 
     // Lighting Changed
@@ -188,7 +183,7 @@ void ShadowMap::prepareShadowMapBuffers()
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::RG32Float : ResourceFormat::RG16Unorm;
         shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
-        generateAdditionalDepthTextures = !mUseRaySMGen;
+        generateAdditionalDepthTextures = true;
         genMipMaps = mUseShadowMipMaps;
         break;
     }
@@ -196,7 +191,7 @@ void ShadowMap::prepareShadowMapBuffers()
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::R32Float : ResourceFormat::R16Float;
         shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
-        generateAdditionalDepthTextures = !mUseRaySMGen;
+        generateAdditionalDepthTextures = true;
         genMipMaps = mUseShadowMipMaps;
         break;
     }
@@ -206,7 +201,7 @@ void ShadowMap::prepareShadowMapBuffers()
     {
         shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::RGBA32Float : ResourceFormat::RGBA16Float;
         shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
-        generateAdditionalDepthTextures = !mUseRaySMGen;
+        generateAdditionalDepthTextures = true;
         genMipMaps = mUseShadowMipMaps;
         break;
     }
@@ -215,21 +210,15 @@ void ShadowMap::prepareShadowMapBuffers()
     case ShadowMapType::SDExponentialVariance:
     case ShadowMapType::SDMSM:
     {
-        if (mUseRaySMGen)
-        {
-            shadowMapFormat = mShadowMapFormat == ResourceFormat::D32Float ? ResourceFormat::R32Float : ResourceFormat::R16Float;
-            shadowMapBindFlags |= ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget;
-        }
-        else
-        {
-            shadowMapFormat = mShadowMapFormat;
-            shadowMapBindFlags |= ResourceBindFlags::DepthStencil;
-        }
-        
+        shadowMapFormat = mShadowMapFormat;
+        shadowMapBindFlags |= ResourceBindFlags::DepthStencil; 
     }
     }
 
-    //Create the Shadow Map tex for every light
+    //
+    //Create the Shadow Map Texture for every light
+    //
+
     for (ref<Light> light : lights)
     {
         ref<Texture> tex;
@@ -259,7 +248,7 @@ void ShadowMap::prepareShadowMapBuffers()
             }
 
             auto cubeBindFlags = ResourceBindFlags::ShaderResource | ResourceBindFlags::RenderTarget;
-            if (mShadowMapType != ShadowMapType::ShadowMap || mUseRaySMGen)
+            if (mShadowMapType != ShadowMapType::ShadowMap)
                 cubeBindFlags |= ResourceBindFlags::UnorderedAccess;
 
             //TODO fix mips
@@ -287,14 +276,16 @@ void ShadowMap::prepareShadowMapBuffers()
         }
         else if (lightType == LightTypeSM::Directional)
         {
-            uint levelCount = mSceneIsDynamic ? mCascadedLevelCount * 2 : mCascadedLevelCount;
-            mpCascadedShadowMaps = Texture::create2D(
-                mpDevice, mShadowMapSizeCascaded, mShadowMapSizeCascaded, shadowMapFormat, levelCount,
-                genMipMaps ? Texture::kMaxPossible : 1u, nullptr, shadowMapBindFlags
-            );
-            mpCascadedShadowMaps->setName("ShadowMapCascade");
-
-            lightMapping.push_back(0); // There is only one cascade
+            if (countCascade == 0)
+            {
+                uint levelCount = mSceneIsDynamic ? mCascadedLevelCount * 2 : mCascadedLevelCount;
+                mpCascadedShadowMaps = Texture::create2D(
+                    mpDevice, mShadowMapSizeCascaded, mShadowMapSizeCascaded, shadowMapFormat, levelCount,
+                    genMipMaps ? Texture::kMaxPossible : 1u, nullptr, shadowMapBindFlags
+                );
+                mpCascadedShadowMaps->setName("ShadowMapCascade");
+                lightMapping.push_back(0); // There is only one cascade
+            }
             countCascade++;
         }
         else //Type not supported 
@@ -303,9 +294,11 @@ void ShadowMap::prepareShadowMapBuffers()
         }
     }
 
-    FALCOR_ASSERT(countCascade < 2);
+    FALCOR_ASSERT(countCascade <= 1);
 
-    //Create Depth Textures
+    //
+    //Create additional Depth Textures (Filterable Shadow Maps)
+    //
     if (!mpDepthCascaded && countCascade > 0 && generateAdditionalDepthTextures)
     {
         mpDepthCascaded = Texture::create2D(
@@ -328,7 +321,9 @@ void ShadowMap::prepareShadowMapBuffers()
         mpDepth->setName("ShadowMap2DPassDepthHelper");
     }
 
-    //Create Textures for scenes with dynamic geometry
+    //
+    //Create Textures for scenes with dynamic geometry TODO move
+    //
     if (mSceneIsDynamic)
     {
         for (size_t i = 0; i < mpShadowMapsCube.size(); i++)
@@ -377,7 +372,9 @@ void ShadowMap::prepareShadowMapBuffers()
         }
     }
 
+    //
     //Create Frustum Culling Objects
+    //
     if (mUseFrustumCulling)
     {
         //Calculate total number of Culling Objects needed
@@ -388,7 +385,11 @@ void ShadowMap::prepareShadowMapBuffers()
             mFrustumCulling[i] = make_ref<FrustumCulling>();
     }
 
-    //Check if multiple SM types are used
+    //
+    // Light Mapping
+    //
+
+    // Check if multiple SM types are used
     LightTypeSM checkType = LightTypeSM::NotSupported;
     for (size_t i = 0; i < mPrevLightType.size(); i++)
     {
@@ -401,7 +402,7 @@ void ShadowMap::prepareShadowMapBuffers()
         }
     }
 
-    // Light Mapping Buffer
+    //Create Light Mapping Buffer
     if (!mpLightMapping && lightMapping.size() > 0)
     {
         mpLightMapping = Buffer::createStructured(
@@ -411,6 +412,7 @@ void ShadowMap::prepareShadowMapBuffers()
         mpLightMapping->setName("ShadowMapLightMapping");
     }
 
+    //Create VP Matrices
     if ((!mpVPMatrixBuffer.buffer) && (mpShadowMaps.size() > 0))
     {
         size_t size = mpShadowMaps.size();
@@ -577,31 +579,16 @@ void ShadowMap::prepareRasterProgramms()
     }
 }
 
-void ShadowMap::prepareRayProgramms(const Program::TypeConformanceList& globalTypeConformances)
-{
-    mShadowCubeRayPass = RayTraceProgramHelper::create();
-    mShadowMapRayPass = RayTraceProgramHelper::create();
-    mShadowMapCascadedRayPass = RayTraceProgramHelper::create();
-
-    auto defines = getDefinesShadowMapGenPass(false);
-
-    mShadowCubeRayPass.initRTProgram(mpDevice, mpScene, kShadowGenRayShader, defines, globalTypeConformances);
-    mShadowCubeRayPass.pProgram->addDefine("SMRAY_MODE", std::to_string((uint)LightTypeSM::Point));
-    mShadowMapRayPass.initRTProgram(mpDevice, mpScene, kShadowGenRayShader, defines, globalTypeConformances);
-    mShadowMapRayPass.pProgram->addDefine("SMRAY_MODE", std::to_string((uint)LightTypeSM::Spot));
-    mShadowMapCascadedRayPass.initRTProgram(mpDevice, mpScene, kShadowGenRayShader, defines, globalTypeConformances);
-    mShadowMapCascadedRayPass.pProgram->addDefine("SMRAY_MODE", std::to_string((uint)LightTypeSM::Directional));
-}
-
 void ShadowMap::prepareProgramms()
 {
     mpShadowMapParameterBlock.reset();
 
     auto globalTypeConformances = mpScene->getMaterialSystem().getTypeConformances();
     prepareRasterProgramms();
-    prepareRayProgramms(globalTypeConformances);
     auto definesPB = getDefines();
     definesPB.add("SAMPLE_GENERATOR_TYPE", "0");
+    if (mpOracle)
+        definesPB.add("ORACLE_VALID");
     // Create dummy Compute pass for Parameter block
     {
         Program::Desc desc;
@@ -619,6 +606,9 @@ void ShadowMap::prepareProgramms()
         auto reflector = mpReflectTypes->getProgram()->getReflector()->getParameterBlock("gShadowMap");
         mpShadowMapParameterBlock = ParameterBlock::create(mpDevice, reflector);
         FALCOR_ASSERT(mpShadowMapParameterBlock);
+        if (mpOracle)
+            mpOracle->createParameterBlock(mpReflectTypes);
+
 
         setShaderData();
     }
@@ -695,9 +685,6 @@ DefineList ShadowMap::getDefines() const
     defines.add("EVSM_EXTRA_TEST", mEVSMExtraTest ? "1" : "0");
     defines.add("SM_USE_PCF", mUsePCF ? "1" : "0");
     defines.add("SM_USE_POISSON_SAMPLING", mUsePoissonDisc ? "1" : "0");
-    defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
-    defines.add("NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
-    defines.add("ORACLE_DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
     defines.add(
         "SM_EXPONENTIAL_CONSTANT",
         std::to_string(
@@ -725,19 +712,14 @@ DefineList ShadowMap::getDefines() const
    
     defines.add("USE_SM_MIP", mUseShadowMipMaps ? "1" : "0");
     defines.add("SM_MIP_BIAS", std::to_string(mShadowMipBias));
-    defines.add("MIN_SHADOW_VALUE_FILTERED", mUseMinShadowValue ? std::to_string(mMinShadowValueVal) : "-1.f");
-    defines.add("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
-    defines.add("ORACLE_COMP_VALUE", std::to_string(mOracleCompaireValue));
-    defines.add("ORACLE_UPPER_BOUND", std::to_string(mOracleCompaireUpperBound));
-    defines.add("USE_ORACLE_DISTANCE_FUNCTION", mOracleDistanceFunctionMode == OracleDistFunction::None ? "0" : "1");
-    defines.add("USE_ORACLE_FOR_DIRECT", mOracleIgnoreDirect ? "1" : "0");
-    defines.add("USE_ORACLE_FOR_DIRECT_ROUGHNESS", std::to_string(mOracleIgnoreDirectRoughness));
-
     defines.add("USE_DYNAMIC_SM", mSceneIsDynamic ? "1" : "0");
     
 
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
+
+    if (mpOracle)
+        defines.add(mpOracle->getDefines());
 
     return defines;
 }
@@ -771,7 +753,7 @@ void ShadowMap::setShaderData(const uint2 frameDim)
 
     // Parameters
     var["gShadowMapFarPlane"] = mFar;
-    var["gCameraNPS"] = getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight)  ,cameraData.aspectRatio);
+    
     var["gPoissonDiscRad"] = mPoissonDiscRad;
     var["gPoissonDiscRadCube"] = mPoissonDiscRadCube;
     for (uint i = 0; i < mCascadedZSlices.size(); i++)
@@ -820,18 +802,23 @@ void ShadowMap::setShaderData(const uint2 frameDim)
         break;
     }
      
-    var["gShadowMapNPSBuffer"] = mpNormalizedPixelSize; //Can be Nullptr on init
     var["gShadowMapVPBuffer"] = mpVPMatrixBuffer.buffer; // Can be Nullptr
     var["gSMCascadedVPBuffer"] = mpCascadedVPMatrixBuffer.buffer; // Can be Nullptr
     var["gShadowMapIndexMap"] = mpLightMapping;   // Can be Nullptr
     var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
     var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
+
+    //Set Oracle Shader Data
+    if (mpOracle)
+        mpOracle->setShaderData(frameDim, cameraData);
 }
 
 void ShadowMap::setShaderDataAndBindBlock(ShaderVar rootVar, const uint2 frameDim)
 {
     setShaderData(frameDim);
     rootVar["gShadowMap"] = getParameterBlock();
+    if (mpOracle)
+        mpOracle->bindShaderData(rootVar);
 }
 
 void ShadowMap::updateRasterizerStates() {
@@ -889,28 +876,6 @@ void ShadowMap::setSMShaderVars(ShaderVar& var, ShaderParameters& params)
     var["CB"]["gLightPos"] = params.lightPosition;
     var["CB"]["gFarPlane"] = params.farPlane;
     var["CB"]["gDisableAlpha"] = params.disableAlpha;
-}
-
-void ShadowMap::setSMRayShaderVars(ShaderVar& var, RayShaderParameters& params)
-{
-    var["CB"]["gViewProjection"] = params.viewProjectionMatrix;
-    var["CB"]["gInvViewProjection"] = params.invViewProjectionMatrix;
-    var["CB"]["gLightPos"] = params.lightPosition;
-    var["CB"]["gFarPlane"] = params.farPlane;
-    var["CB"]["gNearPlane"] = params.nearPlane;
-
-    //Set Jitter
-    if (mJitterSamplePattern != SamplePattern::None || !mpCPUJitterSampleGenerator)
-    {
-        var["CB"]["gJitter"] = mpCPUJitterSampleGenerator->next(); // Jitter
-        var["CB"]["gJitterTemporalFilter"] = mTemporalFilterLength; // Temporal filter length
-    }
-    else
-    {
-        var["CB"]["gJitter"] = float2(0);  // Disable Jitter
-        var["CB"]["gJitterTemporalFilter"] = 1; //No Filter
-    }
-    
 }
 
 float4x4 ShadowMap::getProjViewForCubeFace(uint face,const LightData& lightData, const float4x4& projectionMatrix)
@@ -1084,92 +1049,6 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
         mStaticTexturesReady[1] = true;
 }
 
-void ShadowMap::rayGenCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext) {
-     FALCOR_PROFILE(pRenderContext, "GenShadowMapPoint");
-
-     if (index == 0)
-     {
-        mUpdateShadowMap |= mShadowCubeRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false));                // Update defines
-        mUpdateShadowMap |= mShadowCubeRayPass.pProgram->addDefine("SMRAY_TYPE", std::to_string((uint)mShadowMapType)); // SM type define
-        mUpdateShadowMap |=
-            mShadowCubeRayPass.pProgram->addDefine("USE_JITTER", mJitterSamplePattern == SamplePattern::None ? "0" : "1"); // Jitter define
-        // Create Program Vars
-        if (!mShadowCubeRayPass.pVars)
-        {
-            mShadowCubeRayPass.pProgram->setTypeConformances(mpScene->getTypeConformances());
-            // Create program variables for the current program.
-            // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
-            mShadowCubeRayPass.pVars = RtProgramVars::create(mpDevice, mShadowCubeRayPass.pProgram, mShadowCubeRayPass.pBindingTable);
-        }
-
-        dummyProfileRayTrace(pRenderContext);
-     }
-
-     auto changes = light->getChanges();
-     bool renderLight = false;
-
-     if (mShadowMapUpdateMode == SMUpdateMode::Static)
-        renderLight = is_set(changes , Light::Changes::Active) || is_set(changes, Light::Changes::Position);
-     else if (mShadowMapUpdateMode == SMUpdateMode::Dynamic)
-        renderLight = true;
-
-     renderLight |= mUpdateShadowMap;
-
-     if (!renderLight || !light->isActive())
-        return;
-
-     auto& lightData = light->getData();
-
-     RayShaderParameters params;
-     params.lightPosition = lightData.posW;
-     params.farPlane = mFar;
-     params.nearPlane = mNear;
-
-     const float4x4 projMat = math::perspective(float(M_PI_2), 1.f, mNear, mFar); // Is the same for all 6 faces
-
-     for (size_t face = 0; face < 6; face++)
-     {
-        params.viewProjectionMatrix = getProjViewForCubeFace(face, lightData, projMat);
-        params.invViewProjectionMatrix = math::inverse(params.viewProjectionMatrix);
-
-        auto vars = mShadowCubeRayPass.pVars->getRootVar();
-        setSMRayShaderVars(vars, params);
-
-         // Set UAV's
-        switch (mShadowMapType)
-        {
-        case Falcor::ShadowMapType::ShadowMap:
-        case Falcor::ShadowMapType::SDVariance:
-        case Falcor::ShadowMapType::SDExponentialVariance:
-        case Falcor::ShadowMapType::SDMSM:
-        case Falcor::ShadowMapType::Exponential:
-            vars["gOutSM"].setUav(mpShadowMapsCube[index]->getUAV(0,face,1));
-            break;
-        case Falcor::ShadowMapType::Variance:
-            vars["gOutSMF2"].setUav(mpShadowMapsCube[index]->getUAV(0, face, 1));
-            break;
-        case Falcor::ShadowMapType::ExponentialVariance:
-        case Falcor::ShadowMapType::MSMHamburger:
-        case Falcor::ShadowMapType::MSMHausdorff:
-            vars["gOutSMF4"].setUav(mpShadowMapsCube[index]->getUAV(0, face, 1));
-            break;
-        }
-        uint2 dispatchDims = uint2(mShadowMapSizeCube);
-
-        mpScene->raytrace(pRenderContext, mShadowCubeRayPass.pProgram.get(), mShadowCubeRayPass.pVars, uint3(dispatchDims, 1));
-     }
-
-     // Blur if it is activated/enabled
-
-     if (mpBlurCube)
-        mpBlurCube->execute(pRenderContext, mpShadowMapsCube[index]);
-
-     /* TODO doesnt work, needs fixing
-     if (mShadowMapType != ShadowMapType::ShadowMap && mUseShadowMipMaps)
-         mpShadowMapsCube[index]->generateMips(pRenderContext);
-     */
-}
-
 bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered) {
     FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
     if (index == 0)
@@ -1323,99 +1202,6 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
 
     if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic))
         mStaticTexturesReady[0] = true;
-
-    return true;
-}
-
-bool ShadowMap::rayGenSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered) {
-    FALCOR_PROFILE(pRenderContext, "GenShadowMaps");
-    if (index == 0)
-    {
-        mUpdateShadowMap |= mShadowMapRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false)); // Update defines
-        mUpdateShadowMap |= mShadowMapRayPass.pProgram->addDefine("SMRAY_TYPE", std::to_string((uint)mShadowMapType)); // SM type define
-        mUpdateShadowMap |=
-            mShadowMapRayPass.pProgram->addDefine("USE_JITTER", mJitterSamplePattern == SamplePattern::None ? "0" : "1"); // Jitter define
-        // Create Program Vars
-        if (!mShadowMapRayPass.pVars)
-        {
-            mShadowMapRayPass.pProgram->setTypeConformances(mpScene->getTypeConformances());
-            // Create program variables for the current program.
-            // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
-            mShadowMapRayPass.pVars = RtProgramVars::create(mpDevice, mShadowMapRayPass.pProgram, mShadowMapRayPass.pBindingTable);
-        }
-        dummyProfileRayTrace(pRenderContext);
-    }
-    
-    auto changes = light->getChanges();
-    bool renderLight = false;
-    bool lightMoved = is_set(changes , Light::Changes::Position) || is_set(changes , Light::Changes::Direction);
-
-    // Handle updates
-    if (mShadowMapUpdateMode == SMUpdateMode::Static)
-        renderLight = is_set(changes , Light::Changes::Active) || lightMoved;
-    else if (mShadowMapUpdateMode == SMUpdateMode::Dynamic)
-        renderLight = true;
-
-    renderLight |= mUpdateShadowMap;
-
-    auto& lightData = light->getData();
-
-    if (!renderLight || !light->isActive())
-    {
-        wasRendered[index] = false;
-        return false;
-    }
-    wasRendered[index] = true;
-
-    RayShaderParameters params;
-
-    float3 lightTarget = lightData.posW + lightData.dirW;
-    const float3 up = abs(lightData.dirW.y) == 1 ? float3(0, 0, 1) : float3(0, 1, 0);
-    float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
-    float4x4 projMat = math::perspective(lightData.openingAngle * 2, 1.f, mNear, mFar);
-
-    params.lightPosition = lightData.posW;
-    params.farPlane = mFar;
-    params.nearPlane = mNear;
-    params.viewProjectionMatrix = math::mul(projMat, viewMat);
-    params.invViewProjectionMatrix = math::inverse(params.viewProjectionMatrix);
-
-    mSpotDirViewProjMat[index] = params.viewProjectionMatrix;
-
-    auto vars = mShadowMapRayPass.pVars->getRootVar();
-    setSMRayShaderVars(vars, params);
-    
-    //Set UAV's
-    switch (mShadowMapType)
-    {
-    case Falcor::ShadowMapType::ShadowMap:
-    case Falcor::ShadowMapType::SDVariance:
-    case Falcor::ShadowMapType::SDExponentialVariance:
-    case Falcor::ShadowMapType::SDMSM:
-    case Falcor::ShadowMapType::Exponential:
-        vars["gOutSM"] = mpShadowMaps[index];
-        break;
-    case Falcor::ShadowMapType::Variance:
-        vars["gOutSMF2"] = mpShadowMaps[index];
-        break;    
-    case Falcor::ShadowMapType::ExponentialVariance:
-    case Falcor::ShadowMapType::MSMHamburger:
-    case Falcor::ShadowMapType::MSMHausdorff:
-        vars["gOutSMF4"] = mpShadowMaps[index];
-        break;
-    }
-
-    uint2 dispatchDims = uint2(mShadowMapSize);
-
-    mpScene->raytrace(pRenderContext, mShadowMapRayPass.pProgram.get(), mShadowMapRayPass.pVars, uint3(dispatchDims, 1));
-
-    // Blur if it is activated/enabled
-    if (mpBlurShadowMap)
-        mpBlurShadowMap->execute(pRenderContext, mpShadowMaps[index]);
-
-    // generate Mips for shadow map modes that allow filter
-    if (mUseShadowMipMaps)
-        mpShadowMaps[index]->generateMips(pRenderContext);
 
     return true;
 }
@@ -1787,95 +1573,6 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
     return oneStaticIsRendered; //Update VP when at least one was updated
 }
 
-bool ShadowMap::rayGenCascaded(ref<Light> light, RenderContext* pRenderContext, bool cameraMoved)
-{
-    FALCOR_PROFILE(pRenderContext, "GenCascadedShadowMaps");
-    
-    mUpdateShadowMap |= mShadowMapCascadedRayPass.pProgram->addDefines(getDefinesShadowMapGenPass(false));                 // Update defines
-    mUpdateShadowMap |= mShadowMapCascadedRayPass.pProgram->addDefine("SMRAY_TYPE", std::to_string((uint)mShadowMapType)); // SM type define
-    mUpdateShadowMap |=
-        mShadowMapRayPass.pProgram->addDefine("USE_JITTER", mJitterSamplePattern == SamplePattern::None ? "0" : "1"); // Jitter define
-    // Create Program Vars
-    if (!mShadowMapCascadedRayPass.pVars)
-    {
-        mShadowMapCascadedRayPass.pProgram->setTypeConformances(mpScene->getTypeConformances());
-        // Create program variables for the current program.
-        // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
-        mShadowMapCascadedRayPass.pVars =
-            RtProgramVars::create(mpDevice, mShadowMapCascadedRayPass.pProgram, mShadowMapCascadedRayPass.pBindingTable);
-    }
-    dummyProfileRayTrace(pRenderContext);
-   
-
-    if (!cameraMoved && !mUpdateShadowMap)
-        return false;
-
-    auto& lightData = light->getData();
-
-    if (!light->isActive())
-    {
-        return false;
-    }
-
-    // Update viewProj
-    std::vector<bool> renderCascadedLevel(mCascadedLevelCount);
-    calcProjViewForCascaded(lightData, renderCascadedLevel);
-
-    RayShaderParameters params;
-    params.lightPosition = lightData.dirW;
-    params.farPlane = mFar;
-    params.nearPlane = mNear;
-
-    // Render each cascade
-    for (uint cascLevel = 0; cascLevel < mCascadedLevelCount; cascLevel++)
-    {
-        if (!renderCascadedLevel[cascLevel])
-            continue;
-
-        params.viewProjectionMatrix = mCascadedVPMatrix[cascLevel];
-        params.invViewProjectionMatrix = math::inverse(mCascadedVPMatrix[cascLevel]);
-
-        auto vars = mShadowMapCascadedRayPass.pVars->getRootVar();
-        setSMRayShaderVars(vars, params);
-
-        // Set UAV's
-        switch (mShadowMapType)
-        {
-        case Falcor::ShadowMapType::ShadowMap:
-        case Falcor::ShadowMapType::SDVariance:
-        case Falcor::ShadowMapType::SDExponentialVariance:
-        case Falcor::ShadowMapType::SDMSM:
-        case Falcor::ShadowMapType::Exponential:
-            vars["gOutSM"].setUav(mpCascadedShadowMaps->getUAV(0,cascLevel,1));
-            break;
-        case Falcor::ShadowMapType::Variance:
-            vars["gOutSMF2"].setUav(mpCascadedShadowMaps->getUAV(0, cascLevel, 1));
-            break;
-        case Falcor::ShadowMapType::ExponentialVariance:
-        case Falcor::ShadowMapType::MSMHamburger:
-        case Falcor::ShadowMapType::MSMHausdorff:
-            vars["gOutSMF4"].setUav(mpCascadedShadowMaps->getUAV(0, cascLevel, 1));
-            break;
-        }
-
-        uint2 dispatchDims = uint2(mShadowMapSizeCascaded);
-
-        mpScene->raytrace(
-            pRenderContext, mShadowMapCascadedRayPass.pProgram.get(), mShadowMapCascadedRayPass.pVars, uint3(dispatchDims, 1)
-        );
-    }
-
-    // Blur if it is activated/enabled
-    if (mpBlurCascaded)
-        mpBlurCascaded->execute(pRenderContext, mpCascadedShadowMaps);
-
-    // generate Mips for shadow map modes that allow filter
-    if (mUseShadowMipMaps)
-        mpCascadedShadowMaps->generateMips(pRenderContext);
-
-    return true;
-}
-
 bool ShadowMap::update(RenderContext* pRenderContext)
 {
     // Return if there is no scene
@@ -1919,12 +1616,6 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     if (mRerenderStatic && mShadowMapUpdateMode == SMUpdateMode::Static)
         mUpdateShadowMap = true;
 
-    //Create a jitter sample generator
-    if (!mpCPUJitterSampleGenerator)
-    {
-        updateJitterSampleGenerator();
-    }
-
     //Handle Blur
     prepareGaussianBlur();
 
@@ -1965,24 +1656,14 @@ bool ShadowMap::update(RenderContext* pRenderContext)
 
     // Render all cube lights
     for (size_t i = 0; i < lightRenderListCube.size(); i++)
-    {
-        if (mUseRaySMGen)
-            rayGenCubeEachFace(i, lightRenderListCube[i], pRenderContext);
-        else
-            rasterCubeEachFace(i, lightRenderListCube[i], pRenderContext);
-    }
+        rasterCubeEachFace(i, lightRenderListCube[i], pRenderContext);
 
     // Spot/Directional Lights
     std::vector<bool> wasRendered(lightRenderListMisc.size());
     bool updateVP = false;
     // Render all spot / directional lights
     for (size_t i = 0; i < lightRenderListMisc.size(); i++)
-    {
-        if (mUseRaySMGen)
-            updateVP |= rayGenSpotLight(i, lightRenderListMisc[i], pRenderContext, wasRendered);
-        else
-            updateVP |= rasterSpotLight(i, lightRenderListMisc[i], pRenderContext, wasRendered);
-    }
+        updateVP |= rasterSpotLight(i, lightRenderListMisc[i], pRenderContext, wasRendered);
 
     //Update VP
     if (updateVP)
@@ -1998,21 +1679,19 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     bool cameraMoved = (cameraChanges & ~excluded) != Camera::Changes::None;
 
     if (lightRenderListCascaded.size() > 0)
-    {
-        if (mUseRaySMGen)
-            updateCascadedVPBuffer |= rayGenCascaded(lightRenderListCascaded[0], pRenderContext, cameraMoved);
-        else
-            updateCascadedVPBuffer |= rasterCascaded(lightRenderListCascaded[0], pRenderContext, cameraMoved);
-    }
+        updateCascadedVPBuffer |= rasterCascaded(lightRenderListCascaded[0], pRenderContext, cameraMoved);
     
     //Update VP
     if (updateCascadedVPBuffer)
         updateSMVPBuffer(pRenderContext, mpCascadedVPMatrixBuffer, mCascadedVPMatrix);
 
-    handleNormalizedPixelSizeBuffer();
-
     if (mClearDynamicSM)
         mClearDynamicSM = false;
+
+    if (mpOracle)
+        mpOracle->handleNormalizedPixelSizeBuffer(
+            mpScene, mShadowMapSize, mShadowMapSizeCube, mShadowMapSizeCascaded, mCascadedLevelCount, mCascadedWidthHeight
+        );
 
     mUpdateShadowMap = false;
     return true;
@@ -2362,13 +2041,10 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
 {
     bool dirty = false;
 
-    mResetShadowMapBuffers |= widget.checkbox("Generate: Use Ray Tracing", mUseRaySMGen);
     widget.tooltip("Uses a ray tracing shader to generate the shadow maps");
-    if (!mUseRaySMGen)
-    {
-        mResetShadowMapBuffers |= widget.checkbox("Use FrustumCulling", mUseFrustumCulling);
-        widget.tooltip("Enables Frustum Culling for the shadow map generation");
-    }
+    mResetShadowMapBuffers |= widget.checkbox("Use FrustumCulling", mUseFrustumCulling);
+    widget.tooltip("Enables Frustum Culling for the shadow map generation");
+ 
     static uint classicBias = mBias;
     static float classicSlopeBias = mSlopeBias;
     static float cubeBias = mSMCubeWorldBias;
@@ -2512,10 +2188,6 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Variance Shadow Map Options"))
         {
-            dirty |= group.checkbox("Use Min Shadow Value", mUseMinShadowValue);
-            group.tooltip("Enables a minimum allowed shadow value. Every shadow value gets reduced to 0. Prevents some light leaking with the cost of reducing the soft shadow effect");
-            dirty |= group.var("Min Shadow Value", mMinShadowValueVal, 0.f , 1.f, 0.0001f);
-            group.tooltip("Minimal Shadow Value");
             dirty |= group.checkbox("Variance SelfShadow Variant", mVarianceUseSelfShadowVariant);
             group.tooltip("Uses part of ddx and ddy depth in variance calculation. Should not be used with Blur!. Only enabled in rasterize shadow map mode.");
             dirty |= group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
@@ -2602,17 +2274,7 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
             dirty |= group.var("Moment Bias (x1000)", mMSMMomentBias, 0.f, 10.f, 0.001f);
             group.tooltip("Moment bias which pulls all values a bit to 0.5. Needs to be >0 for MSM to be stable");
             
-            dirty |= group.checkbox("Use Min Shadow Value", mUseMinShadowValue);
-            group.tooltip(
-                "Enables a minimum allowed shadow value. Every shadow value gets reduced to 0. Prevents some light leaking with the cost "
-                "of reducing the soft shadow effect"
-            );
-            if (mUseMinShadowValue)
-            {
-                dirty |= group.var("Min Shadow Value", mMinShadowValueVal, 0.f, 1.f, 0.0001f);
-                group.tooltip("Minimal Shadow Value");
-            }
-
+           
             dirty |= group.var("HSM Filterd Threshold", mHSMFilteredThreshold, 0.0f, 1.f, 0.001f);
             group.tooltip(
                 "Threshold used for filtered SM variants when a ray is needed. Ray is needed if shadow value between [x, y]", true
@@ -2745,125 +2407,10 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
         mUpdateShadowMap |= blurSettingsChanged; //Rerender Shadow maps if the blur settings changed
     }
 
-    if (auto group = widget.group("Jitter Options"))
-    {
-        bool jitterChanged = group.dropdown("Jitter Sample Mode", kJitterModeDropdownList, (uint&)mJitterSamplePattern);
-        if (mJitterSamplePattern != SamplePattern::None)
-        {
-            if ((mJitterSamplePattern != SamplePattern::DirectX))
-            {
-                jitterChanged |= group.var("Sample Count", mJitterSampleCount, 1u, 1024u, 1u);
-                group.tooltip("Sets the sample count for the jitter generator");
-            }
-            
-            jitterChanged |= group.var("Temporal Filter Strength", mTemporalFilterLength, 1u, 64u, 1u);
-            group.tooltip("Number of frames used for the temporal filter");
-        }
-
-        if (jitterChanged)
-            updateJitterSampleGenerator();
-    }
-
-    if (auto group = widget.group("Oracle Options"))
-    {
-        dirty |= group.checkbox("Use Oracle Function", mUseSMOracle);
-        group.tooltip("Enables the oracle function for Shadow Mapping", true);
-        if (mUseSMOracle)
-        {
-            dirty |= group.var("Oracle Compaire Value", mOracleCompaireValue, 0.f, 64.f, 0.1f);
-            group.tooltip("Compaire Value for the Oracle function. Is basically compaired against ShadowMapPixelArea/CameraPixelArea.");
-            dirty |= group.var("Oracle Upper Bound", mOracleCompaireUpperBound, mOracleCompaireValue, 2048.f, 0.1f);
-            group.tooltip("Upper Bound for the oracle value. If oracle is above this value the shadow test is skipped and an ray is shot.");
-       
-            dirty |= group.dropdown("Oracle Distance Mode", mOracleDistanceFunctionMode);
-            group.tooltip("Mode for the distance factor applied on bounces.");
-
-            dirty |= group.checkbox("Ignore Oracle on direct hit", mOracleIgnoreDirect);
-            group.tooltip("Ignores the oracle on direct and very specular hits");
-            if (mOracleIgnoreDirect)
-            {
-                dirty |= group.var("Ignore Oracle Roughness", mOracleIgnoreDirectRoughness, 0.f, 1.f, 0.0001f);
-                group.tooltip("The roughness that defines the very specular hits for the ignore oracle function");
-            } 
-        }
-    }
-
     dirty |= mRasterDefinesChanged;
     dirty |= mResetShadowMapBuffers;
 
     return dirty;
-}
-
-// Gets the pixel size at distance 1. Assumes every pixel has the same size.
-float ShadowMap::getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect)
-{
-    float h = tan(fovY / 2.f) * 2.f;
-    float w = h * aspect;
-    float wPix = w / frameDim.x;
-    float hPix = h / frameDim.y;
-    return wPix * hPix;
-}
-
-float ShadowMap::getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height)
-{
-
-    float wPix = width / frameDim.x;
-    float hPix = height / frameDim.y;
-    return wPix * hPix;
-}
-
-void ShadowMap::handleNormalizedPixelSizeBuffer()
-{
-    //If buffer is build, no need to rebuild it
-    if (mpNormalizedPixelSize)
-        return;
-
-    //Get the NPS(Normalized Pixel Size) for each light type
-    std::vector<float> pointNPS;
-    std::vector<float> spotNPS;
-    std::vector<float> dirNPS;
-
-    uint cascadedCount = 0;
-    for (ref<Light> light : mpScene->getLights())
-    {
-        auto type = getLightType(light);
-        switch (type)
-        {
-        case LightTypeSM::Point:
-            pointNPS.push_back(getNormalizedPixelSize(uint2(mShadowMapSizeCube), float(M_PI_2), 1.f));
-            break;
-        case LightTypeSM::Spot:
-            spotNPS.push_back(getNormalizedPixelSize(uint2(mShadowMapSize), light->getData().openingAngle * 2, 1.f));
-            break;
-        case LightTypeSM::Directional:
-            for (uint i = 0; i < mCascadedLevelCount; i++)
-            {
-                float2 wh = mCascadedWidthHeight[cascadedCount * mCascadedLevelCount + i];
-                dirNPS.push_back(getNormalizedPixelSizeOrtho(uint2(mShadowMapSizeCascaded), wh.x, wh.y)
-                );
-            }
-            cascadedCount++;
-            break;
-        }
-    }
-
-    mNPSOffsets = uint2(pointNPS.size(), pointNPS.size() + spotNPS.size());
-    size_t totalSize = mNPSOffsets.y + dirNPS.size();
-
-    std::vector<float> npsData;
-    npsData.reserve(totalSize);
-    for (auto nps : pointNPS)
-        npsData.push_back(nps);
-    for (auto nps : spotNPS)
-        npsData.push_back(nps);
-    for (auto nps : dirNPS)
-        npsData.push_back(nps);
-
-    //Create the buffer
-    mpNormalizedPixelSize = Buffer::createStructured(
-        mpDevice, sizeof(float), npsData.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, npsData.data(), false
-    );
-    mpNormalizedPixelSize->setName("ShadowMap::NPSBuffer");
 }
 
 float ShadowMap::getCascadedFarForLevel(uint level) {
@@ -2887,52 +2434,4 @@ void ShadowMap::dummyProfileRaster(RenderContext* pRenderContext) {
     FALCOR_PROFILE(pRenderContext, "rasterizeScene");
 }
 
-void ShadowMap::dummyProfileRayTrace(RenderContext* pRenderContext) {
-    FALCOR_PROFILE(pRenderContext, "raytraceScene");
-}
-
-void ShadowMap::updateJitterSampleGenerator() {
-    switch (mJitterSamplePattern)
-    {
-    case Falcor::ShadowMap::SamplePattern::None:
-        mpCPUJitterSampleGenerator = HaltonSamplePattern::create(1);    //So a sample generator is intitialized
-        break;
-    case Falcor::ShadowMap::SamplePattern::DirectX:
-        mpCPUJitterSampleGenerator = DxSamplePattern::create();     //Has a fixed sample size of 8
-        break;
-    case Falcor::ShadowMap::SamplePattern::Halton:
-        mpCPUJitterSampleGenerator = HaltonSamplePattern::create(mJitterSampleCount); // So a sample generator is intitialized
-        break;
-    case Falcor::ShadowMap::SamplePattern::Stratified:
-        mpCPUJitterSampleGenerator = StratifiedSamplePattern::create(mJitterSampleCount);
-        break;
-    default:
-        FALCOR_UNREACHABLE();
-        break;
-    }
-}
-
-void ShadowMap::RayTraceProgramHelper::initRTProgram(ref<Device> device,ref<Scene> scene, const std::string& shaderName, DefineList& defines, const Program::TypeConformanceList& globalTypeConformances)
-{
-    RtProgram::Desc desc;
-    desc.addShaderModules(scene->getShaderModules());
-    desc.addShaderLibrary(shaderName);
-    desc.setMaxPayloadSize(kRayPayloadMaxSize);
-    desc.setMaxAttributeSize(scene->getRaytracingMaxAttributeSize());
-    desc.setMaxTraceRecursionDepth(1);
-    if (!scene->hasProceduralGeometry())
-        desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
-
-    pBindingTable = RtBindingTable::create(1, 1, scene->getGeometryCount());
-    auto& sbt = pBindingTable;
-    sbt->setRayGen(desc.addRayGen("rayGen", globalTypeConformances)); //TODO globalTypeConformances necessary? 
-    sbt->setMiss(0, desc.addMiss("miss"));
-
-    if (scene->hasGeometryType(Scene::GeometryType::TriangleMesh))
-    {
-        sbt->setHitGroup(0, scene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
-    }
-
-    pProgram = RtProgram::create(device, desc, defines);
-}
 }

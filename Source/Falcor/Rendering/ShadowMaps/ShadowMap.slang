@@ -7,6 +7,7 @@ import Rendering.Lights.LightHelpers;
 import Utils.Color.ColorHelpers;
 __exported import Rendering.ShadowMaps.ShadowMapData;
 __exported import Rendering.ShadowMaps.ShadowMapHelpers;
+__exported import Rendering.ShadowMaps.ShadowTestFunctions;
 
 //Set important defines if they where not handled on the CPU
 #ifndef NUM_SHADOW_MAPS_CUBE
@@ -43,10 +44,8 @@ struct ShadowMap
     StructuredBuffer<uint> gShadowMapIndexMap;                                      //Maps global light index to local buffer index. Only used if kMultipleSMTypes == true
     StructuredBuffer<float4x4> gShadowMapVPBuffer;                                  //Buffer for the ViewProjection Matrices [Spot]           
     StructuredBuffer<float4x4> gSMCascadedVPBuffer;                                 //Buffer for the ViewProjection Matrices [Cascaded] 
-    StructuredBuffer<float> gShadowMapNPSBuffer;                                    //Buffer for the Normalized Pixel Size [Point | Spot | Cascaded]
 
     float gShadowMapFarPlane;                           //Far plane of the shadow map //TODO move to defines
-    float gCameraNPS;                                   //Normalized Pixel Size for the Camera
     float gPoissonDiscRad; //Radius for Poisson Sampling (TODO add a seperate for cubemaps?; Move to defines)
     float gPoissonDiscRadCube;    
 
@@ -60,19 +59,16 @@ struct ShadowMap
     static const bool kUsePCF = SM_USE_PCF;                                 //Enables PCF (only supported for "normal" SM)
     static const bool kUsePoissonSampling = SM_USE_POISSON_SAMPLING;        //Enables Statisfied Poisson Sampling (only supported for "normal" SM)
     static const float kCubeBias = CUBE_WORLD_BIAS;                         //World space bias for cube shadow maps
-    static const uint kNPSOffsetSpot = NPS_OFFSET_SPOT;                     //Spotlight offset for gShadowMapNPSBuffer
-    static const uint kNPSOffsetCasc = NPS_OFFSET_CASCADED;                 //Cascaded offset for gShadowMapNPSBuffer
-    static const uint kOracleDistFunctionMode = ORACLE_DIST_FUNCTION_MODE;  //Mode for the Oracle Distance Function
-    static const float kExponentialSMConstant = SM_EXPONENTIAL_CONSTANT;    //Constant for Exponential Shadow Maps
-    static const float kEVSMNegConstant = SM_NEGATIVE_EXPONENTIAL_CONSTANT; //Negative Constant used in EVSM
+    //static const float kExponentialSMConstant = SM_EXPONENTIAL_CONSTANT;    //Constant for Exponential Shadow Maps
+    //static const float kEVSMNegConstant = SM_NEGATIVE_EXPONENTIAL_CONSTANT; //Negative Constant used in EVSM
     static const float kShadowMapNear = SM_NEAR;                            //Near plane for Spot and Directional lights                                                       
     static const float2 kHSMFilteredThreshold = HYBRID_SMFILTERED_THRESHOLD;//Hybrid Shadow Map: Threshold for filtered SM(Variance, Exponential). Ray is needed for [TH.x, TH.y]             
     static const bool kUseRayOutsideSM = USE_RAY_OUTSIDE_SM;                //Determines if a ray should be used outside of the shadow map
     static const uint kCascadedSMRes = CASCADED_SM_RESOLUTION;             //Resolution for Cascaded Shadow Maps
     static const uint k2DSMRes = SM_RESOLUTION;                            //Resolution for (Spot) Shadow Maps
     static const uint kCubeSMRes = CUBE_SM_RESOLUTION;                     //Resolution for Cube Shadow Maps
-    static const float kMSMDepthBias = MSM_DEPTH_BIAS * 0.001f;            //Depth bias for the moment shadow map
-    static const float kMSMMomentBias = MSM_MOMENT_BIAS * 0.001f;          //Moment bias for the moment shadow map
+    //static const float kMSMDepthBias = MSM_DEPTH_BIAS * 0.001f;            //Depth bias for the moment shadow map
+    //static const float kMSMMomentBias = MSM_MOMENT_BIAS * 0.001f;          //Moment bias for the moment shadow map
     static const float kAdditionalVarianceTestThreshold = MSM_VARIANCE_TEST_THRESHOLD; //Threshold for additional variance test in MSM
     static const float kCascadedStochasticRange = CASC_STOCH_RANGE;         //Stochastic range for cascaded shadow maps
     static const uint  kCascadedLevelTrace = CASCADE_LEVEL_TRACE;           //Traces only for the first X levels on hybrid
@@ -81,16 +77,8 @@ struct ShadowMap
 
     static const bool kUseSMMips = USE_SM_MIP;
     static const float kMipBias = SM_MIP_BIAS;      //angle bias used in mip calculation (cos theta^bias)
-    static const float kMinShadowValue = MIN_SHADOW_VALUE_FILTERED;
 
-    static const bool kUseOracle = USE_ORACLE_FUNCTION;
-    static const float kOracleCompValue = ORACLE_COMP_VALUE;
-    static const float kOracleCompUpperBound =ORACLE_UPPER_BOUND;
-    static const bool kUseOracleDistFunction = USE_ORACLE_DISTANCE_FUNCTION;
-    static const bool kUseOracleForDirect = USE_ORACLE_FOR_DIRECT;
-    static const float kUseOracleForDirectRoughness = USE_ORACLE_FOR_DIRECT_ROUGHNESS;
-
-    static const float kUseDynamicSM = USE_DYNAMIC_SM;
+    static const bool kUseDynamicSM = USE_DYNAMIC_SM;
 
     //Static Arrays for Poission Disc Sampling
     static const float2 kPoissonDisc[16] =
@@ -131,13 +119,6 @@ struct ShadowMap
             smLightData.index = index;
             
         return smLightData;
-    }
-
-    float4 getGatherWeights(const float2 uv, const float smRes, out float2 gatherUV){
-         gatherUV= (floor(uv * float(smRes) - 0.5) + 1.0f) / float(smRes);
-         float2 f = frac(uv * float(smRes) - 0.5f);
-         // (-,+),(+,+)(+,-)(-,-)
-         return float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
     }
     
     /** Gets the value from the shadow map depending on type. R32/16 case
@@ -576,133 +557,8 @@ struct ShadowMap
 
         bool valid = (all(shadowUV >= 0.f) && all(shadowUV <= 1.f) && lightDist >= 0 && lightDist <= 1) || (level == (kCascadedLevels-1));
         return valid;
-        /*
-        //Fallback (Only used when stochastic threshold is too big)
-        if(!valid){
-            level = min(kCascadedLevels-1, level + 1);
-            viewProjectMat = gSMCascadedVPBuffer[level];
-            projPos = mul(viewProjectMat, float4(posW, 1.f));
-
-            projPos.y *= -1; //Flip 
-            projPos.xy = projPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
-
-            shadowUV = projPos.xy;
-            lightDist = projPos.z;
-
-            valid = (all(shadowUV >= 0.f) && all(shadowUV <= 1.f) && lightDist >= 0 && lightDist <= 1) || (level == (kCascadedLevels-1));
-        }
-        return (valid);
-        */
     }
-    
-    /** Standard shadow test for shadow map
-    \param[in] local shadow map texture index.
-    \param[in] cascaded level.
-    \param[in] shadow map sample vector.
-    \param[in] shadow map light type.
-    \param[in] distance value of the current world position. The shadow map value is compaired against this
-    \return 1 -> lit ; 0 -> shadowed
-    */
-    float standardShadowTest(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
-    {
-        float shadowDist = getShadowValue(index, shadowUV, lightType, level);
-        if (shadowDist > lightDist)
-            return 1.f;
-        return 0.f;
-    }
-    
-    /** Evaluates the shadow map for the given light. rng is only used in Poission sampling
-    \param[in] analytical light index.
-    \param[in] world position.
-    \param[in] light information.
-    \param[in] falcor random number generator.
-    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
-    \return boolean that indicates if a ray is needed. (Outside of shadow map)
-    */
-    bool evalShadowMapClassic(float3 posW, const in SMLightData lightData, float4 random, out float shadow, inout bool isDynamic)
-    {
-        uint index = lightData.index;
         
-        shadow = 1.f;
-        float lightDist = 0.f;
-        float3 shadowUV = float3(0);
-        uint cascLevel = 0;        
-                
-        bool valid = false;
-        switch (lightData.type)
-        {
-            case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
-                break;
-            case LightTypeSM::Spot:
-                valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
-                break;
-            case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(posW,cascLevel, shadowUV.xy, lightDist);
-                break;
-            default:
-                break;
-        }
-                
-        if (!valid)
-            return !kUseRayOutsideSM;   //Outside of shadow map
-
-        //Shadow Test with shadow map
-        shadow = 0.f;
-        if (!kUsePCF && !kUsePoissonSampling)
-        {
-            shadow += standardShadowTest(index, cascLevel, shadowUV, lightData.type, lightDist);
-        }
-        else if (kUsePoissonSampling)
-        {
-            if (lightData.type == (uint) LightTypeSM::Point)
-            {
-                for (uint k = 0; k < 4; k++)
-                {
-                    uint poisIdx = uint(19.9999f * random[k]);
-                    float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRadCube; //TODO Better solution (angle?) 
-                    shadow += standardShadowTest(index, cascLevel, uv, lightData.type, lightDist);
-                }
-                shadow *= 0.25f;
-            }
-            else
-            {
-                for (uint k = 0; k < 4; k++)
-                {
-                    uint poisIdx = uint(15.99999f * random[k]);
-                    float3 uv = shadowUV;
-                    const uint shadowMapRes = lightData.type == (uint) LightTypeSM::Directional ? kCascadedSMRes :  k2DSMRes;
-                    uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad) / shadowMapRes);
-                    shadow += standardShadowTest(index, cascLevel, uv, lightData.type, lightDist);
-                }
-                shadow *= 0.25f;
-            }
-        }
-        else //PCF using gather (relatively cheap)
-        {
-            float4 shadowVals;
-            float4 w = float4(0.25);
-            float3 gatherUV = shadowUV;
-            const uint shadowMapRes = lightData.type == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
-            if (lightData.type != (uint) LightTypeSM::Point)
-            {
-                gatherUV.xy = (floor(shadowUV.xy * float(shadowMapRes) - 0.5) + 1.0f) / float(shadowMapRes);
-                float2 f = frac(shadowUV.xy * float(shadowMapRes) - 0.5f);
-                // (-,+),(+,+)(+,-)(-,-)
-                w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
-            }
-            shadowVals = getShadowValueGather(index, gatherUV, lightData.type, isDynamic, cascLevel);
-
-            for (uint k = 0; k < 4; k++)
-            {
-                if (shadowVals[k] > lightDist)
-                    shadow += w[k];
-            }
-        }
-    
-        return true; //No ray needed
-    }
-
     /** Hybrid Shadow Mapping for the classic shadow map. Evaluates the shadow and tells if a ray should be used. rng is only used in Poission sampling
     \param[in] analytical light index.
     \param[in] world position.
@@ -711,34 +567,8 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool hybridShadowMapClassic(float3 posW, const in SMLightData lightData, float4 random, out float shadow , inout bool isDynamic)
-    {
-        uint index = lightData.index;
-        
-        shadow = kUseRayOutsideSM ? -1.f : 1.f;     //Make shadow value invalid if a ray should be shot outside of the shadow map
-        float lightDist = 0.f;
-        float3 shadowUV = float3(0);
-        uint cascLevel = 0;
-        bool valid = false;
-        switch (lightData.type)
-        {
-            case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
-                break;
-            case LightTypeSM::Spot:
-                valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
-                break;
-            case LightTypeSM::Directional:
-                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
-                break;
-            default:
-                break;
-        }
-        
-        if (!valid)
-            return !kUseRayOutsideSM;   //Outside of shadow map
-
-       
+    bool hybridShadowMapClassic(uint index,float lightDist,const uint lightType, float3 shadowUV, uint cascLevel,float4 random, bool useHybridSM, out float shadow ,inout bool isDynamic)
+    {      
         float maxDist = FLT_MAX; //Maximum distance possible in scene
         float minDist = 0.f;
 
@@ -746,28 +576,29 @@ struct ShadowMap
         shadow = 0.f;
         float4 shadowVals;
         float4 w = float4(0.25);
-        if (!kUsePoissonSampling) //Use PCF
+        if (!kUsePCF && !kUsePoissonSampling && !useHybridSM)
+        {
+            float shadowDist = getShadowValue(index, shadowUV, lightType, cascLevel);
+            shadow += (shadowDist > lightDist) ? 1.0 : 0.0;
+            return true;
+        }
+        else if (!kUsePoissonSampling) //Use PCF
         {
             float3 gatherUV = shadowUV;
-            const uint shadowMapRes = lightData.type == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
-            if (lightData.type != (uint) LightTypeSM::Point)
-            {
-                gatherUV.xy = (floor(shadowUV.xy * float(shadowMapRes) - 0.5) + 1.0f) / float(shadowMapRes);
-                float2 f = frac(shadowUV.xy * float(shadowMapRes) - 0.5f);
-                // (-,+),(+,+)(+,-)(-,-)
-                w = float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
-            }
-            shadowVals = getShadowValueGather(index, gatherUV, lightData.type,isDynamic, cascLevel);
+            const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
+            w = getGatherWeights(shadowUV.xy, shadowMapRes, gatherUV.xy);
+
+            shadowVals = getShadowValueGather(index, gatherUV, lightType,isDynamic, cascLevel);
         }
         else //Poisson Sampling
         {
-            if (lightData.type == (uint) LightTypeSM::Point)
+            if (lightType == (uint) LightTypeSM::Point)
             {
                 for (uint k = 0; k < 4; k++)
                 {
                     uint poisIdx = uint(19.9999f * random[k]);
                     float3 uv = shadowUV + kPoissonCube[poisIdx] * gPoissonDiscRadCube; //TODO Better solution (angle?) 
-                    shadowVals[k] = getShadowValue(index, uv, lightData.type, cascLevel);
+                    shadowVals[k] = getShadowValue(index, uv, lightType, cascLevel);
                 }
             }
             else
@@ -776,9 +607,9 @@ struct ShadowMap
                 {
                     uint poisIdx = uint(15.99999f * random[k]);
                     float3 uv = shadowUV;
-                    const uint shadowMapRes = lightData.type == (uint) LightTypeSM::Directional ? kCascadedSMRes :  k2DSMRes;
+                    const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes :  k2DSMRes;
                     uv.xy += kPoissonDisc[poisIdx] * ((gPoissonDiscRad) / shadowMapRes);
-                    shadowVals[k] = getShadowValue(index, uv, lightData.type, cascLevel);
+                    shadowVals[k] = getShadowValue(index, uv, lightType, cascLevel);
                 }
             }
         }
@@ -786,515 +617,46 @@ struct ShadowMap
         //Use all 4 gathered samples for the shadow test
         for (uint k = 0; k < 4; k++)
         {
-           float shadowDepth = shadowVals[k];
-           maxDist = min(maxDist, shadowDepth);
-           minDist = max(minDist, shadowDepth);
-           shadow += lightDist <= shadowDepth ? w[k] : 0.f; //Add to shadow in pcf style
+            float shadowDepth = shadowVals[k];
+            maxDist = min(maxDist, shadowDepth);
+            minDist = max(minDist, shadowDepth);
+            shadow += lightDist <= shadowDepth ? w[k] : 0.f; //Add to shadow in pcf style
         }
 
         //Check if ray tracing is needed or if we can skip
-        if ((lightDist > maxDist) && (lightDist < minDist))
+        if(useHybridSM){
+            if ((lightDist > maxDist) && (lightDist < minDist))
             return false; //inbetween; Ray is needed
-        
+        }
+               
         return true;    //No ray needed
     }
-
-    /**ChebyshevUpperBound for Variance Shadow Mapping
-    \param[in] M1 and M2 from Variance Shadow Mapping
-    \param[in] depth of the current position
-    \return shadow value between 1 and 0. 
-    */
-    float ChebyshevUpperBound(float2 moments, float mean, float minVariance)
-    {
-    // Compute variance
-    float variance = moments.y - (moments.x * moments.x);
-    variance = max(variance, minVariance);
-
-    // Compute probabilistic upper bound
-    float d = mean - moments.x;
-    float pMax = variance / (variance + (d * d));
-    
-    // One-tailed Chebyshev
-    return (mean <= moments.x ? 1.0f : pMax);
-    }
-    
-    //Variance Hybrid shadow PCF style
-     bool varianceShadowTestHybridPCF(in const uint index, in const uint level, in const float3 shadowUV, in const uint lightType, in const float lightDist)
-     {
-     float3 gatherUV = shadowUV;
-        const uint shadowMapRes = lightType == (uint) LightTypeSM::Directional ? kCascadedSMRes : k2DSMRes;
-        
-        if (lightType != (uint) LightTypeSM::Point)
-        {
-            gatherUV.xy = (floor(shadowUV.xy * float(shadowMapRes) - 0.5) + 1.0f) / float(shadowMapRes);
-            float2 f = frac(shadowUV.xy * float(shadowMapRes) - 0.5f);
-        }
-        
-        float4 variances = float4(0);
-        float4 sv = getShadowVarianceValueGather(index, gatherUV, lightType, level, variances);
-
-        float maxDist = FLT_MAX; //Maximum distance possible in scene
-        float minDist = 0.f;
-
-        //Use all 4 gathered samples for the shadow test
-        for (uint k = 0; k < 4; k++)
-        {
-           float shadowDepth = sv[k];
-           maxDist = min(maxDist * 1.01, shadowDepth);
-           minDist = max(minDist * 0.99, shadowDepth);
-        }
-        
-        if ((lightDist > maxDist) && (lightDist < minDist))
-            return false; //inbetween; Ray is needed
-        
-        return true;    //No ray needed
-     }
-
-    /** Variance Shadow Mapping. https://igm.univ-mlv.fr/~biri/Enseignement/MII2/Donnees/variance_shadow_maps.pdf
-    \param[in] analytical light index.
-    \param[in] world position.
-    \param[in] light information.
-    \param[in] falcor random number generator.
-    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
-    \return boolean that indicates if a ray is needed. (Outside of shadow map)
-    */
-    bool evalShadowMapVariance(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow , inout bool isDynamic)
-    {
-        uint index = lightData.index;
-        
-        shadow = 0.f;
-        float lightDist = 0.f;
-        float3 shadowUV = float3(0);
-        uint cascLevel = 0;
-        bool valid = false;
-        bool cascadedHybrid = true;
-        switch (lightData.type)
-        {
-            case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
-                break;
-            case LightTypeSM::Spot:
-                valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
-                break;
-            case LightTypeSM::Directional:
-            #if CASC_USE_STOCH_LEVEL
-                valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
-            #else
-                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
-            #endif
-                if(kCascadedLevelTrace < cascLevel)
-                    cascadedHybrid = false;
-                break;
-            default:
-                break;
-        }
-        
-        if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
-            return !kUseRayOutsideSM; //Ray is needed
-
-
-        bool useShadow = true;
-        //Shadow Test with shadow map
-        //TODO add gather case back
-        float2 varianceSV = getShadowVarianceValue(index, shadowUV, lightData.type, isDynamic, cascLevel, mipLevel);
-        shadow = ChebyshevUpperBound(varianceSV, lightDist, 1e-10f);
-
-        if (hybridSM && cascadedHybrid)
-        {               
-            bool pcfAdditionalTest = true;
-            //if (kUsePCF)
-            //    pcfAdditionalTest = varianceShadowTestHybridPCF(index, cascLevel, shadowUV, lightData.type, lightDist);
-            if ((shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y) || !pcfAdditionalTest)
-                useShadow =  false;   //Shoot ray
-        }
-
-        //Clamp Shadow Value depending on the threshold
-        if(shadow <= kHSMFilteredThreshold.x)
-            shadow = 0.0;
-        else if (shadow >= kHSMFilteredThreshold.y)
-            shadow = 1.f;
-
-        if(kMinShadowValue > 0)
-            shadow = shadow < kMinShadowValue ? 0.0f : shadow;
-            
-        return useShadow;
-    }
-
-    /** Exponential shadow test
-    \param[in] local shadow map texture index.
-    \param[in] cascaded level.
-    \param[in] shadow map sample vector.
-    \param[in] shadow map light type.
-    \param[in] distance value of the current world position. The shadow map value is compaired against this
-    \return 1 -> lit ; 0 -> shadowed
-    */
-    float exponentialShadowTest(in const float shadowDepth, in const float lightDist)
-    {
-        float depth = (lightDist * 2.f) - 1.f;
-        return saturate(exp(-depth * kExponentialSMConstant) * shadowDepth);
-    }
-
-    /** Exponential Shadow Mapping. https://jankautz.com/publications/esm_gi08.pdf
-    \param[in] analytical light index.
-    \param[in] world position.
-    \param[in] light information.
-    \param[in] falcor random number generator.
-    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
-    \return boolean that indicates if a ray is needed. (Outside of shadow map)
-    */
-    bool evalShadowMapExponential(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow , inout bool isDynamic)
-    {
-        uint index = lightData.index;
-        
-        shadow = 0.f;
-        float lightDist = 0.f;
-        float3 shadowUV = float3(0);
-        uint cascLevel = 0;
-        bool valid = false;
-        bool cascadedHybrid = true;
-        switch (lightData.type)
-        {
-            case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
-                break;
-            case LightTypeSM::Spot:
-                valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
-                break;
-            case LightTypeSM::Directional:
-            #if CASC_USE_STOCH_LEVEL
-                valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
-            #else
-                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
-            #endif
-                if(kCascadedLevelTrace < cascLevel)
-                    cascadedHybrid = false;
-                break;
-            default:
-                break;
-        }
-        
-        if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
-            return !kUseRayOutsideSM;   //Outside of shadow map
-         
-        //Shadow Test with shadow map
-        float shadowMapDepth = getShadowValueFiltered(index, shadowUV, lightData.type, isDynamic, cascLevel, mipLevel);
-        shadow = exponentialShadowTest(shadowMapDepth, lightDist);
-
-        if (hybridSM && cascadedHybrid)
-        {
-            if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
-                return false;   //Shoot ray
-        }
-        
-        return true;
-    }
-
-    /** Exponential Variance shadow test
-    \param[in] Exponentially warped shadow map depths.
-    \param[in] camera distance from the perspective of the light.
-    \return Upper-bound approximation of the positive exponent (x) and negative exponent (y)
-    */
-    float2 exponentialVarianceShadowTest(in float4 sv, in const float lightDist)
-    {
-        float depth = (lightDist * 2.f) - 1.f;
-        float2 warpedDepth = float2(exp(depth * kExponentialSMConstant),  -exp(-depth * kEVSMNegConstant));
-        float2 minVariance = float2(0.0001f * kExponentialSMConstant * warpedDepth.x, 0.0001f * kEVSMNegConstant * warpedDepth.y); 
-        minVariance *= minVariance;
-        
-        float pPosMax = ChebyshevUpperBound(sv.xy, warpedDepth.x, minVariance.x);
-        float pNegMax = ChebyshevUpperBound(sv.zw, warpedDepth.y, minVariance.y);
-        
-        return float2(pNegMax,pPosMax);
-    }
-    
-    /** Exponential (Layered) Variance Shadow Mapping. https://dl.acm.org/doi/pdf/10.5555/1375714.1375739
-    \param[in] analytical light index.
-    \param[in] world position.
-    \param[in] light information.
-    \param[in] falcor random number generator.
-    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
-    \return boolean that indicates if a ray is needed. (Outside of shadow map)
-    */
-    bool evalShadowMapExponentialVariance(float3 posW, const in SMLightData lightData, float random, const float mipLevel,const bool hybridSM , out float shadow , inout bool isDynamic)
-    {
-        uint index = lightData.index;
-        
-        shadow = 0.f;
-        float lightDist = 0.f;
-        float3 shadowUV = float3(0);
-        uint cascLevel = 0;
-        bool cascadedHybrid = true;
-        bool valid = false;
-        switch (lightData.type)
-        {
-            case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
-                break;
-            case LightTypeSM::Spot:
-                valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
-                break;
-            case LightTypeSM::Directional:
-            #if CASC_USE_STOCH_LEVEL
-                valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
-            #else
-                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
-            #endif
-                if(kCascadedLevelTrace < cascLevel)
-                    cascadedHybrid = false;
-                break;
-            default:
-                break;
-        }
-        
-        if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
-            return !kUseRayOutsideSM;   //Outside of shadow map
-         
-        //Shadow Test with shadow map
-        float4 sv = getShadowValueF4(index, shadowUV, lightData.type, isDynamic, cascLevel, mipLevel);
-        float2 upperLowerBound = exponentialVarianceShadowTest(sv, lightDist);
-        shadow = max(upperLowerBound.x, upperLowerBound.y);
-
-        bool useSM = true;
-        if (hybridSM && cascadedHybrid)
-        {
-            if (shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y)
-                useSM = false; // Shoot ray
-            if (kUseEVSMExtraTest) {
-                if (abs(upperLowerBound.x - upperLowerBound.y) > 0.01)
-                    useSM = false;
-            }
-        }
-        
-        return useSM;
-    }
-
-    //From https://github.com/TheRealMJP/Shadows
-    float msmHamburger(in const float4 moments, in const float lightDist)
-    {
-        //Bias input data to avoid artifacts
-        float4 b = lerp(moments, float4(0.5f), kMSMMomentBias);
-        float3 z;
-        z[0] = lightDist - kMSMDepthBias;
-
-        // Compute a Cholesky factorization of the Hankel matrix B storing only non-
-        // trivial entries or related products
-        float L32D22 = mad(-b[0], b[1], b[2]);
-        float D22 = mad(-b[0], b[0], b[1]);
-        float squaredDepthVariance = mad(-b[1], b[1], b[3]);
-        float D33D22 = dot(float2(squaredDepthVariance, -L32D22), float2(D22, L32D22));
-        float InvD22 = 1.0f / D22;
-        float L32 = L32D22 * InvD22;
-
-        // Obtain a scaled inverse image of bz = (1,z[0],z[0]*z[0])^T
-        float3 c = float3(1.0f, z[0], z[0] * z[0]);
-
-        // Forward substitution to solve L*c1=bz
-        c[1] -= b.x;
-        c[2] -= b.y + L32 * c[1];
-
-        // Scaling to solve D*c2=c1
-        c[1] *= InvD22;
-        c[2] *= D22 / D33D22;
-
-        // Backward substitution to solve L^T*c3=c2
-        c[1] -= L32 * c[2];
-        c[0] -= dot(c.yz, b.xy);
-
-        // Solve the quadratic equation c[0]+c[1]*z+c[2]*z^2 to obtain solutions
-        // z[1] and z[2]
-        float p = c[1] / c[2];
-        float q = c[0] / c[2];
-        float D = (p * p * 0.25f) - q;
-        float r = sqrt(D);
-        z[1] =- p * 0.5f - r;
-        z[2] =- p * 0.5f + r;
-
-        // Compute the shadow intensity by summing the appropriate weights
-        float4 switchVal = (z[2] < z[0]) ? float4(z[1], z[0], 1.0f, 1.0f) :
-                          ((z[1] < z[0]) ? float4(z[0], z[1], 0.0f, 1.0f) :
-                          float4(0.0f,0.0f,0.0f,0.0f));
-        float quotient = (switchVal[0] * z[2] - b[0] * (switchVal[0] + z[2]) + b[1])/((z[2] - switchVal[1]) * (z[0] - z[1]));
-        float shadowIntensity = switchVal[2] + switchVal[3] * quotient;
-        return 1.0f - saturate(shadowIntensity);
-    }
-
-    //From https://github.com/TheRealMJP/Shadows
-    float msmHausdorff(in const float4 moments, in const float lightDist)
-    {
-        //Bias input data to avoid artifacts
-        float4 b = lerp(moments, float4(0.5f), kMSMMomentBias);
-        float3 z;
-        z[0] = lightDist - kMSMDepthBias ;
-
-        // Compute a Cholesky factorization of the Hankel matrix B storing only non-
-        // trivial entries or related products
-        float L32D22 = mad(-b[0], b[1], b[2]);
-        float D22 = mad(-b[0], b[0], b[1]);
-        float squaredDepthVariance = mad(-b[1], b[1], b[3]);
-        float D33D22 = dot(float2(squaredDepthVariance, -L32D22), float2(D22, L32D22));
-        float InvD22 = 1.0f / D22;
-        float L32 = L32D22 * InvD22;
-
-        // Obtain a scaled inverse image of bz=(1,z[0],z[0]*z[0])^T
-        float3 c = float3(1.0f, z[0], z[0] * z[0]);
-
-        // Forward substitution to solve L*c1=bz
-        c[1] -= b.x;
-        c[2] -= b.y + L32 * c[1];
-
-        // Scaling to solve D*c2=c1
-        c[1] *= InvD22;
-        c[2] *= D22 / D33D22;
-
-        // Backward substitution to solve L^T*c3=c2
-        c[1] -= L32 * c[2];
-        c[0] -= dot(c.yz, b.xy);
-
-        // Solve the quadratic equation c[0]+c[1]*z+c[2]*z^2 to obtain solutions z[1]
-        // and z[2]
-        float p = c[1] / c[2];
-        float q = c[0] / c[2];
-        float D = ((p * p) / 4.0f) - q;
-        float r = sqrt(D);
-        z[1] =- (p / 2.0f) - r;
-        z[2] =- (p / 2.0f) + r;
-
-        float shadowIntensity = 1.0f;
-
-        // Use a solution made of four deltas if the solution with three deltas is invalid
-        if(z[1] < 0.0f || z[2] > 1.0f)
-        {
-            float zFree = ((b[2] - b[1]) * z[0] + b[2] - b[3]) / ((b[1] - b[0]) * z[0] + b[1] - b[2]);
-            float w1Factor = (z[0] > zFree) ? 1.0f : 0.0f;
-            shadowIntensity = (b[1] - b[0] + (b[2] - b[0] - (zFree + 1.0f) * (b[1] - b[0])) * (zFree - w1Factor - z[0])
-                                                    /(z[0] * (z[0] - zFree))) / (zFree - w1Factor) + 1.0f - b[0];
-        }
-        // Use the solution with three deltas
-        else{
-            float4 switchVal = (z[2] < z[0]) ? float4(z[1], z[0], 1.0f, 1.0f) :
-                              ((z[1] < z[0]) ? float4(z[0], z[1], 0.0f, 1.0f) :
-                              float4(0.0f, 0.0f, 0.0f, 0.0f));
-            float quotient = (switchVal[0] * z[2] - b[0] * (switchVal[0] + z[2]) + b[1]) / ((z[2] - switchVal[1]) * (z[0] - z[1]));
-            shadowIntensity = switchVal[2] + switchVal[3] * quotient;
-        }
-
-        return 1.0f - saturate(shadowIntensity);
-    }
-    
-    bool evalShadowMapMSM(float3 posW, const in SMLightData lightData, const float mipLevel,const bool hybridSM , out float shadow, inout bool isDynamic, float random = 0.f)
-    {
-        uint index = lightData.index;
-        
-        shadow = 0.5f;
-        float lightDist = 0.f;
-        float3 shadowUV = float3(0);
-        uint cascLevel = 0;
-        bool valid = false;
-        bool cascadedHybrid = true;
-        switch (lightData.type)
-        {
-            case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
-                break;
-            case LightTypeSM::Spot:
-                valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
-                break;
-            case LightTypeSM::Directional:
-            #if CASC_USE_STOCH_LEVEL
-                valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
-            #else
-                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
-            #endif
-                if(kCascadedLevelTrace < cascLevel)
-                    cascadedHybrid = false;
-                break;
-            default:
-                break;
-        }
-
-        if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
-            return !kUseRayOutsideSM;   //Outside of shadow map
-
-        float4 moments = getShadowValueF4(index, shadowUV, lightData.type, isDynamic, cascLevel, mipLevel);
-        //Shadow Test with shadow map
-        if(ShadowMapType(kShadowMapMode) == ShadowMapType::MSMHamburger)
-            shadow = msmHamburger(moments, lightDist);
-        else
-            shadow = msmHausdorff(moments, lightDist);
-            
-        bool useShadow = true;
-        
-        if (hybridSM && cascadedHybrid)
-        {
-            if ((shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y))
-                useShadow = false;   //Shoot ray
-
-            if (kAdditionalVarianceTestThreshold >= 0)
-            {
-                float shadowVariance = ChebyshevUpperBound(moments.xy, lightDist, 1e-10f); //Variance shadow test
-                float shadowDiff = abs(shadow - shadowVariance);
-                if (((shadowVariance > kHSMFilteredThreshold.x && shadowVariance < kHSMFilteredThreshold.y)) || shadowDiff > kAdditionalVarianceTestThreshold)
-                    useShadow = false; //Shoot ray
-            }
-                
-        }
-        
-        //Clamp Shadow Value depending on the threshold
-        if(shadow <= kHSMFilteredThreshold.x)
-            shadow = 0.0;
-        else if (shadow >= kHSMFilteredThreshold.y)
-            shadow = 1.f;
-           
-        //if(kMinShadowValue > 0)
-        //    shadow = shadow < kMinShadowValue ? 0.0f : shadow;
-            
-        return useShadow;
-    }
-
+       
     //Eval the single depth version of the filterable shadow maps.
-    bool evalShadowMapFilterSD(float3 posW, const in SMLightData lightData, const float mipLevel,const bool hybridSM , out float shadow, inout bool isDynamic, float random = 0.f)
+    float evalShadowMapFilterSD(uint index,float lightDist,const uint lightType, float3 shadowUV, uint cascLevel, inout bool isDynamic)
     {
-        uint index = lightData.index;
-        
-        shadow = 0.5f;
-        float lightDist = 0.f;
-        float3 shadowUV = float3(0);
-        uint cascLevel = 0;
-        bool valid = false;
-        bool cascadedHybrid = true;
+        float shadow = 0;
         float4 lerpWeights = float4(0.25);
         float2 gatherUV = float2(0);
-        switch (lightData.type)
+        //Get the gather weights and UV
+        switch (lightType)
         {
             case LightTypeSM::Point:
-                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
+                //TODO
                 break;
             case LightTypeSM::Spot:
-                valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
                 lerpWeights = getGatherWeights(shadowUV.xy, k2DSMRes, gatherUV);
                 shadowUV.xy = gatherUV;
                 break;
             case LightTypeSM::Directional:
-            #if CASC_USE_STOCH_LEVEL
-                valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
-            #else
-                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
-            #endif
                 lerpWeights = getGatherWeights(shadowUV.xy, kCascadedSMRes, gatherUV);
                 shadowUV.xy = gatherUV;
-                if(kCascadedLevelTrace < cascLevel)
-                    cascadedHybrid = false;
                 break;
             default:
                 break;
         }
 
-        if (!valid || (hybridSM && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
-            return !kUseRayOutsideSM;   //Outside of shadow map
-
-        float4 gatherDepths = getShadowValueGather(index, shadowUV, lightData.type,isDynamic ,cascLevel);
-        
-        bool useShadow = true;
+        float4 gatherDepths = getShadowValueGather(index, shadowUV, lightType,isDynamic ,cascLevel);
         //Evaluate the shadow map
         if(ShadowMapType(kShadowMapMode) == ShadowMapType::SDVariance){
             float2 varianceSV = float2(0);
@@ -1306,19 +668,11 @@ struct ShadowMap
             float4 expVarianceSV = float4(0);
             for(uint i=0; i<4;i++){
                 float rescaledDepth = (2.f * gatherDepths[i]) - 1.f;
-                float4 evsm;
-                evsm.x = exp(rescaledDepth * SM_EXPONENTIAL_CONSTANT);              //Moment1
-                evsm.y = evsm.x * evsm.x;                                   //Moment2
-                evsm.z = -exp(-(rescaledDepth * SM_NEGATIVE_EXPONENTIAL_CONSTANT)); //Negative Moment1
-                evsm.w = evsm.z * evsm.z;
-
+                float4 evsm = recreateEVSMFromSingleDepth(rescaledDepth);
                 expVarianceSV += lerpWeights[i] * evsm;
             }
             float2 upperLowerBound = exponentialVarianceShadowTest(expVarianceSV, lightDist);
             shadow = min(upperLowerBound.x, upperLowerBound.y);
-            if (kUseEVSMExtraTest && hybridSM && cascadedHybrid)
-                if(abs(upperLowerBound.x - upperLowerBound.y) > kHSMFilteredThreshold.x)
-                    useShadow = false;
         }else{
             float4 moments = float4(0);
             for(uint i=0; i<4;i++)
@@ -1327,21 +681,16 @@ struct ShadowMap
 
             shadow = msmHamburger(moments, lightDist);
         }
-        
-        if (hybridSM && cascadedHybrid)
-        {
-            if ((shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y))
-                useShadow = false;   //Shoot ray
-        }
-        
-        //Clamp Shadow Value depending on the threshold
-        if(shadow <= kHSMFilteredThreshold.x)
-            shadow = 0.0;
-        else if (shadow >= kHSMFilteredThreshold.y)
-            shadow = 1.f;
-                       
-        return useShadow;
+
+        return shadow;
     }
+
+    bool evalShadowMap(float3 posW, const in SMLightData lightData, float4 random, float mipLevel, out float shadow)
+    {
+        bool isDynamic = false;
+        return evalShadowMap(posW, lightData, random, mipLevel, shadow, isDynamic, false);
+    }
+
     /** Shadow Map overview function. Calls the corresponding implementation based on the current mode
     \param[in] analytical light index.
     \param[in] world position.
@@ -1351,171 +700,100 @@ struct ShadowMap
     \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
     \return boolean that indicates if a ray is needed. (Outside of shadow map)
     */
-    bool evalShadowMap(float3 posW, const in SMLightData lightData, float4 random, float mipLevel, out float shadow)
+    bool evalShadowMap(float3 posW, const in SMLightData lightData, float4 random, float mipLevel, out float shadow, out bool isDynamic, bool useLeakTracing = false)
     {
-        bool isDynamic = false;
         mipLevel = kUseSMMips ? mipLevel : 0.f; //Using mip level without mips can lead to a performance hit
-        switch (ShadowMapType(kShadowMapMode))
-        {
-            case ShadowMapType::ShadowMap:
-                return evalShadowMapClassic(posW, lightData, random, shadow, isDynamic);
-            case ShadowMapType::Variance:
-                return evalShadowMapVariance(posW, lightData, random.x, mipLevel, false ,shadow, isDynamic);
-            case ShadowMapType::Exponential:
-                return evalShadowMapExponential(posW, lightData, random.x, mipLevel, false, shadow, isDynamic);
-            case ShadowMapType::ExponentialVariance:
-                return evalShadowMapExponentialVariance(posW, lightData, random.x, mipLevel, false, shadow, isDynamic);
-            case ShadowMapType::MSMHamburger:
-            case ShadowMapType::MSMHausdorff:
-                return evalShadowMapMSM(posW, lightData, mipLevel, false, shadow, isDynamic);
-            case ShadowMapType::SDVariance:
-            case ShadowMapType::SDExponentialVariance:
-            case ShadowMapType::SDMSM:
-                return evalShadowMapFilterSD(posW, lightData, mipLevel, false, shadow, isDynamic);
-            default:
-                shadow = 1.f;
-                return false;
-        }
-    }
-
-    /** Hybrid Shadow Map overview function. Calls the corresponding implementation based on the current mode
-    \param[in] analytical light index.
-    \param[in] world position.
-    \param[in] light information.
-    \param[in] falcor random number generator.
-    \param[out] light factor in [0,1]; 1 -> fully lit ; 0 -> shadowed
-    \return boolean that indicates if a ray is needed. (Outside of shadow map)
-    */
-    bool evalHybridShadowMap(float3 posW, const in SMLightData lightData, float4 random, float mipLevel, out float shadow, out bool isDynamic)
-    {
         isDynamic = false;
-        mipLevel = kUseSMMips ? mipLevel : 0.f; //Using mip level without mips can lead to a performance hit
-        switch (ShadowMapType(kShadowMapMode))
+        uint index = lightData.index;
+        shadow = 0.0f;
+        float lightDist = 0.f;
+        float3 shadowUV = float3(0);
+        uint cascLevel = 0;
+        bool valid = false;
+        bool cascadedHybrid = true;
+        switch (lightData.type)
         {
+            case LightTypeSM::Point:
+                valid = pointDistanceAndSampleVec(posW, lightData, shadowUV, lightDist);
+                break;
+            case LightTypeSM::Spot:
+                valid = spotDistanceAndSampleVec(index, posW, shadowUV.xy, lightDist);
+                break;
+            case LightTypeSM::Directional:
+            #if CASC_USE_STOCH_LEVEL
+                valid = directionalDistanceAndSampleVec(posW, random , cascLevel, shadowUV.xy, lightDist);
+            #else
+                valid = directionalDistanceAndSampleVec(posW, cascLevel, shadowUV.xy, lightDist);
+            #endif
+                if(kCascadedLevelTrace < cascLevel)
+                    cascadedHybrid = false;
+                break;
+            default:
+                break;
+        }
+
+        if (!valid || (useLeakTracing && !cascadedHybrid && kCascadedRayTracingAfterHybrid))
+            return !kUseRayOutsideSM;   //Outside of shadow map
+
+        switch (ShadowMapType(kShadowMapMode)){
             case ShadowMapType::ShadowMap:
-                return hybridShadowMapClassic(posW, lightData, random, shadow, isDynamic);
-            case ShadowMapType::Variance:
-                return evalShadowMapVariance(posW, lightData, random.x, mipLevel ,true ,shadow, isDynamic);
-            case ShadowMapType::Exponential:
-                return evalShadowMapExponential(posW, lightData, random.x, mipLevel, true , shadow, isDynamic);
-            case ShadowMapType::ExponentialVariance:
-                return evalShadowMapExponentialVariance(posW, lightData, random.x, mipLevel, true, shadow, isDynamic);
-            case ShadowMapType::MSMHamburger:
-            case ShadowMapType::MSMHausdorff:
-                return evalShadowMapMSM(posW, lightData, mipLevel, true, shadow, isDynamic, random.x);
+            {
+                return hybridShadowMapClassic(index, lightDist, lightData.type, shadowUV, cascLevel, random, useLeakTracing, shadow, isDynamic);
+            }
+            case ShadowMapType::Variance: //Variance Shadow Mapping. https://igm.univ-mlv.fr/~biri/Enseignement/MII2/Donnees/variance_shadow_maps.pdf
+            {
+                float2 varianceSV = getShadowVarianceValue(index, shadowUV, lightData.type, isDynamic, cascLevel, mipLevel);
+                shadow = ChebyshevUpperBound(varianceSV, lightDist, 1e-10f);
+                break;
+            }
+            case ShadowMapType::Exponential: //Exponential Shadow Mapping. https://jankautz.com/publications/esm_gi08.pdf
+            {
+                float shadowMapDepth = getShadowValueFiltered(index, shadowUV, lightData.type, isDynamic, cascLevel, mipLevel);
+                shadow = exponentialShadowTest(shadowMapDepth, lightDist);
+                break;
+            }
+            case ShadowMapType::ExponentialVariance: //Exponential Variance Shadow Mapping. 
+            {
+                float4 moments = getShadowValueF4(index, shadowUV,  lightData.type, isDynamic, cascLevel, mipLevel);
+                float2 upperLowerBound = exponentialVarianceShadowTest(moments, lightDist);
+                shadow = min(upperLowerBound.x, upperLowerBound.y);
+                break;
+            } 
+            case ShadowMapType::MSMHamburger: //Moment Shadow Mapping (Hamburger)
+            {
+                float4 moments = getShadowValueF4(index, shadowUV,  lightData.type, isDynamic, cascLevel, mipLevel);
+                shadow = msmHamburger(moments, lightDist);
+                break;
+            }
+            case ShadowMapType::MSMHausdorff: //Moment Shadow Mapping (Hausdorff)
+            {
+                float4 moments = getShadowValueF4(index, shadowUV,  lightData.type, isDynamic, cascLevel, mipLevel);
+                shadow = msmHausdorff(moments, lightDist);
+                //shadow = evalShadowMap4Channel(index, lightDist, lightData.type, shadowUV, cascLevel, mipLevel, isDynamic);
+                break;
+            }
             case ShadowMapType::SDVariance:
             case ShadowMapType::SDExponentialVariance:
             case ShadowMapType::SDMSM:
-                return evalShadowMapFilterSD(posW, lightData, mipLevel, true, shadow,isDynamic, random.x);
+                shadow = evalShadowMapFilterSD(index, lightDist, lightData.type, shadowUV, cascLevel, isDynamic);
+                break;
             default:
                 shadow = 1.f;
-                return false;
         }
-     }
-    
-    /** Oracle Funktion for determening if a shadow map can be used without quality loss or if a ray should be used instead
-    \param[in] analytical light index.
-    \param[in] light information.
-    \param[in] shading data of the current surface.
-    \param[in] current distance from camera to hit. Can be modified with the oracleDistanceFactor for better results with indirect bounces
-    \param[out] Optional Mip Level. Written if kUseSMMips == true
-    \return a oracle value that indicates the proportion of the seen camera pixel area to the seen shadow map pixel area
-    */
-    float oracleFunction(const in SMLightData lightData, const in ShadingData sd, float rayDistance, out float mipLevel)
-    {
-        mipLevel = 0.f; //Default value
-        uint lightIdx = lightData.index;
 
-        if (lightData.type == (uint) LightTypeSM::Spot)
-            lightIdx += kNPSOffsetSpot;
-        
-        float distanceToLight;
-        float3 toLight;
+        //Leak Tracing Test
+        if(useLeakTracing && cascadedHybrid && (kShadowMapMode != (uint)ShadowMapType::ShadowMap)){
+            //Clamp Shadow Value depending on the threshold
+            if(shadow <= kHSMFilteredThreshold.x)
+                shadow = 0.0;
+            else if (shadow >= kHSMFilteredThreshold.y)
+                shadow = 1.f;
 
-        //Get LightDir and Distance
-        if (lightData.type == (uint) LightTypeSM::Directional)
-        {
-            uint level = getCascadedLevel(sd.posW);
-            distanceToLight = 1.f; //Distance is always 1, because the area does not change in an orthographic projection
-            toLight = -lightData.dirW;
-            lightIdx += kNPSOffsetCasc + level;
+            if ((shadow > kHSMFilteredThreshold.x && shadow < kHSMFilteredThreshold.y))
+                return false;   //Shoot ray
         }
-        else
-        {
-            toLight = lightData.posW - sd.posW;
-            distanceToLight = length(toLight);
-            toLight /= distanceToLight;
-        }
-        
-        const float3 N = sd.frame.N;    //TODO add option to switch between face and shading normal
-        
-        //Get the cos theta between normal and vectors
-        float angleCamera = abs(dot(sd.V, N));
-        float angleLight = abs(dot(toLight, N));
-        
-        float projAreaCam = gCameraNPS * rayDistance * rayDistance;
-        float pixelAreaSM = gShadowMapNPSBuffer[lightIdx];
-        float projSMArea = pixelAreaSM * distanceToLight * distanceToLight;
+        return true;
 
-        //Calculate MIP
-        if(kUseSMMips){
-            mipLevel = 0.5f * log2(( projAreaCam * pow(angleLight,kMipBias) ) / ( projSMArea * pow(angleCamera,kMipBias) + 1e-10f) ); 
-        }
-        
-        return ( projSMArea * angleCamera) / ( projAreaCam * angleLight + 1e-10f);  //Divide the projected areas
-    }
-
-    /** Oracle Funktion for determening if a shadow map can be used without quality loss or if a ray should be used instead
-    \param[in] analytical light index.
-    \param[in] light information.
-    \param[in] shading data of the current surface.
-    \param[in] current distance from camera to hit. Can be modified with the oracleDistanceFactor for better results with indirect bounces
-    \return a oracle value that indicates the proportion of the seen camera pixel area to the seen shadow map pixel area
-    */
-    float oracleFunction(const in SMLightData lightData, const in ShadingData sd, float rayDistance)
-    {
-        float mipLevel;
-        return oracleFunction(lightData, sd, rayDistance, mipLevel);
-    }
-    
-     /** Calculate the Oracle distance factor based on the currently selected mode. Should be used on bounces only
-    \param[in] material/bsdf properties.
-    \param[in] current reflection sample.
-    \return a factor the indirect bounce distance should be multiplied with. Used to the oracle function as distance
-    */
-    float getOracleDistanceFunctionFactor(const in BSDFProperties bsdfProperties,const in BSDFSample bsdfSample)
-    {
-        switch (OracleDistFunction(kOracleDistFunctionMode))
-        {
-            case OracleDistFunction::RoughnessLinear:
-            {
-                    return lerp(1.f, M_PI, bsdfProperties.roughness);
-                }
-            case OracleDistFunction::RoughnessSquare:
-            {
-                    float alpha = bsdfProperties.roughness * bsdfProperties.roughness;
-                    return lerp(1.f, M_PI, alpha);
-                }
-            case OracleDistFunction::Lobe:
-            {
-                    float oDistFac = bsdfSample.isLobe(LobeType::Diffuse) ? M_PI : 1.f;
-                    return oDistFac;
-                }
-            case OracleDistFunction::DiffSpecProp:
-            {
-                    float diffusePart = luminance(bsdfProperties.diffuseReflectionAlbedo);
-                    float specularPart = luminance(bsdfProperties.specularReflectionAlbedo);
-                    float diffuse = 0;
-                    if (diffusePart > 0)
-                    {
-                        diffuse = diffusePart / (diffusePart + specularPart);
-                    }
-                    return lerp(1.f, M_PI, diffuse);
-                }
-            default:;
-        }
-        //default case 
-        return 1.f;
     }
 
     bool parallel_or_orthogonal(float2 a, float2 b)
