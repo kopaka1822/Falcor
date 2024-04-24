@@ -23,8 +23,8 @@ cbuffer PerFrame
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gView;
-StructuredBuffer<AABB> gPhotonAABB[3];
-StructuredBuffer<uint4> gPackedPhotonData[3];
+StructuredBuffer<AABB> gPhotonAABB[2];
+StructuredBuffer<uint4> gPackedPhotonData[2];
 Texture2D<PackedHitInfo> gVBufferFirstHit;
 Texture2D<float4> gThp;
 
@@ -40,14 +40,14 @@ RaytracingAccelerationStructure gPhotonAS;
 struct RayData
 {
     float3 radiance; ///< Accumulated outgoing radiance from path.
-    bool glint; ///< free space.
+    bool _pad; ///< free space.
     PackedHitInfo packedHitInfo; ///< Hit info from vBuffer; Up to 16B
 
     SampleGenerator sg; ///< Per-ray state for the sample generator (up to 16B).
   
     __init(){
         this.radiance = float3(0);
-        this.glint = false;
+        this._pad = false;
     }
 };
 
@@ -82,11 +82,6 @@ void miss(inout RayData rayData : SV_RayPayload)
 [shader("anyhit")]
 void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_IntersectionAttributes)
 {
-    if (rayData.glint)
-    {
-        rayData.radiance += float3(1, 0, 0);
-        return;
-    }
     //Get Photon data
     const uint primIndex = PrimitiveIndex();
     PhotonData pd = PhotonData(gPackedPhotonData[InstanceIndex()][primIndex]);

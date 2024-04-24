@@ -353,12 +353,12 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
     // Photon
     if (!mpPhotonCounter)
     {
-        mpPhotonCounter = Buffer::create(mpDevice, sizeof(uint) * 4);
+        mpPhotonCounter = Buffer::create(mpDevice, sizeof(uint) * 2);
         mpPhotonCounter->setName("PM::PhotonCounterGPU");
     }
     if (!mpPhotonCounterCPU)
     {
-        mpPhotonCounterCPU = Buffer::create(mpDevice, sizeof(uint) * 4, ResourceBindFlags::None, Buffer::CpuAccess::Read);
+        mpPhotonCounterCPU = Buffer::create(mpDevice, sizeof(uint) * 2, ResourceBindFlags::None, Buffer::CpuAccess::Read);
         mpPhotonCounterCPU->setName("PM::PhotonCounterCPU");
     }
     for (uint i = 0; i < 2; i++)
@@ -540,7 +540,7 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     mpScene->raytrace(pRenderContext, mGeneratePhotonPass.pProgram.get(), mGeneratePhotonPass.pVars, uint3(targetDim, 1));
 
     pRenderContext->uavBarrier(mpPhotonCounter.get());
-    for (uint i = 0; i < 3; i++)
+    for (uint i = 0; i < 2; i++)
     {
         pRenderContext->uavBarrier(mpPhotonAABB[i].get());
         pRenderContext->uavBarrier(mpPhotonData[i].get());
@@ -556,10 +556,10 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
 void PhotonMapper::handlePhotonCounter(RenderContext* pRenderContext)
 {
     // Copy the photonCounter to a CPU Buffer
-    pRenderContext->copyBufferRegion(mpPhotonCounterCPU.get(), 0, mpPhotonCounter.get(), 0, sizeof(uint32_t) * 4);
+    pRenderContext->copyBufferRegion(mpPhotonCounterCPU.get(), 0, mpPhotonCounter.get(), 0, sizeof(uint32_t) * 2);
 
     void* data = mpPhotonCounterCPU->map(Buffer::MapType::Read);
-    std::memcpy(&mCurrentPhotonCount, data, sizeof(uint) * 3);
+    std::memcpy(&mCurrentPhotonCount, data, sizeof(uint) * 2);
     mpPhotonCounterCPU->unmap();
 
     // Change Photon dispatch count dynamically.

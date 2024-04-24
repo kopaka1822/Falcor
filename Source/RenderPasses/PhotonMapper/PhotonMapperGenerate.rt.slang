@@ -41,8 +41,8 @@ cbuffer Light{
 }
 #endif
 
-RWStructuredBuffer<AABB> gPhotonAABB[3];
-RWStructuredBuffer<uint4> gPackedPhotonData[3];
+RWStructuredBuffer<AABB> gPhotonAABB[2];
+RWStructuredBuffer<uint4> gPackedPhotonData[2];
 RWBuffer<uint> gPhotonCounter;
 Texture2D<uint> gPhotonCullingMask;
 

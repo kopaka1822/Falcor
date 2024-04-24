@@ -163,7 +163,7 @@ private:
     ref<Texture> mpViewDir;           // View dir tex (needed for highly specular and transparent materials)
     ref<Texture> mpThp;               // Throughput
 
-     //
+    //
     // Render Passes/Programms
     //
 
