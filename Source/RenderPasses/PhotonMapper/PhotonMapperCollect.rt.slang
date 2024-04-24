@@ -20,24 +20,13 @@ cbuffer PerFrame
     uint _pad;
 }
 
-cbuffer Test
-{
-    float4 S0;
-    float4 S1;
-    float4 S3;
-    bool gGlintDebug;
-    uint2 gGlintTexRes;
-    uint _pad2;
-};
-
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gView;
 StructuredBuffer<AABB> gPhotonAABB[3];
 StructuredBuffer<uint4> gPackedPhotonData[3];
-Texture2D<float4> gGlints;
-Buffer<uint> gGlintsNumber;
 Texture2D<PackedHitInfo> gVBufferFirstHit;
+Texture2D<float4> gThp;
 
 // Outputs
 RWTexture2D<float4> gColor;
@@ -45,7 +34,6 @@ RWTexture2D<float4> gColor;
 //Acceleration Structure
 RaytracingAccelerationStructure gPhotonAS;
 
-static const bool kUseGlints = false;
 
 /** Payload for ray (48B).
 */
@@ -82,34 +70,6 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
 uint index2Dto1D(uint2 idx, uint width)
 {
     return idx.x + width * idx.y;
-}
-
-float3 intersectNearPlane(float3 rayOrigin, float3 rayDir)
-{
-    
-    float3 dS0S1 = S1.xyz - S0.xyz;
-    float3 dS0S3 = S3.xyz - S0.xyz;
-    float3 planeNormal = normalize(cross(dS0S1, dS0S3));
-    //float3 planeNormal = normalize(cross(dS0S3, dS0S1));
-    float NdotV = dot(rayDir, planeNormal);
-    if (NdotV < 1e-10f)
-        return float3(-1, -1, 0);
-
-    float3 originToTopLeft = S0.xyz - rayOrigin;
-    float t = dot(originToTopLeft, planeNormal) / NdotV;
-    if(t <= 0.f)
-        return float3(-1, -1, 0);
-
-    float3 M = rayOrigin + rayDir * t;
-    float3 dS0M = M - S0.xyz;
-    
-    float u = dot(dS0M, normalize(dS0S1)) / length(dS0S1);
-    float v = dot(dS0M, normalize(dS0S3)) / length(dS0S3);
-    
-    if (u >= 0.f && u <= 1.f && v >= 0.f && v <= 1.f)
-        return float3(u, v, t);
-    
-    return float3(-1, -1, 0);
 }
 
 [shader("miss")]
@@ -197,7 +157,6 @@ void rayGen()
     uint2 launchDim = DispatchRaysDimensions().xy;
     let lod = ExplicitLodTextureSampler(0.f);
 
-    
     //Prepare payload
     RayData rayData = RayData();
     rayData.packedHitInfo = gVBuffer[launchIndex];
@@ -205,7 +164,6 @@ void rayGen()
 
     HitInfo hit = HitInfo(rayData.packedHitInfo);
     bool valid = hit.isValid(); //Check if the ray is valid
-    
     
     //Get vertex data for the world position
     TriangleHit triangleHit = hit.getTriangleHit();
@@ -225,77 +183,21 @@ void rayGen()
     //Collect Caustic Photon
     if (valid)
     {
-        TraceRay(gPhotonAS, rayFlags, 1<<0 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
+        float3 thp = gThp[launchIndex].xyz;
+        TraceRay(gPhotonAS, rayFlags, 1 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         float w = 1 / (M_PI * gPhotonRadius.x * gPhotonRadius.x);
         radiance += w * rayData.radiance;
         
         rayData.radiance = float3(0);   //Clear Radiance
-        TraceRay(gPhotonAS, rayFlags, 1<<1 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
+        TraceRay(gPhotonAS, rayFlags, 2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
         radiance += rayData.radiance * w;
+
+        radiance *= thp;
     }
-    //Read Glint text
-    
-    //radiance += gGlints[launchIndex].xyz;
 
-    float3 glintRadiance = float3(0);
-    if (kUseGlints) //Defined Above
-    {
-        rayData.packedHitInfo = gVBufferFirstHit[launchIndex];
 
-        hit = HitInfo(rayData.packedHitInfo);
-        valid = true; //Check if the ray is valid
-    
-    
-        //Get vertex data for the world position
-        triangleHit = hit.getTriangleHit();
-        v = gScene.getVertexData(triangleHit);
-
-        float3 viewDir = gScene.camera.getPosition() - v.posW;
-        //Ray description 
-        ray.Origin = v.posW;
-        ray.TMin = 0.0;
-        ray.TMax = 0.001;
-        ray.Direction = viewDir; //we take the view dir as direction to save payload space
-
-        rayData.glint = true;
-        //Closest hit shader can be skipped
-        rayFlags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES;
-
-        rayData.radiance = float3(0);
-        TraceRay(gPhotonAS, rayFlags, 1<<2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
-        float w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
-        glintRadiance += rayData.radiance * w;
-
-    }
-    
-    //Check for test near plane
-    /*
-    if (gGlintDebug)
-    {
-        float3 camPos = gScene.camera.getPosition();
-        float debugDist = 0.f;
-        float3 uvt = intersectNearPlane(camPos, gScene.camera.computeRayPinhole(launchIndex, launchDim).dir);
-        float currDist = valid ? distance(camPos, v.posW) : 1000000.f;
-        if (uvt.x >= 0 && uvt.y >= 0 && uvt.z < currDist)
-        {
-            uint2 glintIdx = uint2(floor(gGlintTexRes * uvt.xy));
-            uint glintWeight = gGlintsNumber[glintIdx.x + gGlintTexRes.x * glintIdx.y];
-            //gGlints[glintIdx].xyz;
-            radiance = gGlints[glintIdx].xyz * glintWeight;
-        }
-    }
-    else
-    {
-        float2 uv = launchIndex / float2(launchDim);
-        uint2 glintIdx = uint2(floor(gGlintTexRes * uv));
-        //TODO filter? 
-        uint glintWeight = gGlintsNumber[glintIdx.x + gGlintTexRes.x * glintIdx.y];
-        radiance = gGlints[glintIdx].xyz * glintWeight;
-    }
-    */
-    
-    gColor[launchIndex] = float4(radiance + glintRadiance, 1.f);
+    gColor[launchIndex] = float4(radiance, 1.f);
 
 
 }

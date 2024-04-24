@@ -92,10 +92,6 @@ private:
      */
     void computeQuadTexSize(uint maxItems, uint& outWidth, uint& outHeight);
 
-    /** Calcs the near plane for camera glints
-    */
-    void glintsCalcNearPlane();
-
     //
     // Constants
     //
@@ -114,7 +110,7 @@ private:
     //
     uint mFrameCount = 0;
     uint2 mScreenRes = uint2(0, 0); // Store screen res to react to changes
-    
+    bool mOptionsChanged = false;
 
     // Specular Trace Options
     uint mTraceMaxBounces = 10;          // Number of Specular/Transmissive bounces allowed
@@ -126,9 +122,9 @@ private:
     float mPhotonRejection = 0.3f;                // Probability a global photon is stored
     uint mNumDispatchedPhotons = 2000000;         // Number of Photons dispatched
     uint mPhotonYExtent = 512;                    // Dispatch Y extend
-    uint3 mNumMaxPhotons = uint3(400000, 100000, 100000); // Size of the photon buffer
-    uint3 mNumMaxPhotonsUI = mNumMaxPhotons;
-    uint3 mCurrentPhotonCount = uint3(1000000); // Gets data from GPU buffer
+    uint2 mNumMaxPhotons = uint2(400000, 100000); // Size of the photon buffer
+    uint2 mNumMaxPhotonsUI = mNumMaxPhotons;
+    uint2 mCurrentPhotonCount = uint2(1000000); // Gets data from GPU buffer
     float mASBuildBufferPhotonOverestimate = 1.15f;
     float2 mPhotonCollectionRadiusStart = float2(0.025f, 0.005f);
     float2 mPhotonCollectRadius = mPhotonCollectionRadiusStart; // Radius for collection
@@ -150,31 +146,22 @@ private:
     float mPhotonDynamicGuardPercentage = 0.08f;  // Determines how much space of the buffer is used to guard against buffer overflows
     float mPhotonDynamicChangePercentage = 0.05f; // The percentage the buffer is increased/decreased per frame
 
-    //Glints
-    uint mGlintMaxPhotons = 10000;
-    int2 mGlintTexRes = uint2(480, 270);
-    int2 mGlintTexResUI = mGlintTexRes;
-    float3x3 mCameraNearPlane;
-    float3x3 mCameraNearPlaneDebug;
-    float3 mGlintNormal = float3(0,1,0);
-    float mCameraGlintNear = 0.8f;     //User defined near plane for the glints
-    bool mCreateCamNearPlaneDebug = true;
-    bool mShowDebugGlint = false;
+    bool mUseSPPM = false;
+    float2 mSPPMAlpha = float2(2.f / 3.f);
+    uint mSPPMFramesCameraStill = 0;
 
     //
     // Buffer and Textures
     //
 
-    ref<Buffer> mpPhotonAABB[3];    // Photon AABBs for Acceleration Structure building
-    ref<Buffer> mpPhotonData[3];    // Additional Photon data (flux, dir)
+    ref<Buffer> mpPhotonAABB[2];    // Photon AABBs for Acceleration Structure building
+    ref<Buffer> mpPhotonData[2];    // Additional Photon data (flux, dir)
     ref<Buffer> mpPhotonCounter;    // Counter for the number of lights
     ref<Buffer> mpPhotonCounterCPU; // For showing the current number of photons in the UI
     ref<Texture> mpPhotonCullingMask; // Mask for photon culling
     ref<Texture> mpVBuffer;           // Work copy for VBuffer
     ref<Texture> mpViewDir;           // View dir tex (needed for highly specular and transparent materials)
     ref<Texture> mpThp;               // Throughput
-    ref<Texture> mpGlintTex;          // Shows the glints
-    ref<Buffer> mpGlintNumber;        //Number of glint hits
 
      //
     // Render Passes/Programms

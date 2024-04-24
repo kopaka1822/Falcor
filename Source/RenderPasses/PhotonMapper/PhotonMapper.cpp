@@ -27,6 +27,7 @@
  **************************************************************************/
 #include "PhotonMapper.h"
 #include "RenderGraph/RenderPassHelpers.h"
+#include "RenderGraph/RenderPassStandardFlags.h"
 #include "Utils/Math/FalcorMath.h"
 
 namespace
@@ -94,14 +95,21 @@ void PhotonMapper::execute(RenderContext* pRenderContext, const RenderData& rend
     if (!mpScene) // Return on empty scene
         return;
 
+     auto& dict = renderData.getDictionary();
+    if (mOptionsChanged)
+    {
+        auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
+        dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
+        mSPPMFramesCameraStill = 0;
+        mOptionsChanged = false;
+    }
+
     // Prepare used Datas and Buffers
     prepareLighting(pRenderContext);
 
     prepareBuffers(pRenderContext, renderData);
 
     prepareAccelerationStructure();
-
-    glintsCalcNearPlane();
 
     // RenderPasses
     handlePhotonCounter(pRenderContext);
@@ -111,6 +119,21 @@ void PhotonMapper::execute(RenderContext* pRenderContext, const RenderData& rend
     generatePhotonsPass(pRenderContext, renderData);
 
     collectPhotons(pRenderContext, renderData);
+
+     // SPPM
+    if (mUseSPPM)
+    {
+        if (is_set(mpScene->getUpdates(), Scene::UpdateFlags::CameraMoved) || mSPPMFramesCameraStill == 0)
+        {
+            mSPPMFramesCameraStill = 0;
+            mPhotonCollectRadius = mPhotonCollectionRadiusStart;
+        }
+
+        float itF = static_cast<float>(mSPPMFramesCameraStill);
+        mPhotonCollectRadius *= sqrt((itF + mSPPMAlpha) / (itF + 1.0f));
+
+        mSPPMFramesCameraStill++;
+    }
 
     mFrameCount++;
 }
@@ -157,7 +180,6 @@ void PhotonMapper::renderUI(Gui::Widgets& widget)
         // Buffer size
         widget.text("Photons: " + std::to_string(mCurrentPhotonCount[0]) + " / " + std::to_string(mNumMaxPhotons[0]));
         widget.text("Caustic photons: " + std::to_string(mCurrentPhotonCount[1]) + " / " + std::to_string(mNumMaxPhotons[1]));
-        widget.text("Glint Photons:" + std::to_string(mCurrentPhotonCount[2]) + " / " + std::to_string(mNumMaxPhotons[2]));
         widget.var("Photon Buffer Size", mNumMaxPhotonsUI, 100u, 100000000u, 100);
         widget.tooltip("First -> Global, Second -> Caustic");
         mChangePhotonLightBufferSize = widget.button("Apply", true);
@@ -183,6 +205,21 @@ void PhotonMapper::renderUI(Gui::Widgets& widget)
         if (radiusChanged)
             mPhotonCollectRadius = mPhotonCollectionRadiusStart;
 
+         changed |= group.checkbox("Enable SPPM", mUseSPPM);
+        group.tooltip(
+            "Stochastic Progressive Photon Mapping. Radius is reduced by a fixed sequence every frame. It is advised to use SPPM only for "
+            "Offline Rendering"
+        );
+        if (mUseSPPM)
+        {
+            group.var("SPPM Alpha", mSPPMAlpha, 0.001f, 1.f, 0.001f);
+            group.text(
+                "Current Radius: Global = " + std::to_string(mPhotonCollectRadius.x) +
+                "; Caustic = " + std::to_string(mPhotonCollectRadius.y)
+            );
+            changed |= group.button("Reset", true);
+        }
+
         changed |= widget.checkbox("Use Photon Culling", mUsePhotonCulling);
         widget.tooltip("Enabled culling of photon based on a hash grid. Photons are only stored on cells that are collected");
         if (mUsePhotonCulling)
@@ -203,31 +240,7 @@ void PhotonMapper::renderUI(Gui::Widgets& widget)
         }
     }
 
-    if (auto group = widget.group("Glint", true))
-    {
-        widget.text("Current Glint Tex Res: (" + std::to_string(mGlintTexRes.x) + "," + std::to_string(mGlintTexRes.y) + ")");
-        widget.var("TextureRes", mGlintTexResUI, 32, 7680, 1);
-        bool resChanged = widget.button("Apply Res Change");
-        //Reset the texture. It is forced in an 16:9 ratio
-        if (resChanged)
-        {
-            int2 diff = int2(std::abs(mGlintTexRes.x - mGlintTexResUI.x), std::abs(mGlintTexRes.y - mGlintTexResUI.y));
-            int factor = 1; 
-            if (diff.x > diff.y)
-                factor = int(mGlintTexResUI.x / 16.f);
-            else
-                factor = int(mGlintTexResUI.y / 9.f);
-
-            mGlintTexRes = int2(16, 9) * factor;
-            mGlintTexResUI = mGlintTexRes;
-        }
-
-        widget.var("Glint Near", mCameraGlintNear, 0.0f, FLT_MAX, 0.001f);
-        widget.checkbox("DebugCamera", mShowDebugGlint);
-        if (mShowDebugGlint)
-            mCreateCamNearPlaneDebug = widget.button("Reset Debug Plane");
-    }
-   
+    mOptionsChanged |= changed;
 }
 
 void PhotonMapper::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
@@ -302,20 +315,10 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
     if (mChangePhotonLightBufferSize)
     {
         mNumMaxPhotons = mNumMaxPhotonsUI;
-        for (uint i = 0; i < 3; i++)
+        for (uint i = 0; i < 2; i++)
         {
             mpPhotonAABB[i].reset();
             mpPhotonData[i].reset();
-        }
-    }
-
-    //Check if glint tex res changed and reset if it changed
-    if (mpGlintTex)
-    {
-        if (mpGlintTex->getWidth() != mGlintTexRes.x || mpGlintTex->getHeight() != mGlintTexRes.y)
-        {
-            mpGlintTex.reset();
-            mpGlintNumber.reset();
         }
     }
 
@@ -347,22 +350,6 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
         mpThp->setName("PM::Throughput");
     }
 
-    if (!mpGlintTex)
-    {
-        mpGlintTex = Texture::create2D(
-            mpDevice, mGlintTexRes.x, mGlintTexRes.y, ResourceFormat::RGBA32Float, 1u, 1u, nullptr,
-            ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
-        );
-        mpGlintTex->setName("PM::Glint");
-    }
-
-    if (!mpGlintNumber)
-    {
-        uint bufferSize = sizeof(uint) * mGlintTexRes.x * mGlintTexRes.y;
-        mpGlintNumber = Buffer::create(mpDevice, bufferSize);
-        mpGlintNumber -> setName("PM::GlintCount");
-    }
-
     // Photon
     if (!mpPhotonCounter)
     {
@@ -374,7 +361,7 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
         mpPhotonCounterCPU = Buffer::create(mpDevice, sizeof(uint) * 4, ResourceBindFlags::None, Buffer::CpuAccess::Read);
         mpPhotonCounterCPU->setName("PM::PhotonCounterCPU");
     }
-    for (uint i = 0; i < 3; i++)
+    for (uint i = 0; i < 2; i++)
     {
         if (!mpPhotonAABB[i])
         {
@@ -413,9 +400,9 @@ void PhotonMapper::prepareAccelerationStructure()
     // Create the Photon AS
     if (!mpPhotonAS)
     {
-        std::vector<uint64_t> aabbCount = {mNumMaxPhotons[0], mNumMaxPhotons[1], mNumMaxPhotons[2]};
+        std::vector<uint64_t> aabbCount = {mNumMaxPhotons[0], mNumMaxPhotons[1]};
         std::vector<uint64_t> aabbGPUAddress = {
-            mpPhotonAABB[0]->getGpuAddress(), mpPhotonAABB[1]->getGpuAddress(), mpPhotonAABB[2]->getGpuAddress()};
+            mpPhotonAABB[0]->getGpuAddress(), mpPhotonAABB[1]->getGpuAddress()};
         mpPhotonAS = std::make_unique<CustomAccelerationStructure>(mpDevice, aabbCount, aabbGPUAddress);
     }
 }
@@ -478,14 +465,11 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     pRenderContext->clearUAV(mpPhotonCounter->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(mpPhotonAABB[0]->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(mpPhotonAABB[1]->getUAV().get(), uint4(0));
-    pRenderContext->clearUAV(mpGlintNumber->getUAV().get(), uint4(0));
-    //pRenderContext->clearTexture(mpGlintTex.get());   //Not Necessary as the counter is cleared
 
     // Defines
     mGeneratePhotonPass.pProgram->addDefine("USE_EMISSIVE_LIGHT", mpScene->useEmissiveLights() ? "1" : "0");
     mGeneratePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE_GLOBAL", std::to_string(mNumMaxPhotons[0]));
     mGeneratePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE_CAUSTIC", std::to_string(mNumMaxPhotons[1]));
-    mGeneratePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE_GLINT", std::to_string(mNumMaxPhotons[2]));
     mGeneratePhotonPass.pProgram->addDefine("USE_PHOTON_CULLING", mUsePhotonCulling ? "1" : "0");
 
     if (!mGeneratePhotonPass.pVars)
@@ -534,16 +518,7 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     var[nameBuf]["gFlags"] = flags;
     var[nameBuf]["gHashSize"] = 1 << mCullingHashBufferSizeBits; // Size of the Photon Culling buffer. 2^x
     var[nameBuf]["gCausticsBounces"] = mMaxCausticBounces;
-    var[nameBuf]["gGlintTexDim"] = mGlintTexRes;
     
-
-    auto& glintMatrix = mShowDebugGlint ? mCameraNearPlaneDebug : mCameraNearPlane;
-    nameBuf = "Glints";
-    var[nameBuf]["S0"] = glintMatrix[0];
-    var[nameBuf]["S1"] = glintMatrix[1];
-    var[nameBuf]["S3"] = glintMatrix[2];
-    var[nameBuf]["gGlintNormal"] = mGlintNormal;    //TODO not used currently
-
     if (mpEmissiveLightSampler)
         mpEmissiveLightSampler->setShaderData(var["Light"]["gEmissiveSampler"]);
 
@@ -555,8 +530,6 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     }
     var["gPhotonCounter"] = mpPhotonCounter;
     var["gPhotonCullingMask"] = mpPhotonCullingMask;
-    var["gGlints"] = mpGlintTex;
-    var["gGlintsNumber"] = mpGlintNumber;
 
     // Get dimensions of ray dispatch.
     uint dispatchedPhotons = mNumDispatchedPhotons;
@@ -574,9 +547,9 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     }
 
     // Build/Update Acceleration Structure
-    uint3 currentPhotons = mFrameCount > 0 ? uint3(float3(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
+    uint2 currentPhotons = mFrameCount > 0 ? uint2(float2(mCurrentPhotonCount) * mASBuildBufferPhotonOverestimate) : mNumMaxPhotons;
     std::vector<uint64_t> photonBuildSize = {
-        std::min(mNumMaxPhotons[0], currentPhotons[0]), std::min(mNumMaxPhotons[1], currentPhotons[1]), std::min(mNumMaxPhotons[2], currentPhotons[2])};
+        std::min(mNumMaxPhotons[0], currentPhotons[0]), std::min(mNumMaxPhotons[1], currentPhotons[1])};
     mpPhotonAS->update(pRenderContext, photonBuildSize);
 }
 
@@ -633,14 +606,6 @@ void PhotonMapper::collectPhotons(RenderContext* pRenderContext, const RenderDat
     var[nameBuf]["gFrameCount"] = mFrameCount;
     var[nameBuf]["gPhotonRadius"] = mPhotonCollectRadius;
 
-    nameBuf = "Test";
-    var[nameBuf]["S0"] = mCameraNearPlaneDebug[0];
-    var[nameBuf]["S1"] = mCameraNearPlaneDebug[1];
-    var[nameBuf]["S3"] = mCameraNearPlaneDebug[2];
-    var[nameBuf]["gGlintDebug"] = mShowDebugGlint;
-    var[nameBuf]["gGlintTexRes"] = mGlintTexRes;
-
-
     for (uint32_t i = 0; i < 3; i++)
     {
         var["gPhotonAABB"][i] = mpPhotonAABB[i];
@@ -650,8 +615,7 @@ void PhotonMapper::collectPhotons(RenderContext* pRenderContext, const RenderDat
     var["gVBufferFirstHit"] = renderData[kInputVBuffer]->asTexture(); 
     var["gVBuffer"] = mpVBuffer;
     var["gView"] = mpViewDir;
-    var["gGlints"] = mpGlintTex;
-    var["gGlintsNumber"] = mpGlintNumber;
+    var["gThp"] = mpThp;
 
     var["gColor"] = renderData[kOutputColor]->asTexture();
 
@@ -675,39 +639,6 @@ void PhotonMapper::computeQuadTexSize(uint maxItems, uint& outWidth, uint& outHe
 
     outWidth = uint(textureWidth);
     outHeight = uint(textureHeight);
-}
-
-void PhotonMapper::glintsCalcNearPlane() {
-    auto& camera = mpScene->getCamera();
-    const auto focalLength = camera->getFocalLength();
-    const float frameHeight = camera->getFrameHeight();
-    const float fovY = focalLength == 0. ? 0.f : focalLengthToFovY(focalLength, frameHeight);
-    const float near = mCameraGlintNear;
-
-    float height = std::tan(fovY) * near;
-    float width = camera->getAspectRatio() * height;
-
-    //Basically the view
-    float3 target = normalize(camera->getTarget() - camera->getPosition());
-    float3 widthVec = normalize(-cross(camera->getUpVector(), target));
-    float3 heightVec = -cross(target, widthVec);
-
-    mGlintNormal = -target;
-
-    float3 middlePoint = camera->getPosition() + target * near;
-    widthVec *= width / 2.0f;
-    heightVec *= height / 2.0f;
-
-    mCameraNearPlane[0] = middlePoint + (-widthVec + heightVec); //TopLeft
-    mCameraNearPlane[1] = middlePoint + (widthVec + heightVec); // TopRight
-    mCameraNearPlane[2] = middlePoint + (-widthVec - heightVec); // DownLeft
-
-    //Copy for debug
-    if (mCreateCamNearPlaneDebug)
-    {
-        mCameraNearPlaneDebug = mCameraNearPlane;
-        mCreateCamNearPlaneDebug = false;
-    }
 }
 
 void PhotonMapper::RayTraceProgramHelper::initRTProgram(
