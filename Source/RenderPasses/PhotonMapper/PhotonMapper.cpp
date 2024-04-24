@@ -523,7 +523,7 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
         mpEmissiveLightSampler->setShaderData(var["Light"]["gEmissiveSampler"]);
 
     // Set the photon buffers
-    for (uint32_t i = 0; i < 3; i++)
+    for (uint32_t i = 0; i < 2; i++)
     {
         var["gPhotonAABB"][i] = mpPhotonAABB[i];
         var["gPackedPhotonData"][i] = mpPhotonData[i];
@@ -606,7 +606,7 @@ void PhotonMapper::collectPhotons(RenderContext* pRenderContext, const RenderDat
     var[nameBuf]["gFrameCount"] = mFrameCount;
     var[nameBuf]["gPhotonRadius"] = mPhotonCollectRadius;
 
-    for (uint32_t i = 0; i < 3; i++)
+    for (uint32_t i = 0; i < 2; i++)
     {
         var["gPhotonAABB"][i] = mpPhotonAABB[i];
         var["gPackedPhotonData"][i] = mpPhotonData[i];

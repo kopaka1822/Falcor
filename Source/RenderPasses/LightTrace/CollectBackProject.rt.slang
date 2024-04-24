@@ -111,11 +111,19 @@ void intersection()
     bool tHit = hitSphere(photonAABB.center(), radius, origin);
     */
     //Attribs are needed by the api. Because we have no need for additional attributes it is empty
+    const float3 origin = ObjectRayOrigin();
+    const uint primIndex = PrimitiveIndex();
+    AABB photonAABB = gLightTraceAABB[primIndex];
+
     SphereAttribs attribs;
     attribs.pad = float2(0);
 
+    bool valid = true;
+    valid &= primIndex<gLightCounter[0];
+    valid &= photonAABB.contains(origin);
+
     //Report the hit if the point is in the sphere
-    if (PrimitiveIndex()<gLightCounter[0])
+    if (valid)
     {
         ReportHit(RayTCurrent(), 0, attribs);
     }

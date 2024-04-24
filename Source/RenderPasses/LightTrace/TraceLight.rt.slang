@@ -409,9 +409,9 @@ void rayGen()
             if (photonIndex <= kPhotonBufferSize)
             {
                 float2 screenPos = floor(cameraPos.xy * float2(1920,1080)) + 0.5f;
-                AABB photonAABB = AABB(float3(screenPos - 0.25, -0.25), float3(screenPos + 0.25, 0.25));
+                AABB photonAABB = AABB(float3(screenPos - 0.4, -0.4), float3(screenPos + 0.4, 0.4));
                 gLightTraceAABB[photonIndex] = photonAABB;
-                gLightTraceData[photonIndex] = float4(photon.flux * (distToCamera * distToCamera),1);
+                gLightTraceData[photonIndex] = float4(10000 * photon.flux / (distToCamera * distToCamera),1);
             }
         }
 
