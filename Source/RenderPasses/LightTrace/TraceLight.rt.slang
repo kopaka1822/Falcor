@@ -158,12 +158,15 @@ bool createLightSample(inout SampleGenerator sg, out PhotonLightSample pls ){
 
     //Check if the material is double sided (infinetly thin)
     MaterialHeader mltHeader = gScene.materials.getMaterialHeader(tri.materialID);
-    //If the material is double sided, randomly flip the normal
+    // If the material is double sided, randomly flip the normal
+    /*
     if (mltHeader.isDoubleSided())
     {
+        pls.flux *= 2;
         if (sampleNext1D(sg) >= 0.5f)
             pls.normal = -tri.normal;
     }
+    */
 
     pls.flux /= triangleSelectionPdf;
 
