@@ -378,7 +378,7 @@ void rayGen()
         cameraPos.y *= -1;
         cameraPos.xy = cameraPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
         bool validReprojection = true;
-        if(any(cameraPos.xy < 0) || any(cameraPos.xy > 1))
+        if (any(cameraPos.xy < 0) || any(cameraPos.xy > 1) || cameraPos.z < 0 || cameraPos.z > 1)
             validReprojection = false;
 
         bool reprojectionVisible = false;

@@ -115,7 +115,20 @@ void LightTrace::execute(RenderContext* pRenderContext, const RenderData& render
 
 void LightTrace::renderUI(Gui::Widgets& widget)
 {
-    //TODO
+    bool changed = false;
+    uint dispatchedPhotons = mNumDispatchedPhotons;
+    bool disPhotonChanged = widget.var("Dispatched Light Paths", dispatchedPhotons, mPhotonYExtent, 9984000u, (float)mPhotonYExtent);
+    if (disPhotonChanged)
+        mNumDispatchedPhotons = (uint)(dispatchedPhotons / mPhotonYExtent) * mPhotonYExtent;
+
+    widget.text("Light Points: " + std::to_string(mCurrentPhotonCount) + " / " + std::to_string(mNumMaxPhotons));
+
+    widget.var("Light Point Buffer Size", mNumMaxPhotonsUI, 100u, 100000000u, 100);
+    mChangePhotonLightBufferSize = widget.button("Apply", true);
+
+    changed |= widget.var("Max Bounces", mLightMaxBounces, 0u, 32u);
+
+     mOptionsChanged |= changed;
 }
 
 void LightTrace::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
