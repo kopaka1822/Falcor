@@ -60,7 +60,7 @@ Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gView;
 Texture2D<PackedHitInfo> gFinalGatherHit;
 StructuredBuffer<AABB> gPhotonAABB[2];
-StructuredBuffer<uint4> gPackedPhotonData[2];
+StructuredBuffer<PhotonDataPacked> gPackedPhotonData[2];
 Texture2D<float4> gThp; //Thp for caustic and final gathering
 
 //Inputs Temporal Caustic Filter (can be null)

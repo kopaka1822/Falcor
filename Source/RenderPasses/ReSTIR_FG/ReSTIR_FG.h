@@ -175,7 +175,8 @@ private:
     RenderMode mRenderMode = RenderMode::ReSTIRFG;
     ResamplingMode mResamplingMode = ResamplingMode::SpartioTemporal;
     DirectLightingMode mDirectLightMode = DirectLightingMode::RTXDI;
-    bool mUseReduceTexPrecision = true;                             //Uses F16 instead of F32 for some textures. Can result in a loss of precision
+    bool mUseReduceTexPrecision = false;                             //Uses F16 instead of F32 for some textures. Can result in a loss of precision
+    bool mUseReducePhotonData = false;
     bool mResetTex = false;
     bool mOptionsChanged = false;
 
@@ -229,7 +230,7 @@ private:
     CausticCollectionMode mCausticCollectMode = CausticCollectionMode::Temporal;
     uint mCausticTemporalFilterHistoryLimit = 60;
     bool mEmissionToCausticFilter = true;
-
+    
     bool mUseStochasticCollect = true;                     //Stochastic collect using reservoir sampling.
     uint mStochasticCollectNumPhotons = 3;
 

@@ -41,7 +41,7 @@ cbuffer Light{
 #endif
 
 RWStructuredBuffer<AABB> gPhotonAABB[2];
-RWStructuredBuffer<uint4> gPackedPhotonData[2];
+RWStructuredBuffer<PhotonDataPacked> gPackedPhotonData[2];
 RWBuffer<uint> gPhotonCounter;
 Texture2D<uint>gPhotonCullingMask;
 
@@ -324,9 +324,7 @@ void rayGen()
 
     const float invRejection = 1.f/gRejection;
     const float invInvRejection = 1.f/(1.f-gRejection);
-     // Prepare ray payload.
-    RayData rayData = RayData.create();
-    rayData.sg = SampleGenerator(launchIndex, gFrameCount + 1 * 13 );
+    SampleGenerator lightSg = SampleGenerator(launchIndex, gFrameCount + 5 * 13); //Sample Generator for the light sample
 
     RayDesc ray;
     PhotonLightSample pls;
@@ -336,18 +334,18 @@ void rayGen()
 #endif
     {   //Analytic light sample
         float3 sampleDir;
-        if (!createLightSampleAnalytic(rayData.sg, pls, sampleDir))
+        if (!createLightSampleAnalytic(lightSg, pls, sampleDir))
             return;
     
         ray.Direction = sampleDir;
     }
 #if USE_EMISSIVE_LIGHT  
     else { //Emissive light sample
-        if (!createLightSample(rayData.sg, pls))
+        if (!createLightSample(lightSg, pls))
             return;
     
         float lightDirPDF = 1.0;
-        float3 woLocal = sample_cosine_hemisphere_concentric(sampleNext2D(rayData.sg), lightDirPDF);
+        float3 woLocal = sample_cosine_hemisphere_concentric(sampleNext2D(lightSg), lightDirPDF);
 
         if (lightDirPDF <= 0.f)
             return;
@@ -359,6 +357,10 @@ void rayGen()
 #endif    
     
     pls.flux /= launchDim.x * launchDim.y; //Division through all dipatched photons
+
+    // Prepare ray payload.
+    RayData rayData = RayData.create();
+    rayData.sg = SampleGenerator(launchIndex, gFrameCount + 1 * 13 );
 
     ray.Origin = pls.posW;
     ray.TMin = 0.0f;

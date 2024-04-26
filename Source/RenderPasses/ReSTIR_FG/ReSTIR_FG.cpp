@@ -459,6 +459,9 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                 "weight still has full precision"
             );
 
+            mChangePhotonLightBufferSize |= group.checkbox("Use Reduced Photon Data format", mUseReducePhotonData);
+            group.tooltip("Uses float16 precision for the photon flux and direction");
+
             mResetTex |= group.checkbox("Use reduced texture precision", mUseReduceTexPrecision);
             group.tooltip("If enabled uses 16F tex for thp and causic radiance");                
 
@@ -748,7 +751,8 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
             mpPhotonAABB[i]->setName("ReSTIR_FG::PhotonAABB" + (i + 1));
         }
         if (!mpPhotonData[i]) {
-            mpPhotonData[i] = Buffer::createStructured(mpDevice, sizeof(uint) * 4, mNumMaxPhotons[i]);
+            uint pdSize = mUseReducePhotonData ? sizeof(uint) * 4 : sizeof(uint) * 8;
+            mpPhotonData[i] = Buffer::createStructured(mpDevice, pdSize, mNumMaxPhotons[i]);
             mpPhotonData[i]->setName("ReSTIR_FG::PhotonData" + (i + 1));
         }
     }
@@ -937,6 +941,7 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
     mGeneratePhotonPass.pProgram->addDefine("USE_CAUSTIC_CULLING", mUseCausticCulling ? "1" : "0");
     mGeneratePhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_ROUGH_CUTOFF", std::to_string(mTraceRoughnessCutoff));
     mGeneratePhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF", std::to_string(mTraceDiffuseCutoff));
+    mGeneratePhotonPass.pProgram->addDefine("USE_REDUCED_PD_FORMAT", mUseReducePhotonData ? "1" : "0");
 
     
     if (!mGeneratePhotonPass.pVars)
@@ -1074,6 +1079,8 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      mCollectPhotonPass.pProgram->addDefine(
          "EMISSION_TO_CAUSTIC_FILTER", (mCausticCollectMode == CausticCollectionMode::Temporal && mEmissionToCausticFilter) ? "1" : "0"
      );
+     mCollectPhotonPass.pProgram->addDefine("USE_REDUCED_PD_FORMAT", mUseReducePhotonData ? "1" : "0");
+
 
      mCollectPhotonPass.pProgram->addDefine("USE_STOCHASTIC_COLLECT", mUseStochasticCollect ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefine("STOCH_NUM_PHOTONS", std::to_string(mStochasticCollectNumPhotons));

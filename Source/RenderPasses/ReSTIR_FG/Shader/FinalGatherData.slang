@@ -1,6 +1,10 @@
 import Utils.Math.PackedFormats;
 import Utils.Math.FormatConversion;
 
+#ifndef USE_REDUCED_PD_FORMAT
+#define USE_REDUCED_PD_FORMAT 0
+#endif
+
 //Final Gather Data. 64 bytes
 struct FGData{
     float3 posW;
@@ -27,6 +31,13 @@ struct FGData{
     }
 };
 
+struct PhotonDataPacked{
+    uint4 data1;
+#if !USE_REDUCED_PD_FORMAT
+    uint4 data2;
+#endif
+}
+
 struct PhotonData{
     float3 flux;
     uint packedNormal;  //Normal packed as 2x8snorm
@@ -40,13 +51,23 @@ struct PhotonData{
         isFirstHit = false;
     }
     
-    __init(uint4 data){
+    __init(PhotonDataPacked packedData){
+    #if USE_REDUCED_PD_FORMAT
+        uint4 data = packedData.data1;
         flux.xy = float2(f16tof32((data.x >> 16) & 0xFFFF), f16tof32(data.x & 0xFFFF));
         flux.z = f16tof32((data.y >> 16) & 0xFFFF);
         dir.x = f16tof32(data.y & 0xFFFF);
         dir.yz = float2(f16tof32((data.z >> 16) & 0xFFFF), f16tof32(data.z & 0xFFFF));
         packedNormal = data.w & 0xFFFF;
         isFirstHit = ((data.w >> 16) & 1) == 1 ? true : false;
+    #else //USE_REDUCED_PD_FORMAT
+        uint4 data = packedData.data1;
+        flux = float3(asfloat(data.x), asfloat(data.y), asfloat(data.z));
+        packedNormal = data.w;
+        data = packedData.data2;
+        dir = float3(asfloat(data.x), asfloat(data.y), asfloat(data.z));
+        isFirstHit = data.w > 0;
+    #endif //USE_REDUCED_PD_FORMAT
     }
 
     property float3 normal{
@@ -54,13 +75,21 @@ struct PhotonData{
         set { packedNormal = encodeNormal2x8(newValue); }
     }
 
-    uint4 pack(){
+    PhotonDataPacked pack(){
+        PhotonDataPacked ppd;
+    #if USE_REDUCED_PD_FORMAT
         uint4 data;
         data.x = (f32tof16(flux.x) << 16u) | f32tof16(flux.y);
         data.y = (f32tof16(flux.z) << 16u) | f32tof16(dir.x);
         data.z = (f32tof16(dir.y) << 16u) | f32tof16(dir.z);
         data.w = packedNormal | (isFirstHit ? 1<<16 : 0);
-        return data;
+        ppd.data1 = data;
+    #else //USE_REDUCED_PD_FORMAT
+        ppd.data1 = uint4(asuint(flux.x), asuint(flux.y), asuint(flux.z), packedNormal);
+        uint firstHitVal = isFirstHit ? 1 : 0;
+        ppd.data2 = uint4(asuint(dir.x), asuint(dir.y),asuint(dir.z), firstHitVal);
+    #endif //USE_REDUCED_PD_FORMAT
+        return ppd;
     }
 };
 
