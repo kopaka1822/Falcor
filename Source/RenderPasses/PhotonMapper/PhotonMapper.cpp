@@ -191,6 +191,14 @@ void PhotonMapper::renderUI(Gui::Widgets& widget)
         changed |= widget.var("Max Caustic Bounces", mMaxCausticBounces, 0u, 32u);
         widget.tooltip("Maximum number of diffuse bounces that are allowed for a caustic photon.");
 
+        changed |= group.var("Min Photon Travel Distance", mPhotonFirstHitGuard, 0.0f);
+        group.tooltip(
+            "A photon has a decreased probability (below) to be stored if it traveled less distace than set here. Can drastically increase "
+            "performance on certrain lamps."
+        );
+        changed |= group.var("Probability Min Travel Dist", mPhotonFirstHitGuardStoreProb, 0.0f, 1.f);
+        group.tooltip("The probability a photon is stored if it is under the mininmal store probablilty.");
+
         changed |= widget.checkbox("Caustic from Delta lobes only", mGenerationDeltaRejection);
         widget.tooltip("Only stores ");
         if (mGenerationDeltaRejection)
@@ -205,7 +213,7 @@ void PhotonMapper::renderUI(Gui::Widgets& widget)
         if (radiusChanged)
             mPhotonCollectRadius = mPhotonCollectionRadiusStart;
 
-         changed |= group.checkbox("Enable SPPM", mUseSPPM);
+        changed |= group.checkbox("Enable SPPM", mUseSPPM);
         group.tooltip(
             "Stochastic Progressive Photon Mapping. Radius is reduced by a fixed sequence every frame. It is advised to use SPPM only for "
             "Offline Rendering"
@@ -238,6 +246,10 @@ void PhotonMapper::renderUI(Gui::Widgets& widget)
                 changed |= rebuildBuffer;
             }
         }
+
+        mChangePhotonLightBufferSize |= widget.checkbox("Use Reduce Photon Data format", mUseReducePhotonDataFormat);
+        widget.tooltip("When reduced format is used, the photons position and direction is stored at half precision (float16)");
+        
     }
 
     mOptionsChanged |= changed;
@@ -255,6 +267,9 @@ void PhotonMapper::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
 
     if (mpScene)
     {
+        const auto& bounds = mpScene->getSceneBounds();
+        mPhotonFirstHitGuard = math::length(bounds.extent()) * 0.01f; // Init to 1% of scene size
+
         if (mpScene->hasGeometryType(Scene::GeometryType::Custom))
         {
             logWarning("This render pass only supports triangles. Other types of geometry will be ignored.");
@@ -370,7 +385,8 @@ void PhotonMapper::prepareBuffers(RenderContext* pRenderContext, const RenderDat
         }
         if (!mpPhotonData[i])
         {
-            mpPhotonData[i] = Buffer::createStructured(mpDevice, sizeof(uint) * 4, mNumMaxPhotons[i]);
+            uint photonDataSize = mUseReducePhotonDataFormat ? sizeof(uint) * 4 : sizeof(uint) * 8;
+            mpPhotonData[i] = Buffer::createStructured(mpDevice, photonDataSize, mNumMaxPhotons[i]);
             mpPhotonData[i]->setName("PM::PhotonData" + (i + 1));
         }
     }
@@ -471,6 +487,7 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     mGeneratePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE_GLOBAL", std::to_string(mNumMaxPhotons[0]));
     mGeneratePhotonPass.pProgram->addDefine("PHOTON_BUFFER_SIZE_CAUSTIC", std::to_string(mNumMaxPhotons[1]));
     mGeneratePhotonPass.pProgram->addDefine("USE_PHOTON_CULLING", mUsePhotonCulling ? "1" : "0");
+    mGeneratePhotonPass.pProgram->addDefine("USE_REDUCED_PD_FORMAT", mUseReducePhotonDataFormat ? "1" : "0");
 
     if (!mGeneratePhotonPass.pVars)
     {
@@ -518,6 +535,8 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     var[nameBuf]["gFlags"] = flags;
     var[nameBuf]["gHashSize"] = 1 << mCullingHashBufferSizeBits; // Size of the Photon Culling buffer. 2^x
     var[nameBuf]["gCausticsBounces"] = mMaxCausticBounces;
+    var[nameBuf]["gGenerationLampIntersectGuard"] = mPhotonFirstHitGuard;
+    var[nameBuf]["gGenerationLampIntersectGuardStoreProbability"] = mPhotonFirstHitGuardStoreProb;
     
     if (mpEmissiveLightSampler)
         mpEmissiveLightSampler->setShaderData(var["Light"]["gEmissiveSampler"]);
@@ -598,6 +617,8 @@ void PhotonMapper::collectPhotons(RenderContext* pRenderContext, const RenderDat
     if (!mCollectPhotonPass.pVars)
         mCollectPhotonPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
     FALCOR_ASSERT(mCollectPhotonPass.pVars);
+
+    mCollectPhotonPass.pProgram->addDefine("USE_REDUCED_PD_FORMAT", mUseReducePhotonDataFormat ? "1" : "0");
 
     auto var = mCollectPhotonPass.pVars->getRootVar();
 

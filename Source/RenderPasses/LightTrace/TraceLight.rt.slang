@@ -271,7 +271,7 @@ void closestHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersecti
         rayData.diffuseHit = bsdfSample.isLobe(LobeType::Diffuse) && !transmission;
     
     //if throughput is 0, return
-    if (!valid || any(rayData.thp <= 0))
+    if (!valid || all(rayData.thp <= 0))
         rayData.terminated |= kRayFlagTerminatedHit;
 }
 

@@ -134,6 +134,9 @@ private:
     bool mEnableCausticPhotonCollection = true;
     bool mGenerationDeltaRejection = true;
     bool mGenerationDeltaRejectionRequireDiffPart = false;
+    float mPhotonFirstHitGuard = 0.3f;          // Phontons that traveled less than this distance are stored with a reduced probability
+    float mPhotonFirstHitGuardStoreProb = 0.1f; // Probability for a photon to be stored if it traveled under a minimal distance
+    bool mUseReducePhotonDataFormat = false;    
 
     bool mUsePhotonCulling = true;
     uint mCullingHashBufferSizeBits = 20; // Number of Culling Hash bits

@@ -24,7 +24,7 @@ cbuffer PerFrame
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gView;
 StructuredBuffer<AABB> gPhotonAABB[2];
-StructuredBuffer<uint4> gPackedPhotonData[2];
+StructuredBuffer<PhotonDataPacked> gPackedPhotonData[2];
 Texture2D<PackedHitInfo> gVBufferFirstHit;
 Texture2D<float4> gThp;
 
@@ -163,13 +163,14 @@ void rayGen()
     //Get vertex data for the world position
     TriangleHit triangleHit = hit.getTriangleHit();
     VertexData v = gScene.getVertexData(triangleHit);
-        
+    float3 view = -gView[launchIndex].xyz;
+    
     //Ray description 
     RayDesc ray;
     ray.Origin = v.posW;
     ray.TMin = 0.0;
     ray.TMax = 0.001;
-    ray.Direction = -gView[launchIndex].xyz; //we take the view dir as direction to save payload space
+    ray.Direction = view; //we take the view dir as direction to save payload space
 
     //Closest hit shader can be skipped
     uint rayFlags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES;
@@ -191,6 +192,12 @@ void rayGen()
         radiance *= thp;
     }
 
+    ShadingData sd = loadShadingData(hit, view, lod);
+    uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
+    let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
+    let bsdfProperties = bsdf.getProperties(sd);
+
+    radiance += bsdfProperties.emission;
 
     gColor[launchIndex] = float4(radiance, 1.f);
 

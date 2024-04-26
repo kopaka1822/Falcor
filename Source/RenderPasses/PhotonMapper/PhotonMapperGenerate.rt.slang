@@ -5,6 +5,7 @@ import Scene.Raytracing;
 import Utils.Math.PackedFormats;
 import Utils.Math.FormatConversion;
 import Utils.Math.MathHelpers;
+import Utils.Geometry.GeometryHelpers;
 import Utils.Sampling.SampleGenerator;
 import Scene.Material.ShadingUtils;
 import Rendering.Lights.LightHelpers;
@@ -32,6 +33,8 @@ cbuffer CB
     uint gFlags; //Flags for the pass. See GenerationFlags enum
     uint gHashSize; //Size is always 2^x
     int gCausticsBounces; //Number of diffuse bounces allowed for caustic photons
+    float gGenerationLampIntersectGuard;    //Guard for the first hit of photons
+    float gGenerationLampIntersectGuardStoreProbability; //Percentage a photon is stored
 };
 
 
@@ -42,7 +45,7 @@ cbuffer Light{
 #endif
 
 RWStructuredBuffer<AABB> gPhotonAABB[2];
-RWStructuredBuffer<uint4> gPackedPhotonData[2];
+RWStructuredBuffer<PhotonDataPacked> gPackedPhotonData[2];
 RWBuffer<uint> gPhotonCounter;
 Texture2D<uint> gPhotonCullingMask;
 
@@ -75,6 +78,7 @@ struct RayData
     float3 direction; ///< Next path segment direction.
     bool diffuseHit; ///< saves if the his is diffuse
     bool isEmissive; ///<If the hit is emissive
+    float distance; ///<Distance the path has traveled
 
     SampleGenerator sg; ///< Per-ray state for the sample generator (up to 16B).
 
@@ -89,6 +93,7 @@ struct RayData
         d.origin = float3(0);
         d.direction = float3(0);
         d.isEmissive = false;
+        d.distance = 0.f;
         return d;
     }
 };
@@ -131,7 +136,7 @@ float3 fromLocalToWorld(const in float3 normal, float3 w)
 
 #if USE_EMISSIVE_LIGHT  //Function is only valid if the emissive sampler is set
 bool createLightSample(inout SampleGenerator sg, out PhotonLightSample pls ){
-
+    pls = {};
     if (gScene.lightCollection.isEmpty())
         return false;
 
@@ -172,6 +177,7 @@ bool createLightSample(inout SampleGenerator sg, out PhotonLightSample pls ){
     }
     */
 
+    pls.posW = computeRayOrigin(pls.posW, pls.normal);
     pls.flux /= triangleSelectionPdf;
 
     return true;
@@ -180,6 +186,8 @@ bool createLightSample(inout SampleGenerator sg, out PhotonLightSample pls ){
 
 bool createLightSampleAnalytic(inout SampleGenerator sg, out PhotonLightSample pls, out float3 sampledDir)
 {
+    pls = {};
+    sampledDir = float3(0);
     const uint lightCount = gScene.getLightCount();
     if (lightCount == 0)
         return false;
@@ -276,13 +284,14 @@ void closestHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersecti
     rayData.packedNormal = encodeNormal2x16(sd.faceN);
     rayData.direction = bsdfSample.wo;
     rayData.isEmissive = luminance(bsdfProperties.emission) > 0;
+    rayData.distance += RayTCurrent();
     if (gFlags & (uint) GenerationFlags::DeltaRejection)
         rayData.diffuseHit = bsdfSample.isLobe(LobeType::NonDeltaReflection) && hasDiffuseParts;
     else
         rayData.diffuseHit = bsdfSample.isLobe(LobeType::Diffuse) && !transmission;
     
     //if throughput is 0, return
-    if (!valid || any(rayData.thp <= 0))
+    if (!valid || all(rayData.thp <= 0))
         rayData.terminated |= kRayFlagTerminatedHit;
 }
 
@@ -310,10 +319,8 @@ void rayGen()
 
     const float invRejection = 1.f / gRejection;
     const float invInvRejection = 1.f / (1.f - gRejection);
-     // Prepare ray payload.
-    RayData rayData = RayData.create();
-    rayData.sg = SampleGenerator(launchIndex, gFrameCount + 1 * 13);
-
+    
+    SampleGenerator lightSg = SampleGenerator(launchIndex, gFrameCount + 5 * 13); //Sample Generator for the light sampel
     RayDesc ray;
     PhotonLightSample pls;
 
@@ -322,23 +329,23 @@ void rayGen()
 #endif
     {   //Analytic light sample
         float3 sampleDir;
-        if (!createLightSampleAnalytic(rayData.sg, pls, sampleDir))
+        if (!createLightSampleAnalytic(lightSg, pls, sampleDir))
             return;
     
         ray.Direction = sampleDir;
     }
 #if USE_EMISSIVE_LIGHT  
     else { //Emissive light sample
-        if (!createLightSample(rayData.sg, pls))
+        if (!createLightSample(lightSg, pls))
             return;
     
         float lightDirPDF = 1.0;
-        float3 woLocal = sample_cosine_hemisphere_concentric(sampleNext2D(rayData.sg), lightDirPDF);
+        float3 woLocal = sample_cosine_hemisphere_concentric(sampleNext2D(lightSg), lightDirPDF);
 
         if (lightDirPDF <= 0.f)
             return;
     
-        ray.Direction = fromLocalToWorld(pls.normal, woLocal);
+        ray.Direction = normalize(fromLocalToWorld(pls.normal, woLocal));
         //pls.flux /= lightDirPDF;
         pls.flux *= M_PI;   //Lambert Emitter
     }
@@ -346,9 +353,13 @@ void rayGen()
     pls.flux /= launchDim.x * launchDim.y; //Division through all dipatched photons
 
     ray.Origin = pls.posW;
-    ray.TMin = 0.001f;
+    ray.TMin = 0.0f;
     ray.TMax = 10000.f;
-    
+
+    // Prepare ray payload.
+    RayData rayData = RayData.create();
+    rayData.sg = SampleGenerator(launchIndex, gFrameCount + 1 * 13);
+
     //create photon
     float3 photonPos = float3(0);
     PhotonInfo photon;
@@ -381,9 +392,14 @@ void rayGen()
         //rejection
         float rndRoulette = sampleNext1D(rayData.sg);
         bool roulette = rndRoulette <= gRejection;
-              
+        bool minDistanceRoulette = true;
+
+        if(rayData.distance < gGenerationLampIntersectGuard){
+            minDistanceRoulette = sampleNext1D(rayData.sg) < gGenerationLampIntersectGuardStoreProbability;
+            photon.flux *= 1.f/gGenerationLampIntersectGuardStoreProbability;
+        }
         //store photon light
-        if (reflectedDiffuse && (roulette || storeAsCaustic))
+        if (reflectedDiffuse && (roulette || storeAsCaustic) && minDistanceRoulette)
         {
             uint photonType = storeAsCaustic ? 1 : 0; //Global = 0 or caustic = 1
             bool storePhoton = true;
