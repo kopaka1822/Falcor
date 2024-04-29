@@ -98,6 +98,8 @@ static const bool kEnableHybridBlending = HYBRID_USE_BLENDING;
 static const float2 kHybridBlendingRange = HYBRID_BLENDING_RANGE;   //x=Min; y=Range
 static const bool kStochasticCascadedLevelEnabled = DEBUG_STOCH_CASC_ENABLED;
 
+static const float kShadowCutoff = 0.5f;
+
 /** Payload for shadow ray.
 */
 struct ShadowRayData
@@ -275,6 +277,122 @@ bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const flo
     return any(Li > 0);
 }
 
+bool sampleLight(const in LightData lightData, const float3 posW, const float3 N, out AnalyticLightSample ls){
+    //Sample the light
+    if (!evalLightApproximate(posW, lightData, ls))
+        return false;
+
+    //Quick check if point is shaded
+    float NdotL = dot(N, ls.dir);
+    if(NdotL <= 0 || all(ls.Li <= 0))
+        return false;
+
+    return true;
+}
+
+/** Return a value between 0 and 1 that represents how shadowed the current light sample is
+*/
+bool evalShadowMap(const in SMLightData smLightData, float3 posW, float3 faceN, float2 mVec , float random,out float shadow, out bool isDynamic){
+    //Shadow test
+    shadow = 0.f;
+    isDynamic = false;
+    bool useRay = (kShadowMode == (uint)SPShadowMode::RayShadows);
+    float lod = 0.f;
+    //Eval shadow map if mode is enabled
+    if(!useRay){
+        //Get lod mip level
+        if(kMipsEnabled){
+            float2 invFrameDim = 1.f / float2(DispatchRaysDimensions().xy);
+            float3 posWDdx = computeDdxPosW(posW, faceN, invFrameDim);
+            float3 posWDdy = computeDdyPosW(posW, faceN, invFrameDim);
+            lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);    
+        }
+        if(kShadowMode == (uint)SPShadowMode::LeakTracing)
+            useRay = !gShadowMap.evalShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow, isDynamic, true);
+        else
+            useRay = !gShadowMap.evalShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
+    }
+#if DISABLE_DYNAMIC_GEOMETRY_CHECK
+    isDynamic = false;
+#endif
+    return useRay;
+}
+
+float evalShadowRay(in const AnalyticLightSample ls, float3 posW, float3 faceN){
+    float rtShadow = 0.f;
+    RayDesc ray;
+    ray.Origin = computeRayOrigin(posW, faceN);
+    ray.Direction = ls.dir;
+    ray.TMin = 0.0f;
+    ray.TMax = ls.distance;   //No offset needed, as the light is analytic and does not exist in the scene as a physical object
+
+    ShadowRayData rayData;
+    rayData.visible = false;  // Set to true by miss shader if ray is not terminated before
+    rayData.disableAlphaTest = false;
+
+    TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+    
+    rtShadow = rayData.visible ? 1.f : 0.f;
+
+    return rtShadow;
+}
+
+float3 handleDebugTex(bool useRay, bool isSMIsShadowed, float shadow, const in SMLightData smLightData, float3 posW, float random){
+    float3 debug = float3(0);
+    #if DEBUG_MODE == 0 //Use Ray
+        debug.x += useRay && kShadowMode != (uint) SPShadowMode::ShadowMap ? 1.f : 0.f;
+        
+    #elif DEBUG_MODE == 1 //Lod level debug
+        float lod = 0;  //TODO
+        debug = float3(1,0,0);
+        if(lod > 1)
+            debug = float3(0,1,0);
+        if(lod > 2)
+            debug = float3(0,0,1);
+        if(lod > 3)
+            debug = float3(1,0,1);
+        if(lod > 4)
+            debug = float3(0,1,1);
+        if(lod > 5)
+            debug = float3(1,0,1);
+            
+    #elif DEBUG_MODE == 2 //Cacaded Level Debug
+        if (smLightData.type == (uint) LightTypeSM::Directional)
+        {
+            uint cascLevel = 0;
+            float2 tmpUV;
+            float tmpDist;
+            bool valid;
+            if(kStochasticCascadedLevelEnabled)
+                valid = gShadowMap.directionalDistanceAndSampleVec(posW,random, cascLevel, tmpUV, tmpDist);
+            else
+                valid = gShadowMap.directionalDistanceAndSampleVec(posW, cascLevel, tmpUV, tmpDist);
+
+            if (valid)
+            {
+                debug = float3(1, 0, 0);            //Level 0: Red
+                if(cascLevel == 1)
+                    debug = float3(0, 0, 1);        //Level 1 : Blue
+                else if(cascLevel == 2)
+                    debug = float3(1, 0, 1);        //Level 2 : Purple
+                else if(cascLevel == 3)
+                    debug =float3(0, 1, 1);         //Level 3 : Cyan
+                else if (cascLevel > 3)
+                    debug = float3(1, 0.678, 0.118);//Level 4+ : Orange
+            }
+            else
+            {
+                debug = float3(0,1,0);  //Green Ray needed
+            }
+            
+        }
+    #else   //Hybrid mask texture
+        debug.x += useRay ? 1.f : 0.f;
+        debug.y += isSMIsShadowed ? 1.f : 0.f;
+        debug.z += useRay && (shadow < 0.5) ? 1.f : 0.f;   
+    #endif
+}
+
 /** Adjusts the normal of the supplied shading frame to reduce black pixels due to back-facing view direction.
 */
 void adjustShadingNormal(const float3 V, const float3 faceN, inout float3 N)
@@ -388,7 +506,7 @@ void rayGen()
 
     SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 2 * 7);
 
-    const uint lightCount = gScene.getLightCount();
+    const uint lightCount = min(gScene.getLightCount(), 10);    //Limit to 10 due to the mask
         
     if (valid)
     {
@@ -429,15 +547,55 @@ void rayGen()
     
         //Loop over all lights
         for(uint i=0 ; i<lightCount; i++){
-            float3 Li, toLight;
-            if(!sampleLight(posW, normalW, faceNormalW, mvec, i, sampleNext1D(sg) , toLight, Li, debugOut))
+            //Sample light
+            LightData lightData = gScene.getLight(i);
+            AnalyticLightSample ls;
+            if(!sampleLight(lightData, posW, normalW, ls))
                 continue;
 
-            //Check if point can be shaded
-            //if(dot(faceNormalW, toLight) <= 0.f)
-            //    continue;
+            //Eval Leak Tracing Test
+            float camDist = distance(gScene.camera.getPosition(), posW);
+            float random = sampleNext1D(sg);
+            float shadow = 0.f;
+            bool clampShadow = false;
+            bool useRay = kShadowMode == (uint)SPShadowMode::RayShadows;
+            if(!useRay){
+                bool isDynamic = false;
+                SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, i);
+                useRay = evalShadowMap(smLightData, posW, faceNormalW, mvec,random , shadow, isDynamic);
 
-            color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, toLight) * Li;
+                if (kUseLTTMask && gLTTMaskValid) {
+                    useRay = evaluateLTTMask(DispatchRaysIndex().xy, mvec, useRay, shadow < kShadowCutoff ,clampShadow,camDist, gFrameCount, isDynamic);
+                }
+            }
+            //Trace Ray
+            float rtShadow = shadow;
+            if(useRay)
+                rtShadow = evalShadowRay(ls, posW, faceNormalW);
+
+            //Write Mask for current light TODO enable for multiple lights
+            if(kUseLTTMask){
+                writeLTTMask(DispatchRaysIndex().xy, shadow < kShadowCutoff, useRay, useRay && (rtShadow < kShadowCutoff), camDist);
+            }
+
+            //Set shadow value
+            if(clampShadow && !useRay)
+                rtShadow = shadow < 0.5 ? 0.f : 1.f;
+            if(kEnableHybridBlending && kShadowMode != (uint)SPShadowMode::RayShadows){
+                float blendT = saturate((camDist - kHybridBlendingRange.x)/kHybridBlendingRange.y);
+                shadow = lerp(rtShadow, shadow, blendT);
+            }else
+                shadow = rtShadow;
+
+            //Handle Debug TODO check why it does not work
+            if (is_valid(gDebug))
+            {
+                SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, i);
+                debugOut += handleDebugTex(useRay, shadow < kShadowCutoff, shadow, smLightData, posW, random);
+            }
+
+            if(shadow > 0)
+                color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, ls.dir) * ls.Li * shadow;
         }
 
         //Ambient Color
