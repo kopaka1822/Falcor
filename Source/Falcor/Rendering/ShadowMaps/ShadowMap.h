@@ -155,7 +155,7 @@ private:
     DefineList getDefinesShadowMapGenPass(bool addAlphaModeDefines = true) const;
 
     void rasterCubeEachFace(uint index, ref<Light> light, RenderContext* pRenderContext);
-    bool rasterSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext, std::vector<bool>& wasRendered);
+    bool rasterSpotLight(uint index, ref<Light> light, RenderContext* pRenderContext);
     bool rasterCascaded(ref<Light> light, RenderContext* pRenderContext, bool cameraMoved);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix, float3& lightTarget, float3& up);
     float4x4 getProjViewForCubeFace(uint face, const LightData& lightData, const float4x4& projectionMatrix);
@@ -282,6 +282,7 @@ private:
     //General
     bool mCanUseRayTracing = true;  //RayTracing can be disabled for some settings
     bool mClearDynamicSM = false;
+    uint mCountSpotShadowMaps = 0;
 
     //Frustum Culling
     uint2 mFrustumCullingVectorOffsets = uint2(0, 0);   //Cascaded / Point
