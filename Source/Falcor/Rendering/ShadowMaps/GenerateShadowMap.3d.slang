@@ -8,9 +8,10 @@ cbuffer CB
     float4x4 gviewProjection;   //View Projection
 
     float3 gLightPos;           //Light Position; Near is stored in x for spotlights
-    float gFarPlane;            //Far plane of the shadow map
+    bool gDisableAlpha;
 
-    bool gDisableAlpha; 
+    float gNearPlane;           //Near Plane
+    float gFarPlane;            //Far plane of the shadow map
 };
 
 #ifndef SM_EXPONENTIAL_CONSTANT
@@ -102,6 +103,17 @@ void psMain(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID)
 #endif
 }
 
+// Classic Shadow Maps with linear depth
+float psMainLinearDepth(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Depth
+{
+#if USE_ALPHA_TEST
+    if(!gDisableAlpha)
+        if (shadowAlphaTest(vsOut, triangleIndex)) discard;
+#endif
+    float depth = (vsOut.posH.w - gNearPlane)/(gFarPlane - gNearPlane); //Linear depth from [0,1]
+    return depth;
+}
+
 float psMainCube(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
 {
     #if USE_ALPHA_TEST
@@ -121,15 +133,14 @@ float2 psVariance(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_T
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
 
-    const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
-    float depth = (vsOut.posH.w - near)/(gFarPlane - near); //Linear depth from [0,1]
+    float depth = (vsOut.posH.w - gNearPlane)/(gFarPlane - gNearPlane); //Linear depth from [0,1]
     float2 varianceSM = float2(depth, depth * depth);
     
     //From https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-8-summed-area-variance-shadow-maps
     #if SM_VARIANCE_SELFSHADOW
     //Get neighbor pixels depth and linearize
-    float depthX = (ddx(vsOut.posH.w) - near) / (gFarPlane - near);
-    float depthY = (ddy(vsOut.posH.w) - near) / (gFarPlane - near);
+    float depthX = (ddx(vsOut.posH.w) - gNearPlane) / (gFarPlane - gNearPlane);
+    float depthY = (ddy(vsOut.posH.w) - gNearPlane) / (gFarPlane - gNearPlane);
     
     varianceSM.y += 0.25f * (depthX * depthX + depthY * depthY);
     #endif //SM_VARIANCE_SELFSHADOW
@@ -192,8 +203,7 @@ float psExponential(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
     
-    const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
-    float linZ = (vsOut.posH.w - near) / ( gFarPlane - near);
+    float linZ = (vsOut.posH.w - gNearPlane) / ( gFarPlane - gNearPlane);
     linZ = rescaleDepth(linZ);
     return exp(linZ * SM_EXPONENTIAL_CONSTANT);
 }
@@ -240,8 +250,7 @@ float4 psExponentialVariance(ShadowVsOut vsOut, uint triangleIndex : SV_Primitiv
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
 
-    const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
-    float linZ = (vsOut.posH.w - near) / ( gFarPlane - near);
+    float linZ = (vsOut.posH.w - gNearPlane) / ( gFarPlane - gNearPlane);
     linZ = rescaleDepth(linZ);           //Convert to [-1,1]
     
     return getExponentialVarianceMoments(linZ);
@@ -286,8 +295,7 @@ float4 psMSM(ShadowVsOut vsOut, uint triangleIndex : SV_PrimitiveID) : SV_Target
         if (shadowAlphaTest(vsOut, triangleIndex)) discard;
     #endif
 
-    const float near = gLightPos.x;     //Light position is not needed here, therefore the near is stored in the x component
-    float linZ = (vsOut.posH.w - near) / ( gFarPlane - near);
+    float linZ = (vsOut.posH.w - gNearPlane) / ( gFarPlane - gNearPlane);
     
     return getFourMoments(linZ);
 }

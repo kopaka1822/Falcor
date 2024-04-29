@@ -478,26 +478,11 @@ struct ShadowMap
         float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
         projPos.xyz = (projPos.xyz / projPos.w);
 
-        switch (ShadowMapType(kShadowMapMode)){
-        case ShadowMapType::ShadowMap:
-        case ShadowMapType::SDVariance:
-        case ShadowMapType::SDExponentialVariance:
-        case ShadowMapType::SDMSM:
+        if(ShadowMapType(kShadowMapMode) == ShadowMapType::ShadowMap)
         {
             lightDist = projPos.z;
-            break;
-        }
-        case ShadowMapType::Variance:
-        case ShadowMapType::Exponential:
-        case ShadowMapType::ExponentialVariance:
-        case ShadowMapType::MSMHamburger:
-        case ShadowMapType::MSMHausdorff:
-        {
+        }else{ //Linearize Depth
             lightDist = (projPos.w - kShadowMapNear) / (gShadowMapFarPlane - kShadowMapNear);
-            break;
-        }
-        default:
-            lightDist = projPos.z;
         }
 
         shadowUV = projPos.xy;

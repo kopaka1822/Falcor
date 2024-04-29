@@ -119,8 +119,9 @@ private:
         float4x4 viewProjectionMatrix = float4x4();
 
         float3 lightPosition = float3(0, 0, 0);
-        float farPlane = 30.f;
         bool disableAlpha = false;
+        float nearPlane = 0.1f;
+        float farPlane = 30.f;
     };
     struct VPMatrixBuffer
     {

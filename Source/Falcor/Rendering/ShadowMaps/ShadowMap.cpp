@@ -515,10 +515,12 @@ void ShadowMap::prepareRasterProgramms()
         switch (mShadowMapType)
         {
         case ShadowMapType::ShadowMap:
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMain");
+            break;
         case ShadowMapType::SDVariance:
         case ShadowMapType::SDExponentialVariance:
         case ShadowMapType::SDMSM:
-            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMain");
+            desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psMainLinearDepth");
             break;
         case ShadowMapType::Variance:
             desc.addShaderLibrary(kShadowGenRasterShader).vsEntry("vsMain").psEntry("psVariance");
@@ -874,8 +876,9 @@ void ShadowMap::setSMShaderVars(ShaderVar& var, ShaderParameters& params)
 {
     var["CB"]["gviewProjection"] = params.viewProjectionMatrix;
     var["CB"]["gLightPos"] = params.lightPosition;
-    var["CB"]["gFarPlane"] = params.farPlane;
     var["CB"]["gDisableAlpha"] = params.disableAlpha;
+    var["CB"]["gNearPlane"] = params.nearPlane;
+    var["CB"]["gFarPlane"] = params.farPlane;
 }
 
 float4x4 ShadowMap::getProjViewForCubeFace(uint face,const LightData& lightData, const float4x4& projectionMatrix)
@@ -955,6 +958,7 @@ void ShadowMap::rasterCubeEachFace(uint index, ref<Light> light, RenderContext* 
     ShaderParameters params;
     params.lightPosition = lightData.posW;
     params.farPlane = mFar;
+    params.nearPlane = mNear;
 
     const float4x4 projMat = math::perspective(float(M_PI_2), 1.f, mNear, mFar); //Is the same for all 6 faces
 
@@ -1150,6 +1154,7 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
 
     params.lightPosition = float3(mNear, 0.f,0.f);
     params.farPlane = mFar;
+    params.nearPlane = mNear;
     params.viewProjectionMatrix = math::mul(projMat, viewMat);     
   
     mSpotDirViewProjMat[index] = params.viewProjectionMatrix;
@@ -1467,6 +1472,7 @@ bool ShadowMap::rasterCascaded(ref<Light> light, RenderContext* pRenderContext, 
         ShaderParameters params;
         params.lightPosition = lightData.posW;
         params.farPlane = mFar;
+        params.nearPlane = mNear;
         params.viewProjectionMatrix = mCascadedVPMatrix[cascLevel];
         params.disableAlpha = cascLevel >= mCascadedDisableAlphaLevel;
 
