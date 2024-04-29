@@ -384,7 +384,8 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
         if (auto group = widget.group("Shadow Map Options", true))
         {
             group.separator();
-            changed |= mpShadowMap->renderUILeakTracing(group, mShadowMode == SPShadowMode::LeakTracing);
+            //changed |= mpShadowMap->renderUILeakTracing(group, mShadowMode == SPShadowMode::LeakTracing);
+            changed |= mpShadowMap->renderUI(group);
             group.separator();
         }
             

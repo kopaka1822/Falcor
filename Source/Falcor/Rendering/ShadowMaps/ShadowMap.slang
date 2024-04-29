@@ -477,10 +477,29 @@ struct ShadowMap
         float4x4 viewProjectMat = gShadowMapVPBuffer[index];
         float4 projPos = mul(viewProjectMat, float4(posW, 1.f));
         projPos.xyz = (projPos.xyz / projPos.w);
-        if (kShadowMapMode == (uint) ShadowMapType::ShadowMap)
+
+        switch (ShadowMapType(kShadowMapMode)){
+        case ShadowMapType::ShadowMap:
+        case ShadowMapType::SDVariance:
+        case ShadowMapType::SDExponentialVariance:
+        case ShadowMapType::SDMSM:
+        {
             lightDist = projPos.z;
-        else
-        lightDist = (projPos.w - kShadowMapNear) / (gShadowMapFarPlane - kShadowMapNear);
+            break;
+        }
+        case ShadowMapType::Variance:
+        case ShadowMapType::Exponential:
+        case ShadowMapType::ExponentialVariance:
+        case ShadowMapType::MSMHamburger:
+        case ShadowMapType::MSMHausdorff:
+        {
+            lightDist = (projPos.w - kShadowMapNear) / (gShadowMapFarPlane - kShadowMapNear);
+            break;
+        }
+        default:
+            lightDist = projPos.z;
+        }
+
         shadowUV = projPos.xy;
         shadowUV.y *= -1; //Flip 
         shadowUV = shadowUV * 0.5 + 0.5; //UV from [-1,1] to [0,1]
@@ -655,7 +674,6 @@ struct ShadowMap
             default:
                 break;
         }
-
         float4 gatherDepths = getShadowValueGather(index, shadowUV, lightType,isDynamic ,cascLevel);
         //Evaluate the shadow map
         if(ShadowMapType(kShadowMapMode) == ShadowMapType::SDVariance){
