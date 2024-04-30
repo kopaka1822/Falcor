@@ -479,7 +479,7 @@ void ShadowPass::handleHybridMaskData(RenderContext* pRenderContext,uint2 screen
             for (uint i = 0; i < 2; i++)
             {
                 mpHybridMask[i] = Texture::create2D(
-                    mpDevice, screenDims.x, screenDims.y, ResourceFormat::R8Uint, 1, 1, nullptr,
+                    mpDevice, screenDims.x, screenDims.y, ResourceFormat::R32Uint, 1, 1, nullptr,
                     ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
                 );
                 mpHybridMask[i]->setName("Hybrid Mask" + std::to_string(i));

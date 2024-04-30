@@ -126,157 +126,6 @@ float3 computeDdyPosW(float3 posW, float3 normW, float2 invFrameDim)
     return distUp * projUp;
 }
 
-
-//Calculates the shadowed Li for a given light
-bool sampleLight(const float3 posW,const float3 N, const float3 faceN, const float2 mvec, const uint lightIdx, float random, out float3 toLight, out float3 Li, inout float3 debug){
-    Li = float3(0);
-    toLight = float3(0);
-    //Sample the light
-    AnalyticLightSample ls;
-    LightData lightData = gScene.getLight(lightIdx);
-    if (!evalLightApproximate(posW, lightData, ls))
-        return false;
-
-    //Quick check if point is shaded
-    float NdotL = dot(N, ls.dir);
-    if(NdotL <= 0)
-        return false;
-
-    if(all(ls.Li <= 0))
-        return false;
-
-    //Shadow test
-    float shadow = 0.f;
-    bool isDynamic = false;
-    bool useRay = (kShadowMode == (uint)SPShadowMode::RayShadows);
-    float lod = 0.f;
-    //Eval shadow map if mode is enabled
-    if(!useRay){
-        SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, lightIdx);
-        //Get lod mip level
-        if(kMipsEnabled){
-            float2 invFrameDim = 1.f / float2(DispatchRaysDimensions().xy);
-            float3 posWDdx = computeDdxPosW(posW, faceN, invFrameDim);
-            float3 posWDdy = computeDdyPosW(posW, faceN, invFrameDim);
-            lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);    
-        }
-        if(kShadowMode == (uint)SPShadowMode::LeakTracing)
-            useRay = !gShadowMap.evalShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow, isDynamic, true);
-        else
-            useRay = !gShadowMap.evalShadowMap(posW, smLightData, float4(random) /*random (only x is used currently)*/, lod /*MipLevel*/, shadow);
-    }
-#if DISABLE_DYNAMIC_GEOMETRY_CHECK
-    isDynamic = false;
-#endif
-
-    bool isSMIsShadowed = shadow < 0.5;
-    float camDist = distance(gScene.camera.getPosition(), posW);
-    bool clampShadow = false;
-    if (kUseLTTMask && gLTTMaskValid) {
-        useRay = evaluateLTTMask(DispatchRaysIndex().xy, mvec, useRay,isSMIsShadowed,clampShadow,camDist, gFrameCount, isDynamic);
-    }
-
-#if HYBRID_ALPHA_ONLY
-    if(!isSMIsShadowed)
-        useRay |= true;
-#endif
-    //Shoot Shadow ray
-    float rtShadow = shadow;
-    if(useRay && kShadowMode != (uint)SPShadowMode::ShadowMap){
-        RayDesc ray;
-        ray.Origin = computeRayOrigin(posW, faceN);
-        ray.Direction = ls.dir;
-        ray.TMin = 0.0f;
-        ray.TMax = ls.distance;   //No offset needed, as the light is analytic and does not exist in the scene as a physical object
-
-        ShadowRayData rayData;
-        rayData.visible = false;  // Set to true by miss shader if ray is not terminated before
-        rayData.disableAlphaTest = camDist > kDisableAlphaTestAtDistance;
-
-        TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
-    
-        rtShadow = rayData.visible ? 1.f : 0.f;
-
-        float blendT = saturate((camDist - kHybridBlendingRange.x)/kHybridBlendingRange.y);
-        
-        shadow = lerp(rtShadow, shadow, blendT);
-    }
-
-    if(kUseLTTMask){
-        writeLTTMask(DispatchRaysIndex().xy, isSMIsShadowed, useRay, useRay && (rtShadow < 0.5), camDist);
-    }
-
-    //Set shadow value
-    if(clampShadow && !useRay)
-        rtShadow = shadow < 0.5 ? 0.f : 1.f;
-    if(kEnableHybridBlending && kShadowMode != (uint)SPShadowMode::RayShadows){
-        float blendT = saturate((camDist - kHybridBlendingRange.x)/kHybridBlendingRange.y);
-        shadow = lerp(rtShadow, shadow, blendT);
-    }else
-        shadow = rtShadow;
-        
-    //Handle Debug
-    if (is_valid(gDebug))
-    {
-    #if DEBUG_MODE == 0 //Use Ray
-        debug.x += useRay && kShadowMode != (uint) SPShadowMode::ShadowMap ? 1.f : 0.f;
-        
-    #elif DEBUG_MODE == 1 //Lod level debug
-        debug = float3(1,0,0);
-        if(lod > 1)
-            debug = float3(0,1,0);
-        if(lod > 2)
-            debug = float3(0,0,1);
-        if(lod > 3)
-            debug = float3(1,0,1);
-        if(lod > 4)
-            debug = float3(0,1,1);
-        if(lod > 5)
-            debug = float3(1,0,1);
-            
-    #elif DEBUG_MODE == 2 //Cacaded Level Debug
-        SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, lightIdx);
-        if (smLightData.type == (uint) LightTypeSM::Directional)
-        {
-            uint cascLevel = 0;
-            float2 tmpUV;
-            float tmpDist;
-            bool valid;
-            if(kStochasticCascadedLevelEnabled)
-                valid = gShadowMap.directionalDistanceAndSampleVec(posW,random, cascLevel, tmpUV, tmpDist);
-            else
-                valid = gShadowMap.directionalDistanceAndSampleVec(posW, cascLevel, tmpUV, tmpDist);
-
-            if (valid)
-            {
-                debug = float3(1, 0, 0);            //Level 0: Red
-                if(cascLevel == 1)
-                    debug = float3(0, 0, 1);        //Level 1 : Blue
-                else if(cascLevel == 2)
-                    debug = float3(1, 0, 1);        //Level 2 : Purple
-                else if(cascLevel == 3)
-                    debug =float3(0, 1, 1);         //Level 3 : Cyan
-                else if (cascLevel > 3)
-                    debug = float3(1, 0.678, 0.118);//Level 4+ : Orange
-            }
-            else
-            {
-                debug = float3(0,1,0);  //Green Ray needed
-            }
-            
-        }
-    #else   //Hybrid mask texture
-        debug.x += useRay ? 1.f : 0.f;
-        debug.y += isSMIsShadowed ? 1.f : 0.f;
-        debug.z += useRay && (shadow < 0.5) ? 1.f : 0.f;   
-    #endif
-    }
-
-    toLight = ls.dir;
-    Li = ls.Li * shadow;
-    return any(Li > 0);
-}
-
 bool sampleLight(const in LightData lightData, const float3 posW, const float3 N, out AnalyticLightSample ls){
     //Sample the light
     if (!evalLightApproximate(posW, lightData, ls))
@@ -318,7 +167,7 @@ bool evalShadowMap(const in SMLightData smLightData, float3 posW, float3 faceN, 
     return useRay;
 }
 
-float evalShadowRay(in const AnalyticLightSample ls, float3 posW, float3 faceN){
+float evalShadowRay(in const AnalyticLightSample ls, float3 posW, float3 faceN, bool disableAlphaTest = false){
     float rtShadow = 0.f;
     RayDesc ray;
     ray.Origin = computeRayOrigin(posW, faceN);
@@ -327,8 +176,8 @@ float evalShadowRay(in const AnalyticLightSample ls, float3 posW, float3 faceN){
     ray.TMax = ls.distance;   //No offset needed, as the light is analytic and does not exist in the scene as a physical object
 
     ShadowRayData rayData;
-    rayData.visible = false;  // Set to true by miss shader if ray is not terminated before
-    rayData.disableAlphaTest = false;
+    rayData.visible = false; // Set to true by miss shader if ray is not terminated before
+    rayData.disableAlphaTest = disableAlphaTest;
 
     TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
     
@@ -389,8 +238,9 @@ float3 handleDebugTex(bool useRay, bool isSMIsShadowed, float shadow, const in S
     #else   //Hybrid mask texture
         debug.x += useRay ? 1.f : 0.f;
         debug.y += isSMIsShadowed ? 1.f : 0.f;
-        debug.z += useRay && (shadow < 0.5) ? 1.f : 0.f;   
+        debug.z += useRay && (shadow < 0.5) ? 1.f : 0.f;
     #endif
+        return debug;
 }
 
 /** Adjusts the normal of the supplied shading frame to reduce black pixels due to back-facing view direction.
@@ -474,8 +324,7 @@ void anyHit(inout ShadowRayData rayData, BuiltInTriangleIntersectionAttributes a
             AcceptHitAndEndSearch();
             return;
         }
-            
-            
+
         GeometryInstanceID instanceID = getGeometryInstanceID();
         VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
         const uint materialID = gScene.getMaterialID(instanceID);
@@ -544,7 +393,9 @@ void rayGen()
         }
 
         adjustShadingNormal(view, faceNormalW, normalW);
-    
+
+        uint globalMask = 0;
+
         //Loop over all lights
         for(uint i=0 ; i<lightCount; i++){
             //Sample light
@@ -558,28 +409,39 @@ void rayGen()
             float random = sampleNext1D(sg);
             float shadow = 0.f;
             bool clampShadow = false;
+            LTTProperties lttProps;
             bool useRay = kShadowMode == (uint)SPShadowMode::RayShadows;
             if(!useRay){
                 bool isDynamic = false;
                 SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, i);
-                useRay = evalShadowMap(smLightData, posW, faceNormalW, mvec,random , shadow, isDynamic);
-
+                useRay = evalShadowMap(smLightData, posW, faceNormalW, mvec, random, shadow, isDynamic);
+                #if DISABLE_DYNAMIC_GEOMETRY_CHECK
+                    isDynamic = false;
+                #endif
                 if (kUseLTTMask && gLTTMaskValid) {
-                    useRay = evaluateLTTMask(DispatchRaysIndex().xy, mvec, useRay, shadow < kShadowCutoff ,clampShadow,camDist, gFrameCount, isDynamic);
+                    lttProps.setData(useRay, shadow < kShadowCutoff, camDist, i, isDynamic, smLightData.type == (uint)LightTypeSM::Directional);
+                    useRay = evaluateLTTMask(DispatchRaysIndex().xy, mvec, lttProps , gFrameCount);
                 }
             }
+
+            #if HYBRID_ALPHA_ONLY
+                if (!lttProps.shadowTest)
+                    useRay |= true;
+            #endif
+
             //Trace Ray
             float rtShadow = shadow;
-            if(useRay)
-                rtShadow = evalShadowRay(ls, posW, faceNormalW);
+            if (useRay)
+                rtShadow = evalShadowRay(ls, posW, faceNormalW, camDist > kDisableAlphaTestAtDistance);
 
-            //Write Mask for current light TODO enable for multiple lights
-            if(kUseLTTMask){
-                writeLTTMask(DispatchRaysIndex().xy, shadow < kShadowCutoff, useRay, useRay && (rtShadow < kShadowCutoff), camDist);
+            //Write Mask
+            if (kUseLTTMask) {
+                LTTMask currMask = LTTMask(shadow < kShadowCutoff, useRay, useRay && (rtShadow < kShadowCutoff));
+                addMaskToGlobalMask(i, currMask, globalMask);
             }
 
-            //Set shadow value
-            if(clampShadow && !useRay)
+            // Set shadow value
+            if (lttProps.clampShadow && !useRay)
                 rtShadow = shadow < 0.5 ? 0.f : 1.f;
             if(kEnableHybridBlending && kShadowMode != (uint)SPShadowMode::RayShadows){
                 float blendT = saturate((camDist - kHybridBlendingRange.x)/kHybridBlendingRange.y);
@@ -587,7 +449,7 @@ void rayGen()
             }else
                 shadow = rtShadow;
 
-            //Handle Debug TODO check why it does not work
+            //Handle Debug
             if (is_valid(gDebug))
             {
                 SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, i);
@@ -598,6 +460,20 @@ void rayGen()
                 color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, ls.dir) * ls.Li * shadow;
         }
 
+        // Write global mask
+        writeLTTMask(pixel, globalMask);
+
+        // Debug test
+        if (is_valid(gDebug)) {
+            uint shift = 1 * 3;
+            uint testMask = (globalMask >> shift) & 0x7;
+            LTTMask debugMask = LTTMask(testMask);
+            debugOut = float3(0);
+            debugOut.x += debugMask.leakTracingTest ? 1.f : 0.f;
+            debugOut.y += debugMask.shadowTest ? 1.f : 0.f;
+            debugOut.z += debugMask.rayShadowed ? 1.f : 0.f;
+        }
+        
         //Ambient Color
         color += kAmbientFactor * diffuse;
 
@@ -681,8 +557,10 @@ void rayGen()
     {
         color = kEnvMapFactor * gScene.envMap.eval(-view);
     }
-    
+
     gColor[pixel] = float4(color, 1.f);
-    if (is_valid(gDebug))
-        gDebug[pixel] = float4(debugOut,1.f);
+    if (is_valid(gDebug)) {
+        gDebug[pixel] = float4(debugOut, 1.f);
+    }
+        
 }
