@@ -142,9 +142,7 @@ void ShadowMap::prepareShadowMapBuffers()
 
         //Static copys for animations
         mpShadowMapsCubeStatic.clear();
-        mpShadowMapsStatic.clear();
         mpDepthCubeStatic.clear();
-        mpDepthStatic.clear();
 
         //Misc
         if (mpOracle)
@@ -360,26 +358,6 @@ void ShadowMap::prepareShadowMapBuffers()
                     depthTex->setName("ShadowMapCubePassDepthHelperStatic" + std::to_string(i) + "Face" + std::to_string(face));
                     mpDepthCubeStatic.push_back(depthTex);
                 }
-            }
-        }
-        for (size_t i = 0; i < mpShadowMaps.size(); i++)
-        {
-            // Create a copy Texture
-            ref<Texture> tex = Texture::create2D(
-                mpDevice, mpShadowMaps[i]->getWidth(), mpShadowMaps[i]->getHeight(), mpShadowMaps[i]->getFormat(), 1u,
-                1u, nullptr, mpShadowMaps[i]->getBindFlags()
-            );
-            tex->setName("ShadowMapStatic" + std::to_string(i));
-            mpShadowMapsStatic.push_back(tex);
-
-            // Create a per face depth texture
-            if (mpDepth)
-            {
-                ref<Texture> depthTex = Texture::create2D(
-                    mpDevice, mpDepth->getWidth(), mpDepth->getHeight(), mpDepth->getFormat(), 1u, 1u, nullptr, mpDepth->getBindFlags()
-                );
-                depthTex->setName("ShadowMapPassDepthHelperStatic" + std::to_string(i));
-                mpDepthStatic.push_back(depthTex);
             }
         }
     }
@@ -1191,150 +1169,6 @@ bool ShadowMap::rasterSpotLight(uint index, ref<Light> light, RenderContext* pRe
     }
 
     return updateVP;
-
-
-
-    /*
-    if (mUpdateShadowMap)
-        mStaticTexturesReady[0] = false;
-
-    //Handle updates
-    bool lightMoved = is_set(changes , Light::Changes::Position) || is_set(changes , Light::Changes::Direction);
-    if (mShadowMapUpdateMode == SMUpdateMode::Static)
-        renderLight = is_set(changes , Light::Changes::Active) || lightMoved;
-    else if (mShadowMapUpdateMode == SMUpdateMode::Dynamic)
-        renderLight = true;
-
-    renderLight |= mUpdateShadowMap;
-
-    auto& lightData = light->getData();
-
-    if (!renderLight || !light->isActive())
-    {
-        wasRendered[index] = false;
-        return false;
-    }
-    wasRendered[index] = true;
-
-    RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All;
-
-    //Render the static shadow map
-    if (mShadowMapUpdateMode != SMUpdateMode::Static && !mStaticTexturesReady[0])
-        meshRenderMode |= RasterizerState::MeshRenderMode::SkipDynamic;
-    else if (mShadowMapUpdateMode != SMUpdateMode::Static)
-        meshRenderMode |= RasterizerState::MeshRenderMode::SkipStatic;
-
-    //If depth tex is set, Render to RenderTarget
-    if (mpDepth)
-    {
-        if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic))
-        {
-            // Attach Render Targets
-            mpFbo->attachColorTarget(mpShadowMapsStatic[index], 0, 0, 0, 1);
-            mpFbo->attachDepthStencilTarget(mpDepthStatic[index]);
-        }
-        else if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic))
-        {
-            //Copy the resources
-            pRenderContext->copyResource(mpDepth.get(), mpDepthStatic[index].get());
-            pRenderContext->blit(mpShadowMapsStatic[index]->getSRV(0, 1, 0, 1), mpShadowMaps[index]->getRTV(0, 0, 1));
-            mpFbo->attachColorTarget(mpShadowMaps[index], 0, 0, 0, 1);
-            mpFbo->attachDepthStencilTarget(mpDepth);
-        }
-        else
-        {
-            //  Attach Render Targets
-            mpFbo->attachColorTarget(mpShadowMaps[index], 0, 0, 0, 1);
-            mpFbo->attachDepthStencilTarget(mpDepth);
-        }
-        
-    }
-    else //Else only render to DepthStencil
-    {
-        if (is_set(meshRenderMode,RasterizerState::MeshRenderMode::SkipDynamic))
-        {
-            // Attach Render Targets
-            mpFbo->attachDepthStencilTarget(mpShadowMapsStatic[index]);
-        }
-        else if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic))
-        {
-            // Copy the resources
-            pRenderContext->copyResource(mpShadowMaps[index].get(), mpShadowMapsStatic[index].get());
-            mpFbo->attachDepthStencilTarget(mpShadowMaps[index]);
-        }
-        else
-        {
-            // Attach Render Targets
-            mpFbo->attachDepthStencilTarget(mpShadowMaps[index]);
-        }
-    }
-    
-    ShaderParameters params;
-
-    //TODO only recalculate if lightMoved
-    float3 lightTarget = lightData.posW + lightData.dirW;
-    const float3 up = abs(lightData.dirW.y) == 1 ? float3(0, 0, 1) : float3(0, 1, 0);
-    float4x4 viewMat = math::matrixFromLookAt(lightData.posW, lightTarget, up);
-    float4x4 projMat = math::perspective(lightData.openingAngle * 2, 1.f, mNear, mFar);
-
-    params.lightPosition = float3(mNear, 0.f,0.f);
-    params.farPlane = mFar;
-    params.nearPlane = mNear;
-    params.viewProjectionMatrix = math::mul(projMat, viewMat);     
-  
-    mSpotDirViewProjMat[index] = params.viewProjectionMatrix;
-
-     // Update frustum
-    if ((lightMoved || mUpdateShadowMap) && mUseFrustumCulling)
-    {
-        mFrustumCulling[index]->updateFrustum(lightData.posW, lightTarget, up, 1.f, lightData.openingAngle * 2, mNear, mFar);
-    }
-
-    auto vars = mShadowMapRasterPass.pVars->getRootVar();
-    setSMShaderVars(vars, params);
-
-    mShadowMapRasterPass.pState->setFbo(mpFbo);
-    if (! is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic))
-    {
-        float4 clearColor = float4(1.f);
-        if (mShadowMapType == ShadowMapType::Exponential)
-            clearColor.x = exp(mExponentialSMConstant); // Set to highest possible
-        else if (mShadowMapType == ShadowMapType::ExponentialVariance)
-        {
-            float2 expVarMax = float2(exp(mEVSMConstant), -exp(-mEVSMNegConstant));
-            clearColor = float4(expVarMax.x, expVarMax.x * expVarMax.x, expVarMax.y, expVarMax.y * expVarMax.y); // Set to highest possible
-        }
-        pRenderContext->clearFbo(mShadowMapRasterPass.pState->getFbo().get(), clearColor, 1.f, 0);
-    }
-
-    if (mUseFrustumCulling)
-    {
-        mpScene->rasterizeFrustumCulling(
-            pRenderContext, mShadowMapRasterPass.pState.get(), mShadowMapRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
-            mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode, false,
-            mFrustumCulling[index]
-        );
-    }else{
-        mpScene->rasterize(
-            pRenderContext, mShadowMapRasterPass.pState.get(), mShadowMapRasterPass.pVars.get(), mFrontClockwiseRS[mCullMode],
-            mFrontCounterClockwiseRS[mCullMode], mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode, false
-        );
-    }
-    
-
-    //Blur if it is activated/enabled
-    if (mpBlurShadowMap && !is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic))
-        mpBlurShadowMap->execute(pRenderContext, mpShadowMaps[index]);
-
-    // generate Mips for shadow map modes that allow filter
-    if (mUseShadowMipMaps && !is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic))
-        mpShadowMaps[index]->generateMips(pRenderContext);
-
-    if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic))
-        mStaticTexturesReady[0] = true;
-
-    return true;
-    */
 }
 
  //Calc based on https://learnopengl.com/Guest-Articles/2021/CSM
@@ -1882,20 +1716,36 @@ bool ShadowMap::renderUILeakTracing(Gui::Widgets& widget, bool leakTracingEnable
     }
     widget.tooltip("Changes the Shadow Map Type. SD indicates the optimized single-depth version", true);
 
-    static uint resolution = uint(mShadowMapSizeCascaded);
-    widget.var("Shadow Map Cascaded Resolution", resolution, 32u, 16384u, 32u);
-    widget.tooltip("Change the shadow map resolution. Rebuilds all buffers!");
-    if (widget.button("Apply Change"))
-    {
-        mShadowMapSizeCascaded = resolution;
-        mShadowResChanged = true;
-        dirty = true;
-    }
-
     // Common options used in all shadow map variants
     if (auto group = widget.group("Common Settings"))
     {
         group.separator();
+
+        static uint3 resolution = uint3(mShadowMapSize, mShadowMapSizeCube, mShadowMapSizeCascaded);
+        if (mpShadowMaps.size() > 0)
+            widget.var("Spot SM size", resolution.x, 32u, 16384u, 32u);
+        if (mpCascadedShadowMaps)
+            widget.var("Cascaded SM size", resolution.z, 32u, 16384u, 32u);
+        if (mpShadowMapsCube.size() > 0)
+            widget.var("Point SM size", resolution.y, 32u, 16384u, 32u);
+        if (widget.button("Apply Change"))
+        {
+            mShadowMapSize = resolution.x;
+            mShadowMapSizeCube = resolution.y;
+            mShadowMapSizeCascaded = resolution.z;
+            mShadowResChanged = true;
+            dirty = true;
+        }
+        group.separator();
+
+        if (mpShadowMaps.size() > 0 || mpShadowMapsCube.size() > 0)
+        {
+            widget.text("------- Point/Spot SM Range -------");
+            widget.var("Point/Spot Near", mNear);
+            widget.var("Point/Spot Far", mFar);
+            widget.text("-----------------------------------------");
+        }
+
         mRasterDefinesChanged |= group.checkbox("Alpha Test", mUseAlphaTest);
         if (mUseAlphaTest)
         {
@@ -1906,10 +1756,10 @@ bool ShadowMap::renderUILeakTracing(Gui::Widgets& widget, bool leakTracingEnable
         if (group.dropdown("Cull Mode", kShadowMapCullMode, (uint32_t&)mCullMode))
             mUpdateShadowMap = true; // Render all shadow maps again
 
-        mResetShadowMapBuffers |= widget.checkbox("Use FrustumCulling", mUseFrustumCulling); // To Common
+        mResetShadowMapBuffers |= widget.checkbox("Use FrustumCulling", mUseFrustumCulling); 
         widget.tooltip("Enables Frustum Culling for the shadow map generation");
 
-        if (mShadowMapUpdateMode == SMUpdateMode::Static) // To common
+        if (mShadowMapUpdateMode == SMUpdateMode::Static) 
         {
             widget.checkbox("Render every frame", mRerenderStatic);
             widget.tooltip("Rerenders the shadow map every frame");

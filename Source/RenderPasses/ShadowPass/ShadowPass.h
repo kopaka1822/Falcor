@@ -57,7 +57,7 @@ private:
     void shade(RenderContext* pRenderContext, const RenderData& renderData);
 
     //Hybrid mask functions
-    void handleHybridMaskData(RenderContext* pRenderContext, uint2 screenDims); ///< Handles Textures for the hybrid mask
+    void handleHybridMaskData(RenderContext* pRenderContext, uint2 screenDims, uint numLights); ///< Handles Textures for the hybrid mask
     DefineList hybridMaskDefines();
     void setHybridMaskVars(ShaderVar& var, const uint frameCount);
     bool lttMaskUI(Gui::Widgets& widget);
@@ -68,15 +68,12 @@ private:
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
     uint2 mOutputSize = uint2(0);           ///< Output texture size
     uint mFrameCount = 0;
-    bool mSimplifiedShadingValid = true;
-    bool mComplexShadingValid = false;
     bool mShadowModeChanged = false;
 
     //Configuration
     bool mUseAlphaTest = true; ///< Alpha Test for ray tracing
     bool mCopyAlphaSettingsFromSM = true;   ///< Copies settings when the alpha test should be used from the shadow map
     float mUseAlphaTestUntilDistance = 1000000.f;
-    bool mUseSimplifiedShading = true;     ///< Option to switch shading
     bool mShadowOnly = false;               ///< Only output shadow
     float mAmbientFactor = 0.1f; //<Ambient light factor
     float mEnvMapFactor = 0.3f; //< Env Map factor
@@ -109,6 +106,7 @@ private:
     float mHybridMaskExpandRaysMaxDistance = 70.f;
     bool mHybridMaskDisableDynamicGeometryCheck = false;   //Disable the geometry check
     bool mHybridUseRayWhenOutsideMask = true;
+    uint mLTTDebugLight = 0;
 
     ref<Texture> mpHybridMask[2];   //Ping Pong temporal hybrid mask
     ref<Sampler> mpHybridSampler;   //Sampler for the hybrid mask

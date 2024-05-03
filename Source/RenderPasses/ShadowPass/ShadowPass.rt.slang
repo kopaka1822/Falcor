@@ -48,13 +48,6 @@ Texture2D<float4> gFaceNormalW;
 Texture2D<float2> gMVec;   //Optional
 Texture2D<float4> gEmissive;   //Optional
 
-//Optional Inputs Complex Shading
-Texture2D<float4> gNormalW;
-Texture2D<float4> gTangentW;
-Texture2D<float2> gTexCoord;
-Texture2D<float4> gTexGrads;
-Texture2D<uint4> gMaterialInfo;
-
 //Optional Inputs Simplified Shading
 Texture2D<float4> gGuideNormalW;
 Texture2D<float4> gDiffuse;
@@ -97,6 +90,7 @@ static const float kDisableAlphaTestAtDistance = DISABLE_ALPHATEST_DISTANCE;
 static const bool kEnableHybridBlending = HYBRID_USE_BLENDING;
 static const float2 kHybridBlendingRange = HYBRID_BLENDING_RANGE;   //x=Min; y=Range
 static const bool kStochasticCascadedLevelEnabled = DEBUG_STOCH_CASC_ENABLED;
+static const uint kDebugLightIndex = DEBUG_LIGHT_INDEX;
 
 static const float kShadowCutoff = 0.5f;
 
@@ -186,13 +180,16 @@ float evalShadowRay(in const AnalyticLightSample ls, float3 posW, float3 faceN, 
     return rtShadow;
 }
 
-float3 handleDebugTex(bool useRay, bool isSMIsShadowed, float shadow, const in SMLightData smLightData, float3 posW, float random){
+float3 handleDebugTex(bool useRay, bool isSMIsShadowed, float shadow, const in SMLightData smLightData, float3 posW, float3 faceN, float random){
     float3 debug = float3(0);
     #if DEBUG_MODE == 0 //Use Ray
         debug.x += useRay && kShadowMode != (uint) SPShadowMode::ShadowMap ? 1.f : 0.f;
         
     #elif DEBUG_MODE == 1 //Lod level debug
-        float lod = 0;  //TODO
+        float2 invFrameDim = 1.f / float2(DispatchRaysDimensions().xy);
+        float3 posWDdx = computeDdxPosW(posW, faceN, invFrameDim);
+        float3 posWDdy = computeDdyPosW(posW, faceN, invFrameDim);
+        lod = gShadowMap.getSMLODLevel(smLightData, posW, posWDdx, posWDdy);    
         debug = float3(1,0,0);
         if(lod > 1)
             debug = float3(0,1,0);
@@ -235,7 +232,7 @@ float3 handleDebugTex(bool useRay, bool isSMIsShadowed, float shadow, const in S
             }
             
         }
-    #else   //Hybrid mask texture
+    #elif DEBUG_MODE == 3   //Hybrid mask texture
         debug.x += useRay ? 1.f : 0.f;
         debug.y += isSMIsShadowed ? 1.f : 0.f;
         debug.z += useRay && (shadow < 0.5) ? 1.f : 0.f;
@@ -359,29 +356,6 @@ void rayGen()
         
     if (valid)
     {
-    #if SHADOW_ONLY
-        float3 normalW;
-        #if SIMPLIFIED_SHADING
-            normalW = gGuideNormalW[pixel].xyz;
-        #else
-            normalW = gNormalW[pixel].xyz;
-        #endif
-        //Flip Face Normal of double sided mats
-        if(dot(faceNormalW, view) <= 0.f)
-        {
-            faceNormalW = -faceNormalW;
-        }
-
-        adjustShadingNormal(view, faceNormalW, normalW);
-
-        //Loop over all lights
-        for(uint i=0 ; i<lightCount; i++){
-            float3 Li, toLight;
-            if(!sampleLight(posW, normalW, faceNormalW, mvec, i, sampleNext1D(sg) , toLight, Li, debugOut))
-                continue;
-            color += Li;
-        }
-    #elif SIMPLIFIED_SHADING
         float3 normalW = gGuideNormalW[pixel].xyz;
         float3 diffuse = gDiffuse[pixel].xyz;
         float4 specRough = gSpecRough[pixel];
@@ -411,9 +385,9 @@ void rayGen()
             bool clampShadow = false;
             LTTProperties lttProps;
             bool useRay = kShadowMode == (uint)SPShadowMode::RayShadows;
+            SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, i);
             if(!useRay){
                 bool isDynamic = false;
-                SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, i);
                 useRay = evalShadowMap(smLightData, posW, faceNormalW, mvec, random, shadow, isDynamic);
                 #if DISABLE_DYNAMIC_GEOMETRY_CHECK
                     isDynamic = false;
@@ -443,7 +417,8 @@ void rayGen()
             // Set shadow value
             if (lttProps.clampShadow && !useRay)
                 rtShadow = shadow < 0.5 ? 0.f : 1.f;
-            if(kEnableHybridBlending && kShadowMode != (uint)SPShadowMode::RayShadows){
+
+            if(kEnableHybridBlending && kShadowMode != (uint)SPShadowMode::RayShadows && smLightData.type == (uint)LightTypeSM::Directional){
                 float blendT = saturate((camDist - kHybridBlendingRange.x)/kHybridBlendingRange.y);
                 shadow = lerp(rtShadow, shadow, blendT);
             }else
@@ -452,20 +427,24 @@ void rayGen()
             //Handle Debug
             if (is_valid(gDebug))
             {
-                SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, i);
-                debugOut += handleDebugTex(useRay, shadow < kShadowCutoff, shadow, smLightData, posW, random);
+                debugOut += handleDebugTex(useRay, shadow < kShadowCutoff, shadow, smLightData, posW, faceNormalW, random);
             }
 
+            #if SHADOW_ONLY
+                color += float3(shadow / lightCount);
+            #else
             if(shadow > 0)
                 color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, ls.dir) * ls.Li * shadow;
+            #endif //SHADOW_ONLY
         }
 
         // Write global mask
         writeLTTMask(pixel, globalMask);
 
         // Debug test
+        #if DEBUG_MODE == 4 //Mask per light
         if (is_valid(gDebug)) {
-            uint shift = 1 * 3;
+            uint shift = kDebugLightIndex * 3;
             uint testMask = (globalMask >> shift) & 0x7;
             LTTMask debugMask = LTTMask(testMask);
             debugOut = float3(0);
@@ -473,8 +452,10 @@ void rayGen()
             debugOut.y += debugMask.shadowTest ? 1.f : 0.f;
             debugOut.z += debugMask.rayShadowed ? 1.f : 0.f;
         }
+        #endif
         
         //Ambient Color
+        #if !SHADOW_ONLY
         color += kAmbientFactor * diffuse;
 
         //Envmap
@@ -493,65 +474,19 @@ void rayGen()
         #if is_valid(gEmissive)
             emissive = gEmissive[pixel].xyz;
         #endif //Valid gEmissive
-    #else
-        float3 normalW = gNormalW[pixel].xyz;
-        float4 tangentW = gTangentW[pixel];
-        float2 texCoord = gTexCoord[pixel];
-        uint4 materialInfo = gMaterialInfo[pixel];
-        float4 grads = gTexGrads[pixel];
     
-
-        //Fill Vertex Data struct for the shading
-        VertexData v = { posW, normalW, tangentW, texCoord, faceNormalW, 0.f, 0.f };
-        uint materialID = materialInfo.x;
-    
-        let lod = ExplicitGradientTextureSampler(grads.xy, grads.zw);
-    
-        //Create
-        ShadingData sd = gScene.materials.prepareShadingData(v, materialID, view, lod);
-        sd.mtl.setActiveLobes((uint) LobeType::DiffuseReflection | (uint) LobeType::SpecularReflection);
-
-        // Create material instance.
-        uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
-        let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
-        let bsdfProperties = mi.getProperties(sd);
-        
-        //Loop over all lights
-        for (uint i = 0; i < lightCount; i++)
-        {
-            float3 Li, toLight;
-            if (!sampleLight(sd.posW, bsdfProperties.guideNormal, sd.getOrientedFaceNormal(), mvec, i,sampleNext1D(sg), toLight, Li, debugOut))
-                continue;
-
-            color += mi.eval(sd, toLight, sg) * Li;
-        }
-
-        //Ambient Factor
-        color += kAmbientFactor * bsdfProperties.diffuseReflectionAlbedo;
-
-        //Envmap
-        if (kUseEnvMap)
-        {
-            float3 R = reflect(-view, bsdfProperties.guideNormal);
-            float diffLod = roughnessToLod(bsdfProperties.roughness * 2.f);
-            float specLod = roughnessToLod(bsdfProperties.roughness);
-            float envMaxIntensity = roughnessToIntensity(bsdfProperties.roughness);
-            //TODO Currently hacked. Do properly by using microfacet N
-            float3 F = evalFresnelSchlick(bsdfProperties.specularReflectionAlbedo, 1-bsdfProperties.roughness, max(0.0, dot(view, bsdfProperties.guideNormal))); 
-            color += kEnvMapFactor *  bsdfProperties.diffuseReflectionAlbedo * min(gScene.envMap.eval(bsdfProperties.guideNormal, diffLod), 1.0);
-            color += kEnvMapFactor * F * min(gScene.envMap.eval(R, specLod), envMaxIntensity);
-        }
-        
-        emissive = bsdfProperties.emission;
-#endif
         //Add emissive after shading
         if (kUseEmissive)
             color += kEmissiveFactor * emissive;
 
-#if DEBUG_MODE != 2
+        #endif //!SHADOW_ONLY
+
+    //Divide the debug output by light count for some modes
+    #if (DEBUG_MODE != 2) && (DEBUG_MODE != 4)
         if(is_valid(gDebug))
             debugOut /= lightCount;
-#endif
+    #endif
+
     }
     else if(kUseEnvMap)
     {

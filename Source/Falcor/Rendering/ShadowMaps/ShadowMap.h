@@ -314,7 +314,6 @@ private:
     std::vector<ref<Texture>> mpShadowMapsCube;     // Cube Shadow Maps (Point Lights)
     std::vector<ref<Texture>> mpShadowMaps;         // 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights)
     std::vector<ref<Texture>> mpShadowMapsCubeStatic;     // Static Cube Shadow Maps. Only used if scene has animations
-    std::vector<ref<Texture>> mpShadowMapsStatic;     // Static 2D Texture Shadow Maps (Spot Lights + (WIP) Area Lights). Only used if scene has animations
     ref<Buffer> mpLightMapping;
     VPMatrixBuffer mpVPMatrixBuffer;
     VPMatrixBuffer mpCascadedVPMatrixBuffer;

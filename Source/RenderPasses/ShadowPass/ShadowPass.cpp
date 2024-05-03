@@ -43,21 +43,10 @@ namespace
         
         {"faceNormalW", "gFaceNormalW", "Face Normal"},
         {"motionVector", "gMVec", "Motion Vector"},
-        {"emissive", "gEmissive", "Emissive", true}
-    };
-
-    const ChannelList kOptionalInputsShading = {
-        {"normalW", "gNormalW", "World Normal (Vertex)", true},
-        {"tangentW", "gTangentW", "Tangent", true},
-        {"texCoord", "gTexCoord", "Texture Coordinate", true},
-        {"texGrads", "gTexGrads", "Texture Gradients (LOD)", true},
-        {"MaterialInfo", "gMaterialInfo", "Material", true},
-    };
-
-    const ChannelList kOptionalInputsSimplifiedShading = {
-        {"guideNormalW", "gGuideNormalW", "World Normal from Textures", true},
-        {"diffuse", "gDiffuse", "Diffuse Reflection", true},
-        {"specularRoughness", "gSpecRough", "Specular Reflection (xyz) and Roughness (w)", true},
+        {"emissive", "gEmissive", "Emissive", true},
+        {"guideNormalW", "gGuideNormalW", "World Normal from Textures"},
+        {"diffuse", "gDiffuse", "Diffuse Reflection"},
+        {"specularRoughness", "gSpecRough", "Specular Reflection (xyz) and Roughness (w)"},
     };
 
     const ChannelList kOutputChannels = {
@@ -67,9 +56,10 @@ namespace
 
     const Gui::DropdownList kDebugModes{
         {0, "Ray Shot"},
-        //{1, "Lod Level"},
+        {1, "Lod Level"},
         {2, "Cascaded Level"},
         {3, "LTT Mask Texture"},
+        {4, "LTT Mask Texture per Light"},
     };
 
     const Gui::DropdownList kDistanceSettings{
@@ -107,8 +97,6 @@ RenderPassReflection ShadowPass::reflect(const CompileData& compileData)
 
     // Define our input/output channels.
     addRenderPassInputs(reflector, kInputChannels);
-    addRenderPassInputs(reflector, kOptionalInputsShading);
-    addRenderPassInputs(reflector, kOptionalInputsSimplifiedShading);
 
     //Set starting size
     if (mOutputSize.x == 0 && mOutputSize.y == 0)
@@ -171,7 +159,7 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
             return;
 
     //Handle hybrid mask textures
-    handleHybridMaskData(pRenderContext, mOutputSize);
+    handleHybridMaskData(pRenderContext, mOutputSize, mpScene->getLightCount());
  
     shade(pRenderContext, renderData);
     mFrameCount++;
@@ -181,36 +169,9 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     FALCOR_PROFILE(pRenderContext, "DeferredShading");
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     // I/O Resources could change at any time
-    bool ioChanged = false;
-    ioChanged |= mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOptionalInputsShading, renderData));
-    ioChanged |= mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOptionalInputsSimplifiedShading, renderData));
     mShadowTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData)); // Emissive is the only optional channel (only
                                                                                              // used in simplified shading)
     mShadowTracer.pProgram->addDefines(getValidResourceDefines(kOutputChannels, renderData)); // Debug out images
-
-    // Check which shading model should be used
-    if (ioChanged)
-    {
-        auto checkResources = [&](const ChannelList& list)
-        {
-            bool valid = true;
-            for (const auto& desc : list)
-                valid &= renderData[desc.name] != nullptr;
-            return valid;
-        };
-        mSimplifiedShadingValid = checkResources(kOptionalInputsSimplifiedShading);
-        mComplexShadingValid = checkResources(kOptionalInputsShading);
-
-        if (!mComplexShadingValid && !mSimplifiedShadingValid)
-            throw RuntimeError(
-                "ShadowPass : Not enough input texture for shading. Either all Simplified or Complex Shading inputs need to be set!"
-            );
-
-        if (mSimplifiedShadingValid && !mComplexShadingValid)
-            mUseSimplifiedShading = true;
-        else if (mComplexShadingValid)
-            mUseSimplifiedShading = false;
-    }
 
     if (mShadowModeChanged)
     {
@@ -249,7 +210,6 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
 
     // Add defines
     mShadowTracer.pProgram->addDefine("SP_SHADOW_MODE", std::to_string(uint32_t(mShadowMode)));
-    mShadowTracer.pProgram->addDefine("SIMPLIFIED_SHADING", mUseSimplifiedShading ? "1" : "0");
     mShadowTracer.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     mShadowTracer.pProgram->addDefine("DISABLE_ALPHATEST_DISTANCE", std::to_string(mUseAlphaTestUntilDistance));    
     mShadowTracer.pProgram->addDefine("SP_AMBIENT", std::to_string(mAmbientFactor));
@@ -258,6 +218,7 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     mShadowTracer.pProgram->addDefine("USE_ENV_MAP", mpScene->useEnvBackground() ? "1" : "0");
     mShadowTracer.pProgram->addDefine("USE_EMISSIVE", mEmissiveFactor > 0.f ? "1" : "0");
     mShadowTracer.pProgram->addDefine("DEBUG_MODE", std::to_string(mDebugMode));
+    mShadowTracer.pProgram->addDefine("DEBUG_LIGHT_INDEX", std::to_string(mLTTDebugLight));
     mShadowTracer.pProgram->addDefine("SHADOW_ONLY", mShadowOnly ? "1" : "0");
     mShadowTracer.pProgram->addDefine("SHADOW_MIPS_ENABLED", mpShadowMap->getMipMapsEnabled() ? "1" : "0");
     mShadowTracer.pProgram->addDefine("HYBRID_USE_BLENDING", mEnableHybridRTBlend ? "1" : "0");
@@ -305,10 +266,6 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
 
     for (auto channel : kInputChannels)
         bind(channel);
-    for (auto channel : kOptionalInputsShading)
-        bind(channel);
-    for (auto channel : kOptionalInputsSimplifiedShading)
-        bind(channel);
     for (auto channel : kOutputChannels)
         bind(channel);
 
@@ -347,28 +304,6 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
         changed |= group.checkbox("Shadow Only", mShadowOnly);
         group.tooltip("Disables shading. Guiding Normal (Textured normal) is used when using Simplified Shading");
 
-        // Shading Model
-        if (mSimplifiedShadingValid && mComplexShadingValid)
-        {
-            changed |= group.checkbox("Use Simplified Shading", mUseSimplifiedShading);
-            group.tooltip(
-                "Change the used shading model. For better overall performance please only bind the input textures for one shading model"
-            );
-        }
-        else
-        {
-            if (mComplexShadingValid)
-                group.text("Complex Shading Model in use");
-            else if (mSimplifiedShadingValid)
-                group.text("Simplified Shading Model in use");
-            else
-            {
-                group.text("Not enough resources bound for either shading model! (Not updated in RenderGraphEditor)");
-                group.text("Simplified Model: diffuse , specularRoughness");
-                group.text("Complex Model: tangentW, texCoords, texGrads, MaterialInfo");
-            }
-        }
-
         changed |= group.var("Ambient Factor", mAmbientFactor, 0.0f, 1.f, 0.01f);
         changed |= group.var("Env Map Factor", mEnvMapFactor, 0.f, 100.f, 0.01f);
         group.tooltip("Scale factor for the Enviroment Map.");
@@ -384,8 +319,8 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
         if (auto group = widget.group("Shadow Map Options", true))
         {
             group.separator();
-            //changed |= mpShadowMap->renderUILeakTracing(group, mShadowMode == SPShadowMode::LeakTracing);
-            changed |= mpShadowMap->renderUI(group);
+            changed |= mpShadowMap->renderUILeakTracing(group, mShadowMode == SPShadowMode::LeakTracing);
+            //changed |= mpShadowMap->renderUI(group);
             group.separator();
         }
             
@@ -393,6 +328,11 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
 
     changed |= widget.dropdown("Debug Mode", kDebugModes, mDebugMode);
     widget.tooltip("Changes the shown debug image for the debug texture. \"Show in Debug Window\" -> \"ShadowPass.debug\"");
+    if (mDebugMode == 4)
+    {
+        widget.var("Choosen Light", mLTTDebugLight, 0u, mpScene->getLightCount()-1, 1u);
+    }
+
 
     mOptionsChanged |= changed;
 }
@@ -405,10 +345,6 @@ void ShadowPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
 
     //Set new scene
     mpScene = pScene;
-
-    //Reset Shading
-    mComplexShadingValid = false;
-    mSimplifiedShadingValid = false;
 
     //Create Ray Tracing pass
     if (mpScene)
@@ -447,19 +383,10 @@ void ShadowPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
         mHybridMaskRemoveRaysGreaterAsDistance = cameraData.nearZ + maxDistance * 0.010; // Remove the next 0.5 percent
         mHybridMaskExpandRaysMaxDistance = cameraData.nearZ + maxDistance * 0.25;   //Until 25% of visible scene
 
-        //Disable all non directional lights
-        /*
-        auto activeLights = mpScene->getActiveLights();
-        for (auto light : activeLights)
-        {
-            if (light->getType() != LightType::Directional)
-                light->setActive(false);
-        }
-        */
     }
 }
 
-void ShadowPass::handleHybridMaskData(RenderContext* pRenderContext,uint2 screenDims) {
+void ShadowPass::handleHybridMaskData(RenderContext* pRenderContext,uint2 screenDims, uint numLights) {
     bool isHybridMode = mShadowMode == SPShadowMode::LeakTracing;
     //Create Textures if missing
     if (isHybridMode)
@@ -475,11 +402,17 @@ void ShadowPass::handleHybridMaskData(RenderContext* pRenderContext,uint2 screen
         //Create the hybrid masks
         if (!mpHybridMask[0] || !mpHybridMask[1]|| sizeChanged)
         {
+            auto format = ResourceFormat::R8Uint;
+            if (numLights > 5)
+                format = ResourceFormat::R32Uint;
+            else if (numLights > 2)
+                format = ResourceFormat::R16Uint;
+
             // Hybrid Mask
             for (uint i = 0; i < 2; i++)
             {
                 mpHybridMask[i] = Texture::create2D(
-                    mpDevice, screenDims.x, screenDims.y, ResourceFormat::R32Uint, 1, 1, nullptr,
+                    mpDevice, screenDims.x, screenDims.y, format, 1, 1, nullptr,
                     ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
                 );
                 mpHybridMask[i]->setName("Hybrid Mask" + std::to_string(i));
