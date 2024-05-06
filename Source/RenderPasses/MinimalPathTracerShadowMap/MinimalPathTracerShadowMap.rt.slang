@@ -63,6 +63,7 @@ import Utils.Geometry.GeometryHelpers;
 import Utils.Sampling.SampleGenerator;
 import Rendering.Lights.LightHelpers;
 import Rendering.ShadowMaps.ShadowMap;
+import Rendering.ShadowMaps.Oracle.ShadowMapOracle;
 import Rendering.Materials.TexLODHelpers;
 import Rendering.Materials.TexLODTypes;
 
@@ -102,6 +103,13 @@ static const TexLODMode kTexLODMode = TexLODMode(TEX_LOD_MODE);
 static const RayConeMode kRayConesMode = RayConeMode(RAY_CONES_MODE);
 static const bool kDebugOracleFunction = SHOW_ORACLE_FUNCTION;
 static const int kDebugOracleLightIdx = ORACLE_DEBUG_LIGHT_IDX;
+
+//Oracle Defines
+static const bool kUseOracleFunction = USE_ORACLE_FUNCTION;
+static const bool kOracleAddRays = ORACLE_ADD_RAYS;
+static const bool kUseOracleDistFunction = USE_ORACLE_DISTANCE_FUNCTION;
+static const float kOracleCompaireValue = ORACLE_COMP_VALUE;
+static const float kOracleUpperCompaireValue = ORACLE_UPPER_BOUND;
 /** Payload for shadow ray.
 */
 struct ShadowRayData
@@ -140,6 +148,15 @@ struct ScatterRayData
         this.useOracle = true;
         //this.rayCone = {};
         this.sg = sg;
+    }
+};
+
+struct HitRayData{
+    PackedHitInfo packedHit;
+
+     __init()
+    {
+        this.packedHit = {};
     }
 };
 
@@ -290,7 +307,7 @@ float traceShadowRay(float3 origin, float3 dir, float distance)
 /** Traces a scatter ray based on ray parameters stored in the ray payload.
     \param[in] rayData Describes the ray parameters. The struct is modified based on the result.
 */
-void traceScatterRay(inout ScatterRayData rayData)
+void traceScatterRay(inout ScatterRayData rayData, inout HitRayData hitRay)
 {
     RayDesc ray;
     ray.Origin = rayData.origin;
@@ -299,10 +316,10 @@ void traceScatterRay(inout ScatterRayData rayData)
     ray.TMax = kRayTMax;
 
     uint rayFlags = 0;      // TODO: Set cull mode from the app
-    TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+    TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, hitRay);
 }
 
-float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout ScatterRayData rayData)
+float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, uint pathLength = 0, float rayDistance = 0.f)
 {
     float3 outLi = float3(0);
     const uint lightCount = gScene.getLightCount();
@@ -312,7 +329,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     {
         for (uint i = 0; i < lightCount; i++)
         {
-            outLi += evalLights(i, 1.f, sd, mi, sg, rayData);
+            outLi += evalLights(i, 1.f, sd, mi, sg, pathLength, rayDistance);
         }
     }
     else //One random light
@@ -320,7 +337,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
         // Pick one of the analytic light sources randomly with equal probability.
         const uint lightIndex = min(uint(sampleNext1D(sg) * lightCount), lightCount - 1);
         float invPdf = lightCount; // Light selection pdf = 1.0 / lightCount.
-        outLi = evalLights(lightIndex, invPdf, sd, mi, sg, rayData);
+        outLi = evalLights(lightIndex, invPdf, sd, mi, sg, pathLength, rayDistance);
     }
     return outLi;
 }
@@ -331,9 +348,8 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     \param[in,out] sg SampleGenerator object.
     \return Outgoing radiance in view direction.
 */
-float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout ScatterRayData rayData)
+float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, uint pathLength, float rayDistance = 0.f)
 {
-    const uint pathLength = rayData.pathLength;
     // Sample local light source.
     AnalyticLightSample ls;
     LightData lightData = gScene.getLight(lightIndex);
@@ -362,32 +378,31 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
     float oracle = 0.f;
     float oracleMip = 0.f;
     bool useShadowRay = gUseShadowMap > pathLength;
-        
-    if (rayData.useOracle && !useShadowRay)
-    {
-        oracle = gShadowMap.oracleFunction(smLightData, sd, rayData.distance, oracleMip);
-    }
-    
-    float shadow;
-    bool useNormalSM = oracle <= gShadowMap.kOracleCompValue;
+    float shadow = 0.f;
 
-    if(gShadowMap.kUseHybridShadowMap)
-        useShadowRay |= oracle > gShadowMap.kOracleCompUpperBound;
-    
-    if (gShadowMap.kUseHybridShadowMap && !useShadowRay)
-    {
-        useShadowRay = !gShadowMap.evalHybridShadowMap(sd.posW, smLightData, sampleNext4D(sg), oracleMip, shadow);
-        bool validShadowValue = shadow >= 0.f;
-        useShadowRay &= (!useNormalSM || !rayData.useOracle || !validShadowValue); //Disable ray if oracle function was evaluated true
-    }
-    else if (!useShadowRay && useNormalSM)
-    {
-        useShadowRay = !gShadowMap.evalShadowMap(sd.posW, smLightData, sampleNext4D(sg), oracleMip, shadow);
+    //Oracle
+    bool oracleDisableShadowRay = false;
+    bool debugUseRay = false; 
+    if(!useShadowRay && kUseOracleFunction){
+        oracle = gShadowMapOracle.oracleFunction(smLightData, sd, rayDistance);
+        if(oracle < kOracleCompaireValue){
+            oracleDisableShadowRay = true;
+        }else if(kOracleAddRays){
+            if(oracle > kOracleUpperCompaireValue){
+                useShadowRay = true;
+                debugUseRay = true;
+            }
+        }
     }
 
-    //Make sure the ray is used if no hybrid shadow mapping is used
-    if (!gShadowMap.kUseHybridShadowMap)
-        useShadowRay |= !useNormalSM;
+    if(!useShadowRay){
+        bool isDynamic = false;
+        useShadowRay = !gShadowMap.evalShadowMap(sd.posW, smLightData, 0.f /*random (only x is used currently)*/, 0.f /*MipLevel*/, shadow, isDynamic, true);
+        debugUseRay = useShadowRay;
+    }
+
+    if(oracleDisableShadowRay && useShadowRay)
+        useShadowRay = false;
 
     if (kDebugOracleFunction)
     {
@@ -407,17 +422,15 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
             else
                 debugValue = float3(1,0,1);
             */
+            
             if (kDebugOracleLightIdx < 0 || kDebugOracleLightIdx == lightIndex)
             {
-                if (!rayData.useOracle && gShadowMap.kUseOracle)
-                    debugValue.x = 0.225f;
-                else if (useNormalSM && !useShadowRay)
-                    debugValue.x = 1.f;
-                if (gShadowMap.kUseHybridShadowMap && !useShadowRay)
-                    debugValue.z = 1.f;
-                if (useShadowRay)
+                debugValue.x = 1.f;
+                if (debugUseRay)
                     debugValue.y = 1.f;
-            
+                if(oracleDisableShadowRay && debugUseRay)
+                    debugValue.z = 1.f;
+
                 if(kDebugOracleLightIdx >= 0)
                     debugValue *= invPdf;       //Because the light is not always choosen
             }
@@ -457,19 +470,18 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool i
         rayData.direction = bsdfSample.wo;
         rayData.thp *= bsdfSample.weight;
 
-        if(gShadowMap.kUseOracle){
+        
+        if(kUseOracleDistFunction){
             let bsdfProperties = mi.getProperties(sd);
             ///Handle Oracle Distance function
-            if (gShadowMap.kUseOracleDistFunction)
-            {
-                rayData.lobeDistFactor = gShadowMap.getOracleDistanceFunctionFactor(bsdfProperties, bsdfSample);
-            }
+            rayData.lobeDistFactor = gShadowMapOracle.getOracleDistanceFunctionFactor(bsdfProperties, bsdfSample);
 
+            /*
             if(!rayData.useOracle && gShadowMap.kUseOracleForDirect){
                 rayData.useOracle = bsdfProperties.roughness >= gShadowMap.kUseOracleForDirectRoughness ? true : rayData.useOracle;
             }
-        }
-        
+            */
+        }        
         
         return any(rayData.thp > 0.f);
     }
@@ -492,6 +504,8 @@ void handleHit(const HitInfo hit, inout ScatterRayData rayData)
 
     // Load shading data.
     ShadingData sd = loadShadingData(hit, rayData.origin, rayData.direction, lod);
+
+    rayData.distance += distance(sd.posW, rayData.origin) * rayData.lobeDistFactor;
 
     // Create material instance.
     let mi = gScene.materials.getMaterialInstance(sd, lod);
@@ -525,7 +539,7 @@ void handleHit(const HitInfo hit, inout ScatterRayData rayData)
     if (kUseAnalyticLights)
     {
     
-        float3 Lr = evalDirectAnalytic(sd, mi, rayData.sg, rayData);
+        float3 Lr = evalDirectAnalytic(sd, mi, rayData.sg, rayData.pathLength, rayData.distance);
         rayData.radiance += rayData.thp * Lr;
     }
 
@@ -605,8 +619,9 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         ScatterRayData rayData = ScatterRayData(sg);
         rayData.distance = distance(gScene.camera.data.posW, sd.posW);  //set the currently traveled distance
         //Set Oracle statuse
-        rayData.useOracle = gShadowMap.kUseOracle && !(gShadowMap.kUseHybridShadowMap && gShadowMap.kUseOracleForDirect);
-        
+        //rayData.useOracle = gShadowMap.kUseOracle && !(gShadowMap.kUseHybridShadowMap && gShadowMap.kUseOracleForDirect);
+        rayData.useOracle = false;
+
         if (kComputeDirect)
         {
             // Always output directly emitted light, independent of whether emissive materials are treated as light sources or not.
@@ -614,18 +629,27 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 
             // Add contribution of direct light from analytic lights.
             // Light probe and mesh lights are handled by the scatter ray hit/miss shaders.
-            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, sg, rayData) : float3(0.f);
+            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, sg, 0, rayData.distance) : float3(0.f);
         }
         
         // Generate scatter ray.
         if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, rayData)) rayData.distance = -1.f;
 
+        HitRayData hitRayData = HitRayData();
         // Follow path into the scene and compute its total contribution.
-        for (uint depth = 0; depth <= kMaxBounces && rayData.distance > 0; depth++)
+        for (uint depth = 0; depth <= kMaxBounces; depth++)
         {
             // Trace scatter ray. If it hits geometry, the closest hit shader samples
             // direct illumination and generates the next scatter ray.
-            traceScatterRay(rayData);
+            traceScatterRay(rayData, hitRayData);
+            HitInfo hit = HitInfo(hitRayData.packedHit);
+            //Miss
+            if(!hit.isValid())
+                break;
+            //HandleHit
+            handleHit(hit, rayData);
+            if(rayData.distance < 0)
+                break;
         }
 
         // Store contribution from scatter ray.
@@ -645,17 +669,19 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 //
 
 [shader("miss")]
-void scatterMiss(inout ScatterRayData rayData)
+void scatterMiss(inout HitRayData rayData)
 {
     // Ray missed the scene. Mark the ray as terminated.
-    rayData.distance = -1.f;
+    rayData.packedHit = { };
 
+    /*
     // Add contribution from distant light (env map) in this direction.
     if (kUseEnvLight && (kComputeDirect || rayData.pathLength > 0))
     {
         float3 Le = gScene.envMap.eval(WorldRayDirection());
         rayData.radiance += rayData.thp * Le;
     }
+    */
 }
 
 [shader("miss")]
@@ -670,7 +696,7 @@ void shadowMiss(inout ShadowRayData rayData)
 //
 
 [shader("anyhit")]
-void scatterTriangleMeshAnyHit(inout ScatterRayData rayData, BuiltInTriangleIntersectionAttributes attribs)
+void scatterTriangleMeshAnyHit(inout HitRayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
     // Alpha test for non-opaque geometry.
     if (kAlphaTest)
@@ -684,14 +710,14 @@ void scatterTriangleMeshAnyHit(inout ScatterRayData rayData, BuiltInTriangleInte
 }
 
 [shader("closesthit")]
-void scatterTriangleMeshClosestHit(inout ScatterRayData rayData, BuiltInTriangleIntersectionAttributes attribs)
+void scatterTriangleMeshClosestHit(inout HitRayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
     TriangleHit triangleHit;
     triangleHit.instanceID = getGeometryInstanceID();
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics = attribs.barycentrics;
-    rayData.distance += RayTCurrent() * rayData.lobeDistFactor;
-    handleHit(HitInfo(triangleHit), rayData);
+    //rayData.distance += RayTCurrent() * rayData.lobeDistFactor;
+    rayData.packedHit = HitInfo(triangleHit).getData();
 }
 
 [shader("anyhit")]
@@ -725,15 +751,15 @@ void displacedTriangleMeshIntersection()
 }
 
 [shader("closesthit")]
-void scatterDisplacedTriangleMeshClosestHit(inout ScatterRayData rayData, DisplacedTriangleMeshIntersector::Attribs attribs)
+void scatterDisplacedTriangleMeshClosestHit(inout HitRayData rayData, DisplacedTriangleMeshIntersector::Attribs attribs)
 {
     DisplacedTriangleHit displacedTriangleHit;
     displacedTriangleHit.instanceID = getGeometryInstanceID();
     displacedTriangleHit.primitiveIndex = PrimitiveIndex();
     displacedTriangleHit.barycentrics = attribs.barycentrics;
     displacedTriangleHit.displacement = attribs.displacement;
-    rayData.distance += RayTCurrent();
-    handleHit(HitInfo(displacedTriangleHit), rayData);
+    //rayData.distance += RayTCurrent();
+    rayData.packedHit = HitInfo(displacedTriangleHit).getData();
 }
 
 //
@@ -753,14 +779,14 @@ void curveIntersection()
 }
 
 [shader("closesthit")]
-void scatterCurveClosestHit(inout ScatterRayData rayData, CurveIntersector::Attribs attribs)
+void scatterCurveClosestHit(inout HitRayData rayData, CurveIntersector::Attribs attribs)
 {
     CurveHit curveHit;
     curveHit.instanceID = getGeometryInstanceID();
     curveHit.primitiveIndex = PrimitiveIndex();
     curveHit.barycentrics = attribs.barycentrics;
-    rayData.distance += RayTCurrent();
-    handleHit(HitInfo(curveHit), rayData);
+    //rayData.distance += RayTCurrent();
+    rayData.packedHit = HitInfo(curveHit).getData();
 }
 
 //
@@ -780,13 +806,13 @@ void sdfGridIntersection()
 }
 
 [shader("closesthit")]
-void scatterSdfGridClosestHit(inout ScatterRayData rayData, SDFGridHitData sdfGridHitData)
+void scatterSdfGridClosestHit(inout HitRayData rayData, SDFGridHitData sdfGridHitData)
 {
     SDFGridHit sdfGridHit;
     sdfGridHit.instanceID = getGeometryInstanceID();
     sdfGridHit.hitData = sdfGridHitData;
-    rayData.distance += RayTCurrent();
-    handleHit(HitInfo(sdfGridHit), rayData);
+    //rayData.distance += RayTCurrent();
+    rayData.packedHit = HitInfo(sdfGridHit).getData();
 }
 
 //

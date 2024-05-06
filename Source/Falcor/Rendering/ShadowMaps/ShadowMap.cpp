@@ -2388,6 +2388,14 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
         mUpdateShadowMap |= blurSettingsChanged; //Rerender Shadow maps if the blur settings changed
     }
 
+    if (mpOracle)
+    {
+        if (auto group = widget.group("Oracle Options"))
+        {
+            mpOracle->renderUI(group);
+        }
+    }
+
     dirty |= mRasterDefinesChanged;
     dirty |= mResetShadowMapBuffers;
 

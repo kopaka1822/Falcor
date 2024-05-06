@@ -318,7 +318,7 @@ void MinimalPathTracerShadowMap::setScene(RenderContext* pRenderContext, const r
         }
 
         //Init the shadow map
-        mpShadowMap = std::make_unique<ShadowMap>(mpDevice, mpScene);
+        mpShadowMap = std::make_unique<ShadowMap>(mpDevice, mpScene, true);
 
         // Create ray tracing program.
         RtProgram::Desc desc;

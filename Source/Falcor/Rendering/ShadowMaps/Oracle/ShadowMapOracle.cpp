@@ -21,6 +21,7 @@ DefineList ShadowMapOracle::getDefines() const
 
     defines.add("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
     defines.add("ORACLE_COMP_VALUE", std::to_string(mOracleCompaireValue));
+    defines.add("ORACLE_ADD_RAYS", mOracleAddRays ? "1" : "0");
     defines.add("ORACLE_UPPER_BOUND", std::to_string(mOracleCompaireUpperBound));
     defines.add("USE_ORACLE_DISTANCE_FUNCTION", mOracleDistanceFunctionMode == OracleDistFunction::None ? "0" : "1");
     defines.add("USE_ORACLE_FOR_DIRECT", mOracleIgnoreDirect ? "1" : "0");
@@ -138,6 +139,9 @@ bool ShadowMapOracle::renderUI(Gui::Widgets& widget)
         widget.tooltip("Compaire Value for the Oracle function. Is basically compaired against ShadowMapPixelArea/CameraPixelArea.");
         dirty |= widget.var("Oracle Upper Bound", mOracleCompaireUpperBound, mOracleCompaireValue, 2048.f, 0.1f);
         widget.tooltip("Upper Bound for the oracle value. If oracle is above this value the shadow test is skipped and an ray is shot.");
+
+        dirty |= widget.checkbox("Oracle Add Rays", mOracleAddRays);
+        widget.tooltip("Adds rays when enabled");
 
         dirty |= widget.dropdown("Oracle Distance Mode", mOracleDistanceFunctionMode);
         widget.tooltip("Mode for the distance factor applied on bounces.");
