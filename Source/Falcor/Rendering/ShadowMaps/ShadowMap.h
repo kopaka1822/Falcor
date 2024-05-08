@@ -42,7 +42,6 @@
 
 #include "ShadowMapData.slang"
 #include "Blur/SMGaussianBlur.h"
-#include "Oracle/ShadowMapOracle.h"
 
 #include <memory>
 #include <type_traits>
@@ -59,7 +58,7 @@ class RenderContext;
 class FALCOR_API ShadowMap
 {
 public:
-    ShadowMap(ref<Device> device, ref<Scene> scene, bool enableOracle = false);
+    ShadowMap(ref<Device> device, ref<Scene> scene);
 
     // Renders and updates the shadow maps if necessary
     bool update(RenderContext* pRenderContext);
@@ -96,6 +95,10 @@ public:
     const bool getFullTracedCascadedUsed() const { return mCascadedLastLevelRayTrace; }
     const uint getCascadedLevelHybridIsUsed() const { return mCascadedLevelTrace; }
     const bool getRenderDoubleSidedOnly() const { return mSMDoubleSidedOnly; }
+    const uint3 getShadowMapSizes() const { return uint3(mShadowMapSize, mShadowMapSizeCube, mShadowMapSizeCascaded); } //Returns SM sizes (Spot, Cube, Casc)
+    const uint getCascadedLevels() const { return mCascadedLevelCount; }
+    std::vector<float2>& getCascadedWidthHeight() { return mCascadedWidthHeight; }
+
 
     enum class SMUpdateMode: uint
     {
@@ -183,9 +186,6 @@ private:
     ref<Fbo> mpFbo;
     ref<Fbo> mpFboCube;
     ref<Fbo> mpFboCascaded;  
-
-    //Oracle
-    std::unique_ptr<ShadowMapOracle> mpOracle;
 
     //Additional Cull states
     std::map<RasterizerState::CullMode, ref<RasterizerState>> mFrontClockwiseRS;

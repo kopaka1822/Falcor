@@ -70,7 +70,7 @@ const Gui::DropdownList kCascadedModeForEndOfLevels{
 };
 } // namespace
 
-ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene, bool enableOracle) : mpDevice{device}, mpScene{scene}
+ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene) : mpDevice{device}, mpScene{scene}
 {
     FALCOR_ASSERT(mpScene);
 
@@ -78,10 +78,6 @@ ShadowMap::ShadowMap(ref<Device> device, ref<Scene> scene, bool enableOracle) : 
     mpFbo = Fbo::create(mpDevice);
     mpFboCube = Fbo::create(mpDevice);
     mpFboCascaded = Fbo::create(mpDevice);
-
-    //Create Oracle Pointer
-    if (enableOracle)
-        mpOracle = std::make_unique<ShadowMapOracle>(mpDevice);
 
     // Update all shadow maps every frame
     if (mpScene->hasDynamicGeometry())
@@ -143,10 +139,6 @@ void ShadowMap::prepareShadowMapBuffers()
         //Static copys for animations
         mpShadowMapsCubeStatic.clear();
         mpDepthCubeStatic.clear();
-
-        //Misc
-        if (mpOracle)
-            mpOracle->resetBuffers();
     }
 
     // Lighting Changed
@@ -579,8 +571,6 @@ void ShadowMap::prepareProgramms()
     prepareRasterProgramms();
     auto definesPB = getDefines();
     definesPB.add("SAMPLE_GENERATOR_TYPE", "0");
-    if (mpOracle)
-        definesPB.add("ORACLE_VALID");
     // Create dummy Compute pass for Parameter block
     {
         Program::Desc desc;
@@ -598,9 +588,6 @@ void ShadowMap::prepareProgramms()
         auto reflector = mpReflectTypes->getProgram()->getReflector()->getParameterBlock("gShadowMap");
         mpShadowMapParameterBlock = ParameterBlock::create(mpDevice, reflector);
         FALCOR_ASSERT(mpShadowMapParameterBlock);
-        if (mpOracle)
-            mpOracle->createParameterBlock(mpReflectTypes);
-
 
         setShaderData();
     }
@@ -711,9 +698,6 @@ DefineList ShadowMap::getDefines() const
     if (mpScene)
         defines.add(mpScene->getSceneDefines());
 
-    if (mpOracle)
-        defines.add(mpOracle->getDefines());
-
     return defines;
 }
 
@@ -801,17 +785,12 @@ void ShadowMap::setShaderData(const uint2 frameDim)
     var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
     var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
 
-    //Set Oracle Shader Data
-    if (mpOracle)
-        mpOracle->setShaderData(frameDim, cameraData);
 }
 
 void ShadowMap::setShaderDataAndBindBlock(ShaderVar rootVar, const uint2 frameDim)
 {
     setShaderData(frameDim);
     rootVar["gShadowMap"] = getParameterBlock();
-    if (mpOracle)
-        mpOracle->bindShaderData(rootVar);
 }
 
 void ShadowMap::updateRasterizerStates() {
@@ -1653,11 +1632,6 @@ bool ShadowMap::update(RenderContext* pRenderContext)
     if (mClearDynamicSM)
         mClearDynamicSM = false;
 
-    if (mpOracle)
-        mpOracle->handleNormalizedPixelSizeBuffer(
-            mpScene, mShadowMapSize, mShadowMapSizeCube, mShadowMapSizeCascaded, mCascadedLevelCount, mCascadedWidthHeight
-        );
-
     mUpdateShadowMap = false;
     return true;
 }
@@ -2386,14 +2360,6 @@ bool ShadowMap::renderUI(Gui::Widgets& widget)
 
         dirty |= blurSettingsChanged;
         mUpdateShadowMap |= blurSettingsChanged; //Rerender Shadow maps if the blur settings changed
-    }
-
-    if (mpOracle)
-    {
-        if (auto group = widget.group("Oracle Options"))
-        {
-            mpOracle->renderUI(group);
-        }
     }
 
     dirty |= mRasterDefinesChanged;

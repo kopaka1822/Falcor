@@ -40,8 +40,8 @@ namespace
 
     // Ray tracing settings that affect the traversal stack size.
     // These should be set as small as possible.
-    const uint32_t kMaxPayloadSizeBytes = 88u;
-    const uint32_t kMaxRecursionDepth = 2u;
+    const uint32_t kMaxPayloadSizeBytes = 16u;
+    const uint32_t kMaxRecursionDepth = 1u;
 
     const char kInputViewDir[] = "viewW";
 
@@ -143,6 +143,9 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     if (!mpShadowMap->update(pRenderContext))
         return;
 
+    //Update Shadow Map Oracle
+    mpShadowMapOracle->update(mpScene, renderData.getDefaultTextureDims(), mpShadowMap.get());
+
     // Request the light collection if emissive lights are enabled.
     if (mpScene->getRenderSettings().useEmissiveLights)
     {
@@ -172,6 +175,7 @@ void MinimalPathTracerShadowMap::execute(RenderContext* pRenderContext, const Re
     mTracer.pProgram->addDefine("SHOW_ORACLE_FUNCTION", mOracleDebugShowFunc ? "1" : "0");
     mTracer.pProgram->addDefine("ORACLE_DEBUG_LIGHT_IDX", std::to_string(mOracleDebugLightIdx));
     mTracer.pProgram->addDefines(mpShadowMap->getDefines());
+    mTracer.pProgram->addDefines(mpShadowMapOracle->getDefines());
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     // TODO: This should be moved to a more general mechanism using Slang.
@@ -278,6 +282,12 @@ void MinimalPathTracerShadowMap::renderUI(Gui::Widgets& widget)
         else
             group.text("Further Shadow Map Options to appear \n when a scene is loaded in.");
 
+        if (mpShadowMapOracle)
+        {
+            if (auto group2 = widget.group("OracleOptions"))
+                dirty |= mpShadowMapOracle->renderUI(group2);
+        }
+
         if (auto group2 = widget.group("Oracle Debug")) {
             dirty |= group2.checkbox("Show Oracle Function", mOracleDebugShowFunc);
             group2.tooltip("Use SM = Red; Use RayTracing/Hybrid SM = green. Shows only the for the first SM bounce", true);
@@ -318,7 +328,8 @@ void MinimalPathTracerShadowMap::setScene(RenderContext* pRenderContext, const r
         }
 
         //Init the shadow map
-        mpShadowMap = std::make_unique<ShadowMap>(mpDevice, mpScene, true);
+        mpShadowMap = std::make_unique<ShadowMap>(mpDevice, mpScene);
+        mpShadowMapOracle = std::make_unique<ShadowMapOracle>();
 
         // Create ray tracing program.
         RtProgram::Desc desc;

@@ -27,7 +27,7 @@
  **************************************************************************/
 #pragma once
 #include "../ShadowMapData.slang"
-
+#include "../ShadowMap.h"
 /*
     Wrapper Module for Shadow Maps, which allow ShadowMaps to be easily integrated into every Render Pass.
 */
@@ -38,19 +38,14 @@ class RenderContext;
 class FALCOR_API ShadowMapOracle
 {
 public:
-    ShadowMapOracle(ref<Device> pDevice) : mpDevice {pDevice}{}
-
-    // Gets the parameter block needed for shader usage
-    ref<ParameterBlock> getParameterBlock() const { return mpShadowMapOracleParameterBlock; }
+    ShadowMapOracle() {}
 
     DefineList getDefines() const;
-    void createParameterBlock(ref<ComputePass> reflectProgram);
-    void setShaderData(const uint2 frameDim, const CameraData& cameraData);
     bool renderUI(Gui::Widgets& widget);
-    void resetBuffers() { mpNormalizedPixelSize.reset(); }
-    void bindShaderData(ShaderVar rootVar) { rootVar["gShadowMapOracle"] = mpShadowMapOracleParameterBlock; }
-    void handleNormalizedPixelSizeBuffer(
+    void update(ref<Scene> pScene, const uint2 frameDim, ShadowMap* pShadowMap);
+    void update(
         ref<Scene> pScene,
+        const uint2 frameDim,
         uint shadowMapSize,
         uint shadowCubeSize,
         uint shadowCascSize,
@@ -63,11 +58,11 @@ private:
     float getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect);
     float getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height); // Ortho case
 
-    ref<Device> mpDevice;
-    ref<ParameterBlock> mpShadowMapOracleParameterBlock; // Parameter Block
-    ref<Buffer> mpNormalizedPixelSize;                   // Buffer with the normalized pixel size for each ShadowMap
+    static constexpr float kNPSFactor = 1000.f;
 
     uint2 mNPSOffsets = uint2(0); // x = idx first spot; y = idx first cascade
+    float mCameraNPS = 0.f;
+    std::vector<float> mLightNPS;
 
     // Oracle
     bool mUseSMOracle = true; ///< Enables Shadow Map Oracle function

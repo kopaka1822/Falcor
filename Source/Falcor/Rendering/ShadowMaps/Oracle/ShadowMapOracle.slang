@@ -5,19 +5,19 @@
 import Scene.Raytracing;
 import Rendering.Lights.LightHelpers;
 import Utils.Color.ColorHelpers;
-__exported import Rendering.ShadowMaps.ShadowMapData;
-__exported import Rendering.ShadowMaps.ShadowMapHelpers;
+import Rendering.ShadowMaps.ShadowMapData;
+import Rendering.ShadowMaps.ShadowMapHelpers;
 
 struct ShadowMapOracle
 {
-    StructuredBuffer<float> gShadowMapNPSBuffer;                                    //Buffer for the Normalized Pixel Size [Point | Spot | Cascaded]
-
-    float gCameraNPS;                                   //Normalized Pixel Size for the Camera
+    //StructuredBuffer<float> gShadowMapNPSBuffer;                                    
+    static const float kLightsNPS[SMORACLE_NUM_LIGHTS] = SMORACLE_LIGHTS_NPS;            //Buffer for the Normalized Pixel Size [Point | Spot | Cascaded]
+    static const float kCameraNPS = SMORACLE_CAMERA_NPS;                                 //Normalized Pixel Size for the Camera
 
     //Static Constants
-    static const uint kNPSOffsetSpot = NPS_OFFSET_SPOT;                     //Spotlight offset for gShadowMapNPSBuffer
-    static const uint kNPSOffsetCasc = NPS_OFFSET_CASCADED;                 //Cascaded offset for gShadowMapNPSBuffer
-    static const uint kOracleDistFunctionMode = ORACLE_DIST_FUNCTION_MODE;  //Mode for the Oracle Distance Function
+    static const uint kNPSOffsetSpot = SMORACLE_NPS_OFFSET_SPOT;                     //Spotlight offset for kLightsNPS
+    static const uint kNPSOffsetCasc = SMORACLE_NPS_OFFSET_CASCADED;                 //Cascaded offset for kLightsNPS
+    static const uint kOracleDistFunctionMode = SMORACLE__DIST_FUNCTION_MODE;  //Mode for the Oracle Distance Function
 
     static const bool kUseSMMips = USE_SM_MIP;
     static const float kMipBias = SM_MIP_BIAS; // angle bias used in mip calculation (cos theta^bias)
@@ -30,7 +30,7 @@ struct ShadowMapOracle
     \param[out] Optional Mip Level. Written if kUseSMMips == true
     \return a oracle value that indicates the proportion of the seen camera pixel area to the seen shadow map pixel area
     */
-    float oracleFunction(const in SMLightData lightData, const in ShadingData sd, float rayDistance, out float mipLevel)
+    static float oracleFunction(const in SMLightData lightData, const in ShadingData sd, float rayDistance, out float mipLevel)
     {
         mipLevel = 0.f; //Default value
         uint lightIdx = lightData.index;
@@ -62,8 +62,8 @@ struct ShadowMapOracle
         float angleCamera = abs(dot(sd.V, N));
         float angleLight = abs(dot(toLight, N));
         
-        float projAreaCam = gCameraNPS * rayDistance * rayDistance;
-        float pixelAreaSM = gShadowMapNPSBuffer[lightIdx];
+        float projAreaCam = kCameraNPS * rayDistance * rayDistance;
+        float pixelAreaSM = kLightsNPS[lightIdx];
         float projSMArea = pixelAreaSM * distanceToLight * distanceToLight;
 
         //Calculate MIP
@@ -81,10 +81,42 @@ struct ShadowMapOracle
     \param[in] current distance from camera to hit. Can be modified with the oracleDistanceFactor for better results with indirect bounces
     \return a oracle value that indicates the proportion of the seen camera pixel area to the seen shadow map pixel area
     */
-    float oracleFunction(const in SMLightData lightData, const in ShadingData sd, float rayDistance)
+    static float oracleFunction(const in SMLightData lightData, const in ShadingData sd, float rayDistance)
     {
-        float mipLevel;
-        return oracleFunction(lightData, sd, rayDistance, mipLevel);
+        uint lightIdx = lightData.index;
+
+        if (lightData.type == (uint) LightTypeSM::Spot)
+            lightIdx += kNPSOffsetSpot;
+        
+        float distanceToLight;
+        float3 toLight;
+
+        //Get LightDir and Distance
+        if (lightData.type == (uint) LightTypeSM::Directional)
+        {
+            uint level = 0; //TODO set properly
+            distanceToLight = 1.f; //Distance is always 1, because the area does not change in an orthographic projection
+            toLight = -lightData.dirW;
+            lightIdx += kNPSOffsetCasc + level;
+        }
+        else
+        {
+            toLight = lightData.posW - sd.posW;
+            distanceToLight = length(toLight);
+            toLight /= distanceToLight;
+        }
+        
+        const float3 N = sd.frame.N;    //TODO add option to switch between face and shading normal
+        
+        //Get the cos theta between normal and vectors
+        float angleCamera = abs(dot(sd.V, N));
+        float angleLight = abs(dot(toLight, N));
+        
+        float projAreaCam = kCameraNPS * rayDistance * rayDistance;
+        float pixelAreaSM = kLightsNPS[lightIdx];
+        float projSMArea = pixelAreaSM * distanceToLight * distanceToLight;
+                
+        return ( projSMArea * angleCamera) / ( projAreaCam * angleLight + 1e-10f);  //Divide the projected areas
     }
     
      /** Calculate the Oracle distance factor based on the currently selected mode. Should be used on bounces only
@@ -92,7 +124,7 @@ struct ShadowMapOracle
     \param[in] current reflection sample.
     \return a factor the indirect bounce distance should be multiplied with. Used to the oracle function as distance
     */
-    float getOracleDistanceFunctionFactor(const in BSDFProperties bsdfProperties,const in BSDFSample bsdfSample)
+    static float getOracleDistanceFunctionFactor(const in BSDFProperties bsdfProperties,const in BSDFSample bsdfSample)
     {
         switch (OracleDistFunction(kOracleDistFunctionMode))
         {
@@ -127,5 +159,3 @@ struct ShadowMapOracle
         return 1.f;
     }   
 };
-
-ParameterBlock<ShadowMapOracle> gShadowMapOracle;

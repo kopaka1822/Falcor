@@ -4,20 +4,34 @@
 
 namespace Falcor
 {
-
-void ShadowMapOracle::createParameterBlock(ref<ComputePass> reflectProgram) {
-    auto reflector = reflectProgram->getProgram()->getReflector()->getParameterBlock("gShadowMapOracle");
-    mpShadowMapOracleParameterBlock = ParameterBlock::create(mpDevice, reflector);
-    FALCOR_ASSERT(mpShadowMapOracleParameterBlock);
-}
-
 DefineList ShadowMapOracle::getDefines() const
 {
     DefineList defines;
 
-    defines.add("NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
-    defines.add("NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
-    defines.add("ORACLE_DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
+    defines.add("SMORACLE_NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
+    defines.add("SMORACLE_NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
+    defines.add("SMORACLE__DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
+    defines.add("SMORACLE_CAMERA_NPS", std::to_string(mCameraNPS));
+    if (mLightNPS.size() > 0)
+    {
+        defines.add("SMORACLE_NUM_LIGHTS", std::to_string(mLightNPS.size()));
+
+        std::string lightNpsArray = "{";
+        for (uint i = 0; i < mLightNPS.size(); i++)
+        {
+            lightNpsArray.append(std::to_string(mLightNPS[i]));
+            if (i < mLightNPS.size() - 1)
+                lightNpsArray.append(",");
+        }
+        lightNpsArray.append("}");
+        defines.add("SMORACLE_LIGHTS_NPS", lightNpsArray);
+    }
+    else
+    {
+        defines.add("SMORACLE_NUM_LIGHTS", std::to_string(1));
+        defines.add("SMORACLE_LIGHTS_NPS", "{0.0}");
+    }
+   
 
     defines.add("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
     defines.add("ORACLE_COMP_VALUE", std::to_string(mOracleCompaireValue));
@@ -30,17 +44,6 @@ DefineList ShadowMapOracle::getDefines() const
     return defines;
 }
 
-void ShadowMapOracle::setShaderData(const uint2 frameDim, const CameraData& cameraData)
-{
-    FALCOR_ASSERT(mpShadowMapOracleParameterBlock);
-
-    auto var = mpShadowMapOracleParameterBlock->getRootVar();
-    var["gCameraNPS"] =
-        getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight), cameraData.aspectRatio);
-
-    var["gShadowMapNPSBuffer"] = mpNormalizedPixelSize; // Can be Nullptr on init
-}
-
 // Gets the pixel size at distance 1. Assumes every pixel has the same size.
 float ShadowMapOracle::getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect)
 {
@@ -48,30 +51,46 @@ float ShadowMapOracle::getNormalizedPixelSize(uint2 frameDim, float fovY, float 
     float w = h * aspect;
     float wPix = w / frameDim.x;
     float hPix = h / frameDim.y;
-    return wPix * hPix;
+    return wPix * hPix * kNPSFactor;
 }
 
 float ShadowMapOracle::getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height)
 {
     float wPix = width / frameDim.x;
     float hPix = height / frameDim.y;
-    return wPix * hPix;
+    return wPix * hPix * kNPSFactor;
 }
 
-void ShadowMapOracle::handleNormalizedPixelSizeBuffer(ref<Scene> pScene, uint shadowMapSize, uint shadowCubeSize, uint shadowCascSize, uint cascadedLevelCount, std::vector<float2>& cascadedWidthHeight)
+void ShadowMapOracle::update(ref<Scene> pScene, const uint2 frameDim, ShadowMap* pShadowMap)
 {
-    // If buffer is build, no need to rebuild it
-    if (mpNormalizedPixelSize)
-        return;
+    uint3 smSize = pShadowMap->getShadowMapSizes();
+    update(
+        pScene, frameDim, smSize.x, smSize.y, smSize.z, pShadowMap->getCascadedLevels(), pShadowMap->getCascadedWidthHeight()
+    );
+}
 
-    // Get the NPS(Normalized Pixel Size) for each light type
+void ShadowMapOracle::update(
+    ref<Scene> pScene,
+    const uint2 frameDim,
+    uint shadowMapSize,
+    uint shadowCubeSize,
+    uint shadowCascSize,
+    uint cascadedLevelCount,
+    std::vector<float2>& cascadedWidthHeight
+)
+{
+    const auto& cameraData = pScene->getCamera()->getData();
+    mCameraNPS = getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight), cameraData.aspectRatio);
+    
+    //TODO only reset if lights have changed
+
     std::vector<float> pointNPS;
     std::vector<float> spotNPS;
     std::vector<float> dirNPS;
 
     uint cascadedCount = 0;
 
-    //TODO better solution for this
+    //TODO Use modular solution for this
     auto getLightType = [&](const ref<Light> light) {
         const LightType& type = light->getType();
         if (type == LightType::Directional)
@@ -110,22 +129,16 @@ void ShadowMapOracle::handleNormalizedPixelSizeBuffer(ref<Scene> pScene, uint sh
     }
 
     mNPSOffsets = uint2(pointNPS.size(), pointNPS.size() + spotNPS.size());
-    size_t totalSize = mNPSOffsets.y + dirNPS.size();
+    uint numLights = mNPSOffsets.y + dirNPS.size();
 
-    std::vector<float> npsData;
-    npsData.reserve(totalSize);
+    mLightNPS.clear();
+    mLightNPS.reserve(numLights);
     for (auto nps : pointNPS)
-        npsData.push_back(nps);
+        mLightNPS.push_back(nps);
     for (auto nps : spotNPS)
-        npsData.push_back(nps);
+        mLightNPS.push_back(nps);
     for (auto nps : dirNPS)
-        npsData.push_back(nps);
-
-    // Create the buffer
-    mpNormalizedPixelSize = Buffer::createStructured(
-        mpDevice, sizeof(float), npsData.size(), ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, npsData.data(), false
-    );
-    mpNormalizedPixelSize->setName("ShadowMap::NPSBuffer");
+        mLightNPS.push_back(nps);
 }
 
 bool ShadowMapOracle::renderUI(Gui::Widgets& widget)

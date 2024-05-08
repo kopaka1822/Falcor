@@ -352,8 +352,9 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
 {
     // Sample local light source.
     AnalyticLightSample ls;
+    float3 Lr = float3(0);
     LightData lightData = gScene.getLight(lightIndex);
-    if (!sampleLight(sd.posW, lightData, sg, ls)) return float3(0.f);
+    if (!sampleLight(sd.posW, lightData, sg, ls)) return Lr;
 
     // Reject sample if not in the hemisphere of a BSDF lobe.
     const uint lobeTypes = mi.getLobeTypes(sd);
@@ -361,17 +362,14 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
     const bool hasTransmission = lobeTypes & uint(LobeType::Transmission);
     float NdotL = dot(sd.getOrientedFaceNormal(), ls.dir);
     if ((NdotL <= kMinCosTheta && !hasTransmission) || (NdotL >= -kMinCosTheta && !hasReflection))
-        return float3(0.f);
+        return Lr;
 
     // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
     const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
 
-    float3 Lr = mi.eval(sd, ls.dir, sg) * ls.Li * invPdf;
-
-    //Return preemtively when light is black
-    if(!any(Lr > 0))
-        return 0.f;
-
+    if(all(ls.Li <= 0))
+        return Lr;
+    
      //Visiblity Test using Shadow Map or Shadow Ray
     //Get orcale function
     SMLightData smLightData = gShadowMap.getShadowMapLightData(lightData, lightIndex);
@@ -382,27 +380,27 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
 
     //Oracle
     bool oracleDisableShadowRay = false;
-    bool debugUseRay = false; 
-    if(!useShadowRay && kUseOracleFunction){
-        oracle = gShadowMapOracle.oracleFunction(smLightData, sd, rayDistance);
-        if(oracle < kOracleCompaireValue){
-            oracleDisableShadowRay = true;
-        }else if(kOracleAddRays){
-            if(oracle > kOracleUpperCompaireValue){
-                useShadowRay = true;
-                debugUseRay = true;
-            }
-        }
-    }
-
+    bool debugUseRay = false;
+   
     if(!useShadowRay){
         bool isDynamic = false;
         useShadowRay = !gShadowMap.evalShadowMap(sd.posW, smLightData, 0.f /*random (only x is used currently)*/, 0.f /*MipLevel*/, shadow, isDynamic, true);
         debugUseRay = useShadowRay;
     }
 
-    if(oracleDisableShadowRay && useShadowRay)
-        useShadowRay = false;
+    if(kUseOracleFunction && !(gUseShadowMap > pathLength)){
+        if(useShadowRay || kOracleAddRays){
+             oracle = ShadowMapOracle::oracleFunction(smLightData, sd, rayDistance);
+             if(oracle < kOracleCompaireValue){
+                useShadowRay = false;
+                oracleDisableShadowRay = true;
+             }
+             else if((!useShadowRay) && kOracleAddRays){
+                if(oracle > kOracleUpperCompaireValue)
+                    useShadowRay = true;
+             }
+        }
+    }
 
     if (kDebugOracleFunction)
     {
@@ -425,7 +423,7 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
             
             if (kDebugOracleLightIdx < 0 || kDebugOracleLightIdx == lightIndex)
             {
-                debugValue.x = 1.f;
+                debugValue.x = useShadowRay ? 1.0 : 0.0;
                 if (debugUseRay)
                     debugValue.y = 1.f;
                 if(oracleDisableShadowRay && debugUseRay)
@@ -442,6 +440,9 @@ float3 evalLights(uint lightIndex, float invPdf, const ShadingData sd, const IMa
     if (useShadowRay)
         shadow = traceShadowRay(origin, ls.dir, ls.distance);
 
+    if(shadow > 0)
+        Lr = mi.eval(sd, ls.dir, sg) * ls.Li * invPdf;
+        
     // Evaluate contribution.
     return Lr * shadow;
 }
@@ -474,7 +475,7 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool i
         if(kUseOracleDistFunction){
             let bsdfProperties = mi.getProperties(sd);
             ///Handle Oracle Distance function
-            rayData.lobeDistFactor = gShadowMapOracle.getOracleDistanceFunctionFactor(bsdfProperties, bsdfSample);
+            rayData.lobeDistFactor = ShadowMapOracle::getOracleDistanceFunctionFactor(bsdfProperties, bsdfSample);
 
             /*
             if(!rayData.useOracle && gShadowMap.kUseOracleForDirect){

@@ -30,6 +30,7 @@
 #include "RenderGraph/RenderPass.h"
 #include "Utils/Sampling/SampleGenerator.h"
 #include "Rendering/ShadowMaps/ShadowMap.h"
+#include "Rendering/ShadowMaps/Oracle/ShadowMapOracle.h"
 #include "Rendering/Materials/TexLODTypes.slang"  // Using the enum with Mip0, RayCones, etc
 
 using namespace Falcor;
@@ -71,6 +72,8 @@ private:
     ref<Scene>                  mpScene;                        ///< Current scene.
     ref<SampleGenerator>        mpSampleGenerator;              ///< GPU sample generator.
     std::unique_ptr<ShadowMap>  mpShadowMap;                    ///< Shadow Map
+    std::unique_ptr<ShadowMapOracle> mpShadowMapOracle;         ///< Oracle Function for shadow maps    
+    
 
     // Configuration
     uint                        mMaxBounces = 3;                ///< Max number of indirect bounces (0 = none).
