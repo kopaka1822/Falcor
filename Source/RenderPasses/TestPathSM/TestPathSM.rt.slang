@@ -68,6 +68,9 @@ import Rendering.ShadowMaps.ShadowTestFunctions;
 #ifndef COUNT_SM
 #define COUNT_SM 1
 #endif
+#ifndef USE_SEPERATE_LIGHT_SAMPLER
+#define USE_SEPERATE_LIGHT_SAMPLER 0
+#endif
 
 cbuffer CB
 {
@@ -109,6 +112,7 @@ static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const float kRayTMax = FLT_MAX;
 static const bool kUseRussianRoulette = USE_RUSSIAN_ROULETTE;
 static const float2 kLeakTracingBounds = float2(0.01f, 0.99f);
+static const uint kSeperateLightSamplerBlockSize = LIGHT_SAMPLER_BLOCK_SIZE;
 
 /** Payload for shadow ray.
 */
@@ -139,6 +143,9 @@ struct PathData
     float3  direction;      ///< Next path segment direction.
 
     SampleGenerator sg;     ///< Per-ray state for the sample generator (up to 16B).
+#if USE_SEPERATE_LIGHT_SAMPLER
+    SampleGenerator lightSg;///< Per-Ray sample generator for lights
+#endif
 
     /** Initializes ray payload with default parameters.
     */
@@ -290,13 +297,13 @@ bool evalShadowMap(uint lightIdx, float3 posW, out float shadow){
     \param[in,out] sg SampleGenerator object.
     \return Outgoing radiance in view direction.
 */
-float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg)
+float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, float u ,inout SampleGenerator sg)
 {
     const uint lightCount = gScene.getLightCount();
     if (lightCount == 0) return float3(0.f);
 
     // Pick one of the analytic light sources randomly with equal probability.
-    const uint lightIndex = min(uint(sampleNext1D(sg) * lightCount), lightCount - 1);
+    const uint lightIndex = min(uint(u * lightCount), lightCount - 1);
     float invPdf = lightCount; // Light selection pdf = 1.0 / lightCount.
 
     // Sample local light source.
@@ -408,7 +415,14 @@ void handleHit(const HitInfo hit, inout PathData rayData)
     // Add contribution of direct light from analytic lights.
     if (kUseAnalyticLights)
     {
-        float3 Lr = evalDirectAnalytic(sd, mi, rayData.sg);
+        float lightSelect;
+        #if USE_SEPERATE_LIGHT_SAMPLER
+        lightSelect = sampleNext1D(rayData.lightSg);
+        #else
+        lightSelect = sampleNext1D(rayData.sg);
+        #endif
+        
+        float3 Lr = evalDirectAnalytic(sd, mi, lightSelect ,rayData.sg);
         rayData.radiance += rayData.thp * Lr;
     }
 
@@ -459,10 +473,19 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 
         // Create sample generator.
         SampleGenerator sg = SampleGenerator(pixel, gFrameCount);
+    #if USE_SEPERATE_LIGHT_SAMPLER 
+        SampleGenerator lightSg = SampleGenerator(pixel / kSeperateLightSamplerBlockSize, gFrameCount + 1 * 32);
+    #endif //USE_SEPERATE_LIGHT_SAMPLER
 
         // Advance the generator to the first available dimension.
         // TODO: This is potentially expensive. We may want to store/restore the state from memory if it becomes a problem.
-        for (uint i = 0; i < gPRNGDimension; i++) sampleNext1D(sg);
+        for (uint i = 0; i < gPRNGDimension; i++){
+            sampleNext1D(sg);
+        #if USE_SEPERATE_LIGHT_SAMPLER 
+            sampleNext1D(lightSg);
+        #endif
+        }
+
 
         // Compute ray origin for new rays spawned from the G-buffer.
         float3 rayOrigin;
@@ -483,11 +506,20 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 
             // Add contribution of direct light from analytic lights.
             // Light probe and mesh lights are handled by the scatter ray hit/miss shaders.
-            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, sg) : float3(0.f);
+            float lightSelect;
+        #if USE_SEPERATE_LIGHT_SAMPLER
+            lightSelect = sampleNext1D(lightSg);
+        #else
+            lightSelect = sampleNext1D(sg);
+        #endif // USE_SEPERATE_LIGHT_SAMPLER
+            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi,lightSelect , sg) : float3(0.f);
         }
 
         // Prepare ray payload.
         PathData pathData = PathData(sg);
+    #if USE_SEPERATE_LIGHT_SAMPLER
+        pathData.lightSg = lightSg;
+    #endif
 
         // Generate scatter ray.
         if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, pathData)) pathData.terminated = true;

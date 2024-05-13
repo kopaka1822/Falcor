@@ -59,6 +59,14 @@ const char kMaxBounces[] = "maxBounces";
 const char kComputeDirect[] = "computeDirect";
 const char kUseImportanceSampling[] = "useImportanceSampling";
 
+const Gui::DropdownList kBlockSizes{
+    {4, "4x4"},
+    {8, "8x8"},
+    {16, "16x16"},
+    {32, "32x32"},
+    {64, "64x64"},
+};
+
 const Gui::DropdownList kShadowMapSizes{
     {256, "256x256"},
     {512, "512x512"},
@@ -190,6 +198,14 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
 
     dirty |= widget.checkbox("Use Russian Roulette", mUseRussianRoulette);
     widget.tooltip("Enables Russian Roulette to end path with low throuput prematurely", true);
+
+    dirty |= widget.checkbox("Use Seperate Light Sampler", mUseSeperateLightSampler);
+    widget.tooltip("Seperate Light sampler that allows block sampling", true);
+
+    if (mUseSeperateLightSampler)
+    {
+        dirty |= widget.dropdown("Light Sampler Block Sizes", kBlockSizes, mSeperateLightSamplerBlockSize);
+    }
 
     dirty |= widget.checkbox("Enable Shadow Maps", mUseShadowMap);
 
@@ -421,6 +437,8 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE", mUseRussianRoulette ? "1" : "0");
     mTracer.pProgram->addDefine("COUNT_SM", std::to_string(mpShadowMaps.size()));
+    mTracer.pProgram->addDefine("USE_SEPERATE_LIGHT_SAMPLER", mUseSeperateLightSampler ? "1" : "0");
+    mTracer.pProgram->addDefine("LIGHT_SAMPLER_BLOCK_SIZE", std::to_string(mSeperateLightSamplerBlockSize));
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     // TODO: This should be moved to a more general mechanism using Slang.

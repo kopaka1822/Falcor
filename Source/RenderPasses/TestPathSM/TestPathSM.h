@@ -90,6 +90,8 @@ private:
     bool mComputeDirect = true;         ///< Compute direct illumination (otherwise indirect only).
     bool mUseImportanceSampling = true; ///< Use importance sampling for materials.
     bool mUseRussianRoulette = true;
+    bool mUseSeperateLightSampler = false;
+    uint mSeperateLightSamplerBlockSize = 32;
 
     //Config Shadow Map
     bool mShowShadowMap = false;
