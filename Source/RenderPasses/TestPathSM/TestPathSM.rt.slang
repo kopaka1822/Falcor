@@ -61,20 +61,40 @@ import Scene.Intersection;
 import Utils.Math.MathHelpers;
 import Utils.Geometry.GeometryHelpers;
 import Utils.Sampling.SampleGenerator;
+import Utils.Color.ColorHelpers;
 import Rendering.Lights.LightHelpers;
+import Rendering.ShadowMaps.ShadowTestFunctions;
+
+#ifndef COUNT_SM
+#define COUNT_SM 1
+#endif
 
 cbuffer CB
 {
     uint        gFrameCount;        // Frame count since scene was loaded.
     uint        gPRNGDimension;     // First available PRNG dimension.
+    float       gNear;
+    float       gFar;
+    bool        gUseShadowMap;
+    uint3       _pad;
+}
+
+cbuffer ShadowVPs
+{
+    float4x4 gShadowMapVP[COUNT_SM];
 }
 
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
+Texture2D<float2> gShadowMap[COUNT_SM];
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
+
+//Texture Sampler
+SamplerState gShadowSamplerPoint;
+SamplerState gShadowSamplerLinear;
 
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
@@ -87,6 +107,8 @@ static const bool kUseEnvLight = USE_ENV_LIGHT;
 static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
 static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const float kRayTMax = FLT_MAX;
+static const bool kUseRussianRoulette = USE_RUSSIAN_ROULETTE;
+static const float2 kLeakTracingBounds = float2(0.01f, 0.99f);
 
 /** Payload for shadow ray.
 */
@@ -236,6 +258,31 @@ void traceScatterRay(inout PathData rayData, inout RayHitData hitData)
     TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, hitData);
 }
 
+bool evalShadowMap(uint lightIdx, float3 posW, out float shadow){
+    shadow = 0.0;
+    float4 shadowPos = mul(gShadowMapVP[lightIdx], float4(posW, 1));
+    shadowPos.xyz /= shadowPos.w;
+
+    shadowPos.y *= -1;  //Flip
+    shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+    float lightDist = (shadowPos.w - gNear) / (gFar - gNear);
+
+    if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
+        return true;    //ray needed
+
+    float2 shadowValue = gShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0.0);
+    shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-10f);
+
+    if(shadow <= kLeakTracingBounds.x)
+        shadow = 0.0;
+    else if(shadow >= kLeakTracingBounds.y)
+        shadow = 1.0;
+
+    if((shadow > kLeakTracingBounds.x) && (shadow < kLeakTracingBounds.y))
+        return true;   //Ray Needed
+    return false;       //No Ray
+}
+
 /** Evaluates the direct illumination from analytic lights.
     This function samples Falcor's light list uniformly with one shadow ray.
     \param[in] sd Shading data.
@@ -264,15 +311,26 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     if ((NdotL <= kMinCosTheta && !hasTransmission) || (NdotL >= -kMinCosTheta && !hasReflection)  || all(ls.Li <= 0)) // 
         return float3(0.f);
 
-    // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
-    const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
+    bool useRay = !gUseShadowMap;
 
-    // Test visibility by tracing a shadow ray.
-    bool V = traceShadowRay(origin, ls.dir, ls.distance);
-    if (!V) return float3(0.f);
+    float shadow = 0.0;
+    if(!useRay){
+        useRay = evalShadowMap(lightIndex, sd.posW,shadow);
+    }
+
+    if(useRay){
+        // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
+        const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
+        // Test visibility by tracing a shadow ray.
+        bool V = traceShadowRay(origin, ls.dir, ls.distance);
+        shadow = V ? 1.0 : 0.0;
+    }
+
+    if(shadow <= 0.0)
+        return float3(0);
 
     // Evaluate contribution.
-    return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf;
+    return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
 }
 
 /** Generate a new scatter ray or terminate.
@@ -318,7 +376,9 @@ void handleHit(const HitInfo hit, inout PathData rayData)
     ShadingData sd = loadShadingData(hit, rayData.origin, rayData.direction, lod);
 
     // Create material instance.
-    let mi = gScene.materials.getMaterialInstance(sd, lod);
+    uint hints = 0;
+    hints |= (uint) MaterialInstanceHints::AdjustShadingNormal;
+    let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
 
     // Add emitted light.
     if (kUseEmissiveLights && (kComputeDirect || rayData.pathLength > 0))
@@ -440,10 +500,24 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
             // direct illumination and generates the next scatter ray.
             traceScatterRay(pathData, hitData);
             hit = HitInfo(hitData.packedHit);
-            //TODO add env map lookup
-            if(!hit.isValid())
+            //When scene is missed, add the env map color to the path
+            if(!hit.isValid()){
+                float3 envColor = kUseEnvBackground ? gScene.envMap.eval(primaryRayDir) : kDefaultBackgroundColor;
+                pathData.radiance += envColor * pathData.thp;
                 break;
+            }
             handleHit(hit, pathData);
+
+            //Russian Roulette
+            if(kUseRussianRoulette){
+                const float rrVal = luminance(pathData.thp);
+                const float prob = max(0.f, 1.f - rrVal);
+                if (sampleNext1D(pathData.sg) < prob)
+                {
+                    break;
+                }
+                pathData.thp /= 1.f - prob;
+            }
         }
 
         // Store contribution from scatter ray.

@@ -58,6 +58,14 @@ const ChannelList kOutputChannels = {
 const char kMaxBounces[] = "maxBounces";
 const char kComputeDirect[] = "computeDirect";
 const char kUseImportanceSampling[] = "useImportanceSampling";
+
+const Gui::DropdownList kShadowMapSizes{
+    {256, "256x256"},
+    {512, "512x512"},
+    {1024, "1024x1024"},
+    {2048, "2048x2048"},
+    {4096, "4096x4096"},
+};
 } // namespace
 
 TestPathSM::TestPathSM(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
@@ -67,6 +75,16 @@ TestPathSM::TestPathSM(ref<Device> pDevice, const Properties& props) : RenderPas
     // Create a sample generator.
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
     FALCOR_ASSERT(mpSampleGenerator);
+
+    // Create samplers.
+    Sampler::Desc samplerDesc;
+    samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
+    samplerDesc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
+    mpShadowSamplerPoint = Sampler::create(mpDevice, samplerDesc);
+    FALCOR_ASSERT(mpShadowSamplerPoint);
+    samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear);
+    mpShadowSamplerLinear = Sampler::create(mpDevice, samplerDesc);
+    FALCOR_ASSERT(mpShadowSamplerLinear);
 }
 
 void TestPathSM::parseProperties(const Properties& props)
@@ -147,10 +165,12 @@ void TestPathSM::execute(RenderContext* pRenderContext, const RenderData& render
 
     generateShadowMap(pRenderContext, renderData);
 
-    ref<Texture> outTex = renderData.getTexture("color");
-    pRenderContext->blit(mpShadowMaps[mShowLight]->getSRV(), outTex->getRTV());
-
-    //traceScene(pRenderContext, renderData);
+    if (mShowShadowMap)
+    {
+        ref<Texture> outTex = renderData.getTexture("color");
+        pRenderContext->blit(mpShadowMaps[mShowLight]->getSRV(), outTex->getRTV());
+    }else
+        traceScene(pRenderContext, renderData);
 
     mFrameCount++;
 }
@@ -168,8 +188,32 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
     dirty |= widget.checkbox("Use importance sampling", mUseImportanceSampling);
     widget.tooltip("Use importance sampling for materials", true);
 
+    dirty |= widget.checkbox("Use Russian Roulette", mUseRussianRoulette);
+    widget.tooltip("Enables Russian Roulette to end path with low throuput prematurely", true);
+
+    dirty |= widget.checkbox("Enable Shadow Maps", mUseShadowMap);
+
+    if (mUseShadowMap)
+    {
+        if (auto group = widget.group("ShadowMap Options"))
+        {
+            bool clearSM = group.dropdown("Shadow Map Size", kShadowMapSizes, mShadowMapSize);
+            if (clearSM)
+            {
+                mpShadowMaps.clear();
+                dirty = true;
+            }
+
+        }
+    }
+
     if (mpScene)
-        dirty |= widget.var("ShowLight", mShowLight, 0u, mpScene->getLightCount() - 1, 1u);
+    {
+        dirty |= widget.checkbox("Show Shadow Map", mShowShadowMap);
+        if (mShowShadowMap)
+            dirty |= widget.var("Select Light", mShowLight, 0u, mpScene->getLightCount() - 1, 1u);
+    }
+       
     // If rendering options that modify the output have changed, set flag to indicate that.
     // In execute() we will pass the flag to other passes for reset of temporal data etc.
     if (dirty)
@@ -185,6 +229,9 @@ void TestPathSM::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
     mTracer.pProgram = nullptr;
     mTracer.pBindingTable = nullptr;
     mTracer.pVars = nullptr;
+    mGenerateSM.pProgram = nullptr;
+    mGenerateSM.pBindingTable = nullptr;
+    mGenerateSM.pVars = nullptr;
     mFrameCount = 0;
 
     // Set new scene.
@@ -372,6 +419,8 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_LIGHT", mpScene->useEnvLight() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
+    mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE", mUseRussianRoulette ? "1" : "0");
+    mTracer.pProgram->addDefine("COUNT_SM", std::to_string(mpShadowMaps.size()));
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     // TODO: This should be moved to a more general mechanism using Slang.
@@ -388,6 +437,23 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     auto var = mTracer.pVars->getRootVar();
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
+    var["CB"]["gNear"] = mNearFar.x;
+    var["CB"]["gFar"] = mNearFar.y;
+    var["CB"]["gUseShadowMap"] = mUseShadowMap;
+    
+
+    //Bind Shadow MVPS and Shadow Map
+    FALCOR_ASSERT(mpShadowMaps.size() == mShadowMapMVP.size());
+    for (uint i = 0; i < mpShadowMaps.size(); i++)
+    {
+        var["ShadowVPs"]["gShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
+        var["gShadowMap"][i] = mpShadowMaps[i];
+    }
+
+    //Bind Samplers
+    var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
+    var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
+
 
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)

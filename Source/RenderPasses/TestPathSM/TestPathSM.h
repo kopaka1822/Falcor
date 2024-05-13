@@ -80,15 +80,20 @@ private:
     ref<Scene> mpScene;                     ///< Current scene.
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
 
-    //Buffer
-    std::vector<ref<Texture>> mpShadowMaps; 
+    //Buffer and Samplers
+    std::vector<ref<Texture>> mpShadowMaps;
+    ref<Sampler> mpShadowSamplerPoint;
+    ref<Sampler> mpShadowSamplerLinear;
 
     // Configuration Path Tracer
     uint mMaxBounces = 3;               ///< Max number of indirect bounces (0 = none).
     bool mComputeDirect = true;         ///< Compute direct illumination (otherwise indirect only).
     bool mUseImportanceSampling = true; ///< Use importance sampling for materials.
+    bool mUseRussianRoulette = true;
 
     //Config Shadow Map
+    bool mShowShadowMap = false;
+    bool mUseShadowMap = true;
     uint mShadowMapSize = 2048;
     std::vector<LightMVP> mShadowMapMVP;
     float2 mNearFar = float2(0.1, 60);

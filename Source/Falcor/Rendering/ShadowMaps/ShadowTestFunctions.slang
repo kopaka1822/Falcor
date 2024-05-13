@@ -1,6 +1,18 @@
 #include "Utils/Math/MathConstants.slangh"
-
 import ShadowMapData;
+
+#ifndef SM_EXPONENTIAL_CONSTANT
+#define SM_EXPONENTIAL_CONSTANT 20.0
+#endif
+#ifndef SM_NEGATIVE_EXPONENTIAL_CONSTANT
+#define SM_NEGATIVE_EXPONENTIAL_CONSTANT -5.0
+#endif
+#ifndef MSM_DEPTH_BIAS
+#define MSM_DEPTH_BIAS 0.0
+#endif
+#ifndef MSM_MOMENT_BIAS
+#define MSM_MOMENT_BIAS 0.005
+#endif
 
 static const float kExponentialSMConstant = SM_EXPONENTIAL_CONSTANT;    // Constant for Exponential Shadow Maps
 static const float kEVSMNegConstant = SM_NEGATIVE_EXPONENTIAL_CONSTANT; // Negative Constant used in EVSM
