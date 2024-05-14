@@ -207,35 +207,29 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
         dirty |= widget.dropdown("Light Sampler Block Sizes", kBlockSizes, mSeperateLightSamplerBlockSize);
     }
 
-    dirty |= widget.checkbox("Enable Shadow Maps", mUseShadowMap);
+    dirty |= widget.checkbox("Use Shadow Maps", mUseShadowMap);
 
-    if (mUseShadowMap)
+    if (auto group = widget.group("ShadowMap Options"))
     {
-        if (auto group = widget.group("ShadowMap Options"))
+        mRebuildSMBuffers |= group.dropdown("Shadow Map Size", kShadowMapSizes, mShadowMapSize);
+
+        dirty |= group.checkbox("Always Render Shadow Map", mAlwaysRenderSM);
+
+        mRerenderSM |= group.button("Reset Shadow Map");
+        
+        if (mpScene)
         {
-            bool clearSM = group.dropdown("Shadow Map Size", kShadowMapSizes, mShadowMapSize);
-            if (clearSM)
-            {
-                mpShadowMaps.clear();
-                dirty = true;
-            }
-
+            dirty |= group.checkbox("Show Shadow Map", mShowShadowMap);
+            if (mShowShadowMap)
+                dirty |= widget.var("Select Light", mShowLight, 0u, mpScene->getLightCount() - 1, 1u);
         }
-    }
 
-    if (mpScene)
-    {
-        dirty |= widget.checkbox("Show Shadow Map", mShowShadowMap);
-        if (mShowShadowMap)
-            dirty |= widget.var("Select Light", mShowLight, 0u, mpScene->getLightCount() - 1, 1u);
+        dirty |= mRebuildSMBuffers || mRerenderSM;
     }
-       
+           
     // If rendering options that modify the output have changed, set flag to indicate that.
     // In execute() we will pass the flag to other passes for reset of temporal data etc.
-    if (dirty)
-    {
-        mOptionsChanged = true;
-    }
+    mOptionsChanged |= dirty;
 }
 
 void TestPathSM::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
@@ -249,7 +243,7 @@ void TestPathSM::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
     mGenerateSM.pBindingTable = nullptr;
     mGenerateSM.pVars = nullptr;
     mFrameCount = 0;
-
+    mRebuildSMBuffers = true;
     // Set new scene.
     mpScene = pScene;
 
@@ -342,7 +336,14 @@ void TestPathSM::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
 }
 
 void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "Generate Shadow Map");
 
+    if (mRebuildSMBuffers)
+    {
+        mpShadowMaps.clear();
+        mShadowMapMVP.clear();
+        mRerenderSM = true;
+    }
     //Get Analytic light data
     auto lights = mpScene->getActiveLights();
     //Nothing to do if there are no lights
@@ -387,7 +388,13 @@ void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderDa
             mShadowMapMVP[i].viewProjection = math::mul(mShadowMapMVP[i].projection, mShadowMapMVP[i].view);
             mShadowMapMVP[i].invViewProjection = math::inverse(mShadowMapMVP[i].viewProjection);
         }
+        mRerenderSM |= rebuild;
     }
+
+    mRerenderSM |= mAlwaysRenderSM;
+    //If there are no changes compaired to last frame, rerendering is not necessary.
+    if (!mRerenderSM)
+        return;
 
     mGenerateSM.pProgram->addDefine("SM_NUM_LIGHTS", std::to_string(lights.size()));
 
@@ -422,9 +429,14 @@ void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderDa
         // Spawn the rays.
         mpScene->raytrace(pRenderContext, mGenerateSM.pProgram.get(), mGenerateSM.pVars, uint3(targetDim, 1));
     }
+
+    mRebuildSMBuffers = false;
+    mRerenderSM = false;
 }
 
 void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "Path Tracer");
+
     auto& dict = renderData.getDictionary();
     // Specialize program.
     // These defines should not modify the program vars. Do not trigger program vars re-creation.

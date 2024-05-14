@@ -86,7 +86,7 @@ private:
     ref<Sampler> mpShadowSamplerLinear;
 
     // Configuration Path Tracer
-    uint mMaxBounces = 3;               ///< Max number of indirect bounces (0 = none).
+    uint mMaxBounces = 8;               ///< Max number of indirect bounces (0 = none).
     bool mComputeDirect = true;         ///< Compute direct illumination (otherwise indirect only).
     bool mUseImportanceSampling = true; ///< Use importance sampling for materials.
     bool mUseRussianRoulette = true;
@@ -94,6 +94,9 @@ private:
     uint mSeperateLightSamplerBlockSize = 32;
 
     //Config Shadow Map
+    bool mRebuildSMBuffers = true;
+    bool mRerenderSM = true;
+    bool mAlwaysRenderSM = false;
     bool mShowShadowMap = false;
     bool mUseShadowMap = true;
     uint mShadowMapSize = 2048;

@@ -534,7 +534,7 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
             hit = HitInfo(hitData.packedHit);
             //When scene is missed, add the env map color to the path
             if(!hit.isValid()){
-                float3 envColor = kUseEnvBackground ? gScene.envMap.eval(primaryRayDir) : kDefaultBackgroundColor;
+                float3 envColor = kUseEnvBackground ? gScene.envMap.eval(pathData.direction) : kDefaultBackgroundColor;
                 pathData.radiance += envColor * pathData.thp;
                 break;
             }
