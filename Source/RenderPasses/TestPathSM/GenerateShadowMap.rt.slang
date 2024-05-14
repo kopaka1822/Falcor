@@ -78,7 +78,8 @@ cbuffer CB
     float3      gLightPos;     // Current Light Position
     float       gNear;
     float       gFar;
-    uint2       _pad;
+    uint        gSamples;       //Number of samples per shadow map  
+    bool        gUseMinMaxSM;      //Use the min max shadow map
     float4x4    gViewProj;     // View Projection for current light
     float4x4    gInvViewProj;     // View Projection for current light
 }
@@ -127,30 +128,48 @@ void rayGen()
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
+    SampleGenerator sg = SampleGenerator(pixel, gFrameCount * 3 + 64);
 
-    float2 pixelCenter = pixel + 0.5f;
-    
-    float2 relFramePos = pixelCenter/frameDim;
-    relFramePos = relFramePos * 2.f - 1.f;  //From [0,1] to [-1,1]
-    relFramePos.y *= -1.f;
+    float2 shadowValue = gUseMinMaxSM ? float2(1 , 0) : float2(0);
+    float weight = (1.0 / gSamples);
 
-    RayDesc ray;
-    
-    float4 posWPixelNear = mul(gInvViewProj, float4(relFramePos, 0.f, 1.f));
-    float4 posWPixelFar = mul(gInvViewProj, float4(relFramePos, 1.f, 1.f));
+    for (uint i = 0; i < gSamples; i++) {
+        float2 random = sampleNext2D(sg);
+        if (gSamples == 1)
+            random = float2(0.5);
 
-    posWPixelNear.xyz /= posWPixelNear.w;
-    float3 toPoint = posWPixelNear.xyz - gLightPos;
+        float2 pixelSample = pixel + random;
+
+        float2 relFramePos = pixelSample / frameDim;
+        relFramePos = relFramePos * 2.f - 1.f; // From [0,1] to [-1,1]
+        relFramePos.y *= -1.f;
+
+        RayDesc ray;
+
+        float4 posWPixelNear = mul(gInvViewProj, float4(relFramePos, 0.f, 1.f));
+        float4 posWPixelFar = mul(gInvViewProj, float4(relFramePos, 1.f, 1.f));
+
+        posWPixelNear.xyz /= posWPixelNear.w;
+        float3 toPoint = posWPixelNear.xyz - gLightPos;
+
+        ray.TMin = length(toPoint);                                        // Real near for the pixel
+        ray.TMax = distance(gLightPos, posWPixelFar.xyz / posWPixelFar.w); // Real far for the pixel
+        ray.Origin = gLightPos;
+        ray.Direction = normalize(toPoint); // World direction
+
+        RayData rayData;
+        rayData.depth = 1.0;
+
+        TraceRay(gScene.rtAccel, 0, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+
+        if (gUseMinMaxSM) {
+            shadowValue = float2(min(shadowValue.x, rayData.depth), max(shadowValue.y, rayData.depth));
+        }
+        else {
+            shadowValue += float2(rayData.depth, rayData.depth * rayData.depth) * weight;
+        }
         
-    ray.TMin = length(toPoint); //Real near for the pixel
-    ray.TMax = distance(gLightPos, posWPixelFar.xyz/ posWPixelFar.w); //Real far for the pixel
-    ray.Origin = gLightPos;
-    ray.Direction = normalize(toPoint);   //World direction
+    }
 
-    RayData rayData;
-    rayData.depth = 1.0;
-    
-    TraceRay(gScene.rtAccel, 0, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
-
-    gShadowMap[pixel] = float2(rayData.depth, rayData.depth * rayData.depth);
+    gShadowMap[pixel] = shadowValue;
 }

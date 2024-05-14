@@ -64,6 +64,7 @@ import Utils.Sampling.SampleGenerator;
 import Utils.Color.ColorHelpers;
 import Rendering.Lights.LightHelpers;
 import Rendering.ShadowMaps.ShadowTestFunctions;
+import Rendering.ShadowMaps.ShadowMapHelpers;
 
 #ifndef COUNT_SM
 #define COUNT_SM 1
@@ -79,7 +80,9 @@ cbuffer CB
     float       gNear;
     float       gFar;
     bool        gUseShadowMap;
-    uint3       _pad;
+    bool        gUseMinMaxSM;
+    uint gShadowMapRes;
+    uint _pad;
 }
 
 cbuffer ShadowVPs
@@ -111,7 +114,7 @@ static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
 static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const float kRayTMax = FLT_MAX;
 static const bool kUseRussianRoulette = USE_RUSSIAN_ROULETTE;
-static const float2 kLeakTracingBounds = float2(0.01f, 0.99f);
+static const float2 kLeakTracingBounds = float2(0.05f, 0.95f);
 static const uint kSeperateLightSamplerBlockSize = LIGHT_SAMPLER_BLOCK_SIZE;
 
 /** Payload for shadow ray.
@@ -277,16 +280,41 @@ bool evalShadowMap(uint lightIdx, float3 posW, out float shadow){
     if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
         return true;    //ray needed
 
-    float2 shadowValue = gShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0.0);
-    shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-10f);
+    if (gUseMinMaxSM) {
+        float2 gatherUV;
+        float4 w = getGatherWeights(shadowPos.xy, gShadowMapRes, gatherUV);
+        float4 minSMValues = gShadowMap[lightIdx].GatherRed(gShadowSamplerPoint, gatherUV);
+        float4 maxSMValues = gShadowMap[lightIdx].GatherGreen(gShadowSamplerPoint, gatherUV);
+        float2 sMValues = gShadowMap[lightIdx].SampleLevel(gShadowSamplerPoint, shadowPos.xy, 0.0);
+        float2 minShadowValue = float2(0);
+        float2 maxShadowValue = float2(0);
+        for (uint i = 0; i < 4; i++) {
+            minShadowValue += float2(minSMValues[i], minSMValues[i] * minSMValues[i]) * w[i];
+            maxShadowValue += float2(maxSMValues[i], maxSMValues[i] * maxSMValues[i]) * w[i];
+        }
 
-    if(shadow <= kLeakTracingBounds.x)
-        shadow = 0.0;
-    else if(shadow >= kLeakTracingBounds.y)
-        shadow = 1.0;
+        float minShadow = ChebyshevUpperBound(minShadowValue.xy, lightDist, 1e-9f);
+        float maxShadow = ChebyshevUpperBound(maxShadowValue.xy, lightDist, 1e-9f);
 
-    if((shadow > kLeakTracingBounds.x) && (shadow < kLeakTracingBounds.y))
-        return true;   //Ray Needed
+        if (minShadow <= kLeakTracingBounds.x && maxShadow <= kLeakTracingBounds.x)
+            shadow = 0.0;
+        else if (minShadow >= kLeakTracingBounds.y && maxShadow >= kLeakTracingBounds.y)
+            shadow = 1.0;
+        else
+            return true;
+
+    } else {
+        float2 shadowValue = gShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0.0);
+        shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-10f);
+
+        if (shadow <= kLeakTracingBounds.x)
+            shadow = 0.0;
+        else if (shadow >= kLeakTracingBounds.y)
+            shadow = 1.0;
+        else
+            return true;
+    }
+    
     return false;       //No Ray
 }
 
@@ -325,6 +353,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, floa
         useRay = evalShadowMap(lightIndex, sd.posW,shadow);
     }
 
+    float smShadow = shadow;
     if(useRay){
         // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
         const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
@@ -337,6 +366,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, floa
         return float3(0);
 
     // Evaluate contribution.
+    //return float3(shadow, useRay ? 1.0 : 0.0, smShadow) * invPdf;
     return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
 }
 

@@ -99,7 +99,9 @@ private:
     bool mAlwaysRenderSM = false;
     bool mShowShadowMap = false;
     bool mUseShadowMap = true;
+    bool mUseMinMaxShadowMap = true;
     uint mShadowMapSize = 2048;
+    uint mShadowMapSamples = 32;
     std::vector<LightMVP> mShadowMapMVP;
     float2 mNearFar = float2(0.1, 60);
     uint mShowLight = 0;

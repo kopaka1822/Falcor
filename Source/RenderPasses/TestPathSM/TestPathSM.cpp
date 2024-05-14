@@ -213,8 +213,13 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
     {
         mRebuildSMBuffers |= group.dropdown("Shadow Map Size", kShadowMapSizes, mShadowMapSize);
 
+        mRerenderSM |= group.checkbox("Use Min/Max SM", mUseMinMaxShadowMap);
         dirty |= group.checkbox("Always Render Shadow Map", mAlwaysRenderSM);
 
+        group.var("SM Near/Far", mNearFar, 0.f, FLT_MAX, 0.001f);
+        group.tooltip("Sets the near and far for the shadow map");
+        group.var("Shadow Map Samples", mShadowMapSamples, 1u, 4096u, 1u);
+        group.tooltip("Sets the shadow map samples. Manual reset is necessary for it to take effect");
         mRerenderSM |= group.button("Reset Shadow Map");
         
         if (mpScene)
@@ -421,6 +426,8 @@ void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderDa
         var["CB"]["gNear"] = mNearFar.x;
         var["CB"]["gFar"] = mNearFar.y;
         var["CB"]["gViewProj"] = mShadowMapMVP[i].viewProjection;
+        var["CB"]["gSamples"] = mShadowMapSamples;
+        var["CB"]["gUseMinMaxSM"] = mUseMinMaxShadowMap;
         var["CB"]["gInvViewProj"] = mShadowMapMVP[i].invViewProjection;
 
 
@@ -470,6 +477,8 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     var["CB"]["gNear"] = mNearFar.x;
     var["CB"]["gFar"] = mNearFar.y;
     var["CB"]["gUseShadowMap"] = mUseShadowMap;
+    var["CB"]["gUseMinMaxSM"] = mUseMinMaxShadowMap;
+    var["CB"]["gShadowMapRes"] = mShadowMapSize;
     
 
     //Bind Shadow MVPS and Shadow Map
