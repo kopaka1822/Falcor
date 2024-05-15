@@ -29,6 +29,7 @@
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
 #include "Utils/Sampling/SampleGenerator.h"
+#include "Rendering/Utils/PixelStats.h"
 
 using namespace Falcor;
 
@@ -97,6 +98,7 @@ private:
     // Internal state
     ref<Scene> mpScene;                     ///< Current scene.
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
+    std::unique_ptr<PixelStats> mpPixelStats;           ///< Stats for the current path
 
     //Buffer and Samplers
     std::vector<ref<Texture>> mpShadowMaps;

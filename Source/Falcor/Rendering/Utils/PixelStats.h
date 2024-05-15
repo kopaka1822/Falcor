@@ -50,12 +50,16 @@ namespace Falcor
         struct Stats
         {
             uint32_t visibilityRays = 0;
+            uint32_t visibilityAnyHitRays = 0;
             uint32_t closestHitRays = 0;
+            uint32_t anyHitRays = 0;
             uint32_t totalRays = 0;
             uint32_t pathVertices = 0;
             uint32_t volumeLookups = 0;
             float    avgVisibilityRays = 0.f;
+            float    avgVisibilityAnyHitRays = 0.f;
             float    avgClosestHitRays = 0.f;
+            float    avgAnyHitRays = 0.f;
             float    avgTotalRays = 0.f;
             float    avgPathLength = 0.f;
             float    avgPathVertices = 0.f;

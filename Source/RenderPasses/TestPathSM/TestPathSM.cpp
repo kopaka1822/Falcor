@@ -85,6 +85,9 @@ TestPathSM::TestPathSM(ref<Device> pDevice, const Properties& props) : RenderPas
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
     FALCOR_ASSERT(mpSampleGenerator);
 
+    //Create Pixel Stats
+    mpPixelStats = std::make_unique<PixelStats>(mpDevice);
+
     // Create samplers.
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
@@ -172,6 +175,9 @@ void TestPathSM::execute(RenderContext* pRenderContext, const RenderData& render
         logWarning("Depth-of-field requires the '{}' input. Expect incorrect shading.", kInputViewDir);
     }
 
+    //Pixel Stats
+    mpPixelStats->beginFrame(pRenderContext, renderData.getDefaultTextureDims());
+
     generateShadowMap(pRenderContext, renderData);
 
     if (mShowShadowMap)
@@ -181,6 +187,7 @@ void TestPathSM::execute(RenderContext* pRenderContext, const RenderData& render
     }else
         traceScene(pRenderContext, renderData);
 
+    mpPixelStats->endFrame(pRenderContext);
     mFrameCount++;
 }
 
@@ -234,6 +241,11 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
         }
 
         dirty |= mRebuildSMBuffers || mRerenderSM;
+    }
+
+    if (auto group = widget.group("Statistics"))
+    {
+        mpPixelStats->renderUI(group);
     }
            
     // If rendering options that modify the output have changed, set flag to indicate that.
@@ -476,8 +488,8 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
         prepareVars();
     FALCOR_ASSERT(mTracer.pVars);
 
-    // Set constants.
     auto var = mTracer.pVars->getRootVar();
+    // Set constants.
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
     var["CB"]["gNear"] = mNearFar.x;
@@ -485,7 +497,6 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     var["CB"]["gUseShadowMap"] = mShadowMode != ShadowMode::RayShadows;
     var["CB"]["gShadowMapRes"] = mShadowMapSize;
     
-
     //Bind Shadow MVPS and Shadow Map
     FALCOR_ASSERT(mpShadowMaps.size() == mShadowMapMVP.size());
     for (uint i = 0; i < mpShadowMaps.size(); i++)
@@ -498,6 +509,8 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
     var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
 
+    //Pixel Stats
+    mpPixelStats->prepareProgram(mTracer.pProgram, var);
 
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)

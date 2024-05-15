@@ -63,6 +63,7 @@ import Utils.Geometry.GeometryHelpers;
 import Utils.Sampling.SampleGenerator;
 import Utils.Color.ColorHelpers;
 import Rendering.Lights.LightHelpers;
+import Rendering.Utils.PixelStats;
 import Rendering.ShadowMaps.ShadowTestFunctions;
 import Rendering.ShadowMaps.ShadowMapHelpers;
 
@@ -212,6 +213,8 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayOrigin, const flo
 
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -rayDir, lod);
 
+    logPathVertex();
+
     return sd;
 }
 
@@ -247,6 +250,7 @@ bool traceShadowRay(float3 origin, float3 dir, float distance)
     ray.TMin = 0.f;
     ray.TMax = distance;
 
+    logTraceRay(PixelStatsRayType::Visibility);
     ShadowRayData rayData;
     rayData.visible = false;    // Set to true by miss shader if ray is not terminated before
     TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 1 /* hitIdx */, rayTypeCount, 1 /* missIdx */, ray, rayData);
@@ -585,7 +589,8 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 
         RayHitData hitData = RayHitData();
         // Follow path into the scene and compute its total contribution.
-        for (uint depth = 0; depth <= kMaxBounces && !pathData.terminated; depth++)
+        uint pathDepth;
+        for (pathDepth = 0; pathDepth <= kMaxBounces && !pathData.terminated; pathDepth++)
         {
             // Trace scatter ray. If it hits geometry, the closest hit shader samples
             // direct illumination and generates the next scatter ray.
@@ -597,6 +602,7 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
                 pathData.radiance += envColor * pathData.thp;
                 break;
             }
+            logTraceRay(PixelStatsRayType::ClosestHit);
             handleHit(hit, pathData);
 
             //Russian Roulette
@@ -610,7 +616,7 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
                 pathData.thp /= 1.f - prob;
             }
         }
-
+        logPathLength(pathDepth);
         // Store contribution from scatter ray.
         outColor += pathData.radiance;
     }
@@ -618,6 +624,7 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
     {
         // Background pixel.
         outColor = kUseEnvBackground ? gScene.envMap.eval(primaryRayDir) : kDefaultBackgroundColor;
+        logPathLength(0);
     }
 
     return outColor;
@@ -647,6 +654,7 @@ void shadowMiss(inout ShadowRayData rayData)
 [shader("anyhit")]
 void scatterTriangleMeshAnyHit(inout RayHitData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
+    logTraceRay(PixelStatsRayType::AnyHit);
     // Alpha test for non-opaque geometry.
     GeometryInstanceID instanceID = getGeometryInstanceID();
     VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
@@ -667,6 +675,7 @@ void scatterTriangleMeshClosestHit(inout RayHitData rayData, BuiltInTriangleInte
 [shader("anyhit")]
 void shadowTriangleMeshAnyHit(inout ShadowRayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
+    logTraceRay(PixelStatsRayType::AnyHitVis);
     // Alpha test for non-opaque geometry.
     GeometryInstanceID instanceID = getGeometryInstanceID();
     VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
@@ -761,6 +770,7 @@ void rayGen()
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
+    logSetPixel(pixel);
 
     float3 color = tracePath(pixel, frameDim);
 
