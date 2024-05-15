@@ -80,9 +80,8 @@ cbuffer CB
     float       gNear;
     float       gFar;
     bool        gUseShadowMap;
-    bool        gUseMinMaxSM;
     uint gShadowMapRes;
-    uint _pad;
+    uint2        _pad;
 }
 
 cbuffer ShadowVPs
@@ -116,6 +115,8 @@ static const float kRayTMax = FLT_MAX;
 static const bool kUseRussianRoulette = USE_RUSSIAN_ROULETTE;
 static const float2 kLeakTracingBounds = float2(0.05f, 0.95f);
 static const uint kSeperateLightSamplerBlockSize = LIGHT_SAMPLER_BLOCK_SIZE;
+static const bool kEnableShadowRay = USE_SHADOW_RAY;
+static const bool kUseMinMaxSM = USE_MIN_MAX_SM;
 
 /** Payload for shadow ray.
 */
@@ -280,29 +281,55 @@ bool evalShadowMap(uint lightIdx, float3 posW, out float shadow){
     if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
         return true;    //ray needed
 
-    if (gUseMinMaxSM) {
+    if (kUseMinMaxSM) {
         float2 gatherUV;
         float4 w = getGatherWeights(shadowPos.xy, gShadowMapRes, gatherUV);
         float4 minSMValues = gShadowMap[lightIdx].GatherRed(gShadowSamplerPoint, gatherUV);
         float4 maxSMValues = gShadowMap[lightIdx].GatherGreen(gShadowSamplerPoint, gatherUV);
         float2 sMValues = gShadowMap[lightIdx].SampleLevel(gShadowSamplerPoint, shadowPos.xy, 0.0);
+
+    #if 1 //Variance
         float2 minShadowValue = float2(0);
         float2 maxShadowValue = float2(0);
         for (uint i = 0; i < 4; i++) {
             minShadowValue += float2(minSMValues[i], minSMValues[i] * minSMValues[i]) * w[i];
             maxShadowValue += float2(maxSMValues[i], maxSMValues[i] * maxSMValues[i]) * w[i];
         }
-
         float minShadow = ChebyshevUpperBound(minShadowValue.xy, lightDist, 1e-9f);
         float maxShadow = ChebyshevUpperBound(maxShadowValue.xy, lightDist, 1e-9f);
-
+    #elif 0 //EVMS
+        float4 minShadowValueEvsm = float4(0);
+        float4 maxShadowValueEvsm = float4(0);
+        for (uint i = 0; i < 4; i++) {
+            float rescaledDepth = (2.f * minSMValues[i]) - 1.f;
+            float4 evsm = recreateEVSMFromSingleDepth(rescaledDepth);
+            minShadowValueEvsm += w[i] * evsm;
+            rescaledDepth = (2.f * maxSMValues[i]) - 1.f;
+            evsm = recreateEVSMFromSingleDepth(rescaledDepth);
+            maxShadowValueEvsm += w[i] * evsm;
+        }
+        float2 minShadowEvsm =  exponentialVarianceShadowTest(minShadowValueEvsm, lightDist);
+         float2 maxShadowEvsm =  exponentialVarianceShadowTest(maxShadowValueEvsm, lightDist);
+        float minShadow = min(minShadowEvsm.x, minShadowEvsm.y);
+        float maxShadow = min(maxShadowEvsm.x, maxShadowEvsm.y);
+    #else // MSM
+        float4 minShadowValueMsm = float4(0);
+        float4 maxShadowValueMsm = float4(0);
+        for (uint i = 0; i < 4; i++) {
+            minShadowValueMsm += float4(minSMValues[i], minSMValues[i] * minSMValues[i], minSMValues[i] * minSMValues[i] * minSMValues[i],minSMValues[i] * minSMValues[i] * minSMValues[i] * minSMValues[i]) * w[i];
+            maxShadowValueMsm += float4(maxSMValues[i], maxSMValues[i] * maxSMValues[i], maxSMValues[i] * maxSMValues[i]* maxSMValues[i],maxSMValues[i] * maxSMValues[i] * maxSMValues[i] * maxSMValues[i]) * w[i];
+        }
+        float minShadow = msmHamburger(minShadowValueMsm, lightDist);
+        float maxShadow = msmHamburger(maxShadowValueMsm, lightDist);
+    #endif
         if (minShadow <= kLeakTracingBounds.x && maxShadow <= kLeakTracingBounds.x)
             shadow = 0.0;
         else if (minShadow >= kLeakTracingBounds.y && maxShadow >= kLeakTracingBounds.y)
             shadow = 1.0;
-        else
-            return true;
-
+        else{
+            shadow = 0.5;
+             return true;
+        }     
     } else {
         float2 shadowValue = gShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0.0);
         shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-10f);
@@ -354,7 +381,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, floa
     }
 
     float smShadow = shadow;
-    if(useRay){
+    if(useRay && kEnableShadowRay){
         // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
         const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
         // Test visibility by tracing a shadow ray.
@@ -362,12 +389,14 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, floa
         shadow = V ? 1.0 : 0.0;
     }
 
+    #if 0
     if(shadow <= 0.0)
         return float3(0);
-
     // Evaluate contribution.
-    //return float3(shadow, useRay ? 1.0 : 0.0, smShadow) * invPdf;
     return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
+    #else
+    return float3(shadow, useRay ? 1.0 : 0.0, smShadow) * invPdf;
+    #endif
 }
 
 /** Generate a new scatter ray or terminate.

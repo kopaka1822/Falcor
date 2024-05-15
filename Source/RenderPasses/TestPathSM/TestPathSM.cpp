@@ -74,6 +74,7 @@ const Gui::DropdownList kShadowMapSizes{
     {2048, "2048x2048"},
     {4096, "4096x4096"},
 };
+
 } // namespace
 
 TestPathSM::TestPathSM(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
@@ -207,7 +208,9 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
         dirty |= widget.dropdown("Light Sampler Block Sizes", kBlockSizes, mSeperateLightSamplerBlockSize);
     }
 
-    dirty |= widget.checkbox("Use Shadow Maps", mUseShadowMap);
+    dirty |= widget.dropdown("Shadow Map mode", mShadowMode);
+
+    widget.checkbox("Disable Shadow Ray", mDisableShadowRay);
 
     if (auto group = widget.group("ShadowMap Options"))
     {
@@ -222,6 +225,7 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
         group.tooltip("Sets the shadow map samples. Manual reset is necessary for it to take effect");
         mRerenderSM |= group.button("Reset Shadow Map");
         
+
         if (mpScene)
         {
             dirty |= group.checkbox("Show Shadow Map", mShowShadowMap);
@@ -458,6 +462,8 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("COUNT_SM", std::to_string(mpShadowMaps.size()));
     mTracer.pProgram->addDefine("USE_SEPERATE_LIGHT_SAMPLER", mUseSeperateLightSampler ? "1" : "0");
     mTracer.pProgram->addDefine("LIGHT_SAMPLER_BLOCK_SIZE", std::to_string(mSeperateLightSamplerBlockSize));
+    mTracer.pProgram->addDefine("USE_SHADOW_RAY", mShadowMode != ShadowMode::ShadowMap ? "1" : "0");
+    mTracer.pProgram->addDefine("USE_MIN_MAX_SM", mUseMinMaxShadowMap ? "1" : "0");
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     // TODO: This should be moved to a more general mechanism using Slang.
@@ -476,8 +482,7 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
     var["CB"]["gNear"] = mNearFar.x;
     var["CB"]["gFar"] = mNearFar.y;
-    var["CB"]["gUseShadowMap"] = mUseShadowMap;
-    var["CB"]["gUseMinMaxSM"] = mUseMinMaxShadowMap;
+    var["CB"]["gUseShadowMap"] = mShadowMode != ShadowMode::RayShadows;
     var["CB"]["gShadowMapRes"] = mShadowMapSize;
     
 

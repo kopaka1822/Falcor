@@ -61,7 +61,24 @@ public:
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
+    enum class ShadowMode : uint32_t
+    {
+        ShadowMap = 0,
+        LeakTracing = 1,
+        RayShadows = 2,
+    };
+    FALCOR_ENUM_INFO(
+        TestPathSM::ShadowMode,
+        {
+            {ShadowMode::ShadowMap, "ShadowMap"},
+            {ShadowMode::LeakTracing, "LeakTracing"},
+            {ShadowMode::RayShadows, "RayShadows"},
+        }
+    );
+
 private:
+    
+    
     struct LightMVP
     {
         float4x4 view = float4x4();
@@ -69,6 +86,7 @@ private:
         float4x4 viewProjection = float4x4();
         float4x4 invViewProjection = float4x4();
     };
+
 
     void parseProperties(const Properties& props);
     void prepareVars();
@@ -94,17 +112,20 @@ private:
     uint mSeperateLightSamplerBlockSize = 32;
 
     //Config Shadow Map
+    ShadowMode mShadowMode = ShadowMode::LeakTracing;
     bool mRebuildSMBuffers = true;
     bool mRerenderSM = true;
     bool mAlwaysRenderSM = false;
     bool mShowShadowMap = false;
     bool mUseShadowMap = true;
     bool mUseMinMaxShadowMap = true;
+    bool mDisableShadowRay = false;
     uint mShadowMapSize = 2048;
     uint mShadowMapSamples = 32;
     std::vector<LightMVP> mShadowMapMVP;
     float2 mNearFar = float2(0.1, 60);
     uint mShowLight = 0;
+  
 
     // Runtime data
     uint mFrameCount = 0; ///< Frame count since scene was loaded.
@@ -121,3 +142,5 @@ private:
     RayTracingProgram mTracer;
     RayTracingProgram mGenerateSM;
 };
+
+FALCOR_ENUM_REGISTER(TestPathSM::ShadowMode);
