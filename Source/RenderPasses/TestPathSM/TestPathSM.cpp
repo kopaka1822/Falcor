@@ -228,10 +228,14 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
 
         group.var("SM Near/Far", mNearFar, 0.f, FLT_MAX, 0.001f);
         group.tooltip("Sets the near and far for the shadow map");
+        group.var("LtBounds Start", mLtBoundsStart, 0.0f, 0.5f, 0.001f, false, "%.5f");
+        group.var("LtBounds Max Reduction", mLtBoundsMaxReduction, 0.0f, 0.5f, 0.001f, false, "%.5f");
+
         group.var("Shadow Map Samples", mShadowMapSamples, 1u, 4096u, 1u);
         group.tooltip("Sets the shadow map samples. Manual reset is necessary for it to take effect");
         mRerenderSM |= group.button("Reset Shadow Map");
-        
+
+
 
         if (mpScene)
         {
@@ -476,6 +480,7 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("LIGHT_SAMPLER_BLOCK_SIZE", std::to_string(mSeperateLightSamplerBlockSize));
     mTracer.pProgram->addDefine("USE_SHADOW_RAY", mShadowMode != ShadowMode::ShadowMap ? "1" : "0");
     mTracer.pProgram->addDefine("USE_MIN_MAX_SM", mUseMinMaxShadowMap ? "1" : "0");
+    mTracer.pProgram->addDefine("LT_BOUNDS_START", std::to_string(mLtBoundsStart));
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     // TODO: This should be moved to a more general mechanism using Slang.
@@ -496,6 +501,7 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     var["CB"]["gFar"] = mNearFar.y;
     var["CB"]["gUseShadowMap"] = mShadowMode != ShadowMode::RayShadows;
     var["CB"]["gShadowMapRes"] = mShadowMapSize;
+    var["CB"]["gLtBoundsMaxReduction"] = mLtBoundsMaxReduction;
     
     //Bind Shadow MVPS and Shadow Map
     FALCOR_ASSERT(mpShadowMaps.size() == mShadowMapMVP.size());

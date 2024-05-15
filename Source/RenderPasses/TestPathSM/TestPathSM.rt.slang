@@ -82,7 +82,8 @@ cbuffer CB
     float       gFar;
     bool        gUseShadowMap;
     uint gShadowMapRes;
-    uint2        _pad;
+    float       gLtBoundsMaxReduction;  //Max reduction per hit
+    uint        _pad;
 }
 
 cbuffer ShadowVPs
@@ -114,7 +115,7 @@ static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
 static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const float kRayTMax = FLT_MAX;
 static const bool kUseRussianRoulette = USE_RUSSIAN_ROULETTE;
-static const float2 kLeakTracingBounds = float2(0.05f, 0.95f);
+static const float kLeakTracingBoundsStart = LT_BOUNDS_START;
 static const uint kSeperateLightSamplerBlockSize = LIGHT_SAMPLER_BLOCK_SIZE;
 static const bool kEnableShadowRay = USE_SHADOW_RAY;
 static const bool kUseMinMaxSM = USE_MIN_MAX_SM;
@@ -145,6 +146,7 @@ struct PathData
     float3  thp;            ///< Current path throughput. This is updated at each path vertex.
     uint    pathLength;     ///< Path length in number of path segments (0 at origin, 1 at first secondary hit, etc.). Max 2^31.
     float3  origin;         ///< Next path segment origin.
+    float   leakTracingBounds; ///<Bounds for leakTracing
     float3  direction;      ///< Next path segment direction.
 
     SampleGenerator sg;     ///< Per-ray state for the sample generator (up to 16B).
@@ -162,6 +164,7 @@ struct PathData
         this.thp = float3(1, 1, 1);
         this.origin = float3(0, 0, 0);
         this.direction = float3(0, 0, 0);
+        this.leakTracingBounds = 0.0;
         this.sg = sg;
     }
 };
@@ -273,7 +276,7 @@ void traceScatterRay(inout PathData rayData, inout RayHitData hitData)
     TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, hitData);
 }
 
-bool evalShadowMap(uint lightIdx, float3 posW, out float shadow){
+bool evalShadowMap(uint lightIdx, float3 posW, float leakTracingBound ,out float shadow){
     shadow = 0.0;
     float4 shadowPos = mul(gShadowMapVP[lightIdx], float4(posW, 1));
     shadowPos.xyz /= shadowPos.w;
@@ -326,9 +329,9 @@ bool evalShadowMap(uint lightIdx, float3 posW, out float shadow){
         float minShadow = msmHamburger(minShadowValueMsm, lightDist);
         float maxShadow = msmHamburger(maxShadowValueMsm, lightDist);
     #endif
-        if (minShadow <= kLeakTracingBounds.x && maxShadow <= kLeakTracingBounds.x)
+        if (minShadow <= leakTracingBound && maxShadow <= leakTracingBound)
             shadow = 0.0;
-        else if (minShadow >= kLeakTracingBounds.y && maxShadow >= kLeakTracingBounds.y)
+        else if (minShadow >= (1.0 - leakTracingBound) && maxShadow >= (1.0 - leakTracingBound))
             shadow = 1.0;
         else{
             shadow = 0.5;
@@ -336,11 +339,11 @@ bool evalShadowMap(uint lightIdx, float3 posW, out float shadow){
         }     
     } else {
         float2 shadowValue = gShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0.0);
-        shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-10f);
+        shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-9f);
 
-        if (shadow <= kLeakTracingBounds.x)
+        if (shadow <= leakTracingBound)
             shadow = 0.0;
-        else if (shadow >= kLeakTracingBounds.y)
+        else if (shadow >= (1.0 - leakTracingBound))
             shadow = 1.0;
         else
             return true;
@@ -356,7 +359,7 @@ bool evalShadowMap(uint lightIdx, float3 posW, out float shadow){
     \param[in,out] sg SampleGenerator object.
     \return Outgoing radiance in view direction.
 */
-float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, float u ,inout SampleGenerator sg)
+float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, float u, float leakTracingBounds ,inout SampleGenerator sg)
 {
     const uint lightCount = gScene.getLightCount();
     if (lightCount == 0) return float3(0.f);
@@ -381,7 +384,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, floa
 
     float shadow = 0.0;
     if(!useRay){
-        useRay = evalShadowMap(lightIndex, sd.posW,shadow);
+        useRay = evalShadowMap(lightIndex, sd.posW, leakTracingBounds,shadow);
     }
 
     float smShadow = shadow;
@@ -393,7 +396,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, floa
         shadow = V ? 1.0 : 0.0;
     }
 
-    #if 0
+    #if 1
     if(shadow <= 0.0)
         return float3(0);
     // Evaluate contribution.
@@ -424,6 +427,11 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool i
         }
         rayData.direction = bsdfSample.wo;
         rayData.thp *= bsdfSample.weight;
+        let miProperties = mi.getProperties(sd);
+        float roughSq = miProperties.roughness * miProperties.roughness;
+        rayData.leakTracingBounds += gLtBoundsMaxReduction * roughSq;
+        rayData.leakTracingBounds = min(0.5, rayData.leakTracingBounds);
+
         return any(rayData.thp > 0.f);
     }
 
@@ -485,7 +493,7 @@ void handleHit(const HitInfo hit, inout PathData rayData)
         lightSelect = sampleNext1D(rayData.sg);
         #endif
         
-        float3 Lr = evalDirectAnalytic(sd, mi, lightSelect ,rayData.sg);
+        float3 Lr = evalDirectAnalytic(sd, mi, lightSelect, rayData.leakTracingBounds,rayData.sg);
         rayData.radiance += rayData.thp * Lr;
     }
 
@@ -575,11 +583,12 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         #else
             lightSelect = sampleNext1D(sg);
         #endif // USE_SEPERATE_LIGHT_SAMPLER
-            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi,lightSelect , sg) : float3(0.f);
+            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi,lightSelect, kLeakTracingBoundsStart,sg) : float3(0.f);
         }
 
         // Prepare ray payload.
         PathData pathData = PathData(sg);
+        pathData.leakTracingBounds = kLeakTracingBoundsStart;
     #if USE_SEPERATE_LIGHT_SAMPLER
         pathData.lightSg = lightSg;
     #endif

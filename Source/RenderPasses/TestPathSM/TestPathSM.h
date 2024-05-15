@@ -127,6 +127,8 @@ private:
     std::vector<LightMVP> mShadowMapMVP;
     float2 mNearFar = float2(0.1, 60);
     uint mShowLight = 0;
+    float mLtBoundsStart = 0.05f;
+    float mLtBoundsMaxReduction = 0.2f;
   
 
     // Runtime data
