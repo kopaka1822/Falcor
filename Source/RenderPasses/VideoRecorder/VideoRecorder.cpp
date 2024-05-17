@@ -380,7 +380,7 @@ void VideoRecorder::saveFrame(RenderContext* pRenderContext)
 
         auto filenameBase = outputName + "/frame" + outputName;
         std::stringstream filename;
-        filename << filenameBase << std::setfill('0') << std::setw(4) << mRenderIndex << ".bmp";
+        filename << filenameBase << std::setfill('0') << std::setw(5) << mRenderIndex << ".png";
 
         // blit texture
         uint4 srcRect = uint4(guardBand, guardBand, tex->getWidth() - guardBand, tex->getHeight() - guardBand);
@@ -395,7 +395,7 @@ void VideoRecorder::saveFrame(RenderContext* pRenderContext)
         pRenderContext->blit(tex->getSRV(), mpBlitTexture->getRTV(), srcRect);
 
         //tex->captureToFile(0, 0, filename.str(), Bitmap::FileFormat::BmpFile);
-        mpBlitTexture->captureToFile(0, 0, filename.str(), Bitmap::FileFormat::BmpFile);
+        mpBlitTexture->captureToFile(0, 0, filename.str(), Bitmap::FileFormat::PngFile);
     }
 }
 
@@ -639,7 +639,7 @@ void VideoRecorder::stopRender()
             outputFilename = mOutputPrefix + outputName + ".mp4";
 
         deleteFile(outputFilename); // delete old file (otherwise ffmpeg will not write anything)
-        sprintf_s(buffer, "ffmpeg -r %d -i %s%%04d.bmp -c:v libx264 -preset medium -crf 12 -vf \"fps=%d,format=yuv420p\" \"%s\" 2>&1", mFps, filenameBase.c_str(), mFps, outputFilename.c_str());
+        sprintf_s(buffer, "ffmpeg -r %d -i %s%%05d.png -c:v libx264 -preset medium -crf 12 -vf \"fps=%d,format=yuv420p\" \"%s\" 2>&1", mFps, filenameBase.c_str(), mFps, outputFilename.c_str());
 
         // last frame, convert to video
         FILE* ffmpeg = _popen(buffer, "w");
@@ -650,7 +650,8 @@ void VideoRecorder::stopRender()
         }
 
         auto err = _pclose(ffmpeg);
-        deleteFolder(outputName); // delete the temporary files
+        // dont delete image folder, so we can inspect the images
+        //deleteFolder(outputName); // delete the temporary files
         if (err)
         {
             logError("Error while executing ffmpeg:\n");
