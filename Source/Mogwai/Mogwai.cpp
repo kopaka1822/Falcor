@@ -638,7 +638,10 @@ namespace Mogwai
         }
 
         // Execute graph.
-        pGraph->getPassesDictionary()[kRenderPassRefreshFlags] = RenderPassRefreshFlags::None;
+        auto& dict = pGraph->getPassesDictionary();
+        dict[kRenderPassRefreshFlags] = RenderPassRefreshFlags::None;
+        dict[kRenderGraph] = pGraph.get();
+        dict[kRenderGlobalClock] = &getGlobalClock();
         pGraph->execute(pRenderContext);
     }
 

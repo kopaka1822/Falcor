@@ -47,7 +47,8 @@ enum class RenderPassRefreshFlags : uint32_t
  * field with this name in the dictionary.
  */
 static const char kRenderPassRefreshFlags[] = "_refreshFlags";
-
+static const char kRenderGraph[] = "_renderGraph";
+static const char kRenderGlobalClock[] = "_renderGlobalClock";
 /**
  * First available preudorandom number generator dimension.
  */
