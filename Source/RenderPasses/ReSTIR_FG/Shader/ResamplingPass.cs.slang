@@ -145,8 +145,9 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
 
         idx = prevIdx + offset;
 
-        //Clamp to edge
-        min(max(uint2(0), idx), gFrameDim - 1);
+        //Return if index is invalid
+        if(any(idx < 0) || any(idx >= gFrameDim))
+            continue;
         
         //Get Hit sample from last frame
         temporalSurface = getSurface(idx, true);
@@ -397,8 +398,9 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
 
         int2 idx = prevIdx + offset;
 
-        //Clamp to edge
-        min(max(uint2(0), idx), gFrameDim - 1);
+        //Return if idx is not valid
+        if(any(idx < 0) || any(idx >= gFrameDim))
+            continue;
         
         //Get Hit sample from last frame
         SurfaceFG temporalSurface = getSurface(idx, true);

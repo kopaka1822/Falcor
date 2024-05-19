@@ -90,7 +90,8 @@ public:
         All = 0u,
         None = 1u,
         GreaterOne = 2u,
-        Temporal = 3u
+        Temporal = 3u,
+        Reservoir = 4u
     };
 
 private:
@@ -227,11 +228,11 @@ private:
     bool mPhotonAdjustShadingNormal = true;
     bool mGenerationDeltaRejection = true;
     bool mGenerationDeltaRejectionRequireDiffPart = true;
-    CausticCollectionMode mCausticCollectMode = CausticCollectionMode::Temporal;
+    CausticCollectionMode mCausticCollectMode = CausticCollectionMode::Reservoir;
     uint mCausticTemporalFilterHistoryLimit = 60;
     bool mEmissionToCausticFilter = true;
     
-    bool mUseStochasticCollect = true;                     //Stochastic collect using reservoir sampling.
+    bool mUseStochasticCollect = false;                     //Stochastic collect using reservoir sampling.
     uint mStochasticCollectNumPhotons = 3;
 
     bool mUsePhotonCulling = true;
@@ -268,6 +269,8 @@ private:
     ref<Texture> mpRayDist;             //Ray distance (needed for highly specular and transparent materials)
     ref<Texture> mpThp;                 //Throughput
     ref<Texture> mpTemporalCausticSurface[2];   //Small buffer for surface rejection of temporal samples
+    ref<Texture> mpCausticReservoir[2];
+    ref<Buffer> mpCausticSample[2];
 
     ref<Texture> mpVBufferDI;          // Work copy for VBuffer (RTXDI or DirectAnalytical)
     ref<Texture> mpViewDirRayDistDI;   // View dir tex (RTXDI or DirectAnalytical)

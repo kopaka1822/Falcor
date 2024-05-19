@@ -42,7 +42,8 @@ namespace
 
     const std::string kShaderModel = "6_5";
     const uint kMaxPayloadBytes = 96u;
-    const uint kMaxPayloadBytesCollect = 48u;
+    //const uint kMaxPayloadBytesCollect = 48u;
+    const uint kMaxPayloadBytesCollect = 64u;
     const uint kMaxPayloadBytesGenerateFGSamples = 20u;
 
     //Render Pass inputs and outputs
@@ -102,7 +103,8 @@ namespace
         {(uint)ReSTIR_FG::CausticCollectionMode::All, "All"},
         {(uint)ReSTIR_FG::CausticCollectionMode::None, "None"},
         {(uint)ReSTIR_FG::CausticCollectionMode::GreaterOne, "GreaterOne"},
-        {(uint)ReSTIR_FG::CausticCollectionMode::Temporal, "Temporal"}
+        {(uint)ReSTIR_FG::CausticCollectionMode::Temporal, "Temporal"},
+        {(uint)ReSTIR_FG::CausticCollectionMode::Reservoir, "Reservoir"}
     };
 }
 
@@ -179,7 +181,11 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     if (mClearReservoir)
     {
         for (uint i = 0; i < 2; i++)
+        {
             pRenderContext->clearUAV(mpReservoirBuffer[i]->getUAV().get(), uint4(0));
+            pRenderContext->clearUAV(mpCausticReservoir[i]->getUAV().get(), uint4(0));
+        }
+            
         mClearReservoir = false;
     }
 
@@ -563,10 +569,12 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         for (size_t i = 0; i < 2; i++)
         {
             mpReservoirBuffer[i].reset();
+            mpCausticReservoir[i].reset();
             mpFGSampelDataBuffer[i].reset();
             mpSurfaceBuffer[i].reset();
             mpCausticRadiance[i].reset();
             mpTemporalCausticSurface[i].reset();
+            mpCausticSample[i].reset();
         }
         mpFinalGatherSampleHitData.reset();
         mpVBuffer.reset();
@@ -605,6 +613,35 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
             mpReservoirBuffer[i] = Texture::create2D(mpDevice, mScreenRes.x, mScreenRes.y, mUseReducedReservoirFormat ? ResourceFormat::RG32Uint : ResourceFormat::RGBA32Uint, 
                                                      1u, 1u, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
             mpReservoirBuffer[i]->setName("ReSTIR_FG::Reservoir" + std::to_string(i));
+        }
+
+        if (!mpCausticReservoir[i] && mCausticCollectMode == CausticCollectionMode::Reservoir)
+        {
+            mpCausticReservoir[i] = Texture::create2D(
+                mpDevice, mScreenRes.x, mScreenRes.y, mUseReducedReservoirFormat ? ResourceFormat::RG32Uint : ResourceFormat::RGBA32Uint,
+                1u, 1u, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+            );
+            mpCausticReservoir[i]->setName("ReSTIR_FG::CausticReservoir" + std::to_string(i));
+
+            pRenderContext->clearUAV(mpCausticReservoir[i]->getUAV().get(), uint4(0));
+        }
+
+        if (!mpCausticSample[i] && mCausticCollectMode == CausticCollectionMode::Reservoir)
+        {
+            mpCausticSample[i] = Buffer::createStructured(
+                mpDevice, sizeof(uint) * 16, mScreenRes.x * mScreenRes.y,
+                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false
+            );
+            mpCausticSample[i]->setName("ReSTIR_FG::CausticSample" + std::to_string(i));
+        }
+
+        if (mpCausticReservoir[0] && (mCausticCollectMode != CausticCollectionMode::Reservoir))
+        {
+            for (uint j = 0; j < 2; j++)
+            {
+                mpCausticReservoir[j].reset();
+                mpCausticSample[j].reset();
+            }
         }
 
         if (!mpFGSampelDataBuffer[i])
@@ -1097,28 +1134,45 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      var[nameBuf]["gPhotonRadius"] = mPhotonCollectRadius;
      var[nameBuf]["gAttenuationRadius"] = mSampleRadiusAttenuation;
 
-     //Set Temporal Constant Buffer if necessary
-     if (mCausticCollectMode == CausticCollectionMode::Temporal)
-     {
+     if ((mCausticCollectMode == CausticCollectionMode::Temporal) || (mCausticCollectMode == CausticCollectionMode::Reservoir)) {
         nameBuf = "TemporalFilter";
         var[nameBuf]["gTemporalFilterHistoryLimit"] = mCausticTemporalFilterHistoryLimit;
         var[nameBuf]["gDepthThreshold"] = mRelativeDepthThreshold;
         var[nameBuf]["gNormalThreshold"] = mNormalThreshold;
         var[nameBuf]["gMatThreshold"] = mMaterialThreshold;
 
+        var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
+     }
+     
+     //Set Temporal Constant Buffer if necessary
+     if (mCausticCollectMode == CausticCollectionMode::Temporal)
+     {
         //Bind necessary buffer and textures
         //Temporal Indices
         uint idxCurr = mFrameCount % 2;
         uint idxPrev = (mFrameCount + 1) % 2;
-
-        var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
-        
+                
         var["gCausticSurface"] = mpTemporalCausticSurface[idxCurr];
         var["gCausticSurfacePrev"] = mpTemporalCausticSurface[idxPrev];
 
         var["gCausticPrev"] = mpCausticRadiance[idxPrev];
         var["gCausticOut"] = mpCausticRadiance[idxCurr];
      }
+
+     // Temporal Indices
+     if (mCausticCollectMode == CausticCollectionMode::Reservoir)
+     {
+        uint idxCurr = mFrameCount % 2;
+        uint idxPrev = (mFrameCount + 1) % 2;
+        var["gSurface"] = mpSurfaceBuffer[idxCurr];
+        var["gSurfacePrev"] = mpSurfaceBuffer[idxPrev];
+        var["gCausticReservoir"] = mpCausticReservoir[idxCurr];
+        var["gCausticReservoirPrev"] = mpCausticReservoir[idxPrev];
+
+        var["gCausticSample"] = mpCausticSample[idxCurr];
+        var["gCausticSamplePrev"] = mpCausticSample[idxPrev];
+     }
+     
 
      // Bind reservoir and light buffer depending on the boost buffer
      var["gReservoir"] = mpReservoirBuffer[mFrameCount % 2];
@@ -1437,11 +1491,13 @@ void ReSTIR_FG::RayTraceProgramHelper::initRTCollectionProgram(ref<Device> devic
     desc.setMaxAttributeSize(scene->getRaytracingMaxAttributeSize());
     desc.setMaxTraceRecursionDepth(1);
 
-    pBindingTable = RtBindingTable::create(1, 1, scene->getGeometryCount()); //Geometry Count is still needed as the scenes AS is still bound
+    pBindingTable = RtBindingTable::create(2, 2, scene->getGeometryCount()); //Geometry Count is still needed as the scenes AS is still bound
     auto& sbt = pBindingTable;
     sbt->setRayGen(desc.addRayGen("rayGen", globalTypeConformances));   //Type conformances for material model
     sbt->setMiss(0, desc.addMiss("miss"));
     sbt->setHitGroup(0, 0, desc.addHitGroup("", "anyHit", "intersection", globalTypeConformances));
+    sbt->setMiss(1, desc.addMiss("missRes"));
+    sbt->setHitGroup(1, 0, desc.addHitGroup("", "anyHitReservoir", "intersection", globalTypeConformances));
 
     pProgram = RtProgram::create(device, desc, scene->getSceneDefines());
 }
