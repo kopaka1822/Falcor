@@ -58,11 +58,8 @@ cbuffer TemporalFilter{
 
 struct CausticSample{
     float3 pos;
-    uint _pad1;
     float3 dir;
-    uint _pad2;
     float3 flux;
-    uint _pad3;
 }
 
 // Inputs
@@ -205,14 +202,16 @@ void anyHitReservoir(inout RayDataReservoir rayDataRes : SV_RayPayload, SphereAt
     const uint primIndex = PrimitiveIndex();
     //Get Photon data
     PhotonData pd = PhotonData(gPackedPhotonData[InstanceIndex()][primIndex]);
-    SurfaceFG surface = SurfaceFG(rayDataRes.surface, WorldRayDirection());
+    SurfaceFG surface = SurfaceFG(rayDataRes.surface, -WorldRayDirection());
 
     //Check for different surfaces
+    /*
     if (dot(pd.normal,  surface.normal) < 0.6)
     {
         return;
     }
-    
+    */
+
     //Check if photon sample is in valid hemisphere
     float NdotL = dot(pd.dir, surface.normal);
     if (NdotL <= 0) 
@@ -220,8 +219,10 @@ void anyHitReservoir(inout RayDataReservoir rayDataRes : SV_RayPayload, SphereAt
         return;
     }
 
-    float target = (luminance(pd.flux) * M_1_PI) / surface.diffuseProb;
+    //float target = (luminance(pd.flux) * M_1_PI) / surface.diffuseProb;
+    float target = surface.getPdf(pd.dir, luminance(pd.flux))/ NdotL;
     if(rayDataRes.r.updateReservoir(1/(M_PI * gPhotonRadius.y * gPhotonRadius.y), target, sampleNext1D(rayDataRes.sg)))
+    //if(rayDataRes.r.updateReservoir(1.0, target, sampleNext1D(rayDataRes.sg)))
         rayDataRes.idx = primIndex;
 }
 
@@ -428,39 +429,34 @@ void rayGen()
     //Closest hit shader can be skipped
     uint rayFlags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES;
     float3 causticRadiance = float3(0);
+    float3 directRadiance = float3(0);
     float3 thp = gThp[launchIndex].xyz;
 
+#if (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR)
     RayDataReservoir rayDataRes;
     rayDataRes.r = Reservoir();
     rayDataRes.sg = SampleGenerator(launchIndex, gFrameCount + 6 * 26);
     rayDataRes.surface = gSurface[index2Dto1D(launchIndex, launchDim.x)];
     rayDataRes.idx = -1;
+#endif
 
     //Collect Caustic Photon
     if (valid && kCollectCaustics)
     {
-    #if (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR)
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
         let mi = gScene.materials.getMaterialInstance(fgSD, lod, hints);
         let miProperties = mi.getProperties(fgSD);
+
+    #if (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR)
         TraceRay(gPhotonAS, rayFlags, 2 /* instanceInclusionMask */, 1 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayDataRes);
         if(rayDataRes.r.M > 0 && rayDataRes.idx >= 0){
-            //rayDataRes.r.finalizeSample(1, 1.0);
-            rayDataRes.r.weightSum = rayDataRes.r.M / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
+            rayDataRes.r.finalizeSample(1, 1.f);
+            //rayDataRes.r.weightSum = rayDataRes.r.M / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
             rayDataRes.r.M = 1;
-            //PhotonData pd = PhotonData(gPackedPhotonData[1][rayDataRes.idx]);
-            //float3 f_r = mi.eval(fgSD, pd.dir, rayDataRes.sg);
-            //float NdotL = saturate(dot(miProperties.guideNormal, pd.dir));
-            //if(NdotL > 0)
-            //    causticRadiance += max(0.f, (f_r/ NdotL) * pd.flux * rayDataRes.r.weightSum);
         }
-       
     #else
         TraceRay(gPhotonAS, rayFlags, 2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         float w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
-        uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
-        let mi = gScene.materials.getMaterialInstance(fgSD, lod, hints);
-        let miProperties = mi.getProperties(fgSD);
         #if USE_STOCHASTIC_COLLECT
             causticRadiance += w * stochPhotonContribution(fgSD, mi, miProperties.guideNormal, rayData, true);
         #else // USE_STOCHASTIC_COLLECT
@@ -469,7 +465,7 @@ void rayGen()
             #endif // CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_GREATERONE
             causticRadiance += w * rayData.radiance;
         #endif // USE_STOCHASTIC_COLLECT
-
+    #endif
          //Collect the direct light on some metal surfaces
         if(collectDirect){
         //Clear Payload
@@ -486,15 +482,13 @@ void rayGen()
             float w = 1 / (M_PI * gPhotonRadius.x * gPhotonRadius.x);
         #if USE_STOCHASTIC_COLLECT
             rayData.counter &= 0xFFFFFF;    //Delete flag
-            causticRadiance += w * stochPhotonContribution(fgSD, mi, miProperties.guideNormal, rayData, false);
+            directRadiance += w * stochPhotonContribution(fgSD, mi, miProperties.guideNormal, rayData, false);
         #else // USE_STOCHASTIC_COLLECT
             rayData.countPhotons = 0; //delete flag
-            causticRadiance += w * rayData.radiance;
+            directRadiance += w * rayData.radiance;
         #endif // USE_STOCHASTIC_COLLECT
-            if((kEmissionToCausticFilter || MODE_FINAL_GATHER) && collectEmissive) causticRadiance += miProperties.emission;
-            causticRadiance *= thp;
+            if((kEmissionToCausticFilter || MODE_FINAL_GATHER) && collectEmissive) directRadiance += miProperties.emission;
         }
-    #endif
         
     }
 
@@ -506,6 +500,7 @@ void rayGen()
     float2 rndOffset = sampleNext2D(rayData.sg) - 0.5f;
     prevIdxF += rndOffset;
     int2 tempIndex = int2(round(prevIdxF));
+    causticRadiance += directRadiance;
 
     uint history = 1;
     if (tempIndex.x >= 0 && tempIndex.y >= 0 && tempIndex.x < launchDim.x && tempIndex.y < launchDim.y)
@@ -527,8 +522,8 @@ void rayGen()
         }
     }
     
-    gCausticOut[launchIndex] = float4(causticRadiance, float(history));
-    #elif (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR)
+    gCausticOut[launchIndex] = float4(causticRadiance * thp, float(history));
+#elif (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR)
     Reservoir currentRes = Reservoir();
     currentRes.combineReservoir(rayDataRes.r, rayDataRes.r.targetPdf, 0.5);
     currentRes.M = 1;
@@ -539,10 +534,10 @@ void rayGen()
     prevIdxF += rndOffset;
     int2 tempIndex = int2(round(prevIdxF));
     bool resValid = tempIndex.x >= 0 && tempIndex.y >= 0 && tempIndex.x < launchDim.x && tempIndex.y < launchDim.y;
-    SurfaceFG currentSurface = SurfaceFG(rayDataRes.surface, view);
+    SurfaceFG currentSurface = SurfaceFG(rayDataRes.surface, -view);
     SurfaceFG temporalSurface;
     if (resValid){
-        temporalSurface = SurfaceFG(gSurfacePrev[index2Dto1D(tempIndex, launchDim.x)], view);
+        temporalSurface = SurfaceFG(gSurfacePrev[index2Dto1D(tempIndex, launchDim.x)], -view);
         resValid = temporalSurface.valid;
     }
     if(resValid){
@@ -551,24 +546,33 @@ void rayGen()
     Reservoir sampledReservoir = Reservoir();
     CausticSample causticPrev = {};
     bool tempSelected = false;
+    float target = 0.f;
     if(resValid){
         sampledReservoir = Reservoir(gCausticReservoirPrev[tempIndex]);
         sampledReservoir.M = min(sampledReservoir.M, 20);
         causticPrev= gCausticSamplePrev[index2Dto1D(tempIndex, launchDim.x)];
-        float target = 0.f;
+        
         if(sampledReservoir.M > 0){
-            target = (luminance(causticPrev.flux) * M_1_PI) / currentSurface.diffuseProb;
+            //target = (luminance(causticPrev.flux) * M_1_PI) / currentSurface.diffuseProb;
+            float NdotL = dot(causticPrev.dir, currentSurface.normal);
+            target = currentSurface.getPdf(causticPrev.dir, luminance(causticPrev.flux))/ NdotL;
         }
+        //Shift into the domain
+        if(distance(causticPrev.pos, currentSurface.posW) > gPhotonRadius.y)
+            target = 0;
+    }
+
+    if(resValid){
         if(currentRes.combineReservoir(sampledReservoir, target, sampleNext1D(rayDataRes.sg)))
             tempSelected = true;
     }
-    currentRes.finalizeSample(1.0,currentRes.M );
-    
 
+    //Get the current sample for MIS
     CausticSample currSample = {};
     if(rayDataRes.idx >= 0){
+        AABB pAABB = gPhotonAABB[1][rayDataRes.idx];
         PhotonData pd = PhotonData(gPackedPhotonData[1][rayDataRes.idx]);
-        currSample.pos = float3(0);
+        currSample.pos = pAABB.center();
         currSample.flux = pd.flux;
         currSample.dir = pd.dir;
     }
@@ -576,23 +580,42 @@ void rayGen()
     if(tempSelected)
         currSample = causticPrev;
 
+    #if false
+        currentRes.finalizeSample(1.0,currentRes.M );
+    #else
+        float pi = currentRes.targetPdf;
+        float piSum = currentRes.targetPdf; //piSum = target * M_initial ; M_initial is always 1 for us
+        if(resValid){
+            float NdotL = dot(currSample.dir, temporalSurface.normal);
+            float ps = temporalSurface.getPdf(currSample.dir, luminance(currSample.flux))/ NdotL;
+            if(distance(currSample.pos, temporalSurface.posW) > gPhotonRadius.y)
+                ps = 0.0;
+
+            pi = tempSelected ? ps : pi;
+            piSum += ps * sampledReservoir.M;
+        }
+        currentRes.finalizeSample(pi, piSum);
+    #endif
+
+    
+
     uint resHints = (uint) MaterialInstanceHints::AdjustShadingNormal;
     let resMi = gScene.materials.getMaterialInstance(fgSD, lod, resHints);
     let resMiProperties = resMi.getProperties(fgSD);
 
     if(currentRes.M > 0){
         float3 f_r = resMi.eval(fgSD, currSample.dir, rayDataRes.sg);
-        float NdotL = saturate(dot(resMiProperties.guideNormal, currSample.dir));
+        float NdotL = dot(resMiProperties.guideNormal, currSample.dir);
         if(NdotL > 0)
             causticRadiance += max(0.f, (f_r/ NdotL) * currSample.flux * currentRes.weightSum);
     }
    
-    gCausticOut[launchIndex] = float4(causticRadiance, 1.f);
+    gCausticOut[launchIndex] = float4((causticRadiance + directRadiance) * thp, 1.f);
     gCausticSample[index2Dto1D(launchIndex, launchDim.x)] = currSample;
     gCausticReservoir[launchIndex] = currentRes.pack();
 
-    #elif !MODE_FINAL_GATHER //END Caustic mode temporal; Store Caustic tex if not Final Gather mode
-    gCausticOut[launchIndex] = float4(causticRadiance, 1.f);
+#elif !MODE_FINAL_GATHER //END Caustic mode temporal; Store Caustic tex if not Final Gather mode
+    gCausticOut[launchIndex] = float4((causticRadiance + directRadiance) * thp, 1.f);
     #endif
 
     //
@@ -688,9 +711,9 @@ void rayGen()
     //Final gather
     let bsdfFG = gScene.materials.getMaterialInstance(fgSD, lod, hints);
     float3 color = max(0.f, fgRadiance * r.weightSum);
-    color *= bsdfFG.eval(fgSD, view, rayData.sg) * thp;
+    color *= bsdfFG.eval(fgSD, view, rayData.sg);
 
-    gColor[launchIndex] = float4(color + causticRadiance, 1.f);
+    gColor[launchIndex] = float4((color + causticRadiance + directRadiance) * thp, 1.f);
 #else
    
     

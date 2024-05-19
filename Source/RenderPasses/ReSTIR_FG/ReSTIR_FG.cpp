@@ -629,7 +629,7 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         if (!mpCausticSample[i] && mCausticCollectMode == CausticCollectionMode::Reservoir)
         {
             mpCausticSample[i] = Buffer::createStructured(
-                mpDevice, sizeof(uint) * 16, mScreenRes.x * mScreenRes.y,
+                mpDevice, sizeof(uint) * 9, mScreenRes.x * mScreenRes.y,
                 ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false
             );
             mpCausticSample[i]->setName("ReSTIR_FG::CausticSample" + std::to_string(i));
