@@ -1,0 +1,1 @@
+ffmpeg -r 30 -i out/frameGBufferRaster.diffuseOpacity%%05d.png -c:v libx264 -preset medium -crf 12 -vf "fps=30,format=yuv420p" "output.mp4" 2>&1

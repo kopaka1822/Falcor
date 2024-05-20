@@ -170,7 +170,7 @@ void GaussianBlur::createTmpFbo(const Texture* pSrc)
 void GaussianBlur::renderUI(Gui::Widgets& widget)
 {
     if (widget.var("Kernel Width", (int&)mKernelWidth, 1, 15, 2)) setKernelWidth(mKernelWidth);
-    if (widget.slider("Sigma", mSigma, 0.001f, mKernelWidth / 2.f)) setSigma(mSigma);
+    if (widget.slider("Sigma", mSigma, 0.001f, mKernelWidth * 10.0f)) setSigma(mSigma);
 }
 
 void GaussianBlur::setKernelWidth(uint32_t kernelWidth)

@@ -13,14 +13,15 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 # Load the pre-trained model
 #model_id = "CompVis/stable-diffusion-v1-4"  # You can change this to a different version if needed
 model_id = "gsdf/Counterfeit-V2.0"
-controlnet_model_id = "lllyasviel/control_v11p_sd15_canny" 
-lora_model = None
+controlnet_model_id = "lllyasviel/control_v11p_sd15s2_lineart_anime" 
+#lora_model = None
 lora_model = "lora/xiangling1-000011.safetensors"
 if not torch.cuda.is_available():
     print("Warning: CUDA is not available. Please install")
     exit()
 
 device = "cuda"
+#device = "cpu"
 
 print("Device:", device)
 
@@ -45,17 +46,18 @@ if lora_model is not None:
     #pipe.load_lora_weights(lora_weights)
 
 #prompt = "((masterpiece, best quality)),a girl, solo, hat, blush,long hair, skirt, beret, sitting, bangs, socks, wariza, pink hair, light blue eyes, black headwear,holding,rifle,weapon, looking at viewer, white sailor collar, school uniform, closed mouth, black hat, sailor collar, holding weapon, long sleeves, pleated skirt, white socks,indoors,industrial"
-prompt = "((masterpiece, best quality)), solo, girl, xiangling, short dark blue hair, braided hair rings, yellow eyes, sleeveless, dark brown top, floral patterns, dark brown fingerless gloves, black shorts, brown yellow apron, red ribbons"
+#prompt = "((masterpiece, best quality)), solo, girl, xiangling, short dark blue hair, braided hair rings, yellow eyes, sleeveless, dark brown top, floral patterns, dark brown fingerless gloves, black shorts, brown yellow apron, red ribbons"
 #prompt = "((masterpiece, best quality)), Xiangling from Genshin Impact, solo, chef's attire, dark brown and yellow outfit, intricate gold details, red ribbon accents, short dark blue hair, buns, red tassels, yellow eyes, lively"
-#prompt = "((masterpiece, best quality)), <lora:xiangling1-000011:1>, xianglingdef"
+prompt = "((masterpiece, best quality)), <lora:xiangling1-000011:1>, xianglingdef"
 negative_prompt = "(low quality, worst quality:1.4), (bad anatomy), (inaccurate limb:1.2),bad composition, inaccurate eyes, extra digit,fewer digits,(extra arms:1.2),"
 num_inference_steps = 20
 guidance_scale = 8.0
 #denoising_strength = 0.6
-simmilarity_strength = 0.4 # 1 = similar to input image
+simmilarity_strength = 0.8 # 1 = similar to input image
 
 # Define source and output directories
 src_folder = "src"
+control_folder = "lineart"
 out_folder = "out"
 
 # Ensure output directory exists
@@ -70,9 +72,14 @@ for idx, filename in enumerate(files, start=1):
         
         # Load the source image
         init_image = Image.open(source_image_path).convert("RGB")
-        
+        init_image = init_image.resize((512, 512))
+
         # Prepare the control input for ControlNet (e.g., Canny edges)
-        control_image = init_image.filter(ImageFilter.FIND_EDGES)  # Simple edge detection for demonstration
+        #control_image = init_image.filter(ImageFilter.FIND_EDGES)  # Simple edge detection for demonstration
+        #control_path = os.path.join(control_folder, filename.replace("frameGBufferRaster.diffuseOpacity", "frameLineart.out"))
+        control_path = os.path.join(control_folder + "2", filename.replace("frameGBufferRaster.diffuseOpacity", "frameGaussianBlur.dst"))
+        control_image = Image.open(control_path).convert("RGB")
+        control_image = control_image.resize((512, 512))
         
         seed = 4253
         generator = torch.Generator(device=device).manual_seed(seed)
@@ -92,6 +99,6 @@ for idx, filename in enumerate(files, start=1):
         generated_image_path = os.path.join(out_folder, filename)
         generated_image.save(generated_image_path)
         print(f"Processed {idx}/{total_files} files")
-        break # only one file
+        #break # only one file
 
 print("Image generation completed!")
