@@ -580,7 +580,7 @@ void rayGen()
     if(tempSelected)
         currSample = causticPrev;
 
-    #if false
+    #if 0
         currentRes.finalizeSample(1.0,currentRes.M );
     #else
         float pi = currentRes.targetPdf;
