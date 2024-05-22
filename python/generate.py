@@ -21,7 +21,7 @@ if not torch.cuda.is_available():
     exit()
 
 device = "cuda"
-#device = "cpu"
+device = "cpu"
 
 print("Device:", device)
 
@@ -72,14 +72,14 @@ for idx, filename in enumerate(files, start=1):
         
         # Load the source image
         init_image = Image.open(source_image_path).convert("RGB")
-        init_image = init_image.resize((512, 512))
+        #init_image = init_image.resize((512, 512))
 
         # Prepare the control input for ControlNet (e.g., Canny edges)
         #control_image = init_image.filter(ImageFilter.FIND_EDGES)  # Simple edge detection for demonstration
         #control_path = os.path.join(control_folder, filename.replace("frameGBufferRaster.diffuseOpacity", "frameLineart.out"))
         control_path = os.path.join(control_folder + "2", filename.replace("frameGBufferRaster.diffuseOpacity", "frameGaussianBlur.dst"))
         control_image = Image.open(control_path).convert("RGB")
-        control_image = control_image.resize((512, 512))
+        #control_image = control_image.resize((512, 512))
         
         seed = 4253
         generator = torch.Generator(device=device).manual_seed(seed)
