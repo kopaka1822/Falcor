@@ -7,14 +7,17 @@ def render_graph_Diffusion():
     g.create_pass('VideoRecorder', 'VideoRecorder', {})
     g.create_pass('Lineart', 'Lineart', {})
     g.create_pass('GaussianBlur', 'GaussianBlur', {'kernelWidth': 3, 'sigma': 1.5})
+    g.create_pass('DepthGuide', 'DepthGuide', {})
     g.add_edge('GBufferRaster', 'VideoRecorder')
     g.add_edge('GBufferRaster.diffuseOpacity', 'Lineart.diffuseIn')
     g.add_edge('GBufferRaster.posW', 'Lineart.wPos')
     g.add_edge('GBufferRaster.faceNormalW', 'Lineart.wNormal')
     g.add_edge('Lineart.out', 'GaussianBlur.src')
+    g.add_edge('GBufferRaster.linearZ', 'DepthGuide.linearZ')
     g.mark_output('GBufferRaster.diffuseOpacity')
     g.mark_output('Lineart.out')
     g.mark_output('GaussianBlur.dst')
+    g.mark_output('DepthGuide.out')
     return g
 
 Diffusion = render_graph_Diffusion()
