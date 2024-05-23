@@ -14,11 +14,13 @@ api_url = "http://arcade.in.tu-clausthal.de:4455/sdapi/v1/img2img"
 model_id = "counterfeitV30_v30.safetensors [cbfba64e66]"
 base_id = "v1-5-pruned-emaonly.safetensors [6ce0161689]"
 
-prompt = "(masterpiece, best quality), solo, girl, xiangling, short dark blue hair, braided hair rings, yellow eyes, sleeveless, dark brown top, floral patterns, dark brown fingerless gloves, black shorts, brown yellow apron, red ribbons"
+prompt = "(masterpiece, best quality), solo, girl, xiangling, intricate fabric, (high-definition), fine cloth details, realistic cloth folds, realistic skin details, (fine lines and wrinkles), natural skin shading, visible contours, realistic muscle,  short dark blue hair, braided hair rings, yellow eyes, sleeveless, dark brown top, floral patterns, dark brown fingerless gloves, black shorts, brown yellow apron, red ribbons"
 negative_prompt = "(low quality, worst quality:1.4), (bad anatomy), (inaccurate limb:1.2),bad composition, inaccurate eyes, extra digit,fewer digits,(extra arms:1.2),"
 num_inference_steps = 20
-cfg_scale = 1.0
-simmilarity_strength = 0.61 # 1 = similar to input image
+cfg_scale = 4.5
+denoising_strength = 0.7 # 1 = no simmilarty, 0 = full simmilarity
+seed = 4253
+
 
 src_folder = "src"
 control_folder = "lineart"
@@ -61,12 +63,12 @@ for idx, filename in enumerate(files, start=1):
     width, height = init_image.size
     
     # Prepare the control input for ControlNet (e.g., Canny edges)
-    #control_path = os.path.join(control_folder + "2", filename.replace("frameGBufferRaster.diffuseOpacity", "frameGaussianBlur.dst"))
-    #control_image = Image.open(control_path).convert("RGB")
+    control_path = os.path.join(control_folder + "2", filename.replace("frameGBufferRaster.diffuseOpacity", "frameGaussianBlur.dst"))
+    control_image = Image.open(control_path).convert("RGB")
     #control_image = control_image.resize((512, 512))
-    #control_image.save("temp_control.png")
+    control_image.save("temp_control.png")
     
-    seed = 4253
+
 
     # Prepare the payload for the API request
     payload = {
@@ -75,12 +77,13 @@ for idx, filename in enumerate(files, start=1):
         "negative_prompt": negative_prompt,
         "steps": num_inference_steps,
         "cfg_scale": cfg_scale,
-        "denoising_strength": 1.0 - simmilarity_strength,
+        "denoising_strength": denoising_strength,
         "seed": seed,
         "width": width,
         "height": height,
-        "sampler_name": "DPM++ SDE",
-        "scheduler": "Karras",
+        #"sampler_name": "DPM++ 2M",
+        #"scheduler": "Karras",
+        "sampler_name": "DPM++ 2M Karras",
 
         #"enable_hr": True,
         #"hr_prompt": prompt,
@@ -92,10 +95,47 @@ for idx, filename in enumerate(files, start=1):
             "CLIP_stop_at_last_layers": 2,
         },
 
-        "refiner_switch_at": 0.95,
-        "refinder_checkpoint": base_id,
+        "refiner_switch_at": 0.9,
+        "refiner_checkpoint": base_id,
+
+        #"controlnet_module": "canny",
+        #"controlnet_model": "control_v11p_sd15_canny [d14c016b]",
+        #"controlnet_mode": "ControlNet is more important",
 
         #"controlnet_input_image": ["data:image/png;base64," + base64.b64encode(open("temp_control.png", "rb").read()).decode()],
+
+        "controlnet": {
+            "mode": "ControlNet is more important",
+            "enabled": True,
+            "module": "canny",
+            "model": "control_v11p_sd15_canny [d14c016b]",
+            "pixel_perfect": False,
+        },
+
+        "alwayson_scripts": {
+            "controlnet": {
+                "args": [
+                    {
+                    "enabled": True,
+                    "input_image": "data:image/png;base64," + base64.b64encode(open("temp_control.png", "rb").read()).decode(),
+                    #"mask": null,
+                    "module": "invert (from white bg & black line)",
+                    "model": "control_v11p_sd15s2_lineart_anime [3825e83e]",
+                    #"preprocessor": "none",
+                    "weight": 1.6,
+                    #"resize_mode": "Scale to Fit (Inner Fit)",
+                    #"lowvram": false,
+                    "processor_res": 512,
+                    #"threshold_a": 64,
+                    #"threshold_b": 64,
+                    "guidance_start": 0.0,
+                    "guidance_end": 1.0,
+                    "control_mode": "ControlNet is more important",
+                    #"pixel_perfect": false
+                    }
+                ]
+            }
+        }
     }
 
     
@@ -104,9 +144,14 @@ for idx, filename in enumerate(files, start=1):
     threads.append(thread)
     thread.start()
     print(f"Started thread for {idx}/{total_files} files")
-    break # only one file
+
+    if len(threads) > 4:
+        threads[0].join()
+        threads.pop(0)
 
 for index, thread in enumerate(threads, start=1):
     thread.join()
-    print(f"Thread {index}/{total_files} has finished")
+    #print(f"Thread {index}/{total_files} has finished")
+
+
 

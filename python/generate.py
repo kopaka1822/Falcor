@@ -1,5 +1,6 @@
-# pip install diffusers transformers torch
-#pip install accelerate
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# or pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# pip install diffusers transformers torch accelerate
 from diffusers import StableDiffusionControlNetImg2ImgPipeline, ControlNetModel, DPMSolverMultistepScheduler
 from transformers import WEIGHTS_NAME, CONFIG_NAME
 import torch
