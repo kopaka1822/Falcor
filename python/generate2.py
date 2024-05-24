@@ -68,6 +68,10 @@ for idx, filename in enumerate(files, start=1):
     #control_image = control_image.resize((512, 512))
     control_image.save("temp_control.png")
     
+    control_path2 = os.path.join("depth", filename.replace("frameGBufferRaster.diffuseOpacity", "frameDepthGuide.out"))
+    control_image2 = Image.open(control_path2).convert("RGB")
+    #control_image = control_image.resize((512, 512))
+    control_image2.save("temp_control2.png")
 
 
     # Prepare the payload for the API request
@@ -121,16 +125,30 @@ for idx, filename in enumerate(files, start=1):
                     #"mask": null,
                     "module": "invert (from white bg & black line)",
                     "model": "control_v11p_sd15s2_lineart_anime [3825e83e]",
-                    #"preprocessor": "none",
                     "weight": 1.6,
-                    #"resize_mode": "Scale to Fit (Inner Fit)",
                     #"lowvram": false,
-                    "processor_res": 512,
+                    "processor_res": 1024,
                     #"threshold_a": 64,
                     #"threshold_b": 64,
                     "guidance_start": 0.0,
                     "guidance_end": 1.0,
                     "control_mode": "ControlNet is more important",
+                    #"pixel_perfect": false
+                    },
+                    {
+                    "enabled": True,
+                    "input_image": "data:image/png;base64," + base64.b64encode(open("temp_control2.png", "rb").read()).decode(),
+                    #"mask": null,
+                    "module": "none",
+                    "model": "control_v11f1p_sd15_depth [cfd03158]",
+                    "weight": 1.6,
+                    #"lowvram": false,
+                    "processor_res": 1024,
+                    #"threshold_a": 64,
+                    #"threshold_b": 64,
+                    "guidance_start": 0.0,
+                    "guidance_end": 0.4,
+                    "control_mode": "My prompt is more important",
                     #"pixel_perfect": false
                     }
                 ]
@@ -144,8 +162,8 @@ for idx, filename in enumerate(files, start=1):
     threads.append(thread)
     thread.start()
     print(f"Started thread for {idx}/{total_files} files")
-
-    if len(threads) > 4:
+    #break # one file
+    if len(threads) > 8:
         threads[0].join()
         threads.pop(0)
 

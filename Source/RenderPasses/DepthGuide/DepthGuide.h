@@ -54,7 +54,9 @@ private:
     float mMinDepth = 0.0f;
     float mMaxDepth = 10.0f;
 
+    ref<FullScreenPass> mpRangePass;
     ref<FullScreenPass> mpPass;
     ref<Fbo> mpFbo;
     ref<Sampler> mpSampler;
+    ref<Buffer> mpMinMaxBuffer;
 };

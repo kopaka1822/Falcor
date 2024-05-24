@@ -49,6 +49,12 @@ DepthGuide::DepthGuide(ref<Device> pDevice, const Properties& props)
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
     mpSampler = Sampler::create(pDevice, samplerDesc);
+
+    //mpMinMaxBuffer = Buffer::createStructured(pDevice, sizeof(float2), 1, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false);
+    mpMinMaxBuffer = Buffer::create(pDevice, sizeof(float2), ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr);
+
+
+    mpRangePass = FullScreenPass::create(pDevice, "RenderPasses/DepthGuide/MinMaxRange.ps.slang");
 }
 
 Properties DepthGuide::getProperties() const
@@ -60,7 +66,7 @@ RenderPassReflection DepthGuide::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
     reflector.addInput(kDepthIn, "Linear Z texture");
-    reflector.addOutput(kOut, "Output texture");
+    reflector.addOutput(kOut, "Output texture").format(ResourceFormat::RGBA32Float);
     return reflector;
 }
 
@@ -69,14 +75,27 @@ void DepthGuide::execute(RenderContext* pRenderContext, const RenderData& render
     const auto& pDepth = renderData[kDepthIn]->asTexture();
     const auto& pOut = renderData[kOut]->asTexture();
 
+    // clear min max buffer
+    float2 minMax = float2(FLT_MAX, 0.0f);
+    mpMinMaxBuffer->setElement(0, minMax);
+
+    // determine min max
+    auto mmVar = mpRangePass->getRootVar();
+    mmVar["gMinMaxDepth"] = mpMinMaxBuffer;
+    mmVar["gSampler"] = mpSampler;
+    mmVar["gDepthTex"] = pDepth;
+    mpRangePass->execute(pRenderContext, mpFbo);
+
+    //mpMinMaxBuffer->readData(&minMax, 0, sizeof(float2));
+    
+
+    // render based on min max
     mpFbo->attachColorTarget(pOut, 0);
 
     auto var = mpPass->getRootVar();
     var["gDepthTex"] = pDepth;
     var["gSampler"] = mpSampler;
-
-    var["StaticCB"]["gMinDepth"] = mMinDepth;
-    var["StaticCB"]["gMaxDepth"] = mMaxDepth;
+    var["gMinMaxDepth"] = mpMinMaxBuffer;
 
     mpPass->execute(pRenderContext, mpFbo);
 }
