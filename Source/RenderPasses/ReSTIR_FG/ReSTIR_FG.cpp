@@ -108,7 +108,6 @@ namespace
     const Gui::DropdownList kCausticCollectionModeList{
         {(uint)ReSTIR_FG::CausticCollectionMode::All, "All"},
         {(uint)ReSTIR_FG::CausticCollectionMode::None, "None"},
-        {(uint)ReSTIR_FG::CausticCollectionMode::GreaterOne, "GreaterOne"},
         {(uint)ReSTIR_FG::CausticCollectionMode::Temporal, "Temporal"},
         {(uint)ReSTIR_FG::CausticCollectionMode::Reservoir, "Reservoir"}
     };
@@ -1157,8 +1156,11 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      var[nameBuf]["gFrameCount"] = mFrameCount;
      var[nameBuf]["gPhotonRadius"] = mPhotonCollectRadius;
      var[nameBuf]["gAttenuationRadius"] = mSampleRadiusAttenuation;
-
-     if ((mCausticCollectMode == CausticCollectionMode::Temporal) || (mCausticCollectMode == CausticCollectionMode::Reservoir)) {
+     var[nameBuf]["gPhotonWeight"] = 1.f / (float(M_PI) * mPhotonCollectRadius * mPhotonCollectRadius);
+     
+     //Set Temporal Constant Buffer if necessary
+     if (mCausticCollectMode == CausticCollectionMode::Temporal)
+     {
         nameBuf = "TemporalFilter";
         var[nameBuf]["gTemporalFilterHistoryLimit"] = mCausticTemporalFilterHistoryLimit;
         var[nameBuf]["gDepthThreshold"] = mRelativeDepthThreshold;
@@ -1166,11 +1168,6 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
         var[nameBuf]["gMatThreshold"] = mMaterialThreshold;
 
         var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
-     }
-     
-     //Set Temporal Constant Buffer if necessary
-     if (mCausticCollectMode == CausticCollectionMode::Temporal)
-     {
         //Bind necessary buffer and textures
         //Temporal Indices
         uint idxCurr = mFrameCount % 2;
@@ -1183,19 +1180,13 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
         var["gCausticOut"] = mpCausticRadiance[idxCurr];
      }
 
-     // Temporal Indices
+     //Resampling Photon Collection Mode
      if (mCausticCollectMode == CausticCollectionMode::Reservoir)
      {
         uint idxCurr = mFrameCount % 2;
-        uint idxPrev = (mFrameCount + 1) % 2;
         var["gSurface"] = mpSurfaceBuffer[idxCurr];
-        var["gSurfacePrev"] = mpSurfaceBuffer[idxPrev];
         var["gCausticReservoir"] = mpCausticReservoir[idxCurr];
-        var["gCausticReservoirPrev"] = mpCausticReservoir[idxPrev];
-        var["gViewPrev"] = mpViewDirPrev;
-
         var["gCausticSample"] = mpCausticSample[idxCurr];
-        var["gCausticSamplePrev"] = mpCausticSample[idxPrev];
      }
      
 
@@ -1613,7 +1604,14 @@ void ReSTIR_FG::RayTraceProgramHelper::initRTCollectionProgram(ref<Device> devic
     sbt->setMiss(1, desc.addMiss("missRes"));
     sbt->setHitGroup(1, 0, desc.addHitGroup("", "anyHitReservoir", "intersection", globalTypeConformances));
 
-    pProgram = RtProgram::create(device, desc, scene->getSceneDefines());
+    DefineList defines;
+    defines.add(scene->getSceneDefines());
+    defines.add("CAUSTIC_COLLECT_MODE_ALL", std::to_string((uint)CausticCollectionMode::All));
+    defines.add("CAUSTIC_COLLECT_MODE_NONE", std::to_string((uint)CausticCollectionMode::None));
+    defines.add("CAUSTIC_COLLECT_MODE_TEMPORAL", std::to_string((uint)CausticCollectionMode::Temporal));
+    defines.add("CAUSTIC_COLLECT_MODE_RESERVOIR", std::to_string((uint)CausticCollectionMode::Reservoir));
+
+    pProgram = RtProgram::create(device, desc, defines);
 }
 
 void ReSTIR_FG::RayTraceProgramHelper::initProgramVars(ref<Device> pDevice,ref<Scene> pScene, ref<SampleGenerator> pSampleGenerator)

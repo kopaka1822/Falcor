@@ -390,7 +390,7 @@ void main(uint2 dTid : SV_DispatchThreadID)
     {
         causticData = gCausticSample[index2Dto1D(dTid, gFrameDim.x)];
     }
-
+    
     r.combineReservoir(current, current.targetPdf, 0.5 /* random */);
 
 

@@ -89,9 +89,8 @@ public:
     {
         All = 0u,
         None = 1u,
-        GreaterOne = 2u,
-        Temporal = 3u,
-        Reservoir = 4u
+        Temporal = 2u,
+        Reservoir = 3u
     };
 
 private:

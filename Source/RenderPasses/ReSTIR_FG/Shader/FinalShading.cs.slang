@@ -246,13 +246,14 @@ void main(uint2 pixel : SV_DispatchThreadID)
             hitT += distance;
             hitT *= 1.f / hitTSamples;
         }
-        caustic = gCausticRadiance[pixel].xyz;
-
+       
         //Add Emissive to additionally traced materials
         if(needEmissive)
             emission += bsdfProperties.emission * thp;
         
 #endif //RESTIRFG
+
+        caustic = gCausticRadiance[pixel].xyz;
 #if USE_CAUSTIC_FILTER_RESERVOIR
         sd.mtl.setActiveLobes((uint)LobeType::All);
         Reservoir causticReservoir = Reservoir(gCausticReservoir[pixel]);
@@ -271,7 +272,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
             
     //If only RTXDI is used, add the previous calculated light color
     #if USE_RTXDI && !USE_RESTIRFG
-            float3 fgRadiance = gOutColor[pixel].xyz;
+            float3 fgRadiance = gOutColor[pixel].xyz * thp;
             diffuse += fgRadiance;  //TODO do this properly
     #endif
     
