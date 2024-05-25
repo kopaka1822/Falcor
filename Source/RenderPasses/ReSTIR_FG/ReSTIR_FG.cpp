@@ -37,6 +37,7 @@ namespace
     const std::string kCollectPhotonsFGShader = "RenderPasses/ReSTIR_FG/Shader/CollectPhotonsFinalGather.rt.slang";
     const std::string kCollectPhotonsShader = "RenderPasses/ReSTIR_FG/Shader/CollectPhotons.rt.slang";
     const std::string kResamplingPassShader = "RenderPasses/ReSTIR_FG/Shader/ResamplingPass.cs.slang";
+    const std::string kCausticResamplingPassShader = "RenderPasses/ReSTIR_FG/Shader/CausticResamplingPass.cs.slang";
     const std::string kFinalShadingPassShader = "RenderPasses/ReSTIR_FG/Shader/FinalShading.cs.slang";
     const std::string kDirectAnalyticPassShader = "RenderPasses/ReSTIR_FG/Shader/DirectAnalytic.cs.slang";
 
@@ -78,6 +79,11 @@ namespace
     const Gui::DropdownList kResamplingModeList{
         {(uint)ReSTIR_FG::ResamplingMode::Temporal, "Temporal"},
         {(uint)ReSTIR_FG::ResamplingMode::Spartial, "Spartial"},
+        {(uint)ReSTIR_FG::ResamplingMode::SpartioTemporal, "SpartioTemporal"},
+    };
+
+    const Gui::DropdownList kCausticResamplingModeList{
+        {(uint)ReSTIR_FG::ResamplingMode::Temporal, "Temporal"},
         {(uint)ReSTIR_FG::ResamplingMode::SpartioTemporal, "SpartioTemporal"},
     };
 
@@ -218,6 +224,9 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     //Do resampling
     if (mReservoirValid && (mRenderMode == RenderMode::ReSTIRFG))
         resamplingPass(pRenderContext, renderData);
+
+    if (mCausticCollectMode == CausticCollectionMode::Reservoir)
+        causticResamplingPass(pRenderContext, renderData);
 
     if ((mRenderMode == RenderMode::ReSTIRFG) || mDirectLightMode == DirectLightingMode::RTXDI)
     {
@@ -384,6 +393,20 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                 causticGroup.tooltip("Adds Emissive to the Caustic filter");
             }
 
+            if (mCausticCollectMode == CausticCollectionMode::Reservoir)
+            {
+                changed |= causticGroup.dropdown("Resampling Mode", kCausticResamplingModeList, (uint&)mCausticResamplingMode);
+                if (auto reservoirGroup = causticGroup.group("Reservoir Settings"))
+                {
+                    changed |= reservoirGroup.var("Confidence Cap", gCausticResamplingConfidenceCap, 1u, 120u, 1u);
+                    if (mCausticResamplingMode == ResamplingMode::SpartioTemporal)
+                    {
+                        changed |= reservoirGroup.var("Spatial Samples", gCausticResamplingSpatialSamples, 1u, 8u, 1u);
+                        changed |= reservoirGroup.var("Spatial Radius", gCausticResamplingSpatialRadius, 1.f, 10.f, 0.001f);
+                    }
+                }
+            }
+
             changed |= causticGroup.checkbox("Use Caustics for indirect", mUseCausticsForIndirectLight);
             causticGroup.tooltip("Collects caustic photons for the final gather sample used in ReSTIR");
         }
@@ -500,6 +523,7 @@ void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
     mTraceTransmissionDelta = RayTraceProgramHelper::create();
     mpFinalShadingPass.reset();
     mpResamplingPass.reset();
+    mpCausticResamplingPass.reset();
     mpEmissiveLightSampler.reset();
     mpRTXDI.reset();
     mClearReservoir = true;
@@ -1168,6 +1192,7 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
         var["gSurfacePrev"] = mpSurfaceBuffer[idxPrev];
         var["gCausticReservoir"] = mpCausticReservoir[idxCurr];
         var["gCausticReservoirPrev"] = mpCausticReservoir[idxPrev];
+        var["gViewPrev"] = mpViewDirPrev;
 
         var["gCausticSample"] = mpCausticSample[idxCurr];
         var["gCausticSamplePrev"] = mpCausticSample[idxPrev];
@@ -1296,6 +1321,89 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
      pRenderContext->uavBarrier(mpFGSampelDataBuffer[idxCurr].get());
 }
 
+void ReSTIR_FG::causticResamplingPass(RenderContext* pRenderContext, const RenderData& renderData) {
+     std::string profileName = "CausticResampling";
+     if (mResamplingMode == ResamplingMode::Temporal)
+        profileName = "CausticTemporalResampling";
+     else if (mResamplingMode == ResamplingMode::Spartial)
+        profileName = "CausticSpatialResampling";
+
+     FALCOR_PROFILE(pRenderContext, profileName);
+
+     if (!mpCausticResamplingPass)
+     {
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kCausticResamplingPassShader).csEntry("main").setShaderModel(kShaderModel);
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
+        defines.add("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
+        defines.add("MODE_SPATIOTEMPORAL", mCausticResamplingMode == ResamplingMode::SpartioTemporal ? "1" : "0");
+        defines.add("MODE_TEMPORAL", mCausticResamplingMode == ResamplingMode::Temporal ? "1" : "0");
+
+        mpCausticResamplingPass = ComputePass::create(mpDevice, desc, defines, true);
+     }
+
+     FALCOR_ASSERT(mpCausticResamplingPass);
+
+     // If defines change, refresh the program
+     mpCausticResamplingPass->getProgram()->addDefine("MODE_SPATIOTEMPORAL", mCausticResamplingMode == ResamplingMode::SpartioTemporal ? "1" : "0");
+     mpCausticResamplingPass->getProgram()->addDefine("MODE_TEMPORAL", mCausticResamplingMode == ResamplingMode::Temporal ? "1" : "0");
+     mpCausticResamplingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
+
+     // Set variables
+     auto var = mpCausticResamplingPass->getRootVar();
+
+     //mpScene->setRaytracingShaderData(pRenderContext, var, 1); // Set scene data
+     mpSampleGenerator->setShaderData(var);                    // Sample generator
+
+     // Bind Reservoir and surfaces
+     uint idxCurr = mFrameCount % 2;
+     uint idxPrev = (mFrameCount + 1) % 2;
+
+     var["gSurface"] = mpSurfaceBuffer[idxCurr];
+     var["gSurfacePrev"] = mpSurfaceBuffer[idxPrev];
+
+     // Swap the reservoir and sample indices for spatial resampling
+     if (mResamplingMode == ResamplingMode::Spartial)
+        std::swap(idxCurr, idxPrev);
+
+     var["gReservoir"] = mpCausticReservoir[idxCurr];
+     var["gReservoirPrev"] = mpCausticReservoir[idxPrev];
+     var["gCausticSample"] = mpCausticSample[idxCurr];
+     var["gCausticSamplePrev"] = mpCausticSample[idxPrev];
+
+     // View
+     var["gView"] = mpViewDir;
+     var["gPrevView"] = mpViewDirPrev;
+     var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
+
+     std::string uniformName = "PerFrame";
+     var[uniformName]["gFrameCount"] = mFrameCount;
+
+     uniformName = "Constant";
+     var[uniformName]["gFrameDim"] = renderData.getDefaultTextureDims();
+     var[uniformName]["gMaxAge"] = gCausticResamplingConfidenceCap;
+     var[uniformName]["gSpatialSamples"] = gCausticResamplingSpatialSamples;
+     var[uniformName]["gSamplingRadius"] = gCausticResamplingSpatialRadius;
+     var[uniformName]["gDepthThreshold"] = mRelativeDepthThreshold;
+     var[uniformName]["gNormalThreshold"] = mNormalThreshold;
+     var[uniformName]["gDisocclusionBoostSamples"] = mDisocclusionBoostSamples;
+     var[uniformName]["gPhotonRadius"] = mPhotonCollectRadius.y;    //Caustic Radius
+
+     // Execute
+     const uint2 targetDim = renderData.getDefaultTextureDims();
+     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+     mpCausticResamplingPass->execute(pRenderContext, uint3(targetDim, 1));
+
+     // Barrier for written buffer
+     pRenderContext->uavBarrier(mpReservoirBuffer[idxCurr].get());
+     pRenderContext->uavBarrier(mpFGSampelDataBuffer[idxCurr].get());
+}
+
 void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData& renderData) {
      FALCOR_PROFILE(pRenderContext,"FinalShading");
 
@@ -1330,9 +1438,8 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      mpFinalShadingPass->getProgram()->addDefine("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
-     mpFinalShadingPass->getProgram()->addDefine(
-         "EMISSION_TO_CAUSTIC_FILTER", (mCausticCollectMode == CausticCollectionMode::Temporal && mEmissionToCausticFilter) ? "1" : "0"
-     );
+     mpFinalShadingPass->getProgram()->addDefine("EMISSION_TO_CAUSTIC_FILTER", (mCausticCollectMode == CausticCollectionMode::Temporal && mEmissionToCausticFilter) ? "1" : "0");
+     mpFinalShadingPass->getProgram()->addDefine("USE_CAUSTIC_FILTER_RESERVOIR", mCausticCollectMode == CausticCollectionMode::Reservoir ? "1" : "0");
      // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
      mpFinalShadingPass->getProgram()->addDefines(getValidResourceDefines(kOutputChannels, renderData));
 
@@ -1363,6 +1470,13 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      uint causticRadianceIdx = mCausticCollectMode == CausticCollectionMode::Temporal ? mFrameCount % 2 : 0;
 
      var["gCausticRadiance"] = mpCausticRadiance[causticRadianceIdx];
+
+     if (mCausticCollectMode == CausticCollectionMode::Reservoir)
+     {
+        uint currentIndex = mFrameCount % 2;
+        var["gCausticReservoir"] = mpCausticReservoir[currentIndex];
+        var["gCausticSample"] = mpCausticSample[currentIndex];
+     }
 
      //Bind all Output Channels
      for (uint i = 0; i < kOutputChannels.size(); i++)

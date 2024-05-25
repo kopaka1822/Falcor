@@ -11,7 +11,7 @@ import Rendering.Materials.IsotropicGGX;
 import Utils.Math.MathHelpers;
 import Utils.Color.ColorHelpers;
 
-
+import FinalGatherData;
 
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gView;
@@ -42,10 +42,6 @@ struct LightSample
         return Ray(posW, dir, 0.f, distance);
     }
 };
-
-uint index2Dto1D(uint2 idx, uint width){
-    return idx.x + width * idx.y;
-}
 
 ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextureSampler lod)
 {

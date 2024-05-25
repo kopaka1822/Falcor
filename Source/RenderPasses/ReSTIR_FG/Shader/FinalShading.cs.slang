@@ -21,11 +21,14 @@ import FinalGatherData;
 #ifndef USE_RESTIRFG
     #define USE_RESTIRFG 1
 #endif
+#ifndef USE_CAUSTIC_FILTER_RESERVOIR
+#define USE_CAUSTIC_FILTER_RESERVOIR 1
+#endif
 
 #if USE_REDUCED_RESERVOIR_FORMAT
-    Texture2D<uint2> gReservoir;
+    RWTexture2D<uint2> gReservoir;
 #else
-    Texture2D<uint4> gReservoir;
+    RWTexture2D<uint4> gReservoir;
 #endif
 
 
@@ -52,6 +55,14 @@ RWTexture2D<float4> gOutResidualRadiance;
 RWTexture2D<float4> gViewDIPrev;
 RWTexture2D<float4> gViewPrev;
 
+// Caustic Reservoir (optinal)
+StructuredBuffer<CausticSample> gCausticSample;
+#if USE_REDUCED_RESERVOIR_FORMAT
+RWTexture2D<uint2> gCausticReservoir;
+#else
+RWTexture2D<uint4> gCausticReservoir;
+#endif
+
 #define is_valid(name) (is_valid_##name != 0)
 
 cbuffer PerFrame
@@ -61,14 +72,9 @@ cbuffer PerFrame
     uint2 gFrameDim; //Frame Dimensions for camera dir
 }
 
-static const float kRayEpsilon = 0.99f;
+static const float kRayEpsilon = 0.98f;
 static const bool kUseEnvBackground = USE_ENV_BACKROUND;
 static const bool kEmissionToCausticFilter = EMISSION_TO_CAUSTIC_FILTER;
-
-
-uint index2Dto1D(uint2 idx, uint width){
-    return idx.x + width * idx.y;
-}
 
 ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextureSampler lod)
 {
@@ -191,14 +197,14 @@ void main(uint2 pixel : SV_DispatchThreadID)
         float4 thpTex = gThp[pixel];
         float3 thp = thpTex.xyz;
         wasTraced = thpTex.w > 0.5;
-#if USE_RESTIRFG   
+  
         //Get Material properties
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
         ShadingData sd = loadShadingData(hitInfo, viewDir, lod);
         let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = bsdf.getProperties(sd);
-        
-   
+#if USE_RESTIRFG
+
         //Get reservoir
         bool validIndirectReservoir = true;
         Reservoir r = Reservoir(gReservoir[pixel]);
@@ -221,8 +227,13 @@ void main(uint2 pixel : SV_DispatchThreadID)
             if (!rayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
                 validIndirectReservoir = false;
         }
-    
-    
+        //TODO check if this adds no bias
+        /*
+        if (!validIndirectReservoir) {
+            r.weightSum = 0;
+            gReservoir[pixel] = r.pack();
+        }
+        */
         if (validIndirectReservoir)
         {
             sd.mtl.setActiveLobes((uint) LobeType::Diffuse);
@@ -242,7 +253,20 @@ void main(uint2 pixel : SV_DispatchThreadID)
             emission += bsdfProperties.emission * thp;
         
 #endif //RESTIRFG
-
+#if USE_CAUSTIC_FILTER_RESERVOIR
+        sd.mtl.setActiveLobes((uint)LobeType::All);
+        Reservoir causticReservoir = Reservoir(gCausticReservoir[pixel]);
+        if (causticReservoir.M > 0) {
+            CausticSample causticSample = gCausticSample[index2Dto1D(pixel, gFrameDim.x)];
+            float3 f_r = bsdf.eval(sd, causticSample.dir, sg);
+            float NdotL = dot(bsdfProperties.guideNormal, causticSample.dir);
+            float3 causticReservoirRadiance = float3(0);
+            if (NdotL > 0)
+                causticReservoirRadiance += max(0.f, (f_r / NdotL) * causticSample.flux * causticReservoir.weightSum);
+            caustic += causticReservoirRadiance * thp;
+        }
+        
+#endif // USE_CAUSTIC_FILTER_RESERVOIR
         
             
     //If only RTXDI is used, add the previous calculated light color

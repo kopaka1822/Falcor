@@ -56,12 +56,6 @@ cbuffer TemporalFilter{
     float gMatThreshold;                //Material Threshold
 }
 
-struct CausticSample{
-    float3 pos;
-    float3 dir;
-    float3 flux;
-}
-
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gView;
@@ -74,6 +68,7 @@ Texture2D<float4> gThp; //Thp for caustic and final gathering
 //Caustic Filter
 StructuredBuffer<PackedSurfaceDataFG> gSurface;
 StructuredBuffer<PackedSurfaceDataFG> gSurfacePrev;
+Texture2D<float4> gViewPrev;
 RWTexture2D<uint4> gCausticReservoir;
 Texture2D<uint4> gCausticReservoirPrev;
 RWStructuredBuffer<CausticSample> gCausticSample;
@@ -166,11 +161,6 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -rayDir, lod);
     
     return sd;
-}
-
-uint index2Dto1D(uint2 idx, uint width)
-{
-    return idx.x + width * idx.y;
 }
 
 CausticSurface getSurface(uint2 idx, bool prev)
@@ -438,6 +428,7 @@ void rayGen()
     rayDataRes.sg = SampleGenerator(launchIndex, gFrameCount + 6 * 26);
     rayDataRes.surface = gSurface[index2Dto1D(launchIndex, launchDim.x)];
     rayDataRes.idx = -1;
+    ray.Direction = view;
 #endif
 
     //Collect Caustic Photon
@@ -452,9 +443,12 @@ void rayGen()
         if(rayDataRes.r.M > 0 && rayDataRes.idx >= 0){
             rayDataRes.r.finalizeSample(1, 1.f);
             //rayDataRes.r.weightSum = rayDataRes.r.M / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
-            rayDataRes.r.M = 1;
         }
-    #else
+        rayDataRes.r.M = 1;
+        #if USE_STOCHASTIC_COLLECT
+        ray.Direction = fgSD.faceN;
+        #endif 
+    #else // (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR)
         TraceRay(gPhotonAS, rayFlags, 2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         float w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
         #if USE_STOCHASTIC_COLLECT
@@ -465,7 +459,7 @@ void rayGen()
             #endif // CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_GREATERONE
             causticRadiance += w * rayData.radiance;
         #endif // USE_STOCHASTIC_COLLECT
-    #endif
+    #endif //(CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR)
          //Collect the direct light on some metal surfaces
         if(collectDirect){
         //Clear Payload
@@ -521,9 +515,22 @@ void rayGen()
             causticRadiance /= max(1u, history);
         }
     }
-    
+
     gCausticOut[launchIndex] = float4(causticRadiance * thp, float(history));
 #elif (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR)
+    CausticSample currSample = {};
+    if (rayDataRes.idx >= 0) {
+        AABB pAABB = gPhotonAABB[1][rayDataRes.idx];
+        PhotonData pd = PhotonData(gPackedPhotonData[1][rayDataRes.idx]);
+        currSample.pos = pAABB.center();
+        currSample.flux = pd.flux;
+        currSample.dir = pd.dir;
+    }
+
+    gCausticOut[launchIndex] = float4((directRadiance) * thp, 1.f);
+    gCausticSample[index2Dto1D(launchIndex, launchDim.x)] = currSample;
+    gCausticReservoir[launchIndex] = rayDataRes.r.pack();
+#elif 0 //(CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR)
     Reservoir currentRes = Reservoir();
     currentRes.combineReservoir(rayDataRes.r, rayDataRes.r.targetPdf, 0.5);
     currentRes.M = 1;
@@ -536,12 +543,15 @@ void rayGen()
     bool resValid = tempIndex.x >= 0 && tempIndex.y >= 0 && tempIndex.x < launchDim.x && tempIndex.y < launchDim.y;
     SurfaceFG currentSurface = SurfaceFG(rayDataRes.surface, -view);
     SurfaceFG temporalSurface;
-    if (resValid){
-        temporalSurface = SurfaceFG(gSurfacePrev[index2Dto1D(tempIndex, launchDim.x)], -view);
+    if (resValid) {
+        float3 prevView = gViewPrev[tempIndex].xyz;
+        temporalSurface = SurfaceFG(gSurfacePrev[index2Dto1D(tempIndex, launchDim.x)], prevView);
         resValid = temporalSurface.valid;
     }
     if(resValid){
         resValid = currentSurface.isValidNeighbor(temporalSurface, gDepthThreshold, gNormalThreshold);
+        resValid &= distance(currentSurface.posW, temporalSurface.posW) <= (gPhotonRadius.y * 2);
+            
     }
     Reservoir sampledReservoir = Reservoir();
     CausticSample causticPrev = {};
@@ -553,9 +563,9 @@ void rayGen()
         causticPrev= gCausticSamplePrev[index2Dto1D(tempIndex, launchDim.x)];
         
         if(sampledReservoir.M > 0){
-            //target = (luminance(causticPrev.flux) * M_1_PI) / currentSurface.diffuseProb;
             float NdotL = dot(causticPrev.dir, currentSurface.normal);
-            target = currentSurface.getPdf(causticPrev.dir, luminance(causticPrev.flux))/ NdotL;
+            if(NdotL > 0)
+                target = currentSurface.getPdf(causticPrev.dir, luminance(causticPrev.flux))/ NdotL;
         }
         //Shift into the domain
         if(distance(causticPrev.pos, currentSurface.posW) > gPhotonRadius.y)
@@ -587,7 +597,9 @@ void rayGen()
         float piSum = currentRes.targetPdf; //piSum = target * M_initial ; M_initial is always 1 for us
         if(resValid){
             float NdotL = dot(currSample.dir, temporalSurface.normal);
-            float ps = temporalSurface.getPdf(currSample.dir, luminance(currSample.flux))/ NdotL;
+            float ps = 0;
+            if(NdotL > 0)
+                ps = temporalSurface.getPdf(currSample.dir, luminance(currSample.flux))/ NdotL;
             if(distance(currSample.pos, temporalSurface.posW) > gPhotonRadius.y)
                 ps = 0.0;
 

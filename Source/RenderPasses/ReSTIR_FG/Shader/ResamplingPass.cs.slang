@@ -70,9 +70,6 @@ struct PhotonLight{
 static const float kRayEpsilon = 0.99f;
 static const float kRayNearEpsilon = 0.01f;
 
-uint index2Dto1D(uint2 idx, uint width){
-    return idx.x + width * idx.y;
-}
 
 SurfaceFG getSurface(uint2 idx, bool prev)
 {
@@ -589,9 +586,8 @@ void main(uint2 dTid : SV_DispatchThreadID)
         fgData = gFGSampleData[index2Dto1D(dTid, gFrameDim.x)];
     }
 #endif //MODE_SPATIAL
-    
+
     r.combineReservoir(current, current.targetPdf, 0.5 /* random */);
-    
     //Do resampling
 #if MODE_SPATIOTEMPORAL
     spatiotemporalResampling(dTid, r, fgData, surface);

@@ -11,6 +11,7 @@ import Rendering.Materials.IsotropicGGX;
 import Utils.Color.ColorHelpers;
 import Rendering.RTXDI.RTXDI;
 import SurfaceDataFG;
+import FinalGatherData;
 
 //Syntax Highlight
 #ifndef USE_RTXDI
@@ -72,10 +73,6 @@ struct TraceData
         return d;
     }
 };
-
-uint index2Dto1D(uint2 idx, uint width){
-    return idx.x + width * idx.y;
-}
 
 //Load in shading data from hit and direction
 ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextureSampler lod)

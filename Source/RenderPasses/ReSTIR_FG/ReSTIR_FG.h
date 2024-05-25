@@ -134,6 +134,10 @@ private:
     */
     void resamplingPass(RenderContext* pRenderContext, const RenderData& renderData);
 
+    /** Resampling pass for the caustic photons
+     */
+    void causticResamplingPass(RenderContext* pRenderContext, const RenderData& renderData);
+
     /** Final Shading
     */
     void finalShadingPass(RenderContext* pRenderContext, const RenderData& renderData);
@@ -231,7 +235,12 @@ private:
     CausticCollectionMode mCausticCollectMode = CausticCollectionMode::Reservoir;
     uint mCausticTemporalFilterHistoryLimit = 60;
     bool mEmissionToCausticFilter = true;
-    
+
+    ResamplingMode mCausticResamplingMode = ResamplingMode::Temporal;
+    uint gCausticResamplingConfidenceCap = 20;
+    uint gCausticResamplingSpatialSamples = 1;
+    float gCausticResamplingSpatialRadius = 2.5f;
+
     bool mUseStochasticCollect = false;                     //Stochastic collect using reservoir sampling.
     uint mStochasticCollectNumPhotons = 3;
 
@@ -309,6 +318,7 @@ private:
     RayTraceProgramHelper mCollectPhotonPass;
 
     ref<ComputePass> mpResamplingPass;                  // Resampling Pass for all resampling modes
+    ref<ComputePass> mpCausticResamplingPass;           // Resampling Pass for Caustics
     ref<ComputePass> mpFinalShadingPass;                // Final Shading Pass
     ref<ComputePass> mpDirectAnalyticPass;              // Direct Analytic as an alternative to ReSTIR
 };

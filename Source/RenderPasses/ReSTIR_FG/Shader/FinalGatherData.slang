@@ -5,6 +5,10 @@ import Utils.Math.FormatConversion;
 #define USE_REDUCED_PD_FORMAT 0
 #endif
 
+uint index2Dto1D(uint2 idx, uint width) {
+    return idx.x + width * idx.y;
+}
+
 //Final Gather Data. 64 bytes
 struct FGData{
     float3 posW;
@@ -30,6 +34,19 @@ struct FGData{
     get{ return (jacobianDeterminant >= 0.f);}
     }
 };
+
+struct CausticSample {
+    float3 pos;
+    float3 dir;
+    float3 flux;
+
+    // Empty init
+    __init() {
+    pos = float3(0);
+    flux = float3(0);
+    dir = float3(0);
+    }
+}
 
 struct PhotonDataPacked{
     uint4 data1;

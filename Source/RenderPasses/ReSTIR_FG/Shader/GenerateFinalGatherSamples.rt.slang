@@ -71,10 +71,6 @@ struct TraceData
     }
 };
 
-uint index2Dto1D(uint2 idx, uint width){
-    return idx.x + width * idx.y;
-}
-
 //Load in shading data from hit and direction
 ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextureSampler lod)
 {
