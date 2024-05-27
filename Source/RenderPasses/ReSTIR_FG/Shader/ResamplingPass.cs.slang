@@ -97,11 +97,11 @@ bool getLightSample(in FGData fgData, in float3 worldPos, out LightSample ls, ou
     
     ls.Li = luminance(fgData.flux);
     float distAttenuation = vplAttenuation(sampleDistance, gAttenuationRadius);
-    float cosTheta = saturate(dot(normalize(fgData.normal), -ls.dir));
+    float cosTheta = dot(normalize(fgData.normal), -ls.dir);
     float jacobian = (cosTheta * distAttenuation) / fgData.jacobianDeterminant;
 
     //Jacobian is outside of valid values (Solid angle ratio too different)
-    if(jacobian < gJacobianMinMax.x || jacobian > gJacobianMinMax.y)
+    if(jacobian < gJacobianMinMax.x || jacobian > gJacobianMinMax.y || cosTheta < kMinCosTheta)
         return false;
 
     ls.Li *= jacobian;

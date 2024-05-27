@@ -190,7 +190,7 @@ void anyHitReservoir(inout RayDataReservoir rayDataRes : SV_RayPayload, SphereAt
 
     //Check if photon sample is in valid hemisphere
     float NdotL = dot(pd.dir, surface.normal);
-    if (NdotL <= 0) 
+    if (NdotL < kMinCosTheta) 
     {
         return;
     }
@@ -280,8 +280,8 @@ void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_In
     let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
     let bsdfProperties = bsdf.getProperties(sd);
     float3 f_r = bsdf.eval(sd, pd.dir, rayData.sg); //right sign?
-    float NdotL = saturate(dot(bsdfProperties.guideNormal, pd.dir));
-    if(NdotL > 0)
+    float NdotL = dot(bsdfProperties.guideNormal, pd.dir);
+    if(NdotL > kMinCosTheta)
         rayData.radiance += max(0.f, (f_r * pd.flux) / NdotL);
 }
 #endif //USE_STOCHASTIC_COLLECT
@@ -342,8 +342,8 @@ float3 stochPhotonContribution(in const ShadingData sd, in IMaterialInstance bsd
         PhotonData pd = PhotonData(gPackedPhotonData[instanceIndex][rayData.photonIdx[i]]);
 
         float3 f_r = bsdf.eval(sd, pd.dir, rayData.sg);
-        float NdotL = saturate(dot(N, pd.dir));
-        if(NdotL > 0)
+        float NdotL = dot(N, pd.dir);
+        if(NdotL > kMinCosTheta)
             radiance += max(0.f, (f_r * pd.flux) / NdotL);
     }
 
@@ -550,7 +550,9 @@ void fgSampleCollection(float3 genPosW, inout RayData rayData){
         bsdfProperties = bsdf.getProperties(sd);
 
         //Jacobian Determinant
-        jacoDeter = vplAttenuation(distToFG, gAttenuationRadius) * saturate(dot(bsdfProperties.guideNormal,sd.V));
+        float NdotV = dot(bsdfProperties.guideNormal,sd.V);
+        if(NdotV > kMinCosTheta)
+            jacoDeter = vplAttenuation(distToFG, gAttenuationRadius) * NdotV;
 
 
         #if USE_STOCHASTIC_COLLECT

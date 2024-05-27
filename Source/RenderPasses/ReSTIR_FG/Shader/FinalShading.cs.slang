@@ -89,15 +89,19 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
 void getEmissiveLight(uint idx,in float3 worldPos, out float distance ,out float3 toLight, out float3 Li){
     //Get light position
     FGData fgData = gFGSampleData[idx];
-    
-    toLight = fgData.posW - worldPos;
-    distance = length(toLight);
-    toLight = toLight/ distance;    //normalize
 
-    Li = fgData.flux;
-    float distAttenuation = vplAttenuation(distance, gAttenuationRadius);
-    float cosTheta = saturate(dot(normalize(fgData.normal), -toLight));
-    Li *= (cosTheta * distAttenuation)/fgData.jacobianDeterminant;
+    if(fgData.valid){
+        toLight = fgData.posW - worldPos;
+        distance = length(toLight);
+        toLight = toLight/ distance;    //normalize
+
+        Li = fgData.flux;
+        float distAttenuation = vplAttenuation(distance, gAttenuationRadius);
+        float cosTheta = dot(normalize(fgData.normal), -toLight);
+        if(cosTheta > kMinCosTheta)
+            Li *= (cosTheta * distAttenuation)/fgData.jacobianDeterminant;
+    }
+    
 }
 
 [numthreads(16, 16, 1)]

@@ -150,7 +150,7 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout CausticSample caus
         {
             //Target Function
             float NdotL = dot(cauPrev.dir, surface.normal);
-            if (NdotL > 0)
+            if (NdotL > kMinCosTheta)
                 targetFunc = surface.getPdf(cauPrev.dir, luminance(cauPrev.flux)) / NdotL;
 
             // Shift into the domain
@@ -174,7 +174,7 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout CausticSample caus
     {
         float ps = 0.0;
         float NdotL = dot(causticSample.dir, temporalSurface.normal);
-        if (NdotL > 0)
+        if (NdotL > kMinCosTheta)
             ps = temporalSurface.getPdf(causticSample.dir, luminance(causticSample.flux)) / NdotL;
         if (distance(causticSample.pos, temporalSurface.posW) > gPhotonRadius)
             ps = 0.0;
@@ -313,7 +313,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout CausticSampl
         {
             //Target Function
             float NdotL = dot(cauPrev.dir, surface.normal);
-            if (NdotL > 0)
+            if (NdotL > kMinCosTheta)
                 targetFunc = surface.getPdf(cauPrev.dir, luminance(cauPrev.flux)) / NdotL;
 
             // Shift into the domain
@@ -350,7 +350,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout CausticSampl
             if (biasSurface.valid)
             {
                 float NdotL = dot(causticSample.dir, biasSurface.normal);
-                if (NdotL > 0)
+                if (NdotL > kMinCosTheta)
                     ps = biasSurface.getPdf(causticSample.dir, luminance(causticSample.flux)) / NdotL;
                 if (distance(causticSample.pos, biasSurface.posW) > gPhotonRadius)
                     ps = 0.0;
