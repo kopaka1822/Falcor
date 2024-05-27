@@ -76,6 +76,7 @@ public:
     {
         FinalGather = 0,
         ReSTIRFG = 1u,
+        ReSTIRGI = 2u
     };
 
     enum class DirectLightingMode : uint
@@ -112,6 +113,10 @@ private:
     /** Trace Tranmissive and delta materials
     */
     void traceTransmissiveDelta(RenderContext* pRenderContext, const RenderData& renderData);
+
+    /** Generate ReSTIR GI samples
+    */
+    void generateReSTIRGISamples(RenderContext* pRenderContext, const RenderData& renderData);
 
      /** Trace Scene for final gather hit
      */
@@ -263,6 +268,15 @@ private:
     bool mUseSPPM = false;
     float2 mSPPMAlpha = float2(2.f / 3.f);
     uint mSPPMFramesCameraStill = 0;
+
+    //ReSTIR GI
+    uint mGIMaxBounces = 10;              // Max Bounces for GI
+    bool mGIAlphaTest = true;               // Alpha Test
+    bool mGINEE = true;                   // Next event estimation in GI
+    bool mGIRussianRoulette = true;       // Use Russian Roulette in GI
+    bool mGIUseImportanceSampling = true; // Enables Important Sampling
+   
+
     //
     // Buffer and Textures
     //
@@ -316,6 +330,7 @@ private:
         void initProgramVars(ref<Device> pDevice, ref<Scene> pScene, ref<SampleGenerator> pSampleGenerator);
     };
 
+    RayTraceProgramHelper mReSTIRGISamplePass;
     RayTraceProgramHelper mTraceTransmissionDelta;
     RayTraceProgramHelper mFinalGatherSamplePass;
     RayTraceProgramHelper mGeneratePhotonPass;

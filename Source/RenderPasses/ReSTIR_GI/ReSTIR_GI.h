@@ -145,13 +145,12 @@ private:
     bool mTraceRequireDiffuseMat = false; // Requires a diffuse part in addition to delta lobes
 
     //Defines GI
-    uint mGIMaxBounces = 10; // Max Bounces for GI
-    bool mAlphaTest = true;
-    bool mGINEE = true;                 //Next event estimation in GI
-    bool mGIMIS = true;                 //Use Multiple Importance Sampling
-    bool mGIRussianRoulette = true;     //Use Russian Roulette in GI
+    uint mGIMaxBounces = 10;                // Max Bounces for GI
+    bool mAlphaTest = true;                 //Alpha Test
+    bool mGINEE = true;                     //Next event estimation in GI
+    bool mGIMIS = true;                     //Use Multiple Importance Sampling
+    bool mGIRussianRoulette = true;         //Use Russian Roulette in GI
    
-
     // Reservoir
     bool mUseReducedReservoirFormat = false;         // Use a reduced reservoir format TODO: Add
     bool mRebuildReservoirBuffer = false;            // Rebuild the reservoir buffer

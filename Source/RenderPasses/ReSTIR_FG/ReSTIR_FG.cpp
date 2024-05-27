@@ -33,8 +33,8 @@ namespace
 {
     const std::string kTraceTransmissionDeltaShader = "RenderPasses/ReSTIR_FG/Shader/TraceTransmissionDelta.rt.slang";
     const std::string kFinalGatherSamplesShader = "RenderPasses/ReSTIR_FG/Shader/GenerateFinalGatherSamples.rt.slang";
+    const std::string kReSTIRGISampleShader = "RenderPasses/ReSTIR_FG/Shader/GenerateGIPathSamples.rt.slang";
     const std::string kGeneratePhotonsShader = "RenderPasses/ReSTIR_FG/Shader/GeneratePhotons.rt.slang";
-    const std::string kCollectPhotonsFGShader = "RenderPasses/ReSTIR_FG/Shader/CollectPhotonsFinalGather.rt.slang";
     const std::string kCollectPhotonsShader = "RenderPasses/ReSTIR_FG/Shader/CollectPhotons.rt.slang";
     const std::string kResamplingPassShader = "RenderPasses/ReSTIR_FG/Shader/ResamplingPass.cs.slang";
     const std::string kCausticResamplingPassShader = "RenderPasses/ReSTIR_FG/Shader/CausticResamplingPass.cs.slang";
@@ -95,7 +95,8 @@ namespace
 
     const Gui::DropdownList kRenderModeList{
         {(uint)ReSTIR_FG::RenderMode::FinalGather, "Final Gather"},
-        {(uint)ReSTIR_FG::RenderMode::ReSTIRFG, "ReSTIR_FG"},
+        {(uint)ReSTIR_FG::RenderMode::ReSTIRGI, "ReSTIR GI"},
+        {(uint)ReSTIR_FG::RenderMode::ReSTIRFG, "ReSTIR FG"},
     };
 
     const Gui::DropdownList kDirectLightRenderModeList{
@@ -156,9 +157,13 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
         return;
 
     auto& dict = renderData.getDictionary();
+    auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
+    if (flags != RenderPassRefreshFlags::None)
+        mSPPMFramesCameraStill = 0;
+
     if (mOptionsChanged)
     {
-        auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
+       
         dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
         mSPPMFramesCameraStill = 0;
         mOptionsChanged = false;
@@ -208,24 +213,36 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
         mFrameCount++;
         return;
     } 
-        
 
-    getFinalGatherHitPass(pRenderContext, renderData);
+    if (mRenderMode == RenderMode::ReSTIRGI)
+    {
+        generateReSTIRGISamples(pRenderContext, renderData);
+    }
 
-    generatePhotonsPass(pRenderContext, renderData);
-    if (mMixedLights)
-        generatePhotonsPass(pRenderContext, renderData, true);  //Secound pass. Always Analytic
+    if (mRenderMode == RenderMode::ReSTIRFG || mRenderMode == RenderMode::FinalGather)
+    {
+        getFinalGatherHitPass(pRenderContext, renderData);
 
+        generatePhotonsPass(pRenderContext, renderData);
+        if (mMixedLights)
+            generatePhotonsPass(pRenderContext, renderData, true); // Secound pass. Always Analytic
+    }
+    
     //Direct light resampling
     if (mpRTXDI) mpRTXDI->update(pRenderContext, pMotionVectors, mpViewDirRayDistDI, mpViewDirDIPrev);
 
-    collectPhotons(pRenderContext, renderData);
+    if (mRenderMode == RenderMode::ReSTIRFG || mRenderMode == RenderMode::FinalGather)
+    {
+        collectPhotons(pRenderContext, renderData);
+    }
+    
 
     //Do resampling
     if (mReservoirValid && (mRenderMode == RenderMode::ReSTIRFG))
         resamplingPass(pRenderContext, renderData);
 
-    if (mCausticCollectMode == CausticCollectionMode::Reservoir)
+    if (mCausticCollectMode == CausticCollectionMode::Reservoir &&
+        (mRenderMode == RenderMode::ReSTIRFG || mRenderMode == RenderMode::FinalGather))
         causticResamplingPass(pRenderContext, renderData);
 
     finalShadingPass(pRenderContext, renderData);
@@ -290,158 +307,194 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         group.tooltip("Shows a mask which path is used for which pixel. TODO Color Codings");
     }
 
-    if (auto group = widget.group("PhotonMapper")) {
-        if (mMixedLights)
+    //Photon Mapping Options
+    if (mRenderMode != RenderMode::ReSTIRGI)
+    {
+        if (auto group = widget.group("PhotonMapper"))
         {
-            changed |= group.var("Mixed Analytic Ratio", mPhotonAnalyticRatio, 0.f, 1.f , 0.01f);
-            group.tooltip("Analytic photon distribution ratio in a mixed light case. E.g. 0.3 -> 30% analytic, 70% emissive");
-        }
-        changed |= group.checkbox("Enable dynamic photon dispatch", mUseDynamicePhotonDispatchCount);
-        group.tooltip("Changed the number of dispatched photons dynamically. Tries to fill the photon buffer");
-        if (mUseDynamicePhotonDispatchCount)
-        {
-            changed |= group.var("Max dispatched", mPhotonDynamicDispatchMax, mPhotonYExtent, 4000000u);
-            group.tooltip("Maximum number the dispatch can be increased to");
-            changed |= group.var("Guard Percentage", mPhotonDynamicGuardPercentage, 0.0f, 1.f, 0.001f);
-            group.tooltip(
-                "If current fill rate is under PhotonBufferSize * (1-pGuard), the values are accepted. Reduces the changes every frame"
-            );
-            changed |= group.var("Percentage Change", mPhotonDynamicChangePercentage, 0.01f, 10.f, 0.01f);
-            group.tooltip(
-                "Increase/Decrease percentage from the Buffer Size. With current value a increase/decrease of :" +
-                std::to_string(mPhotonDynamicChangePercentage * mNumMaxPhotons[0]) + "is expected"
-            );
-            group.text("Dispatched Photons: " + std::to_string(mNumDispatchedPhotons));
-        }
-        else
-        {
-            uint dispatchedPhotons = mNumDispatchedPhotons;
-            bool disPhotonChanged = group.var("Dispatched Photons", dispatchedPhotons, mPhotonYExtent, 9984000u, (float)mPhotonYExtent);
-            if (disPhotonChanged)
-                mNumDispatchedPhotons = (uint)(dispatchedPhotons / mPhotonYExtent) * mPhotonYExtent;
-        }
-
-         // Buffer size
-        group.text("Photons: " + std::to_string(mCurrentPhotonCount[0]) + " / " + std::to_string(mNumMaxPhotons[0]));
-        group.text("Caustic photons: " + std::to_string(mCurrentPhotonCount[1]) + " / " + std::to_string(mNumMaxPhotons[1]));
-        group.var("Photon Buffer Size", mNumMaxPhotonsUI, 100u, 100000000u, 100);
-        group.tooltip("First -> Global, Second -> Caustic");
-        mChangePhotonLightBufferSize = group.button("Apply", true);
-
-        changed |= group.var("Light Store Probability", mPhotonRejection, 0.f, 1.f, 0.0001f);
-        group.tooltip("Probability a photon light is stored on diffuse hit. Flux is scaled up appropriately");
-
-        changed |= group.var("Max Bounces", mPhotonMaxBounces, 0u, 32u);
-        changed |= group.var("Max Caustic Bounces", mMaxCausticBounces, 0u, 32u);
-        group.tooltip("Maximum number of diffuse bounces that are allowed for a caustic photon.");
-
-        changed |= group.var("Min Photon Travel Distance", mPhotonFirstHitGuard, 0.0f);
-        group.tooltip("A photon has a decreased probability (below) to be stored if it traveled less distace than set here. Can drastically increase performance on certrain lamps.");
-        changed |= group.var("Probability Min Travel Dist", mPhotonFirstHitGuardStoreProb, 0.0f, 1.f);
-        group.tooltip("The probability a photon is stored if it is under the mininmal store probablilty.");
-
-        bool radiusChanged = group.var("Collection Radius", mPhotonCollectionRadiusStart, 0.00001f, 1000.f, 0.00001f, false);
-        mPhotonCollectionRadiusStart.y = std::min(mPhotonCollectionRadiusStart.y, mPhotonCollectionRadiusStart.x);
-        group.tooltip("Photon Radii for final gather and caustic collecton. First->Global, Second->Caustic");
-        if (radiusChanged)
-        {
-            mPhotonCollectRadius = mPhotonCollectionRadiusStart;
-            changed |= true;
-        }
-
-
-        changed |= group.checkbox("Enable SPPM", mUseSPPM);
-        group.tooltip("Stochastic Progressive Photon Mapping. Radius is reduced by a fixed sequence every frame. It is advised to use SPPM only for Offline Rendering");
-        if (mUseSPPM)
-        {
-            group.var("SPPM Alpha", mSPPMAlpha, 0.001f, 1.f, 0.001f);
-            group.text(
-                "Current Radius: Global = " + std::to_string(mPhotonCollectRadius.x) +
-                "; Caustic = " + std::to_string(mPhotonCollectRadius.y)
-            );
-            changed |= group.button("Reset", true);
-        }
-
-        changed |= group.checkbox("Use Stochastic Collect", mUseStochasticCollect);
-        group.tooltip("Stochastic Collection using reservoir sampling. Can help if the BSDF is expensive and many photons overlap");
-        if (mUseStochasticCollect)
-        {
-            changed |= group.var("Stoch Collect Max", mStochasticCollectNumPhotons, 3u, 7u, 4u);
-            group.tooltip("Size of the Stochastic collection buffer in the payload.");
-        }
-
-        changed |= group.checkbox("Collect Separately", mPhotonSplitCollection);
-        group.tooltip("Dispatches a collection process for caustic and FG sample separately. Slightly slower, should only be used for debug");
-
-        if (auto causticGroup = group.group("Caustic Settings", true))
-        {
-            changed |= causticGroup.checkbox("Caustic from Delta lobes only", mGenerationDeltaRejection);
-            causticGroup.tooltip("Uses delta lobes only instead of specular lobes (more deterministic instead of random)");
-            if (mGenerationDeltaRejection && mTraceRequireDiffuseMat)
+            if (mMixedLights)
             {
-                causticGroup.checkbox("Require diffuse parts (See TracePass)", mGenerationDeltaRejectionRequireDiffPart);
-                causticGroup.tooltip("Caustics requires a diffuse part with the settings set in the trace transmission delta pass");
+                changed |= group.var("Mixed Analytic Ratio", mPhotonAnalyticRatio, 0.f, 1.f, 0.01f);
+                group.tooltip("Analytic photon distribution ratio in a mixed light case. E.g. 0.3 -> 30% analytic, 70% emissive");
+            }
+            changed |= group.checkbox("Enable dynamic photon dispatch", mUseDynamicePhotonDispatchCount);
+            group.tooltip("Changed the number of dispatched photons dynamically. Tries to fill the photon buffer");
+            if (mUseDynamicePhotonDispatchCount)
+            {
+                changed |= group.var("Max dispatched", mPhotonDynamicDispatchMax, mPhotonYExtent, 4000000u);
+                group.tooltip("Maximum number the dispatch can be increased to");
+                changed |= group.var("Guard Percentage", mPhotonDynamicGuardPercentage, 0.0f, 1.f, 0.001f);
+                group.tooltip(
+                    "If current fill rate is under PhotonBufferSize * (1-pGuard), the values are accepted. Reduces the changes every frame"
+                );
+                changed |= group.var("Percentage Change", mPhotonDynamicChangePercentage, 0.01f, 10.f, 0.01f);
+                group.tooltip(
+                    "Increase/Decrease percentage from the Buffer Size. With current value a increase/decrease of :" +
+                    std::to_string(mPhotonDynamicChangePercentage * mNumMaxPhotons[0]) + "is expected"
+                );
+                group.text("Dispatched Photons: " + std::to_string(mNumDispatchedPhotons));
+            }
+            else
+            {
+                uint dispatchedPhotons = mNumDispatchedPhotons;
+                bool disPhotonChanged = group.var("Dispatched Photons", dispatchedPhotons, mPhotonYExtent, 9984000u, (float)mPhotonYExtent);
+                if (disPhotonChanged)
+                    mNumDispatchedPhotons = (uint)(dispatchedPhotons / mPhotonYExtent) * mPhotonYExtent;
             }
 
-            changed |= causticGroup.dropdown("Caustic Collection Mode", kCausticCollectionModeList, (uint32_t&)mCausticCollectMode);
-            causticGroup.tooltip(
-                "Collection Mode for Caustics \n All: Normal Collection \n GreaterOne: Radiance is only written if count>1. Adds Bias \n "
-                "Mask: WIP"
-            );
+            // Buffer size
+            group.text("Photons: " + std::to_string(mCurrentPhotonCount[0]) + " / " + std::to_string(mNumMaxPhotons[0]));
+            group.text("Caustic photons: " + std::to_string(mCurrentPhotonCount[1]) + " / " + std::to_string(mNumMaxPhotons[1]));
+            group.var("Photon Buffer Size", mNumMaxPhotonsUI, 100u, 100000000u, 100);
+            group.tooltip("First -> Global, Second -> Caustic");
+            mChangePhotonLightBufferSize = group.button("Apply", true);
 
-            if (mCausticCollectMode == CausticCollectionMode::Temporal)
+            changed |= group.var("Light Store Probability", mPhotonRejection, 0.f, 1.f, 0.0001f);
+            group.tooltip("Probability a photon light is stored on diffuse hit. Flux is scaled up appropriately");
+
+            changed |= group.var("Max Bounces", mPhotonMaxBounces, 0u, 32u);
+            changed |= group.var("Max Caustic Bounces", mMaxCausticBounces, 0u, 32u);
+            group.tooltip("Maximum number of diffuse bounces that are allowed for a caustic photon.");
+
+            changed |= group.var("Min Photon Travel Distance", mPhotonFirstHitGuard, 0.0f);
+            group.tooltip(
+                "A photon has a decreased probability (below) to be stored if it traveled less distace than set here. Can drastically "
+                "increase performance on certrain lamps."
+            );
+            changed |= group.var("Probability Min Travel Dist", mPhotonFirstHitGuardStoreProb, 0.0f, 1.f);
+            group.tooltip("The probability a photon is stored if it is under the mininmal store probablilty.");
+
+            bool radiusChanged = group.var("Collection Radius", mPhotonCollectionRadiusStart, 0.00001f, 1000.f, 0.00001f, false);
+            mPhotonCollectionRadiusStart.y = std::min(mPhotonCollectionRadiusStart.y, mPhotonCollectionRadiusStart.x);
+            group.tooltip("Photon Radii for final gather and caustic collecton. First->Global, Second->Caustic");
+            if (radiusChanged)
             {
-                changed |= causticGroup.var("Caustic Temporal History Limit", mCausticTemporalFilterHistoryLimit, 1u, 512u, 1u);
-                causticGroup.tooltip("History Limit for the Temporal Caustic Filter");
-                changed |= causticGroup.checkbox("Add Emissive to CausticFilter", mEmissionToCausticFilter);
-                causticGroup.tooltip("Adds Emissive to the Caustic filter");
+                mPhotonCollectRadius = mPhotonCollectionRadiusStart;
+                changed |= true;
             }
 
-            if (mCausticCollectMode == CausticCollectionMode::Reservoir)
+            changed |= group.checkbox("Enable SPPM", mUseSPPM);
+            group.tooltip(
+                "Stochastic Progressive Photon Mapping. Radius is reduced by a fixed sequence every frame. It is advised to use SPPM only "
+                "for Offline Rendering"
+            );
+            if (mUseSPPM)
             {
-                changed |= causticGroup.dropdown("Resampling Mode", kCausticResamplingModeList, (uint&)mCausticResamplingMode);
-                if (auto reservoirGroup = causticGroup.group("Reservoir Settings"))
+                group.var("SPPM Alpha", mSPPMAlpha, 0.001f, 1.f, 0.001f);
+                group.text(
+                    "Current Radius: Global = " + std::to_string(mPhotonCollectRadius.x) +
+                    "; Caustic = " + std::to_string(mPhotonCollectRadius.y)
+                );
+                changed |= group.button("Reset", true);
+            }
+
+            changed |= group.checkbox("Use Stochastic Collect", mUseStochasticCollect);
+            group.tooltip("Stochastic Collection using reservoir sampling. Can help if the BSDF is expensive and many photons overlap");
+            if (mUseStochasticCollect)
+            {
+                changed |= group.var("Stoch Collect Max", mStochasticCollectNumPhotons, 3u, 7u, 4u);
+                group.tooltip("Size of the Stochastic collection buffer in the payload.");
+            }
+
+            changed |= group.checkbox("Collect Separately", mPhotonSplitCollection);
+            group.tooltip(
+                "Dispatches a collection process for caustic and FG sample separately. Slightly slower, should only be used for debug"
+            );
+
+            if (auto causticGroup = group.group("Caustic Settings", true))
+            {
+                changed |= causticGroup.checkbox("Caustic from Delta lobes only", mGenerationDeltaRejection);
+                causticGroup.tooltip("Uses delta lobes only instead of specular lobes (more deterministic instead of random)");
+                if (mGenerationDeltaRejection && mTraceRequireDiffuseMat)
                 {
-                    changed |= reservoirGroup.var("Confidence Cap", gCausticResamplingConfidenceCap, 1u, 120u, 1u);
-                    if (mCausticResamplingMode == ResamplingMode::SpartioTemporal)
+                    causticGroup.checkbox("Require diffuse parts (See TracePass)", mGenerationDeltaRejectionRequireDiffPart);
+                    causticGroup.tooltip("Caustics requires a diffuse part with the settings set in the trace transmission delta pass");
+                }
+
+                changed |= causticGroup.dropdown("Caustic Collection Mode", kCausticCollectionModeList, (uint32_t&)mCausticCollectMode);
+                causticGroup.tooltip(
+                    "Collection Mode for Caustics \n All: Normal Collection \n GreaterOne: Radiance is only written if count>1. Adds Bias "
+                    "\n "
+                    "Mask: WIP"
+                );
+
+                if (mCausticCollectMode == CausticCollectionMode::Temporal)
+                {
+                    changed |= causticGroup.var("Caustic Temporal History Limit", mCausticTemporalFilterHistoryLimit, 1u, 512u, 1u);
+                    causticGroup.tooltip("History Limit for the Temporal Caustic Filter");
+                    changed |= causticGroup.checkbox("Add Emissive to CausticFilter", mEmissionToCausticFilter);
+                    causticGroup.tooltip("Adds Emissive to the Caustic filter");
+                }
+
+                if (mCausticCollectMode == CausticCollectionMode::Reservoir)
+                {
+                    changed |= causticGroup.dropdown("Resampling Mode", kCausticResamplingModeList, (uint&)mCausticResamplingMode);
+                    if (auto reservoirGroup = causticGroup.group("Reservoir Settings"))
                     {
-                        changed |= reservoirGroup.var("Spatial Samples", gCausticResamplingSpatialSamples, 1u, 8u, 1u);
-                        changed |= reservoirGroup.var("Spatial Radius", gCausticResamplingSpatialRadius, 1.f, 10.f, 0.001f);
+                        changed |= reservoirGroup.var("Confidence Cap", gCausticResamplingConfidenceCap, 1u, 120u, 1u);
+                        if (mCausticResamplingMode == ResamplingMode::SpartioTemporal)
+                        {
+                            changed |= reservoirGroup.var("Spatial Samples", gCausticResamplingSpatialSamples, 1u, 8u, 1u);
+                            changed |= reservoirGroup.var("Spatial Radius", gCausticResamplingSpatialRadius, 1.f, 10.f, 0.001f);
+                        }
                     }
                 }
+
+                changed |= causticGroup.checkbox("Use Caustics for indirect", mUseCausticsForIndirectLight);
+                causticGroup.tooltip("Collects caustic photons for the final gather sample used in ReSTIR");
             }
 
-            changed |= causticGroup.checkbox("Use Caustics for indirect", mUseCausticsForIndirectLight);
-            causticGroup.tooltip("Collects caustic photons for the final gather sample used in ReSTIR");
-        }
-
-        changed |= group.checkbox("Use Photon Culling", mUsePhotonCulling);
-        group.tooltip("Enabled culling of photon based on a hash grid. Photons are only stored on cells that are collected");
-        if (mUsePhotonCulling)
-        {
-            if (auto groupCulling = group.group("CullingSettings", true))
+            changed |= group.checkbox("Use Photon Culling", mUsePhotonCulling);
+            group.tooltip("Enabled culling of photon based on a hash grid. Photons are only stored on cells that are collected");
+            if (mUsePhotonCulling)
             {
-                groupCulling.checkbox("Use Caustic Culling", mUseCausticCulling);
-                groupCulling.tooltip("Enables Photon Culling for Caustic Photons");
-                groupCulling.checkbox("Use fixed Culling Cell radius", mCullingUseFixedRadius);
-                groupCulling.tooltip("Use a fixed radius for the culling cell. Only used from the point where [Global Radius < Hash Radius]"
-                );
-                if (mCullingUseFixedRadius)
-                    changed |= groupCulling.var("Hash Cell Radius", mCullingCellRadius, 0.0001f, 10000.f, 0.0001f);
-                bool rebuildBuffer = groupCulling.var("Culling Size Bytes", mCullingHashBufferSizeBits, 10u, 27u);
-                groupCulling.tooltip("Size of the culling buffer (2^x) and effective hash bytes used");
+                if (auto groupCulling = group.group("CullingSettings", true))
+                {
+                    groupCulling.checkbox("Use Caustic Culling", mUseCausticCulling);
+                    groupCulling.tooltip("Enables Photon Culling for Caustic Photons");
+                    groupCulling.checkbox("Use fixed Culling Cell radius", mCullingUseFixedRadius);
+                    groupCulling.tooltip(
+                        "Use a fixed radius for the culling cell. Only used from the point where [Global Radius < Hash Radius]"
+                    );
+                    if (mCullingUseFixedRadius)
+                        changed |= groupCulling.var("Hash Cell Radius", mCullingCellRadius, 0.0001f, 10000.f, 0.0001f);
+                    bool rebuildBuffer = groupCulling.var("Culling Size Bytes", mCullingHashBufferSizeBits, 10u, 27u);
+                    groupCulling.tooltip("Size of the culling buffer (2^x) and effective hash bytes used");
 
-                if (rebuildBuffer)
-                    mpPhotonCullingMask.reset();
-                changed |= rebuildBuffer;
+                    if (rebuildBuffer)
+                        mpPhotonCullingMask.reset();
+                    changed |= rebuildBuffer;
+                }
             }
         }
-            
+
     }
 
-    if (mRenderMode == RenderMode::ReSTIRFG)
+    //ReSTIR GI
+    if (mRenderMode == RenderMode::ReSTIRGI)
     {
-        if (auto group = widget.group("ReSTIR_FG"))
+        if (auto group = widget.group("ReSTIR GI Initial Sample"))
+        {
+            changed |= group.var("GI Max Bounces", mGIMaxBounces, 1u, 32u, 1u);
+            group.tooltip("Number of Bounces the initial sample can have");
+            changed |= group.checkbox("Alpha Test", mGIAlphaTest);
+            group.tooltip("Enables the Alpha Test for the ray tracing operations");
+            changed |= group.checkbox("GI NEE", mGINEE);
+            group.tooltip(
+                "Enables NextEventEstimation for the initial Samples. Else only hits with the emissive geometry increase the radiance"
+            );
+            changed |= group.checkbox("GI Russian Roulette", mGIRussianRoulette);
+            group.tooltip("Aborts a path early if the throughput is too low");
+
+            changed |= group.checkbox("Importance Sampling", mGIUseImportanceSampling);
+            group.tooltip("Enables importance sampling");
+        }
+    }
+
+    //Resampling
+    if (mRenderMode == RenderMode::ReSTIRFG || mRenderMode == RenderMode::ReSTIRGI)
+    {
+        if (auto group = widget.group("Resampling"))
         {
             changed |= group.dropdown("ResamplingMode", kResamplingModeList, (uint&)mResamplingMode);
 
@@ -855,6 +908,7 @@ void ReSTIR_FG::prepareRayTracingShaders(RenderContext* pRenderContext) {
 
     //TODO specify the payload bytes for each pass
     mFinalGatherSamplePass.initRTProgram(mpDevice, mpScene, kFinalGatherSamplesShader, kMaxPayloadBytesGenerateFGSamples, globalTypeConformances);
+    mReSTIRGISamplePass.initRTProgram(mpDevice, mpScene, kReSTIRGISampleShader, kMaxPayloadBytesGenerateFGSamples, globalTypeConformances);
     mGeneratePhotonPass.initRTProgram(mpDevice, mpScene, kGeneratePhotonsShader, kMaxPayloadBytes, globalTypeConformances);
     mTraceTransmissionDelta.initRTProgram(mpDevice, mpScene, kTraceTransmissionDeltaShader, kMaxPayloadBytes, globalTypeConformances);
 
@@ -913,6 +967,51 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
 
     // Trace the photons
     mpScene->raytrace(pRenderContext, mTraceTransmissionDelta.pProgram.get(), mTraceTransmissionDelta.pVars, uint3(mScreenRes, 1));
+}
+
+void ReSTIR_FG::generateReSTIRGISamples(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "TracePathGI");
+
+    mReSTIRGISamplePass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
+    mReSTIRGISamplePass.pProgram->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
+    mReSTIRGISamplePass.pProgram->addDefine("GI_USE_NEE", mGINEE ? "1" : "0");
+    mReSTIRGISamplePass.pProgram->addDefine("GI_USE_ANALYTIC", mpScene && mpScene->useAnalyticLights() ? "1" : "0");
+    mReSTIRGISamplePass.pProgram->addDefine("GI_USE_EMISSIVE", mpScene && mpScene->useEmissiveLights() ? "1" : "0");
+    mReSTIRGISamplePass.pProgram->addDefine("GI_ALPHA_TEST", mGIAlphaTest ? "1" : "0");
+    mReSTIRGISamplePass.pProgram->addDefine("GI_RUSSIAN_ROULETTE", mGIRussianRoulette ? "1" : "0");
+    mReSTIRGISamplePass.pProgram->addDefine("GI_IMPORTANCE_SAMPLING", mGIUseImportanceSampling ? "1" : "0");
+    if (mpRTXDI)
+        mReSTIRGISamplePass.pProgram->addDefines(mpRTXDI->getDefines());
+    if (mpEmissiveLightSampler)
+        mReSTIRGISamplePass.pProgram->addDefines(mpEmissiveLightSampler->getDefines());
+
+    if (!mReSTIRGISamplePass.pVars)
+        mReSTIRGISamplePass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
+
+    FALCOR_ASSERT(mReSTIRGISamplePass.pVars);
+
+    auto var = mReSTIRGISamplePass.pVars->getRootVar();
+
+    std::string nameBuf = "PerFrame";
+    var[nameBuf]["gFrameCount"] = mFrameCount;
+    var[nameBuf]["gAttenuationRadius"] = mSampleRadiusAttenuation;
+    var[nameBuf]["gBounces"] = mGIMaxBounces;
+
+    if (mpRTXDI)
+        mpRTXDI->setShaderData(var);
+
+    if (mpEmissiveLightSampler)
+        mpEmissiveLightSampler->setShaderData(var["gEmissiveSampler"]);
+
+    var["gVBuffer"] = mpVBufferDI;
+    var["gView"] = mpViewDirRayDistDI;
+
+    var["gReservoir"] = mpReservoirBuffer[mFrameCount % 2];
+    var["gSurfaceData"] = mpSurfaceBuffer[mFrameCount % 2];
+    var["gGISample"] = mpFGSampelDataBuffer[mFrameCount % 2];
+
+    FALCOR_ASSERT(mScreenRes.x > 0 && mScreenRes.y > 0);
+    mpScene->raytrace(pRenderContext, mReSTIRGISamplePass.pProgram.get(), mReSTIRGISamplePass.pVars, uint3(mScreenRes, 1));
 }
 
 void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -1449,7 +1548,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         );
         if (mpRTXDI) defines.add(mpRTXDI->getDefines());
         defines.add("USE_RTXDI", mpRTXDI ? "1" : "0");
-        defines.add("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG || mRenderMode == RenderMode::FinalGather ? "1" : "0");
+        defines.add("USE_RESTIR_GI", mRenderMode == RenderMode::ReSTIRGI ? "1" : "0");
 
         mpFinalShadingPass = ComputePass::create(mpDevice, desc, defines, true);
      }
@@ -1457,9 +1556,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
 
      if (mpRTXDI) mpFinalShadingPass->getProgram()->addDefines(mpRTXDI->getDefines());  //TODO only set once?
      mpFinalShadingPass->getProgram()->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
-     mpFinalShadingPass->getProgram()->addDefine(
-         "USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG || mRenderMode == RenderMode::FinalGather ? "1" : "0"
-     );
+     mpFinalShadingPass->getProgram()->addDefine("USE_RESTIR_GI", mRenderMode == RenderMode::ReSTIRGI ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("EMISSION_TO_CAUSTIC_FILTER", (mCausticCollectMode == CausticCollectionMode::Temporal && mEmissionToCausticFilter) ? "1" : "0");

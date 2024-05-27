@@ -9,6 +9,7 @@ target_sources(ReSTIR_FG PRIVATE
 	Shader/FinalGatherData.slang
 	Shader/FinalShading.cs.slang
 	Shader/GenerateFinalGatherSamples.rt.slang
+	Shader/GenerateGIPathSamples.rt.slang
     	Shader/GeneratePhotons.rt.slang
 	Shader/Hash.slang
 	Shader/ResamplingPass.cs.slang

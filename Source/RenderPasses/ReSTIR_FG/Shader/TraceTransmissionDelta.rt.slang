@@ -155,8 +155,11 @@ void rayGen()
         ShadingData sd = loadShadingData(hitInfo, -viewDir, lod);
 
         //Get ray distance
-        if(i==0)
+        if(i==0){
             rayDist = distance(gScene.camera.getPosition(), sd.posW);
+            viewDirDistDI.w = rayDist;
+        }
+            
 
         //Get BSDF
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
@@ -230,8 +233,8 @@ void rayGen()
         
         //Write DirectHit surfaces hits only for transmission or delta reflection hits
         if(validSurfaceForDI){
-             if(isTransmission || bsdfSample.isLobe(LobeType::DeltaReflection)){
-             //if(true){
+            if(isTransmission || bsdfSample.isLobe(LobeType::DeltaReflection)){
+            //if(true){
                 hitInfoDI = hitInfo;
                 viewDirDistDI = float4(viewDir,rayDist);
                 thpDI = thp;

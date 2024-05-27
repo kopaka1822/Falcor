@@ -18,8 +18,8 @@ import FinalGatherData;
 #ifndef USE_RTXDI
     #define USE_RTXDI 1
 #endif
-#ifndef USE_RESTIRFG
-    #define USE_RESTIRFG 1
+#ifndef USE_RESTIR_GI
+#define USE_RESTIR_GI 1
 #endif
 #ifndef USE_CAUSTIC_FILTER_RESERVOIR
 #define USE_CAUSTIC_FILTER_RESERVOIR 1
@@ -183,36 +183,38 @@ void main(uint2 pixel : SV_DispatchThreadID)
     }
 #endif //RTXDI
 
+    bool needEmissive = false;
     //Load final gather and ReSTIR FG data
-    float4 viewTmp = gView[pixel];
-    viewDir = -viewTmp.xyz;
-
-    bool needEmissive = viewTmp.w > 1.1 && !kEmissionToCausticFilter; //Direct light for indirect flag
-#if USE_RESTIRFG
+    #if !USE_RESTIR_GI
+        float4 viewTmp = gView[pixel];
+        viewDir = -viewTmp.xyz;
+        needEmissive = viewTmp.w > 1.1 && !kEmissionToCausticFilter; //Direct light for indirect flag
         gViewPrev[pixel] = float4(-viewDir,1); //copy view
-#endif //USE_RESTIRFG
-    
-    hitInfo = HitInfo(gVBuffer[pixel]);
+        hitInfo = HitInfo(gVBuffer[pixel]);
+    #endif
+
     bool wasTraced = false;
     
     if (hitInfo.isValid())
     {
         validSample |= true;
-        float4 thpTex = gThp[pixel];
-        float3 thp = thpTex.xyz;
-        wasTraced = thpTex.w > 0.5;
-  
+        #if USE_RESTIR_GI
+            float3 thp = gThpDI[pixel].xyz;
+        #else
+            float4 thpTex = gThp[pixel];
+            float3 thp = thpTex.xyz;
+            wasTraced = thpTex.w > 0.5;
+        #endif
+
         //Get Material properties
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
         ShadingData sd = loadShadingData(hitInfo, viewDir, lod);
         let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = bsdf.getProperties(sd);
-#if USE_RESTIRFG
 
         //Get reservoir
         bool validIndirectReservoir = true;
         Reservoir r = Reservoir(gReservoir[pixel]);
-    
     
         if (r.weightSum < 0 || r.M == 0)
         {
@@ -254,24 +256,23 @@ void main(uint2 pixel : SV_DispatchThreadID)
         //Add Emissive to additionally traced materials
         if(needEmissive)
             emission += bsdfProperties.emission * thp;
-        
-#endif //RESTIRFG
 
-        caustic = gCausticRadiance[pixel].xyz;
-#if USE_CAUSTIC_FILTER_RESERVOIR
-        sd.mtl.setActiveLobes((uint)LobeType::All);
-        Reservoir causticReservoir = Reservoir(gCausticReservoir[pixel]);
-        if (causticReservoir.M > 0) {
-            CausticSample causticSample = gCausticSample[index2Dto1D(pixel, gFrameDim.x)];
-            float3 f_r = bsdf.eval(sd, causticSample.dir, sg);
-            float NdotL = dot(bsdfProperties.guideNormal, causticSample.dir);
-            float3 causticReservoirRadiance = float3(0);
-            if (NdotL > 0)
-                causticReservoirRadiance += max(0.f, (f_r / NdotL) * causticSample.flux * causticReservoir.weightSum);
-            caustic += causticReservoirRadiance * thp;
-        }
-        
-#endif // USE_CAUSTIC_FILTER_RESERVOIR    
+        #if !USE_RESTIR_GI
+            caustic = gCausticRadiance[pixel].xyz;
+            #if USE_CAUSTIC_FILTER_RESERVOIR
+                sd.mtl.setActiveLobes((uint)LobeType::All);
+                Reservoir causticReservoir = Reservoir(gCausticReservoir[pixel]);
+                if (causticReservoir.M > 0) {
+                    CausticSample causticSample = gCausticSample[index2Dto1D(pixel, gFrameDim.x)];
+                    float3 f_r = bsdf.eval(sd, causticSample.dir, sg);
+                    float NdotL = dot(bsdfProperties.guideNormal, causticSample.dir);
+                    float3 causticReservoirRadiance = float3(0);
+                    if (NdotL > 0)
+                        causticReservoirRadiance += max(0.f, (f_r / NdotL) * causticSample.flux * causticReservoir.weightSum);
+                    caustic += causticReservoirRadiance * thp;
+                }
+            #endif // USE_CAUSTIC_FILTER_RESERVOIR
+        #endif // !USE_RESTIR_GI
     }   
 
     if(validSample)
