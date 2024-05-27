@@ -250,8 +250,10 @@ void VideoRecorder::renderUI(RenderContext* pRenderContext, Gui::Widgets& widget
     {
         system("explorer .");
     }
+    
 
     // list all outputs
+    if (mState != State::Render)
     if(auto g = widget.group("Outputs"))
     {
         bool selectAll = false;
@@ -269,6 +271,7 @@ void VideoRecorder::renderUI(RenderContext* pRenderContext, Gui::Widgets& widget
             allOutputs = fuzzyFilter(allOutputs, mOutputFilter);
         }
 
+        size_t i = 0;
         for(const auto& name : allOutputs)
         {
             bool selected = mOutputs.count(name) != 0;
@@ -282,6 +285,14 @@ void VideoRecorder::renderUI(RenderContext* pRenderContext, Gui::Widgets& widget
                 else mOutputs.erase(name);
             }
             if(selectAll) mOutputs.insert(name);
+            bool hdr = mOutputHdr.count(name) != 0;
+            std::string label = "HDR" + std::to_string(i);
+            if(g.checkbox(label.c_str(), hdr, true))
+            {
+                if (hdr) mOutputHdr.insert(name);
+                else mOutputHdr.erase(name);
+            }
+            ++i;
         }
     }
 
@@ -364,6 +375,7 @@ void VideoRecorder::saveFrame(RenderContext* pRenderContext)
     {
         auto output = mpRenderGraph->getOutput(target);
         if(!output) continue;
+        auto hdr = mOutputHdr.count(target) != 0;
 
         auto tex = output->asTexture();
         assert(tex);
@@ -380,22 +392,26 @@ void VideoRecorder::saveFrame(RenderContext* pRenderContext)
 
         auto filenameBase = outputName + "/frame" + outputName;
         std::stringstream filename;
-        filename << filenameBase << std::setfill('0') << std::setw(5) << mRenderIndex << ".png";
+        filename << filenameBase << std::setfill('0') << std::setw(5) << mRenderIndex;
+        if(hdr) filename << ".exr";
+        else filename << ".png";
 
+        auto& pBlitTex = hdr ? mpBlitTextureHdr : mpBlitTexture;
+        
         // blit texture
         uint4 srcRect = uint4(guardBand, guardBand, tex->getWidth() - guardBand, tex->getHeight() - guardBand);
-        if(!mpBlitTexture ||
-            mpBlitTexture->getWidth() != tex->getWidth() - 2 * guardBand ||
-            mpBlitTexture->getHeight() != tex->getHeight() - 2 * guardBand)
+        if(!pBlitTex ||
+            pBlitTex->getWidth() != tex->getWidth() - 2 * guardBand ||
+            pBlitTex->getHeight() != tex->getHeight() - 2 * guardBand)
         {
-            mpBlitTexture = Texture::create2D(
-                mpDevice, tex->getWidth() - 2 * guardBand, tex->getHeight() - 2 * guardBand, ResourceFormat::BGRA8UnormSrgb, 1, 1, nullptr, ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource);
+            pBlitTex = Texture::create2D(
+                mpDevice, tex->getWidth() - 2 * guardBand, tex->getHeight() - 2 * guardBand, hdr ? ResourceFormat::RGBA32Float : ResourceFormat::BGRA8UnormSrgb, 1, 1, nullptr, ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource);
         }
 
-        pRenderContext->blit(tex->getSRV(), mpBlitTexture->getRTV(), srcRect);
+        pRenderContext->blit(tex->getSRV(), pBlitTex->getRTV(), srcRect);
 
-        //tex->captureToFile(0, 0, filename.str(), Bitmap::FileFormat::BmpFile);
-        mpBlitTexture->captureToFile(0, 0, filename.str(), Bitmap::FileFormat::PngFile);
+        pBlitTex->captureToFile(0, 0, filename.str(),
+            hdr ? Bitmap::FileFormat::ExrFile : Bitmap::FileFormat::PngFile);
     }
 }
 
@@ -618,6 +634,7 @@ void VideoRecorder::stopRender()
     {
         auto output = mpRenderGraph->getOutput(target);
         if (!output) continue;
+        if(mOutputHdr.count(target) > 0) continue; // no video for hdr outputs
 
         auto tex = output->asTexture();
         assert(tex);

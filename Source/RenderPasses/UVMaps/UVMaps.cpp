@@ -64,7 +64,8 @@ RenderPassReflection UVMaps::reflect(const CompileData& compileData)
 
     for(uint i = 0; i < mMaterialCount; ++i)
     {
-        reflector.addOutput(kOut + std::to_string(i), "Output texture").format(ResourceFormat::RGBA32Float);
+        reflector.addOutput(kOut + std::to_string(i), "Output texture")
+            .format(ResourceFormat::RGBA32Float);
     }
     return reflector;
 }

@@ -112,6 +112,7 @@ private:
     RenderGraph* mpRenderGraph;
     std::string mActiveOutput = "";
     std::set<std::string> mOutputs;
+    std::set<std::string> mOutputHdr; // tells if output should be saved as HDR
     int mFps = 60;
 
     std::string mSaveName = "path";
@@ -129,4 +130,5 @@ private:
 
     int guardBand = 0;
     ref<Texture> mpBlitTexture;
+    ref<Texture> mpBlitTextureHdr;
 };
