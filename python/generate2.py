@@ -150,7 +150,7 @@ for idx, filename in enumerate(files, start=1):
                     "guidance_end": 0.4,
                     "control_mode": "My prompt is more important",
                     #"pixel_perfect": false
-                    }
+                    },
                 ]
             }
         }

@@ -32,14 +32,14 @@
 
 using namespace Falcor;
 
-class DepthGuide : public RenderPass
+class UVMaps : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(DepthGuide, "DepthGuide", "Render Depth Guide");
+    FALCOR_PLUGIN_CLASS(UVMaps, "UVMaps", "Render UV Maps");
 
-    static ref<DepthGuide> create(ref<Device> pDevice, const Properties& props) { return make_ref<DepthGuide>(pDevice, props); }
+    static ref<UVMaps> create(ref<Device> pDevice, const Properties& props) { return make_ref<UVMaps>(pDevice, props); }
 
-    DepthGuide(ref<Device> pDevice, const Properties& props);
+    UVMaps(ref<Device> pDevice, const Properties& props);
 
     virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
@@ -51,12 +51,9 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    float mMinDepth = 0.0f;
-    float mMaxDepth = 10.0f;
-
-    ref<FullScreenPass> mpRangePass;
     ref<FullScreenPass> mpPass;
     ref<Fbo> mpFbo;
     ref<Sampler> mpSampler;
-    ref<Buffer> mpMinMaxBuffer;
+
+    uint mMaterialCount = 4;
 };
