@@ -228,12 +228,7 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     if (mCausticCollectMode == CausticCollectionMode::Reservoir)
         causticResamplingPass(pRenderContext, renderData);
 
-    if ((mRenderMode == RenderMode::ReSTIRFG) || mDirectLightMode == DirectLightingMode::RTXDI)
-    {
-        finalShadingPass(pRenderContext, renderData);
-
-        //copyViewTexture(pRenderContext, renderData);
-    }
+    finalShadingPass(pRenderContext, renderData);
 
     if (mpRTXDI) mpRTXDI->endFrame(pRenderContext);
 
@@ -270,7 +265,13 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         "are directly evaluated (Emissive light is ignored)"
     );
 
-    widget.dropdown("(Indirect) Render Mode", kRenderModeList, (uint&)mRenderMode);
+    bool renderModeChanged = widget.dropdown("(Indirect) Render Mode", kRenderModeList, (uint&)mRenderMode);
+    if (renderModeChanged)
+    {
+        mClearReservoir = true;
+        changed = true;
+    }
+    
 
     if (auto group = widget.group("Specular Trace Options"))
     {
@@ -1129,11 +1130,8 @@ void ReSTIR_FG::handlePhotonCounter(RenderContext* pRenderContext)
 void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData) {
      FALCOR_PROFILE(pRenderContext, "CollectPhotons");
 
-     bool finalGatherRenderMode = mRenderMode == RenderMode::FinalGather;
-
      //Defines TODO add
      mCollectPhotonPass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
-     mCollectPhotonPass.pProgram->addDefine("MODE_FINAL_GATHER", finalGatherRenderMode ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefine("CAUSTIC_COLLECTION_MODE", std::to_string((uint)mCausticCollectMode));
      mCollectPhotonPass.pProgram->addDefine("CAUSTIC_COLLECTION_INDIRECT", mUseCausticsForIndirectLight ? "1" : "0");
           
@@ -1197,8 +1195,8 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
 
      // Bind reservoir and light buffer depending on the boost buffer
      var["gReservoir"] = mpReservoirBuffer[mFrameCount % 2];
-     if (!finalGatherRenderMode) //Only Bind when resampling is used
-        var["gFGSampleData"] = mpFGSampelDataBuffer[mFrameCount % 2];
+     var["gFGSampleData"] = mpFGSampelDataBuffer[mFrameCount % 2];
+
      for (uint32_t i = 0; i < 2; i++)
      {
         var["gPhotonAABB"][i] = mpPhotonAABB[i];
@@ -1210,15 +1208,13 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      var["gView"] = mpViewDir;
      var["gThp"] = mpThp;
 
-     if (finalGatherRenderMode)
-        var["gColor"] = renderData[kOutputColor]->asTexture();
-     else if (mCausticCollectMode != CausticCollectionMode::Temporal)
+     if (mCausticCollectMode != CausticCollectionMode::Temporal)
         var["gCausticOut"] = mpCausticRadiance[0];
 
 
      mpPhotonAS->bindTlas(var, "gPhotonAS");
 
-     if (mPhotonSplitCollection && !finalGatherRenderMode)
+     if (mPhotonSplitCollection)
      {
         collectPhotonsSplit(pRenderContext, renderData, var, "Caustic", false);
         collectPhotonsSplit(pRenderContext, renderData, var, "FGSample", true);
@@ -1453,7 +1449,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         );
         if (mpRTXDI) defines.add(mpRTXDI->getDefines());
         defines.add("USE_RTXDI", mpRTXDI ? "1" : "0");
-        defines.add("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
+        defines.add("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG || mRenderMode == RenderMode::FinalGather ? "1" : "0");
 
         mpFinalShadingPass = ComputePass::create(mpDevice, desc, defines, true);
      }
@@ -1461,7 +1457,9 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
 
      if (mpRTXDI) mpFinalShadingPass->getProgram()->addDefines(mpRTXDI->getDefines());  //TODO only set once?
      mpFinalShadingPass->getProgram()->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
-     mpFinalShadingPass->getProgram()->addDefine("USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG ? "1" : "0");
+     mpFinalShadingPass->getProgram()->addDefine(
+         "USE_RESTIRFG", mRenderMode == RenderMode::ReSTIRFG || mRenderMode == RenderMode::FinalGather ? "1" : "0"
+     );
      mpFinalShadingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("EMISSION_TO_CAUSTIC_FILTER", (mCausticCollectMode == CausticCollectionMode::Temporal && mEmissionToCausticFilter) ? "1" : "0");

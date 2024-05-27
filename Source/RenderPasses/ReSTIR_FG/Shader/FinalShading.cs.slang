@@ -267,18 +267,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
             caustic += causticReservoirRadiance * thp;
         }
         
-#endif // USE_CAUSTIC_FILTER_RESERVOIR
-        
-            
-    //If only RTXDI is used, add the previous calculated light color
-    #if USE_RTXDI && !USE_RESTIRFG
-            float3 fgRadiance = gOutColor[pixel].xyz * thp;
-            //Add Emissive to additionally traced materials
-            if(needEmissive)
-                emission += bsdfProperties.emission * thp;
-            diffuse += fgRadiance;  //TODO do this properly
-    #endif
-    
+#endif // USE_CAUSTIC_FILTER_RESERVOIR    
     }   
 
     if(validSample)

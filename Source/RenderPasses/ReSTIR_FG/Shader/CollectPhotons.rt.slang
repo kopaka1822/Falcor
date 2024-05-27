@@ -494,7 +494,7 @@ void causticPhotonCollection(in ShadingData sd, inout RayData rayData, bool coll
     #endif
 }
 
-float3 fgSampleCollection(float3 genPosW, inout RayData rayData){
+void fgSampleCollection(float3 genPosW, inout RayData rayData){
     const uint2 launchIndex = DispatchRaysIndex().xy;
     const uint2 launchDim = DispatchRaysDimensions().xy;
     let lod = ExplicitLodTextureSampler(0.f);
@@ -549,10 +549,9 @@ float3 fgSampleCollection(float3 genPosW, inout RayData rayData){
         let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
         bsdfProperties = bsdf.getProperties(sd);
 
-        //Jacobian Determinant (only needed for resampling)
-        #if !MODE_FINAL_GATHER
-            jacoDeter = vplAttenuation(distToFG, gAttenuationRadius) * saturate(dot(bsdfProperties.guideNormal,sd.V));
-        #endif
+        //Jacobian Determinant
+        jacoDeter = vplAttenuation(distToFG, gAttenuationRadius) * saturate(dot(bsdfProperties.guideNormal,sd.V));
+
 
         #if USE_STOCHASTIC_COLLECT
             ray.Direction = sd.faceN;   //Store faceN in direction
@@ -590,40 +589,38 @@ float3 fgSampleCollection(float3 genPosW, inout RayData rayData){
     }
 
     //Store ReSTIR Sample
-    #if !MODE_FINAL_GATHER
-        //Init reservoir
-        Reservoir r = Reservoir(gReservoir[launchIndex]);
-        r.M = 1; //set M to the right value
+ 
+    //Init reservoir
+    Reservoir r = Reservoir(gReservoir[launchIndex]);
+    r.M = 1; //set M to the right value
 
-        float Li = luminance(fgRadiance);
-        r.targetPdf *= Li; //Add the missing parts of the targetPDF (Li)
+    float Li = luminance(fgRadiance);
+    r.targetPdf *= Li; //Add the missing parts of the targetPDF (Li)
 
-         //Create the final gather sample
-        FGData fgData = { };
-        bool fgValid = valid;
-        if(fgValid){
-            fgValid = !isnan(Li) && !isinf(Li);
-            fgData.posW = sd.computeNewRayOrigin();
-            fgData.normal = bsdfProperties.guideNormal;
-            fgData.flux = fgRadiance;
-        }
-        fgData.jacobianDeterminant = fgValid ? jacoDeter : -1.f;    //Negative jacobian determinant is an invalid sample
+        //Create the final gather sample
+    FGData fgData = { };
+    bool fgValid = valid;
+    if(fgValid){
+        fgValid = !isnan(Li) && !isinf(Li);
+        fgData.posW = sd.computeNewRayOrigin();
+        fgData.normal = bsdfProperties.guideNormal;
+        fgData.flux = fgRadiance;
+    }
+    fgData.jacobianDeterminant = fgValid ? jacoDeter : -1.f;    //Negative jacobian determinant is an invalid sample
         
-        if (!fgValid)
-        {
-            r.M = 0;
-            r.weightSum = 0.f;
-        }
+    if (!fgValid)
+    {
+        r.M = 0;
+        r.weightSum = 0.f;
+    }
 
     #if USE_REDUCED_RESERVOIR_FORMAT
         gReservoir[launchIndex] = r.packReduced();
     #else  //USE_REDUCED_RESERVOIR_FORMAT
         gReservoir[launchIndex] = r.pack();
     #endif //USE_REDUCED_RESERVOIR_FORMAT
-        gFGSampleData[index2Dto1D(launchIndex, launchDim.x)] = fgData;
-    #endif //!(MODE_FINAL_GATHER)
 
-    return fgRadiance;
+    gFGSampleData[index2Dto1D(launchIndex, launchDim.x)] = fgData;
 }
 
 [shader("raygeneration")]
@@ -646,31 +643,18 @@ void rayGen()
     //Get vertex data for the world position
     TriangleHit triangleHit = hit.getTriangleHit();
     VertexData v = gScene.getVertexData(triangleHit);
-    ShadingData fgSD = {};
     if(gCollectCaustic){
         float4 viewTmp =gView[launchIndex];
         float3 view = -viewTmp.xyz;
         bool collectDirect = viewTmp.w > 0.1;
 
         let lod = ExplicitLodTextureSampler(0.f);
+        ShadingData fgSD = {};
         if(valid)
             fgSD = loadShadingData(hit, view, lod); //Shading Data for direct hit
 
         causticPhotonCollection(fgSD, rayData, collectDirect, valid);
     }
-    float3 fgRadiance = float3(0);
     if(gCollectFG)
-        fgRadiance = fgSampleCollection(v.posW, rayData);
-
-    #if MODE_FINAL_GATHER
-        //Final gather
-        Reservoir r = Reservoir(gReservoir[launchIndex]); //Load reservoir for invPDF
-        let lod = ExplicitLodTextureSampler(0.f);
-        uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
-        let bsdfFG = gScene.materials.getMaterialInstance(fgSD, lod, hints);
-        float3 color = max(0.f, fgRadiance * r.weightSum);
-        color *= bsdfFG.eval(fgSD, fgSD.V, rayData.sg);
-
-        gColor[launchIndex] = float4(color, 1.f);
-    #endif
+        fgSampleCollection(v.posW, rayData);
 }
