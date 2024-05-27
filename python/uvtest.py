@@ -7,9 +7,9 @@ import os
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-exr_file_path = 'UVMaps.out2/frameUVMaps.out200001.exr'
-png_file_path = 'textures/map2.png'
-output_path = 'uvtest.png'
+exr_file_path = 'UVMaps.out0/frameUVMaps.out000001.exr'
+png_file_path = 'textures/map0new.png'
+output_path = 'uvtest0.png'
 usage_path = 'usage.png'
 
 # Open the EXR file and read the UV coordinates
