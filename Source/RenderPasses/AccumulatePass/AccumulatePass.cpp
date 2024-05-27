@@ -27,6 +27,9 @@
  **************************************************************************/
 #include "AccumulatePass.h"
 #include "RenderGraph/RenderPassStandardFlags.h"
+#include <fmt/format.h>
+#include <sstream>
+#include <fstream>
 
 static void regAccumulatePass(pybind11::module& m)
 {
@@ -57,6 +60,26 @@ namespace
     const char kPrecisionMode[] = "precisionMode";
     const char kMaxFrameCount[] = "maxFrameCount";
     const char kOverflowMode[] = "overflowMode";
+}
+
+namespace fs = std::filesystem;
+// file helper functions
+bool folderExists(const std::string& folderPath)
+{
+    return fs::is_directory(folderPath);
+}
+
+bool createFolder(const std::string& folderPath)
+{
+    try
+    {
+        fs::create_directories(folderPath);
+        return true;
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
 }
 
 AccumulatePass::AccumulatePass(ref<Device> pDevice, const Properties& props)
@@ -196,6 +219,10 @@ void AccumulatePass::execute(RenderContext* pRenderContext, const RenderData& re
     else if (resolutionMatch)
     {
         accumulate(pRenderContext, pSrc, pDst);
+        if (mUseExportImage && mStartExporting)
+        {
+            exportImage(pRenderContext, pDst);
+        }
     }
     else
     {
@@ -270,6 +297,45 @@ void AccumulatePass::accumulate(RenderContext* pRenderContext, const ref<Texture
     pRenderContext->dispatch(mpState.get(), mpVars.get(), numGroups);
 }
 
+void AccumulatePass::exportImage(RenderContext* pRenderContext, const ref<Texture>& pDst)
+{
+    pRenderContext->uavBarrier(pDst.get());
+
+    if (!folderExists(mFolderPathStr))
+    {
+        mStartExporting = false;
+        mExportError = "Error: Folder does not exist!";
+        return;
+    }
+    if (!mExportError.empty())
+        mExportError.clear();
+
+    // Skip steps
+    bool skipped = false;
+    for (uint i = 0; i < mSkipItCount.size(); i++)
+    {
+        if (mSkipItStart[i] < 0)
+                continue;
+
+        if (uint(mSkipItStart[i]) <= mFrameCount)
+        {
+                if (mFrameCount % mSkipItCount[i] != 0)
+                {
+                return;
+                }
+                break;
+        }
+    }
+
+    std::stringstream stream;
+    stream << mFolderPathStr << "\\" << mFileName;
+    stream << std::setfill('0') << std::setw(5) << mFrameCount;
+    stream << ".exr";
+    std::filesystem::path path = stream.str();
+
+    pDst->captureToFile(0, 0, path.string(), Bitmap::FileFormat::ExrFile, Bitmap::ExportFlags::None);
+}
+
 void AccumulatePass::renderUI(Gui::Widgets& widget)
 {
     // Controls for output size.
@@ -320,12 +386,37 @@ void AccumulatePass::renderUI(Gui::Widgets& widget)
 
         const std::string text = std::string("Frames accumulated ") + std::to_string(mFrameCount);
         widget.text(text);
+
+        widget.checkbox("Use Export images", mUseExportImage);
+        if (mUseExportImage)
+        {
+            if (!mExportError.empty())
+                widget.text(mExportError);
+            // Export settings
+            widget.textbox("StorePath", mFolderPathStr, Gui::TextFlags::FitWindow);
+            widget.textbox("FileName", mFileName, Gui::TextFlags::FitWindow);
+
+            for (uint i = 0; i < mSkipItCount.size(); i++)
+            {
+                std::string name = "Start" + std::to_string(mSkipItCount[i]) + "steps";
+                widget.var(name.c_str(), mSkipItStart[i], -1);
+            }
+
+            // Reset if export started
+            if (widget.checkbox("Start Exporting", mStartExporting))
+                reset();
+        }
     }
 }
 
 void AccumulatePass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
+
+    if (mpScene)
+        mFolderPathStr = mpScene->getPath().parent_path().string();
+    else
+        mFolderPathStr = ".";
 
     // Reset accumulation when the scene changes.
     reset();

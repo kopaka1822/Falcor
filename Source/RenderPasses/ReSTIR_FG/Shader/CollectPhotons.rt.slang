@@ -665,10 +665,11 @@ void rayGen()
     #if MODE_FINAL_GATHER
         //Final gather
         Reservoir r = Reservoir(gReservoir[launchIndex]); //Load reservoir for invPDF
+        let lod = ExplicitLodTextureSampler(0.f);
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
         let bsdfFG = gScene.materials.getMaterialInstance(fgSD, lod, hints);
         float3 color = max(0.f, fgRadiance * r.weightSum);
-        color *= bsdfFG.eval(fgSD, view, rayData.sg);
+        color *= bsdfFG.eval(fgSD, fgSD.V, rayData.sg);
 
         gColor[launchIndex] = float4(color, 1.f);
     #endif

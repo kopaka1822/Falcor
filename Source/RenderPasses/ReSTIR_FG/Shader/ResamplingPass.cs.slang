@@ -51,7 +51,7 @@ cbuffer Constant
     float gSamplingRadius;          //Sampling radius
     float gDepthThreshold;          //Relative depth offset
     float gNormalThreshold;         //Maximum cosine between both Normals that is allowed
-    float gMatThreshold;            //Differences between the diffuse probabilities of the materials
+    float gMatThreshold;            //Differences between the diffuse probabilities of the materials TODO Remove/ is not used
     uint gDisocclusionBoostSamples; //Number of spartial samples if no temporal surface was found
     float gAttenuationRadius;       //Radius for the attenuation
     float2 gJacobianMinMax;         //Minimum and Maximum values for the jacobian
@@ -152,7 +152,7 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
             continue;
 
         //Test surface similarity and discard if too different
-        if (!surface.isValidNeighbor(temporalSurface, gDepthThreshold, gNormalThreshold, gMatThreshold))
+        if (!surface.isValidNeighbor(temporalSurface, gDepthThreshold, gNormalThreshold))
             continue;
 
         //Valid hit was found
@@ -264,7 +264,7 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
         if (!neighSurface.valid)
             continue;
         
-        if (!surface.isValidNeighbor(neighSurface, gDepthThreshold, gNormalThreshold, gMatThreshold))
+        if (!surface.isValidNeighbor(neighSurface, gDepthThreshold, gNormalThreshold))
             continue;
 
         //Neighbor passed the test, start resampling
@@ -405,7 +405,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
             continue;
 
         //Test surface similarity and discard if too different
-        if (!surface.isValidNeighbor(temporalSurface, gDepthThreshold, gNormalThreshold, gMatThreshold))
+        if (!surface.isValidNeighbor(temporalSurface, gDepthThreshold, gNormalThreshold))
             continue;
         
         //Valid hit was found
@@ -455,7 +455,7 @@ void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSam
             if (!neighSurface.valid)
                 continue;
         
-            if (!surface.isValidNeighbor(neighSurface, gDepthThreshold, gNormalThreshold, gMatThreshold))
+            if (!surface.isValidNeighbor(neighSurface, gDepthThreshold, gNormalThreshold))
                 continue;
         }
             
