@@ -205,6 +205,7 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     {
         if (mpRTXDI)
             mpRTXDI->endFrame(pRenderContext);
+        mFrameCount++;
         return;
     } 
         
@@ -367,6 +368,9 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
             changed |= group.var("Stoch Collect Max", mStochasticCollectNumPhotons, 3u, 7u, 4u);
             group.tooltip("Size of the Stochastic collection buffer in the payload.");
         }
+
+        changed |= group.checkbox("Collect Separately", mPhotonSplitCollection);
+        group.tooltip("Dispatches a collection process for caustic and FG sample separately. Slightly slower, should only be used for debug");
 
         if (auto causticGroup = group.group("Caustic Settings", true))
         {
@@ -1157,7 +1161,8 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      var[nameBuf]["gPhotonRadius"] = mPhotonCollectRadius;
      var[nameBuf]["gAttenuationRadius"] = mSampleRadiusAttenuation;
      var[nameBuf]["gPhotonWeight"] = 1.f / (float(M_PI) * mPhotonCollectRadius * mPhotonCollectRadius);
-     
+     var[nameBuf]["gCollectCaustic"] = true;
+     var[nameBuf]["gCollectFG"] = true;
      //Set Temporal Constant Buffer if necessary
      if (mCausticCollectMode == CausticCollectionMode::Temporal)
      {
@@ -1213,16 +1218,46 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
 
      mpPhotonAS->bindTlas(var, "gPhotonAS");
 
-      // Create dimensions based on the number of VPLs
+     if (mPhotonSplitCollection && !finalGatherRenderMode)
+     {
+        collectPhotonsSplit(pRenderContext, renderData, var, "Caustic", false);
+        collectPhotonsSplit(pRenderContext, renderData, var, "FGSample", true);
+     }
+     else
+     {
+        uint2 targetDim = renderData.getDefaultTextureDims();
+        FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+
+        // Trace the photons
+        mpScene->raytrace(pRenderContext, mCollectPhotonPass.pProgram.get(), mCollectPhotonPass.pVars, uint3(targetDim, 1));
+     }
+        
+}
+
+void ReSTIR_FG::collectPhotonsSplit(RenderContext* pRenderContext, const RenderData& renderData, ShaderVar& var, std::string profileName, bool fg) {
+     FALCOR_PROFILE(pRenderContext, profileName);
+
+     std::string nameBuf = "PerFrame";
+     //Set constant buffer vars
+     if (fg)
+     {
+        var[nameBuf]["gCollectCaustic"] = false;
+        var[nameBuf]["gCollectFG"] = true;
+     }
+     else
+     {
+        var[nameBuf]["gCollectCaustic"] = true;
+        var[nameBuf]["gCollectFG"] = false;
+     }
+
      uint2 targetDim = renderData.getDefaultTextureDims();
      FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
-
      // Trace the photons
      mpScene->raytrace(pRenderContext, mCollectPhotonPass.pProgram.get(), mCollectPhotonPass.pVars, uint3(targetDim, 1));
 }
 
 void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& renderData) {
-    std::string profileName = "SpatiotemporalResampling";
+     std::string profileName = "SpatiotemporalResampling";
      if (mResamplingMode == ResamplingMode::Temporal)
         profileName = "TemporalResampling";
      else if (mResamplingMode == ResamplingMode::Spartial)

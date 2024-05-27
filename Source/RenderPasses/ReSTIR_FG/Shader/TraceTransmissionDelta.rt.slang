@@ -55,7 +55,6 @@ RWTexture2D<float4> gDebugOut;  //Only used when DEBUG_MASK == 1
 static const float kDemodulateMinReflectance = 0.01f;
 static const float kRoughnessCutoff = TRACE_TRANS_SPEC_ROUGH_CUTOFF;
 static const float kDiffuseCutoff = TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF;
-static const bool kTemporalFilterEnabled = CAUSTIC_TEMPORAL_FILTER_ENABLED;
 static const bool kAlphaTest = USE_ALPHA_TEST;
 
 struct TraceData
@@ -136,14 +135,19 @@ void rayGen()
     HitInfo hitInfoDI = hitInfo;
     float4 viewDirDistDI = float4(viewDir, rayDist);
     float3 thpDI = thp;
+
     bool validSurfaceForDI = true;
     uint bouncesAfterValid = 0;
-    
+    bool invalidSample = false;
+    bool isDiffuse = false;
+
     TraceData traceData = TraceData::create();
     SampleGenerator sg = SampleGenerator(launchIndex, gFrameCount + 7 * 13);
     let lod = ExplicitLodTextureSampler(0.f);
     uint wasTracedMask = 0;
-    CausticSurface causticSurface;
+    #if CAUSTIC_TEMPORAL_FILTER_ENABLED
+        CausticSurface causticSurface;
+    #endif
     
     //Get first valid(diffuse) Surface
     for (uint i = 0; ((i < gMaxBounces) || gMaxBounces == 0) && hitInfo.isValid(); i++)
@@ -175,27 +179,30 @@ void rayGen()
             }
         }
 
-        if(i == 0 && kTemporalFilterEnabled){
-            causticSurface.normal = sd.faceN;
-            causticSurface.viewDepth = rayDist;
-        }
-            
+        #if CAUSTIC_TEMPORAL_FILTER_ENABLED
+            if(i == 0){
+                causticSurface.normal = sd.faceN;
+                causticSurface.viewDepth = rayDist;
+            }
+        #endif    
         
         if (gMaxBounces == 0)
             break;
         
         BSDFSample bsdfSample;
 
-        if (!bsdf.sample(sd, sg, bsdfSample))
-            break;
+        bool validBSDF = bsdf.sample(sd, sg, bsdfSample);
+        if (!validBSDF){
+            invalidSample = true;
+        }
 
-        bool isTransmission = bsdfSample.isLobe(LobeType::Transmission);
+        bool isTransmission = validBSDF ? bsdfSample.isLobe(LobeType::Transmission) : false;
         float3 diffuseProb = bsdfProperties.diffuseReflectionAlbedo / (bsdfProperties.diffuseReflectionAlbedo + bsdfProperties.specularReflectionAlbedo + bsdfProperties.diffuseTransmissionAlbedo + bsdfProperties.specularTransmissionAlbedo);
         float meanDiffuseProb = (diffuseProb.x + diffuseProb.y + diffuseProb.z) / 3;
         bool hasDiffuseParts = gRequDiffParts ? (meanDiffuseProb > kDiffuseCutoff) || bsdfProperties.roughness > kRoughnessCutoff : true;
-        bool isDiffuse = bsdfSample.isLobe(LobeType::NonDeltaReflection) && hasDiffuseParts;
+        isDiffuse = hasDiffuseParts;// && bsdfSample.isLobe(LobeType::NonDeltaReflection);
         
-        if(isDiffuse)
+        if(isDiffuse || invalidSample)
             break;
         
         thp *= bsdfSample.weight;   //Update troughput
@@ -208,10 +215,12 @@ void rayGen()
 
         TraceRay(gScene.rtAccel, 0, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, tRay, traceData);
 
-        //Set is delta flag on caustic surface
-        if(i == 0 && kTemporalFilterEnabled){
-            causticSurface.isDelta = true;
-        }
+        #if CAUSTIC_TEMPORAL_FILTER_ENABLED
+            //Set is delta flag on caustic surface
+            if(i == 0){
+                causticSurface.isDelta = true;
+            }
+        #endif 
         
         //Update info
         hitInfo = HitInfo(traceData.packedHitInfo);
@@ -231,6 +240,7 @@ void rayGen()
             }
         }else
             bouncesAfterValid++;
+        
     }
         
     //Fill the RTXDI surface if it is enabled
@@ -249,12 +259,18 @@ void rayGen()
     }
 #endif
 
-    if(kTemporalFilterEnabled) gPackedCausticSurface[launchIndex] = causticSurface.pack();
+    #if CAUSTIC_TEMPORAL_FILTER_ENABLED
+        gPackedCausticSurface[launchIndex] = causticSurface.pack();
+    #endif
+
      //Write DI Buffer
     gOutVBufferDI[launchIndex] = hitInfoDI.getData();
     gOutViewDirRayDistDI[launchIndex] = viewDirDistDI;
-    gOutThpDI[launchIndex] = float4(thp, 1.f);
-    
+    gOutThpDI[launchIndex] = float4(thpDI, 1.f);
+
+    //Set surface to invalid if the specular surface did not produce a valid sample
+    if(invalidSample && !isDiffuse)
+        hitInfo = {};
     //Write
     gOutVBuffer[launchIndex] = hitInfo.getData();
     gOutViewDir[launchIndex] = float4(viewDir, validSurfaceForDI ? 0 : bouncesAfterValid + 1);  //Store a flag if this surface has direct light
@@ -265,12 +281,14 @@ void rayGen()
 
     #if DEBUG_MASK
         float3 debugOut = float3(0,0,1);
+        if(invalidSample && !isDiffuse)
+            debugOut = float3(1);
         //Enable Red channel if it is not a direct hit
         if(wasTracedMask > 0){
-            debugOut = float3(1,0,0);
+            debugOut = float3(0.8,0,0);
             
             if(!validSurfaceForDI)
-                debugOut = float3(0,1,0);
+                debugOut = float3(0,0.6,0);
                 
         }
 

@@ -41,6 +41,8 @@ cbuffer PerFrame
     float2 gPhotonRadius; // x->Global Radius, y-> Caustic Radius
     float gAttenuationRadius;   //Radius for the distance attenuation
     float2 gPhotonWeight;   //Photon weight 1/ (PI * radius^2)
+    bool gCollectCaustic;   //Collect flag for caustic photons
+    bool gCollectFG;        //Collect flag for final gather sample
 }
 
 //Constant settings for the temporal filter. Can be null
@@ -492,7 +494,7 @@ void causticPhotonCollection(in ShadingData sd, inout RayData rayData, bool coll
     #endif
 }
 
-void fgSampleCollection(in ShadingData generationSD, inout RayData rayData){
+float3 fgSampleCollection(float3 genPosW, inout RayData rayData){
     const uint2 launchIndex = DispatchRaysIndex().xy;
     const uint2 launchDim = DispatchRaysDimensions().xy;
     let lod = ExplicitLodTextureSampler(0.f);
@@ -508,28 +510,10 @@ void fgSampleCollection(in ShadingData generationSD, inout RayData rayData){
     #endif // USE_STOCHASTIC_COLLECT
     HitInfo hit = HitInfo(packedHit);
     bool valid = hit.isValid(); //Check if the final gather ray is valid
+    BSDFProperties bsdfProperties = {};
+    ShadingData sd = {};   
 
-    TriangleHit triangleHit = hit.getTriangleHit();
-    VertexData v = gScene.getVertexData(triangleHit);
-
-    RayDesc ray;
-    ray.TMin = 0.0;
-    ray.TMax = 0.001;
-    ray.Direction = v.posW - generationSD.posW; //Sample dir is used here to save payload space
-    float distToFG = length(ray.Direction); //Distance for Jacobian determinant
-    ray.Direction /= distToFG; //Normalize
-    ray.Origin = v.posW; //Update origin
-    
-    #if MODE_FINAL_GATHER
-        float3 view = ray.Direction;   //Store view for later
-    #endif
-    
-    uint materialID = gScene.getMaterialID(triangleHit.instanceID);
-    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.Direction, lod);
-    uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
-    let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
-    let bsdfProperties = bsdf.getProperties(sd);
-
+    /* Surface Rejection TODO Remove (not necessary)
     uint lobeTypes = bsdf.getLobeTypes(sd);
     bool hasDiffuseParts = true;
     if(kRejectDiffuseSurfaces)
@@ -541,12 +525,30 @@ void fgSampleCollection(in ShadingData generationSD, inout RayData rayData){
     //Reject surfaces where no photons are stored anyway. The emissive case is handled by ReSTIR for Direct Lights
     bool isDiffuse = hasDiffuseParts && !any(bsdfProperties.emission > 0) && ((lobeTypes & (uint)LobeType::Delta) == 0);
     valid &= isDiffuse;  
-    
+    */
+
     float3 fgRadiance = float3(0);
     float jacoDeter = -1.f;
     
     if (valid)
     {
+        TriangleHit triangleHit = hit.getTriangleHit();
+        VertexData v = gScene.getVertexData(triangleHit);
+
+        RayDesc ray;
+        ray.TMin = 0.0;
+        ray.TMax = 0.001;
+        ray.Direction = v.posW - genPosW; //Sample dir is used here to save payload space
+        float distToFG = length(ray.Direction); //Distance for Jacobian determinant
+        ray.Direction /= distToFG; //Normalize
+        ray.Origin = v.posW; //Update origin
+        
+        uint materialID = gScene.getMaterialID(triangleHit.instanceID);
+        sd = gScene.materials.prepareShadingData(v, materialID, -ray.Direction, lod);
+        uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
+        let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
+        bsdfProperties = bsdf.getProperties(sd);
+
         //Jacobian Determinant (only needed for resampling)
         #if !MODE_FINAL_GATHER
             jacoDeter = vplAttenuation(distToFG, gAttenuationRadius) * saturate(dot(bsdfProperties.guideNormal,sd.V));
@@ -587,32 +589,26 @@ void fgSampleCollection(in ShadingData generationSD, inout RayData rayData){
         }
     }
 
-    //Init reservoir
-    Reservoir r = Reservoir(gReservoir[launchIndex]);
-    r.M = 1; //set M to the right value
+    //Store ReSTIR Sample
+    #if !MODE_FINAL_GATHER
+        //Init reservoir
+        Reservoir r = Reservoir(gReservoir[launchIndex]);
+        r.M = 1; //set M to the right value
 
-    #if MODE_FINAL_GATHER
-        //Final gather
-        let bsdfFG = gScene.materials.getMaterialInstance(generationSD, lod, hints);
-        float3 color = max(0.f, fgRadiance * r.weightSum);
-        color *= bsdfFG.eval(generationSD, view, rayData.sg);
-
-        gColor[launchIndex] = float4(color, 1.f);
-    #else
-        //ReSTIR Candidate
-        uint lightIdx = index2Dto1D(launchIndex, launchDim.x);
         float Li = luminance(fgRadiance);
-
         r.targetPdf *= Li; //Add the missing parts of the targetPDF (Li)
 
          //Create the final gather sample
         FGData fgData = { };
-        bool fgValid = !isnan(Li) && !isinf(Li);
-        fgData.posW = sd.computeNewRayOrigin();
-        fgData.normal = bsdfProperties.guideNormal;
-        fgData.flux = fgRadiance;
+        bool fgValid = valid;
+        if(fgValid){
+            fgValid = !isnan(Li) && !isinf(Li);
+            fgData.posW = sd.computeNewRayOrigin();
+            fgData.normal = bsdfProperties.guideNormal;
+            fgData.flux = fgRadiance;
+        }
         fgData.jacobianDeterminant = fgValid ? jacoDeter : -1.f;    //Negative jacobian determinant is an invalid sample
-
+        
         if (!fgValid)
         {
             r.M = 0;
@@ -626,6 +622,8 @@ void fgSampleCollection(in ShadingData generationSD, inout RayData rayData){
     #endif //USE_REDUCED_RESERVOIR_FORMAT
         gFGSampleData[index2Dto1D(launchIndex, launchDim.x)] = fgData;
     #endif //!(MODE_FINAL_GATHER)
+
+    return fgRadiance;
 }
 
 [shader("raygeneration")]
@@ -648,18 +646,30 @@ void rayGen()
     //Get vertex data for the world position
     TriangleHit triangleHit = hit.getTriangleHit();
     VertexData v = gScene.getVertexData(triangleHit);
-
-    float4 viewTmp =gView[launchIndex];
-    float3 view = -viewTmp.xyz;
-    bool collectDirect = viewTmp.w > 0.1;
-    bool collectEmissive = viewTmp.w > 1.1;
-
-    let lod = ExplicitLodTextureSampler(0.f);
     ShadingData fgSD = {};
-    if(valid)
-        fgSD = loadShadingData(hit, view, lod); //Shading Data for direct hit
+    if(gCollectCaustic){
+        float4 viewTmp =gView[launchIndex];
+        float3 view = -viewTmp.xyz;
+        bool collectDirect = viewTmp.w > 0.1;
 
-    causticPhotonCollection(fgSD, rayData, collectDirect, valid);
+        let lod = ExplicitLodTextureSampler(0.f);
+        if(valid)
+            fgSD = loadShadingData(hit, view, lod); //Shading Data for direct hit
 
-    fgSampleCollection(fgSD, rayData);
+        causticPhotonCollection(fgSD, rayData, collectDirect, valid);
+    }
+    float3 fgRadiance = float3(0);
+    if(gCollectFG)
+        fgRadiance = fgSampleCollection(v.posW, rayData);
+
+    #if MODE_FINAL_GATHER
+        //Final gather
+        Reservoir r = Reservoir(gReservoir[launchIndex]); //Load reservoir for invPDF
+        uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
+        let bsdfFG = gScene.materials.getMaterialInstance(fgSD, lod, hints);
+        float3 color = max(0.f, fgRadiance * r.weightSum);
+        color *= bsdfFG.eval(fgSD, view, rayData.sg);
+
+        gColor[launchIndex] = float4(color, 1.f);
+    #endif
 }

@@ -129,6 +129,10 @@ private:
      */
     void collectPhotons(RenderContext* pRenderContext, const RenderData& renderData);
 
+    /** Special pass if the collection is split in caustic and final gather
+     */
+    void collectPhotonsSplit(RenderContext* pRenderContext, const RenderData& renderData, ShaderVar& var, std::string profileName, bool fg);
+
     /** Resampling pass, which resamples the generated sampled based on the resampling mode
     */
     void resamplingPass(RenderContext* pRenderContext, const RenderData& renderData);
@@ -229,6 +233,7 @@ private:
     bool mChangePhotonLightBufferSize = false;
     bool mPhotonUseAlphaTest = true;
     bool mPhotonAdjustShadingNormal = true;
+    bool mPhotonSplitCollection = false;
     bool mGenerationDeltaRejection = true;
     bool mGenerationDeltaRejectionRequireDiffPart = true;
     CausticCollectionMode mCausticCollectMode = CausticCollectionMode::Reservoir;
@@ -240,7 +245,7 @@ private:
     uint gCausticResamplingSpatialSamples = 1;
     float gCausticResamplingSpatialRadius = 2.5f;
 
-    bool mUseStochasticCollect = false;                     //Stochastic collect using reservoir sampling.
+    bool mUseStochasticCollect = true;                     //Stochastic collect using reservoir sampling.
     uint mStochasticCollectNumPhotons = 3;
 
     bool mUsePhotonCulling = true;
