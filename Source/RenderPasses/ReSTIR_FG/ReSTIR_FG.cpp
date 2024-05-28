@@ -238,14 +238,15 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     
 
     //Do resampling
-    if (mReservoirValid && (mRenderMode == RenderMode::ReSTIRFG))
+    if (mReservoirValid && (mRenderMode == RenderMode::ReSTIRFG) || (mRenderMode == RenderMode::ReSTIRGI))
         resamplingPass(pRenderContext, renderData);
 
-    if (mCausticCollectMode == CausticCollectionMode::Reservoir &&
+    if (mReservoirValid && mCausticCollectMode == CausticCollectionMode::Reservoir &&
         (mRenderMode == RenderMode::ReSTIRFG || mRenderMode == RenderMode::FinalGather))
         causticResamplingPass(pRenderContext, renderData);
 
-    finalShadingPass(pRenderContext, renderData);
+    if (mReservoirValid)
+        finalShadingPass(pRenderContext, renderData);
 
     if (mpRTXDI) mpRTXDI->endFrame(pRenderContext);
 
@@ -483,6 +484,17 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
             group.tooltip(
                 "Enables NextEventEstimation for the initial Samples. Else only hits with the emissive geometry increase the radiance"
             );
+            if (mGINEE)
+            {
+                if (auto group2 = group.group("Emissive Sampler Options"))
+                {
+                    if (group2.dropdown("Light Sampler Type", mGIEmissiveType))
+                        resetLightSamplerGI();
+                    if (mpGIEmissiveLightSampler)
+                        mpGIEmissiveLightSampler->renderUI(group2);
+                }
+                
+            }
             changed |= group.checkbox("GI Russian Roulette", mGIRussianRoulette);
             group.tooltip("Aborts a path early if the throughput is too low");
 
@@ -582,6 +594,7 @@ void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
     mpResamplingPass.reset();
     mpCausticResamplingPass.reset();
     mpEmissiveLightSampler.reset();
+    mpGIEmissiveLightSampler.reset();
     mpRTXDI.reset();
     mClearReservoir = true;
 
@@ -599,6 +612,8 @@ void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
     }
 }
 
+
+
 bool ReSTIR_FG::prepareLighting(RenderContext* pRenderContext)
 {
     bool lightingChanged = false;
@@ -610,7 +625,8 @@ bool ReSTIR_FG::prepareLighting(RenderContext* pRenderContext)
 
     mMixedLights = emissiveUsed && analyticUsed;
 
-    if (mpScene->useEmissiveLights())
+    //Photon Emissive Light sampler
+    if (mpScene->useEmissiveLights() && mRenderMode != RenderMode::ReSTIRGI)
     {
         // Init light sampler if not set
         if (!mpEmissiveLightSampler)
@@ -638,7 +654,60 @@ bool ReSTIR_FG::prepareLighting(RenderContext* pRenderContext)
         lightingChanged |= mpEmissiveLightSampler->update(pRenderContext);
     }
 
+    //ReSTIR GI Emissive light sampler
+    if (mpScene->useEmissiveLights() && mRenderMode == RenderMode::ReSTIRGI)
+    {
+        // Init light sampler if not set
+        if (!mpGIEmissiveLightSampler || mGIRebuildLightSampler)
+        {
+            FALCOR_ASSERT(pLights && pLights->getActiveLightCount(pRenderContext) > 0);
+            FALCOR_ASSERT(!mpGIEmissiveLightSampler);
+
+            switch (mGIEmissiveType)
+            {
+            case EmissiveLightSamplerType::Uniform:
+                mpGIEmissiveLightSampler = std::make_unique<EmissiveUniformSampler>(pRenderContext, mpScene);
+                break;
+            case EmissiveLightSamplerType::LightBVH:
+                mpGIEmissiveLightSampler = std::make_unique<LightBVHSampler>(pRenderContext, mpScene, mGILightBVHOptions);
+                break;
+            case EmissiveLightSamplerType::Power:
+                mpGIEmissiveLightSampler = std::make_unique<EmissivePowerSampler>(pRenderContext, mpScene);
+                break;
+            default:
+                throw RuntimeError("Unknown emissive light sampler type");
+            }
+            lightingChanged = true;
+            mGIRebuildLightSampler = false;
+        }
+    }
+    else
+    {
+        resetLightSamplerGI();
+    }
+
+    // Update Emissive light sampler
+    if (mpGIEmissiveLightSampler)
+    {
+        lightingChanged |= mpGIEmissiveLightSampler->update(pRenderContext);
+    }
+    
+
     return lightingChanged;
+}
+
+void ReSTIR_FG::resetLightSamplerGI() {
+    if (mpGIEmissiveLightSampler)
+    {
+        // Retain the options for the emissive sampler.
+        if (auto lightBVHSampler = dynamic_cast<LightBVHSampler*>(mpGIEmissiveLightSampler.get()))
+        {
+            mGILightBVHOptions = lightBVHSampler->getOptions();
+        }
+
+        mpGIEmissiveLightSampler = nullptr;
+        mReSTIRGISamplePass.pVars.reset();
+    }
 }
 
 void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -908,12 +977,38 @@ void ReSTIR_FG::prepareRayTracingShaders(RenderContext* pRenderContext) {
 
     //TODO specify the payload bytes for each pass
     mFinalGatherSamplePass.initRTProgram(mpDevice, mpScene, kFinalGatherSamplesShader, kMaxPayloadBytesGenerateFGSamples, globalTypeConformances);
-    mReSTIRGISamplePass.initRTProgram(mpDevice, mpScene, kReSTIRGISampleShader, kMaxPayloadBytesGenerateFGSamples, globalTypeConformances);
     mGeneratePhotonPass.initRTProgram(mpDevice, mpScene, kGeneratePhotonsShader, kMaxPayloadBytes, globalTypeConformances);
     mTraceTransmissionDelta.initRTProgram(mpDevice, mpScene, kTraceTransmissionDeltaShader, kMaxPayloadBytes, globalTypeConformances);
 
     //Special Program for the Photon Collection as the photon acceleration structure is used
     mCollectPhotonPass.initRTCollectionProgram(mpDevice, mpScene, kCollectPhotonsShader, kMaxPayloadBytesCollect, globalTypeConformances);
+
+    //ReSTIR GI shader
+    {
+        RtProgram::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kReSTIRGISampleShader);
+        desc.setMaxPayloadSize(kMaxPayloadBytesGenerateFGSamples);
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1);
+        if (!mpScene->hasProceduralGeometry())
+            desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
+
+        mReSTIRGISamplePass.pBindingTable = RtBindingTable::create(2, 2, mpScene->getGeometryCount());
+        auto& sbt = mReSTIRGISamplePass.pBindingTable;
+        sbt->setRayGen(desc.addRayGen("rayGen", globalTypeConformances));
+        sbt->setMiss(0, desc.addMiss("miss"));
+        sbt->setMiss(1, desc.addMiss("shadowMiss"));
+
+        // TODO: Support more geometry types and more material conformances
+        if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
+        {
+            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+            sbt->setHitGroup(1, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("", "shadowAnyHit"));
+        }
+
+        mReSTIRGISamplePass.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
+    }
 }
 
 void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -928,6 +1023,7 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     );
     mTraceTransmissionDelta.pProgram->addDefine("DEBUG_MASK", mDebugSpecularTraceMask ? "1" : "0");
     mTraceTransmissionDelta.pProgram->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
+    mTraceTransmissionDelta.pProgram->addDefine("USE_RESTIR_GI", mRenderMode == RenderMode::ReSTIRGI ? "1" : "0");
     if (mpRTXDI) mTraceTransmissionDelta.pProgram->addDefines(mpRTXDI->getDefines());
 
     if (!mTraceTransmissionDelta.pVars)
@@ -982,8 +1078,8 @@ void ReSTIR_FG::generateReSTIRGISamples(RenderContext* pRenderContext, const Ren
     mReSTIRGISamplePass.pProgram->addDefine("GI_IMPORTANCE_SAMPLING", mGIUseImportanceSampling ? "1" : "0");
     if (mpRTXDI)
         mReSTIRGISamplePass.pProgram->addDefines(mpRTXDI->getDefines());
-    if (mpEmissiveLightSampler)
-        mReSTIRGISamplePass.pProgram->addDefines(mpEmissiveLightSampler->getDefines());
+    if (mpGIEmissiveLightSampler)
+        mReSTIRGISamplePass.pProgram->addDefines(mpGIEmissiveLightSampler->getDefines());
 
     if (!mReSTIRGISamplePass.pVars)
         mReSTIRGISamplePass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
@@ -1000,11 +1096,12 @@ void ReSTIR_FG::generateReSTIRGISamples(RenderContext* pRenderContext, const Ren
     if (mpRTXDI)
         mpRTXDI->setShaderData(var);
 
-    if (mpEmissiveLightSampler)
-        mpEmissiveLightSampler->setShaderData(var["gEmissiveSampler"]);
+    if (mpGIEmissiveLightSampler)
+        mpGIEmissiveLightSampler->setShaderData(var["gEmissiveSampler"]);
 
-    var["gVBuffer"] = mpVBufferDI;
-    var["gView"] = mpViewDirRayDistDI;
+    var["gVBuffer"] = mpVBuffer;
+    var["gView"] = mpViewDir;
+    var["gLinZ"] = mpRayDist;
 
     var["gReservoir"] = mpReservoirBuffer[mFrameCount % 2];
     var["gSurfaceData"] = mpSurfaceBuffer[mFrameCount % 2];

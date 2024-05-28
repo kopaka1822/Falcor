@@ -183,28 +183,21 @@ void main(uint2 pixel : SV_DispatchThreadID)
     }
 #endif //RTXDI
 
-    bool needEmissive = false;
     //Load final gather and ReSTIR FG data
-    #if !USE_RESTIR_GI
-        float4 viewTmp = gView[pixel];
-        viewDir = -viewTmp.xyz;
-        needEmissive = viewTmp.w > 1.1 && !kEmissionToCausticFilter; //Direct light for indirect flag
-        gViewPrev[pixel] = float4(-viewDir,1); //copy view
-        hitInfo = HitInfo(gVBuffer[pixel]);
-    #endif
+    float4 viewTmp = gView[pixel];
+    viewDir = -viewTmp.xyz;
+    bool needEmissive = viewTmp.w > 1.1 && !kEmissionToCausticFilter; //Direct light for indirect flag
+    gViewPrev[pixel] = float4(-viewDir,1); //copy view
+    hitInfo = HitInfo(gVBuffer[pixel]);
 
     bool wasTraced = false;
     
     if (hitInfo.isValid())
     {
         validSample |= true;
-        #if USE_RESTIR_GI
-            float3 thp = gThpDI[pixel].xyz;
-        #else
-            float4 thpTex = gThp[pixel];
-            float3 thp = thpTex.xyz;
-            wasTraced = thpTex.w > 0.5;
-        #endif
+        float4 thpTex = gThp[pixel];
+        float3 thp = thpTex.xyz;
+        wasTraced = thpTex.w > 0.5;
 
         //Get Material properties
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;

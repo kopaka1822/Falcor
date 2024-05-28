@@ -303,14 +303,13 @@ void rayGen()
     
     if (hitInfo.isValid())
     {
-        float4 tmp = gView[launchIndex];
-        float3 view = -tmp.xyz;
-        float viewDepth = tmp.w;
+        float3 view = -gView[launchIndex].xyz;
+        float viewDepth = gLinZ[launchIndex];
         let lod = ExplicitLodTextureSampler(0.f);
         ShadingData sd = loadShadingData(hitInfo, view, lod);
         
         //Use only BRDF
-        //sd.mtl.setActiveLobes((uint) LobeType::Reflection);
+        sd.mtl.setActiveLobes((uint) LobeType::Reflection);
 
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
         let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
@@ -358,8 +357,8 @@ void rayGen()
             if (i == 0)
             {
                 //If an emissive light source is hit, return as this case is already covered by ReSTIR
-                //if (any(miProperties.emission > 0.f))
-                //    break;
+                if (any(miProperties.emission > 0.f))
+                    break;
                 //Fill GIData for the first hit (the resample point). Radiance is filled in at a later point
                 giData.posW = sd.computeNewRayOrigin();
                 giData.normal = miProperties.guideNormal;

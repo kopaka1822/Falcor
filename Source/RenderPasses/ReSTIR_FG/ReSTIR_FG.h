@@ -99,6 +99,10 @@ private:
      */
     bool prepareLighting(RenderContext* pRenderContext);
 
+    /** Resets the ReSTIR GI light sampler
+     */
+    void resetLightSamplerGI();
+
      /** Prepare all buffers needed
      */
     void prepareBuffers(RenderContext* pRenderContext, const RenderData& renderData);
@@ -207,7 +211,7 @@ private:
     //Reservoir
     bool mUseReducedReservoirFormat = false;                        //Use a reduced reservoir format TODO: Add
     bool mRebuildReservoirBuffer = false;                            //Rebuild the reservoir buffer
-    bool mClearReservoir = false;                                   //Clears both reservoirs
+    bool mClearReservoir = true;                                    //Clears both reservoirs
     float mSampleRadiusAttenuation = 0.05f;                         //Radius for the better defined attenuation
     uint mTemporalMaxAge = 20;                                      // Max age of an temporal reservoir
     uint mSpartialSamples = 1;                                      // Number of spartial samples
@@ -275,6 +279,11 @@ private:
     bool mGINEE = true;                   // Next event estimation in GI
     bool mGIRussianRoulette = true;       // Use Russian Roulette in GI
     bool mGIUseImportanceSampling = true; // Enables Important Sampling
+    //Light Sampler GI
+    bool mGIRebuildLightSampler = false;
+    EmissiveLightSamplerType mGIEmissiveType = EmissiveLightSamplerType::LightBVH;
+    std::unique_ptr<EmissiveLightSampler> mpGIEmissiveLightSampler; // Light Sampler
+    LightBVHSampler::Options mGILightBVHOptions;
    
 
     //
