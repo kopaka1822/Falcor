@@ -192,8 +192,10 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     {
         for (uint i = 0; i < 2; i++)
         {
-            pRenderContext->clearUAV(mpReservoirBuffer[i]->getUAV().get(), uint4(0));
-            pRenderContext->clearUAV(mpCausticReservoir[i]->getUAV().get(), uint4(0));
+            if (mpReservoirBuffer[i])
+                pRenderContext->clearUAV(mpReservoirBuffer[i]->getUAV().get(), uint4(0));
+            if (mpCausticReservoir[i])
+                pRenderContext->clearUAV(mpCausticReservoir[i]->getUAV().get(), uint4(0));
         }
             
         mClearReservoir = false;

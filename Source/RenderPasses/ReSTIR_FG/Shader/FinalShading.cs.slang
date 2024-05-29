@@ -186,7 +186,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     //Load final gather and ReSTIR FG data
     float4 viewTmp = gView[pixel];
     viewDir = -viewTmp.xyz;
-    bool needEmissive = viewTmp.w > 1.1 && !kEmissionToCausticFilter; //Direct light for indirect flag
+    bool needEmissive = viewTmp.w > 1.1 ; //Direct light for indirect flag
     gViewPrev[pixel] = float4(-viewDir,1); //copy view
     hitInfo = HitInfo(gVBuffer[pixel]);
 
@@ -213,10 +213,12 @@ void main(uint2 pixel : SV_DispatchThreadID)
         {
             validIndirectReservoir = false;
         }
-    
-        getEmissiveLight(index2Dto1D(pixel, gFrameDim.x), sd.posW, distance, dir, Li);
-        Li = max(0.f, Li * r.weightSum);
 
+        if(validIndirectReservoir){
+            getEmissiveLight(index2Dto1D(pixel, gFrameDim.x), sd.posW, distance, dir, Li);
+            Li = max(0.f, Li * r.weightSum);
+        }
+        
         //Check light visibility with a shadow ray
         if (validIndirectReservoir)
         {
@@ -226,13 +228,12 @@ void main(uint2 pixel : SV_DispatchThreadID)
             if (!rayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
                 validIndirectReservoir = false;
         }
-        //TODO check if this adds no bias
-        /*
+        //Kill the reservor if it was not valid
         if (!validIndirectReservoir) {
             r.weightSum = 0;
             gReservoir[pixel] = r.pack();
         }
-        */
+        
         if (validIndirectReservoir)
         {
             sd.mtl.setActiveLobes((uint) LobeType::Diffuse);
@@ -251,18 +252,27 @@ void main(uint2 pixel : SV_DispatchThreadID)
             emission += bsdfProperties.emission * thp;
 
         #if !USE_RESTIR_GI
-            caustic = gCausticRadiance[pixel].xyz;
+            caustic += gCausticRadiance[pixel].xyz * thp;
             #if USE_CAUSTIC_FILTER_RESERVOIR
-                sd.mtl.setActiveLobes((uint)LobeType::All);
+                //sd.mtl.setActiveLobes((uint)LobeType::All);
                 Reservoir causticReservoir = Reservoir(gCausticReservoir[pixel]);
                 if (causticReservoir.M > 0) {
                     CausticSample causticSample = gCausticSample[index2Dto1D(pixel, gFrameDim.x)];
-                    float3 f_r = bsdf.eval(sd, causticSample.dir, sg);
+                    
                     float NdotL = dot(bsdfProperties.guideNormal, causticSample.dir);
-                    float3 causticReservoirRadiance = float3(0);
-                    if (NdotL > 0)
-                        causticReservoirRadiance += max(0.f, (f_r / NdotL) * causticSample.flux * causticReservoir.weightSum);
-                    caustic += causticReservoirRadiance * thp;
+                    float3 causticReservoirRadianceDiffuse = float3(0);
+                    float3 causticResRadianceSpec = float3(0);
+                    if (NdotL > kMinCosTheta){
+                        sd.mtl.setActiveLobes((uint) LobeType::Diffuse);
+                        float3 f_r = bsdf.eval(sd, causticSample.dir, sg);
+                        causticReservoirRadianceDiffuse += max(0.f, (f_r / NdotL) * causticSample.flux * causticReservoir.weightSum);
+
+                        sd.mtl.setActiveLobes((uint) LobeType::SpecularReflection);
+                        f_r = bsdf.eval(sd, causticSample.dir, sg);
+                        causticResRadianceSpec = max(0.f, (f_r / NdotL) * causticSample.flux * causticReservoir.weightSum);
+                    }
+                    diffuse += causticReservoirRadianceDiffuse * thp;
+                    specular += causticResRadianceSpec * thp;
                 }
             #endif // USE_CAUSTIC_FILTER_RESERVOIR
         #endif // !USE_RESTIR_GI
@@ -275,8 +285,9 @@ void main(uint2 pixel : SV_DispatchThreadID)
 
         // NRD
         if(wasTraced){
-            float3 combined = (diffuse + specular + caustic);
+            float3 combined = (diffuse + specular + emission + caustic);
             specularIllumination = combined / specularReflectance;
+            emission = float3(0);
         }
         else
         {

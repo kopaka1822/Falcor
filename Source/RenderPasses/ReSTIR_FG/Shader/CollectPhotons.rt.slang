@@ -362,7 +362,6 @@ void causticPhotonCollection(in ShadingData sd, inout RayData rayData, bool coll
 
     float3 causticRadiance = float3(0);
     float3 directRadiance = float3(0);
-    float3 thp = gThp[launchIndex].xyz;
 
     //Ray description
     RayDesc ray;
@@ -473,7 +472,7 @@ void causticPhotonCollection(in ShadingData sd, inout RayData rayData, bool coll
             }
         }
 
-        gCausticOut[launchIndex] = float4(causticRadiance * thp, float(history));
+        gCausticOut[launchIndex] = float4(causticRadiance, float(history));
 
         //Store Reservoir
     #elif (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR)
@@ -486,15 +485,15 @@ void causticPhotonCollection(in ShadingData sd, inout RayData rayData, bool coll
             currSample.dir = pd.dir;
         }
 
-        gCausticOut[launchIndex] = float4((directRadiance) * thp, 1.f);
+        gCausticOut[launchIndex] = float4((directRadiance), 1.f);
         gCausticSample[index2Dto1D(launchIndex, launchDim.x)] = currSample;
         gCausticReservoir[launchIndex] = rayDataRes.r.pack();
     #else
-        gCausticOut[launchIndex] = float4((causticRadiance + directRadiance) * thp, 1.f);
+        gCausticOut[launchIndex] = float4((causticRadiance + directRadiance), 1.f);
     #endif
 }
 
-void fgSampleCollection(float3 genPosW, inout RayData rayData){
+void fgSampleCollection(float3 genPosW, inout RayData rayData, bool valid){
     const uint2 launchIndex = DispatchRaysIndex().xy;
     const uint2 launchDim = DispatchRaysDimensions().xy;
     let lod = ExplicitLodTextureSampler(0.f);
@@ -509,7 +508,7 @@ void fgSampleCollection(float3 genPosW, inout RayData rayData){
         rayData.packedHitInfo = packedHit;
     #endif // USE_STOCHASTIC_COLLECT
     HitInfo hit = HitInfo(packedHit);
-    bool valid = hit.isValid(); //Check if the final gather ray is valid
+    valid &= hit.isValid(); //Check if the final gather ray is valid
     BSDFProperties bsdfProperties = {};
     ShadingData sd = {};   
 
@@ -658,5 +657,5 @@ void rayGen()
         causticPhotonCollection(fgSD, rayData, collectDirect, valid);
     }
     if(gCollectFG)
-        fgSampleCollection(v.posW, rayData);
+        fgSampleCollection(v.posW, rayData, valid);
 }
