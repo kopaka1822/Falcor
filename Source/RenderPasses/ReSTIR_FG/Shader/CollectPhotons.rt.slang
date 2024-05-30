@@ -192,7 +192,7 @@ void anyHitReservoir(inout RayDataReservoir rayDataRes : SV_RayPayload, SphereAt
     float NdotL = dot(pd.dir, surface.normal);
     if (NdotL < kMinCosTheta) 
     {
-        return;
+        IgnoreHit();
     }
 
     //float target = (luminance(pd.flux) * M_1_PI) / surface.diffuseProb;
@@ -200,6 +200,7 @@ void anyHitReservoir(inout RayDataReservoir rayDataRes : SV_RayPayload, SphereAt
     if(rayDataRes.r.updateReservoir(gPhotonWeight.y, target, sampleNext1D(rayDataRes.sg)))
     //if(rayDataRes.r.updateReservoir(1.0, target, sampleNext1D(rayDataRes.sg)))
         rayDataRes.idx = primIndex;
+    IgnoreHit();
 }
 
 //Photon Collection via anyHit
@@ -214,20 +215,20 @@ void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_In
     //Check if first hit check is required
     if((rayData.counter >> 24 & 1) != 0)
     {
-        if(!pd.isFirstHit)
-            return;
+        if (!pd.isFirstHit)
+            IgnoreHit();
     }
 
     //Check for different surfaces
     if (dot(pd.normal,  WorldRayDirection()) < 0.6)
     {
-        return;
+        IgnoreHit();
     }
     
     //Check if photon sample is in valid hemisphere
-    if (dot(pd.dir, WorldRayDirection()) <= 0) 
+    if (dot(pd.dir, WorldRayDirection()) <= 0)
     {
-        return;
+        IgnoreHit();
     }
 
     uint counter = rayData.counter & 0xFFFFFF;  //Mask out the flags
@@ -244,6 +245,7 @@ void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_In
     //Insert if index is within maximum list size
     if (idx < STOCH_NUM_PHOTONS)
         rayData.photonIdx[idx] = primIndex;
+    IgnoreHit();
 }
 
 #else //USE_STOCHASTIC_COLLECT | Collect all photons
@@ -265,14 +267,14 @@ void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_In
     //Check if first hit check is required
     if((rayData.countPhotons >> 24 & 1) != 0)
     {
-        if(!pd.isFirstHit)
-            return;
+        if (!pd.isFirstHit)
+            IgnoreHit();
     }
     
     //Check for different surfaces
     if (dot(pd.normal, sd.faceN) < 0.6)
     {
-        return;
+        IgnoreHit();
     }
 
     //Photon contribution
@@ -283,6 +285,7 @@ void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_In
     float NdotL = dot(bsdfProperties.guideNormal, pd.dir);
     if(NdotL > kMinCosTheta)
         rayData.radiance += max(0.f, (f_r * pd.flux) / NdotL);
+    IgnoreHit();
 }
 #endif //USE_STOCHASTIC_COLLECT
 
@@ -536,7 +539,7 @@ void fgSampleCollection(float3 genPosW, inout RayData rayData, bool valid){
 
         RayDesc ray;
         ray.TMin = 0.0;
-        ray.TMax = 0.001;
+        ray.TMax = 0.00001;
         ray.Direction = v.posW - genPosW; //Sample dir is used here to save payload space
         float distToFG = length(ray.Direction); //Distance for Jacobian determinant
         ray.Direction /= distToFG; //Normalize
