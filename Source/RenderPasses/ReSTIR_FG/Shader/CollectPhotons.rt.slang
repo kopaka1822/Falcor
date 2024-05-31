@@ -74,6 +74,7 @@ Texture2D<uint2> gCausticSurfacePrev;
 Texture2D<float4> gCausticPrev;
 
 // Outputs
+RWStructuredBuffer<SampleGenerator> gSampleGenState;
 RWTexture2D<float4> gColor;
 RWStructuredBuffer<FGData> gFGSampleData;
 RWTexture2D<float4> gCausticOut;
@@ -382,7 +383,7 @@ void causticPhotonCollection(in ShadingData sd, inout RayData rayData, bool coll
     #if (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR)
         RayDataReservoir rayDataRes;
         rayDataRes.r = Reservoir();
-        rayDataRes.sg = SampleGenerator(launchIndex, gFrameCount + 6 * 26);
+        rayDataRes.sg = rayData.sg;
         rayDataRes.surface = gSurface[index2Dto1D(launchIndex, launchDim.x)];
         rayDataRes.idx = -1;
         ray.Direction = -sd.V;
@@ -405,6 +406,7 @@ void causticPhotonCollection(in ShadingData sd, inout RayData rayData, bool coll
             //rayDataRes.r.weightSum = rayDataRes.r.M / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
         }
         rayDataRes.r.M = 1;
+        rayData.sg = rayDataRes.sg;
         #if USE_STOCHASTIC_COLLECT
             ray.Direction = sd.faceN;
         #endif 
@@ -635,7 +637,11 @@ void rayGen()
             
     //Prepare payload
     RayData rayData = RayData();
-    rayData.sg = SampleGenerator(launchIndex, gFrameCount + 3 * 12);
+    #if STORE_SAMPLE_GEN_STATE
+        rayData.sg = gSampleGenState[index2Dto1D(launchIndex, launchDim.x)];
+    #else
+        rayData.sg = SampleGenerator(launchIndex, gFrameCount + 15 * 32);
+    #endif
 
     PackedHitInfo packedHit = gVBuffer[launchIndex];
     #if !USE_STOCHASTIC_COLLECT
@@ -661,4 +667,8 @@ void rayGen()
     }
     if(gCollectFG)
         fgSampleCollection(v.posW, rayData, valid);
+
+    #if STORE_SAMPLE_GEN_STATE
+        gSampleGenState[index2Dto1D(launchIndex, launchDim.x)] = rayData.sg;
+    #endif //STORE_SAMPLE_GEN_STATE
 }

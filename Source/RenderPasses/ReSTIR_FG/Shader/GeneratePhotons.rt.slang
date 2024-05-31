@@ -324,7 +324,7 @@ void rayGen()
 
     const float invRejection = 1.f/gRejection;
     const float invInvRejection = 1.f/(1.f-gRejection);
-    SampleGenerator lightSg = SampleGenerator(launchIndex, gFrameCount + 5 * 13); //Sample Generator for the light sample
+    SampleGenerator lightSg = SampleGenerator(launchIndex, gFrameCount + 11 * 32); //Sample Generator for the light sample
 
     RayDesc ray;
     PhotonLightSample pls;
@@ -360,7 +360,7 @@ void rayGen()
 
     // Prepare ray payload.
     RayData rayData = RayData.create();
-    rayData.sg = SampleGenerator(launchIndex, gFrameCount + 1 * 13 );
+    rayData.sg = SampleGenerator(launchIndex, gFrameCount + 1 * 32 );
 
     ray.Origin = pls.posW;
     ray.TMin = 0.0f;

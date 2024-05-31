@@ -32,6 +32,7 @@ StructuredBuffer<PackedSurfaceDataFG>gSurfacePrev;
 Texture2D<float2> gMVec;
 Texture2D<float4> gView;
 Texture2D<float4> gPrevView;
+RWStructuredBuffer<SampleGenerator> gSampleGenState;
 
 cbuffer PerFrame
 {
@@ -80,10 +81,8 @@ SurfaceFG getSurface(uint2 idx, bool prev)
     return SurfaceFG(surfaceData, viewDir);
 }
 
-void temporalResampling(uint2 pixel, inout Reservoir r, inout CausticSample causticSample, in SurfaceFG surface)
+void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r, inout CausticSample causticSample, in SurfaceFG surface)
 {
-    SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
-
     uint historyLimit = gMaxAge * r.M;
 
     //Reproject to the previous pixel using the motion vectors
@@ -188,10 +187,8 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout CausticSample caus
 #endif // BIAS_CORRECTION
 }
 
-void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout CausticSample causticSample, in SurfaceFG surface)
+void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r, inout CausticSample causticSample, in SurfaceFG surface)
 {
-    SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
-
     uint historyLimit = gMaxAge;
 
     //Check if motion vectors are inside of the frame
@@ -379,7 +376,12 @@ void main(uint2 dTid : SV_DispatchThreadID)
     SurfaceFG surface = getSurface(dTid, false);
     if (!surface.valid)
         return;
-        
+
+    #if STORE_SAMPLE_GEN_STATE
+        SampleGenerator sg = gSampleGenState[index2Dto1D(dTid, gFrameDim.x)];
+    #else
+        SampleGenerator sg = SampleGenerator(dTid, gFrameCount + 8 * 32);
+    #endif    
     //Load reservoir from current iteration
     Reservoir r = {};
     CausticSample causticData = CausticSample();
@@ -395,9 +397,9 @@ void main(uint2 dTid : SV_DispatchThreadID)
 
 
 #if MODE_SPATIOTEMPORAL
-    spatiotemporalResampling(dTid, r, causticData, surface);
+    spatiotemporalResampling(dTid, sg, r, causticData, surface);
 #elif MODE_TEMPORAL
-    temporalResampling(dTid, r, causticData, surface);
+    temporalResampling(dTid, sg, r, causticData, surface);
 #endif //Resampling Mode
 
 
@@ -408,4 +410,8 @@ void main(uint2 dTid : SV_DispatchThreadID)
     gReservoir[dTid] = r.pack();
 #endif
     gCausticSample[index2Dto1D(dTid, gFrameDim.x)] = causticData;
+
+    #if STORE_SAMPLE_GEN_STATE
+        gSampleGenState[index2Dto1D(dTid, gFrameDim.x)] = sg;
+    #endif //STORE_SAMPLE_GEN_STATE
 }

@@ -30,6 +30,7 @@ StructuredBuffer<PackedSurfaceDataFG>gSurfacePrev;
 Texture2D<float2> gMVec;
 Texture2D<float4> gView;
 Texture2D<float4> gPrevView;
+RWStructuredBuffer<SampleGenerator> gSampleGenState;
 
 #define BIAS_MODE_BASIC 1
 #define BIAS_MODE_RAYTRACE 2
@@ -109,10 +110,8 @@ bool getLightSample(in FGData fgData, in float3 worldPos, out LightSample ls, ou
     return ls.Li >= 0; //true if sample is valid
 }
 
-void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
+void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
 {
-    SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
-
     uint historyLimit = gMaxAge * r.M;
 
     //Reproject to the previous pixel using the motion vectors
@@ -233,10 +232,8 @@ void temporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, i
 #endif //BIAS_MODE_BASIC
 }
 
-void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
-{
-    SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
-    
+void spatialResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
+{    
     uint numSamples = clamp(gSpatialSamples + 1, 1, 8); //Cap at 8 samples for the later bias correction
     uint cachedIndices[8]; //Store all indeces. 32 Bits per 2D index (16 per element)
     uint cachedM[4];
@@ -365,10 +362,8 @@ void spatialResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in
     #endif //BIAS MODE BASIC    
 }
 
-void spatiotemporalResampling(uint2 pixel, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
+void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r, inout FGData fgSample, in SurfaceFG surface)
 {
-    SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 5 * 13);
-
     uint historyLimit = gMaxAge;
 
     //Check if motion vectors are inside of the frame
@@ -567,7 +562,13 @@ void main(uint2 dTid : SV_DispatchThreadID)
     SurfaceFG surface = getSurface(dTid, false);
     if (!surface.valid)
         return;
-        
+
+    #if STORE_SAMPLE_GEN_STATE
+        SampleGenerator sg = gSampleGenState[index2Dto1D(dTid,gFrameDim.x)];
+    #else
+        SampleGenerator sg = SampleGenerator(dTid, gFrameCount + 5 * 32);
+    #endif
+    
     //Load reservoir from current iteration
     Reservoir r = { };
     FGData fgData = FGData();
@@ -590,11 +591,11 @@ void main(uint2 dTid : SV_DispatchThreadID)
     r.combineReservoir(current, current.targetPdf, 0.5 /* random */);
     //Do resampling
 #if MODE_SPATIOTEMPORAL
-    spatiotemporalResampling(dTid, r, fgData, surface);
+    spatiotemporalResampling(dTid, sg, r, fgData, surface);
 #elif MODE_TEMPORAL
-    temporalResampling(dTid, r, fgData, surface);
+    temporalResampling(dTid, sg, r, fgData, surface);
 #elif MODE_SPATIAL
-    spatialResampling(dTid, r, fgData, surface);
+    spatialResampling(dTid, sg, r, fgData, surface);
 #endif //Resampling Mode
 
     //Store reservoir and sample data    
@@ -603,5 +604,10 @@ void main(uint2 dTid : SV_DispatchThreadID)
 #else
     gReservoir[dTid] = r.pack();
 #endif
+
     gFGSampleData[index2Dto1D(dTid, gFrameDim.x)] = fgData;
+
+    #if STORE_SAMPLE_GEN_STATE
+        gSampleGenState[index2Dto1D(dTid, gFrameDim.x)] = sg;
+    #endif //STORE_SAMPLE_GEN_STATE
 }

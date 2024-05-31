@@ -34,6 +34,7 @@ cbuffer PerFrame
 Texture2D<PackedHitInfo> gInVBuffer;
 
 //Outputs
+RWStructuredBuffer<SampleGenerator> gSampleGenState;
 RWTexture2D<PackedHitInfo> gOutVBuffer;
 RWTexture2D<float4> gOutViewDir;
 RWTexture2D<float> gOutRayDist;
@@ -142,7 +143,11 @@ void rayGen()
     bool isDiffuse = false;
 
     TraceData traceData = TraceData::create();
-    SampleGenerator sg = SampleGenerator(launchIndex, gFrameCount + 7 * 13);
+    #if STORE_SAMPLE_GEN_STATE
+        SampleGenerator sg = SampleGenerator(launchIndex, gFrameCount);
+    #else
+        SampleGenerator sg = SampleGenerator(launchIndex, gFrameCount + 2 * 32);
+    #endif
     let lod = ExplicitLodTextureSampler(0.f);
     uint wasTracedMask = 0;
     #if CAUSTIC_TEMPORAL_FILTER_ENABLED
@@ -277,7 +282,11 @@ void rayGen()
     //Set surface to invalid if the specular surface did not produce a valid sample
     if(invalidSample && !isDiffuse)
         hitInfo = {};
+
     //Write
+    #if STORE_SAMPLE_GEN_STATE
+        gSampleGenState[index2Dto1D(launchIndex, launchDim.x)] = sg;
+    #endif //STORE_SAMPLE_GEN_STATE
     gOutVBuffer[launchIndex] = hitInfo.getData();
     gOutViewDir[launchIndex] = float4(viewDir, validSurfaceForDI ? 0 : bouncesAfterValid + 1);  //Store a flag if this surface has direct light
     gOutRayDist[launchIndex] = rayDist;

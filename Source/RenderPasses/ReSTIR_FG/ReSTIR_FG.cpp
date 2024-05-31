@@ -587,6 +587,8 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         changed |= group.checkbox("Diasable Diffuse BRDF", mDisableDiffuse);
         changed |= group.checkbox("Disable Specular BRDF", mDisableSpecular);
         changed |= group.checkbox("Disable Translucency", mDisableTranslucency);
+        changed |= group.checkbox("Use Stored Sample Gen State", mStoreSampleGenState);
+        group.tooltip("Stores the Sample generator state and uses them for the next pass instead of generating a new one");
     }
 
     mOptionsChanged |= changed;
@@ -746,7 +748,18 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
         mpViewDirRayDistDI.reset();
         mpViewDirDIPrev.reset();
         mpThpDI.reset();
+        mpSampleGenState.reset();
         mResetTex = false;
+    }
+
+    if (!mpSampleGenState && mStoreSampleGenState)
+    {
+        mpSampleGenState = Buffer::createStructured(mpDevice, 16u, mScreenRes.x * mScreenRes.y);
+        mpSampleGenState->setName("ReSTIR_FG::SampleGeneratorState");
+    }
+    if (mpSampleGenState && !mStoreSampleGenState)
+    {
+        mpSampleGenState.reset();
     }
 
     //If reservoir format changed reset buffer
@@ -988,6 +1001,7 @@ DefineList ReSTIR_FG::getMaterialDefines() {
     defines.add("enableDiffuse", mDisableDiffuse ? "0" : "1");
     defines.add("enableSpecular", mDisableSpecular ? "0" : "1");
     defines.add("enableTranslucency", mDisableTranslucency ? "0" : "1");
+    defines.add("STORE_SAMPLE_GEN_STATE", mStoreSampleGenState ? "1" : "0");
     return defines;
 }
 
@@ -1065,6 +1079,7 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     var["gOutRayDist"] = mpRayDist;
     var["gOutVBuffer"] = mpVBuffer;
     var["gPackedCausticSurface"] = mpTemporalCausticSurface[mFrameCount % 2];
+    var["gSampleGenState"] = mpSampleGenState;
 
     var["gOutThpDI"] = mpThpDI;
     var["gOutViewDirRayDistDI"] = mpViewDirRayDistDI;
@@ -1123,8 +1138,8 @@ void ReSTIR_FG::generateReSTIRGISamples(RenderContext* pRenderContext, const Ren
     var["gLinZ"] = mpRayDist;
 
     var["gReservoir"] = mpReservoirBuffer[mFrameCount % 2];
-    var["gSurfaceData"] = mpSurfaceBuffer[mFrameCount % 2];
     var["gGISample"] = mpFGSampelDataBuffer[mFrameCount % 2];
+    var["gSampleGenState"] = mpSampleGenState;
 
     FALCOR_ASSERT(mScreenRes.x > 0 && mScreenRes.y > 0);
     mpScene->raytrace(pRenderContext, mReSTIRGISamplePass.pProgram.get(), mReSTIRGISamplePass.pVars, uint3(mScreenRes, 1));
@@ -1168,6 +1183,7 @@ void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const Rende
     var["gView"] = mpViewDir;
     var["gLinZ"] = mpRayDist;
 
+    var["gSampleGenState"] = mpSampleGenState;
     var["gReservoir"] = mpReservoirBuffer[mFrameCount % 2];
     var["gSurfaceData"] = mpSurfaceBuffer[mFrameCount % 2];
     var["gFinalGatherHit"] = mpFinalGatherSampleHitData;
@@ -1423,6 +1439,7 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      var["gVBuffer"] = mpVBuffer;
      var["gView"] = mpViewDir;
      var["gThp"] = mpThp;
+     var["gSampleGenState"] = mpSampleGenState;
 
      if (mCausticCollectMode != CausticCollectionMode::Temporal)
         var["gCausticOut"] = mpCausticRadiance[0];
@@ -1534,6 +1551,7 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
      var["gView"] = mpViewDir;
      var["gPrevView"] = mpViewDirPrev;
      var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
+     var["gSampleGenState"] = mpSampleGenState;
 
      std::string uniformName = "PerFrame";
      var[uniformName]["gFrameCount"] = mFrameCount;
@@ -1621,6 +1639,7 @@ void ReSTIR_FG::causticResamplingPass(RenderContext* pRenderContext, const Rende
      var["gView"] = mpViewDir;
      var["gPrevView"] = mpViewDirPrev;
      var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
+     var["gSampleGenState"] = mpSampleGenState;
 
      std::string uniformName = "PerFrame";
      var[uniformName]["gFrameCount"] = mFrameCount;
@@ -1710,6 +1729,8 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
 
      var["gViewDIPrev"] = mpViewDirDIPrev;
      var["gViewPrev"] = mpViewDirPrev;
+
+     var["gSampleGenState"] = mpSampleGenState;
 
      uint causticRadianceIdx = mCausticCollectMode == CausticCollectionMode::Temporal ? mFrameCount % 2 : 0;
 

@@ -41,6 +41,7 @@ Texture2D<float4> gView;
 Texture2D <float>gLinZ;
 
 //Outputs
+RWStructuredBuffer<SampleGenerator> gSampleGenState;
 RWStructuredBuffer<PackedSurfaceDataFG> gSurfaceData;
 RWTexture2D<PackedHitInfo> gFinalGatherHit;
 RWTexture2D<uint> gPhotonCullingMask;
@@ -161,7 +162,13 @@ void rayGen()
     SurfaceFG surface = SurfaceFG();
     Reservoir reservoir = Reservoir();
     TraceData traceData = TraceData::create();
+    #if STORE_SAMPLE_GEN_STATE
+        SampleGenerator sg = gSampleGenState[index2Dto1D(launchIndex,launchDim.x)];
+    #else
+        SampleGenerator sg = SampleGenerator(launchIndex, gFrameCount + 3 * 32);
+    #endif
     
+
     if (hitInfo.isValid())
     {
         float4 viewTmp = gView[launchIndex];
@@ -177,8 +184,6 @@ void rayGen()
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
         let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = bsdf.getProperties(sd);
-
-        SampleGenerator sg = SampleGenerator(launchIndex, gFrameCount + 3 * 13);
 
         BSDFSample bsdfSample;
         bool validSample = bsdf.sample(sd, sg, bsdfSample);
@@ -231,7 +236,11 @@ void rayGen()
     //Store data in buffers
     gFinalGatherHit[launchIndex] = traceData.packedHitInfo;
     gSurfaceData[index2Dto1D(launchIndex, launchDim.x)] = surface.pack();   //TODO better index
-    
+    #if STORE_SAMPLE_GEN_STATE
+        gSampleGenState[index2Dto1D(launchIndex, launchDim.x)] = sg;
+    #endif //STORE_SAMPLE_GEN_STATE
+
+
     #if USE_REDUCED_RESERVOIR_FORMAT
         gReservoir[launchIndex] = reservoir.packReduced();
     #else

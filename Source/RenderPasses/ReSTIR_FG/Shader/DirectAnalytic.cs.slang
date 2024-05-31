@@ -101,7 +101,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     if (is_valid(gOutSpecularRadiance))
         specularIllumination = gOutSpecularRadiance[pixel];
     
-    SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 9 * 13);
+    SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 4 * 32);
 
     //Get shading data and view buffer
     float3 viewDir = -gView[pixel].xyz;

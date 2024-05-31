@@ -43,6 +43,8 @@ Texture2D<PackedHitInfo> gVBufferDI;
 Texture2D<float4> gViewDI;
 Texture2D<float4> gThpDI;
 
+StructuredBuffer<SampleGenerator> gSampleGenState;
+
 RWTexture2D<float4> gOutColor;
 RWTexture2D<float4> gOutEmission;
 RWTexture2D<float4> gOutDiffuseRadiance;
@@ -134,8 +136,12 @@ void main(uint2 pixel : SV_DispatchThreadID)
     float3 Li = { };
 
     bool validSample = false;
-    
-    SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 8 * 13); //TODO add seed offset
+
+    #if STORE_SAMPLE_GEN_STATE
+        SampleGenerator sg = gSampleGenState[index2Dto1D(pixels, gFrameDim.x)];
+    #else
+        SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 9 * 32);
+    #endif
     let lod = ExplicitLodTextureSampler(0.f);
     
     float3 viewDir;

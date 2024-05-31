@@ -206,7 +206,8 @@ private:
     bool mUseLambertianDiffuse = true;  //Diffuse BRDF used by ReSTIR PT and SuffixReSTIR
     bool mDisableDiffuse = false;
     bool mDisableSpecular = false;
-    bool mDisableTranslucency = false;  
+    bool mDisableTranslucency = false;
+    bool mStoreSampleGenState = false;   //Stores samples GenStates
 
     //Specular Trace Options
     uint mTraceMaxBounces = 10;                                          //Number of Specular/Transmissive bounces allowed
@@ -318,6 +319,7 @@ private:
     ref<Texture> mpTemporalCausticSurface[2];   //Small buffer for surface rejection of temporal samples
     ref<Texture> mpCausticReservoir[2];
     ref<Buffer> mpCausticSample[2];
+    ref<Buffer> mpSampleGenState;       //SampleGeneratorState
 
     ref<Texture> mpVBufferDI;          // Work copy for VBuffer (RTXDI or DirectAnalytical)
     ref<Texture> mpViewDirRayDistDI;   // View dir tex (RTXDI or DirectAnalytical)
