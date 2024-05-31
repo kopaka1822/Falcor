@@ -249,8 +249,7 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
         (mRenderMode == RenderMode::ReSTIRFG || mRenderMode == RenderMode::FinalGather))
         causticResamplingPass(pRenderContext, renderData);
 
-    if (mReservoirValid)
-        finalShadingPass(pRenderContext, renderData);
+    finalShadingPass(pRenderContext, renderData);
 
     if (mpRTXDI) mpRTXDI->endFrame(pRenderContext);
 
@@ -613,6 +612,7 @@ void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
     mpGIEmissiveLightSampler.reset();
     mpRTXDI.reset();
     mClearReservoir = true;
+    mResetTex = true;
 
     if (mpScene)
     {
