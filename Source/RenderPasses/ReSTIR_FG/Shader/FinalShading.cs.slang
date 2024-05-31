@@ -59,10 +59,13 @@ RWTexture2D<float4> gViewPrev;
 
 // Caustic Reservoir (optinal)
 StructuredBuffer<CausticSample> gCausticSample;
+StructuredBuffer<CausticSample> gDirectFGSample;
 #if USE_REDUCED_RESERVOIR_FORMAT
-RWTexture2D<uint2> gCausticReservoir;
+Texture2D<uint2> gCausticReservoir;
+Texture2D<uint2> gDirectFGReservoir;
 #else
-RWTexture2D<uint4> gCausticReservoir;
+Texture2D<uint4> gCausticReservoir;
+Texture2D<uint4> gDirectFGReservoir;
 #endif
 
 #define is_valid(name) (is_valid_##name != 0)
@@ -258,16 +261,19 @@ void main(uint2 pixel : SV_DispatchThreadID)
             emission += bsdfProperties.emission * thp;
 
         #if !USE_RESTIR_GI
-            caustic += gCausticRadiance[pixel].xyz * thp;
+
+            #if USE_CAUSTIC_FILTER_RESERVOIR && !RESERVOIR_PHOTON_DIRECT
+                caustic += gCausticRadiance[pixel].xyz * thp;
+            #endif
+
             #if USE_CAUSTIC_FILTER_RESERVOIR
                 //sd.mtl.setActiveLobes((uint)LobeType::All);
                 Reservoir causticReservoir = Reservoir(gCausticReservoir[pixel]);
+                float3 causticReservoirRadianceDiffuse = float3(0);
+                float3 causticResRadianceSpec = float3(0);
                 if (causticReservoir.M > 0) {
                     CausticSample causticSample = gCausticSample[index2Dto1D(pixel, gFrameDim.x)];
-                    
                     float NdotL = dot(bsdfProperties.guideNormal, causticSample.dir);
-                    float3 causticReservoirRadianceDiffuse = float3(0);
-                    float3 causticResRadianceSpec = float3(0);
                     if (NdotL > kMinCosTheta){
                         sd.mtl.setActiveLobes((uint) LobeType::Diffuse);
                         float3 f_r = bsdf.eval(sd, causticSample.dir, sg);
@@ -277,9 +283,25 @@ void main(uint2 pixel : SV_DispatchThreadID)
                         f_r = bsdf.eval(sd, causticSample.dir, sg);
                         causticResRadianceSpec = max(0.f, (f_r / NdotL) * causticSample.flux * causticReservoir.weightSum);
                     }
-                    diffuse += causticReservoirRadianceDiffuse * thp;
-                    specular += causticResRadianceSpec * thp;
                 }
+                #if RESERVOIR_PHOTON_DIRECT
+                    causticReservoir = Reservoir(gDirectFGReservoir[pixel]);
+                    if (causticReservoir.M > 0) {
+                        CausticSample causticSample = gDirectFGSample[index2Dto1D(pixel, gFrameDim.x)];
+                        float NdotL = dot(bsdfProperties.guideNormal, causticSample.dir);
+                        if (NdotL > kMinCosTheta && any(causticSample.flux > 0)){
+                            sd.mtl.setActiveLobes((uint) LobeType::Diffuse);
+                            float3 f_r = bsdf.eval(sd, causticSample.dir, sg);
+                            causticReservoirRadianceDiffuse += max(0.f, (f_r / NdotL) * causticSample.flux * causticReservoir.weightSum);
+
+                            sd.mtl.setActiveLobes((uint) LobeType::SpecularReflection);
+                            f_r = bsdf.eval(sd, causticSample.dir, sg);
+                            causticResRadianceSpec += max(0.f, (f_r / NdotL) * causticSample.flux * causticReservoir.weightSum);
+                        }
+                    }
+                #endif // RESERVOIR_PHOTON_DIRECT
+                diffuse += causticReservoirRadianceDiffuse * thp;
+                specular += causticResRadianceSpec * thp;
             #endif // USE_CAUSTIC_FILTER_RESERVOIR
         #endif // !USE_RESTIR_GI
     }   

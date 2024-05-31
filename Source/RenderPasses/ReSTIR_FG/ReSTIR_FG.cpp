@@ -196,6 +196,8 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
                 pRenderContext->clearUAV(mpReservoirBuffer[i]->getUAV().get(), uint4(0));
             if (mpCausticReservoir[i])
                 pRenderContext->clearUAV(mpCausticReservoir[i]->getUAV().get(), uint4(0));
+            if (mpDirectFGReservoir[i])
+                pRenderContext->clearUAV(mpDirectFGReservoir[i]->getUAV().get(), uint4(0));
         }
             
         mClearReservoir = false;
@@ -431,14 +433,16 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                 if (mCausticCollectMode == CausticCollectionMode::Reservoir)
                 {
                     changed |= causticGroup.dropdown("Resampling Mode", kCausticResamplingModeList, (uint&)mCausticResamplingMode);
-                    if (auto reservoirGroup = causticGroup.group("Reservoir Settings"))
+                    if (auto reservoirGroup = causticGroup.group("Photon Resampling Settings"))
                     {
-                        changed |= reservoirGroup.var("Confidence Cap", gCausticResamplingConfidenceCap, 1u, 120u, 1u);
+                        changed |= reservoirGroup.var("Confidence Cap", mCausticResamplingConfidenceCap, 1u, 120u, 1u);
                         if (mCausticResamplingMode == ResamplingMode::SpartioTemporal)
                         {
-                            changed |= reservoirGroup.var("Spatial Samples", gCausticResamplingSpatialSamples, 1u, 8u, 1u);
-                            changed |= reservoirGroup.var("Spatial Radius", gCausticResamplingSpatialRadius, 1.f, 10.f, 0.001f);
+                            changed |= reservoirGroup.var("Spatial Samples", mCausticResamplingSpatialSamples, 1u, 8u, 1u);
+                            changed |= reservoirGroup.var("Spatial Radius", mCausticResamplingSpatialRadius, 1.f, 10.f, 0.001f);
                         }
+                        changed |= reservoirGroup.checkbox("Use Resampling for metal direct", mCausticResamplingForFGDirect);
+                        reservoirGroup.tooltip("Resampling is also used on the direct photon reflected in metal");
                     }
                 }
 
@@ -737,6 +741,8 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
             mpCausticRadiance[i].reset();
             mpTemporalCausticSurface[i].reset();
             mpCausticSample[i].reset();
+            mpDirectFGReservoir[i].reset();
+            mpDirectFGSample[i].reset();
         }
         mpFinalGatherSampleHitData.reset();
         mpVBuffer.reset();
@@ -814,6 +820,35 @@ void ReSTIR_FG::prepareBuffers(RenderContext* pRenderContext, const RenderData& 
             {
                 mpCausticReservoir[j].reset();
                 mpCausticSample[j].reset();
+            }
+        }
+
+         if (!mpDirectFGReservoir[i] && mCausticCollectMode == CausticCollectionMode::Reservoir && mCausticResamplingForFGDirect)
+        {
+            mpDirectFGReservoir[i] = Texture::create2D(
+                mpDevice, mScreenRes.x, mScreenRes.y, mUseReducedReservoirFormat ? ResourceFormat::RG32Uint : ResourceFormat::RGBA32Uint,
+                1u, 1u, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+            );
+            mpDirectFGReservoir[i]->setName("ReSTIR_FG::CausticReservoir" + std::to_string(i));
+
+            pRenderContext->clearUAV(mpDirectFGReservoir[i]->getUAV().get(), uint4(0));
+        }
+
+        if (!mpDirectFGSample[i] && mCausticCollectMode == CausticCollectionMode::Reservoir && mCausticResamplingForFGDirect)
+        {
+            mpDirectFGSample[i] = Buffer::createStructured(
+                mpDevice, sizeof(uint) * 9, mScreenRes.x * mScreenRes.y,
+                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false
+            );
+            mpDirectFGSample[i]->setName("ReSTIR_FG::CausticSample" + std::to_string(i));
+        }
+
+        if (mpDirectFGReservoir[0] && ((mCausticCollectMode != CausticCollectionMode::Reservoir) || !mCausticResamplingForFGDirect))
+        {
+            for (uint j = 0; j < 2; j++)
+            {
+                mpDirectFGReservoir[j].reset();
+                mpDirectFGSample[j].reset();
             }
         }
 
@@ -1377,6 +1412,7 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
 
      mCollectPhotonPass.pProgram->addDefine("USE_STOCHASTIC_COLLECT", mUseStochasticCollect ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefine("STOCH_NUM_PHOTONS", std::to_string(mStochasticCollectNumPhotons));
+     mCollectPhotonPass.pProgram->addDefine("RESERVOIR_PHOTON_DIRECT", mCausticResamplingForFGDirect ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefines(getMaterialDefines());
 
      if (!mCollectPhotonPass.pVars)
@@ -1422,6 +1458,11 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
         var["gSurface"] = mpSurfaceBuffer[idxCurr];
         var["gCausticReservoir"] = mpCausticReservoir[idxCurr];
         var["gCausticSample"] = mpCausticSample[idxCurr];
+        if (mCausticResamplingForFGDirect)
+        {
+            var["gDirectFGReservoir"] = mpDirectFGReservoir[idxCurr];
+            var["gDirectFGSample"] = mpDirectFGSample[idxCurr];
+        }
      }
      
 
@@ -1600,6 +1641,7 @@ void ReSTIR_FG::causticResamplingPass(RenderContext* pRenderContext, const Rende
         defines.add("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
         defines.add("MODE_SPATIOTEMPORAL", mCausticResamplingMode == ResamplingMode::SpartioTemporal ? "1" : "0");
         defines.add("MODE_TEMPORAL", mCausticResamplingMode == ResamplingMode::Temporal ? "1" : "0");
+        defines.add("RESERVOIR_PHOTON_DIRECT", mCausticResamplingForFGDirect ? "1" : "0");
         defines.add(getMaterialDefines());
 
         mpCausticResamplingPass = ComputePass::create(mpDevice, desc, defines, true);
@@ -1611,6 +1653,7 @@ void ReSTIR_FG::causticResamplingPass(RenderContext* pRenderContext, const Rende
      mpCausticResamplingPass->getProgram()->addDefine("MODE_SPATIOTEMPORAL", mCausticResamplingMode == ResamplingMode::SpartioTemporal ? "1" : "0");
      mpCausticResamplingPass->getProgram()->addDefine("MODE_TEMPORAL", mCausticResamplingMode == ResamplingMode::Temporal ? "1" : "0");
      mpCausticResamplingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
+     mpCausticResamplingPass->getProgram()-> addDefine("RESERVOIR_PHOTON_DIRECT", mCausticResamplingForFGDirect ? "1" : "0");
      mpCausticResamplingPass->getProgram()->addDefines(getMaterialDefines());
 
      // Set variables
@@ -1630,11 +1673,21 @@ void ReSTIR_FG::causticResamplingPass(RenderContext* pRenderContext, const Rende
      if (mResamplingMode == ResamplingMode::Spartial)
         std::swap(idxCurr, idxPrev);
 
-     var["gReservoir"] = mpCausticReservoir[idxCurr];
-     var["gReservoirPrev"] = mpCausticReservoir[idxPrev];
-     var["gCausticSample"] = mpCausticSample[idxCurr];
-     var["gCausticSamplePrev"] = mpCausticSample[idxPrev];
+     uint32_t photonIndex = 0;
+     var["gReservoir"][photonIndex] = mpCausticReservoir[idxCurr];
+     var["gReservoirPrev"][photonIndex] = mpCausticReservoir[idxPrev];
+     var["gCausticSample"][photonIndex] = mpCausticSample[idxCurr];
+     var["gCausticSamplePrev"][photonIndex] = mpCausticSample[idxPrev];
 
+     if (mCausticResamplingForFGDirect)
+     {
+        photonIndex = 1;
+        var["gReservoir"][photonIndex] = mpDirectFGReservoir[idxCurr];
+        var["gReservoirPrev"][photonIndex] = mpDirectFGReservoir[idxPrev];
+        var["gCausticSample"][photonIndex] = mpDirectFGSample[idxCurr];
+        var["gCausticSamplePrev"][photonIndex] = mpDirectFGSample[idxPrev];
+     }
+     
      // View
      var["gView"] = mpViewDir;
      var["gPrevView"] = mpViewDirPrev;
@@ -1646,13 +1699,13 @@ void ReSTIR_FG::causticResamplingPass(RenderContext* pRenderContext, const Rende
 
      uniformName = "Constant";
      var[uniformName]["gFrameDim"] = renderData.getDefaultTextureDims();
-     var[uniformName]["gMaxAge"] = gCausticResamplingConfidenceCap;
-     var[uniformName]["gSpatialSamples"] = gCausticResamplingSpatialSamples;
-     var[uniformName]["gSamplingRadius"] = gCausticResamplingSpatialRadius;
+     var[uniformName]["gMaxAge"] = mCausticResamplingConfidenceCap;
+     var[uniformName]["gSpatialSamples"] = mCausticResamplingSpatialSamples;
+     var[uniformName]["gSamplingRadius"] = mCausticResamplingSpatialRadius;
      var[uniformName]["gDepthThreshold"] = mRelativeDepthThreshold;
      var[uniformName]["gNormalThreshold"] = mNormalThreshold;
      var[uniformName]["gDisocclusionBoostSamples"] = mDisocclusionBoostSamples;
-     var[uniformName]["gPhotonRadius"] = mPhotonCollectRadius.y;    //Caustic Radius
+     var[uniformName]["gPhotonRadius"] = float2(mPhotonCollectRadius.y,mPhotonCollectRadius.x);    //Caustic Radius
 
      // Execute
      const uint2 targetDim = renderData.getDefaultTextureDims();
@@ -1688,6 +1741,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         if (mpRTXDI) defines.add(mpRTXDI->getDefines());
         defines.add("USE_RTXDI", mpRTXDI ? "1" : "0");
         defines.add("USE_RESTIR_GI", mRenderMode == RenderMode::ReSTIRGI ? "1" : "0");
+        defines.add("RESERVOIR_PHOTON_DIRECT", mCausticResamplingForFGDirect ? "1" : "0");
         defines.add(getMaterialDefines());
 
         mpFinalShadingPass = ComputePass::create(mpDevice, desc, defines, true);
@@ -1701,6 +1755,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      mpFinalShadingPass->getProgram()->addDefine("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("EMISSION_TO_CAUSTIC_FILTER", (mCausticCollectMode == CausticCollectionMode::Temporal && mEmissionToCausticFilter) ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_CAUSTIC_FILTER_RESERVOIR", mCausticCollectMode == CausticCollectionMode::Reservoir ? "1" : "0");
+     mpFinalShadingPass->getProgram()->addDefine("RESERVOIR_PHOTON_DIRECT", mCausticResamplingForFGDirect ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefines(getMaterialDefines());
      // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
      mpFinalShadingPass->getProgram()->addDefines(getValidResourceDefines(kOutputChannels, renderData));
@@ -1741,6 +1796,11 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         uint currentIndex = mFrameCount % 2;
         var["gCausticReservoir"] = mpCausticReservoir[currentIndex];
         var["gCausticSample"] = mpCausticSample[currentIndex];
+        if (mCausticResamplingForFGDirect)
+        {
+            var["gDirectFGReservoir"] = mpDirectFGReservoir[currentIndex];
+            var["gDirectFGSample"] = mpDirectFGSample[currentIndex];
+        }
      }
 
      //Bind all Output Channels

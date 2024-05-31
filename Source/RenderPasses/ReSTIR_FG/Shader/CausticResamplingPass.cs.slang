@@ -18,15 +18,15 @@ import FinalGatherData;
 #define BIAS_CORRECTION 1
 
 #if USE_REDUCED_RESERVOIR_FORMAT
-    RWTexture2D<uint2> gReservoir;
-    Texture2D<uint2> gReservoirPrev;
+    RWTexture2D<uint2> gReservoir[2];
+    Texture2D<uint2> gReservoirPrev[2];
 #else
-    RWTexture2D<uint4> gReservoir;
-    Texture2D<uint4> gReservoirPrev;
+    RWTexture2D<uint4> gReservoir[2];
+    Texture2D<uint4> gReservoirPrev[2];
 #endif
 
-RWStructuredBuffer<CausticSample> gCausticSample;
-StructuredBuffer<CausticSample> gCausticSamplePrev;
+RWStructuredBuffer<CausticSample> gCausticSample[2];
+StructuredBuffer<CausticSample> gCausticSamplePrev[2];
 StructuredBuffer<PackedSurfaceDataFG> gSurface;
 StructuredBuffer<PackedSurfaceDataFG>gSurfacePrev;
 Texture2D<float2> gMVec;
@@ -48,7 +48,7 @@ cbuffer Constant
     float gDepthThreshold;          //Relative depth offset
     float gNormalThreshold;         //Maximum cosine between both Normals that is allowed
     uint gDisocclusionBoostSamples; // Number of spartial samples if no temporal surface was found
-    float gPhotonRadius;            //Caustic Photon Radius
+    float2 gPhotonRadius;            //Caustic Photon Radius
 }
 
 struct LightSample{
@@ -63,6 +63,7 @@ struct PhotonLight{
 
 static const float kRayEpsilon = 0.99f;
 static const float kRayNearEpsilon = 0.01f;
+static const bool kCollectDirectPhotons = RESERVOIR_PHOTON_DIRECT;
 
 SurfaceFG getSurface(uint2 idx, bool prev)
 {
@@ -81,7 +82,7 @@ SurfaceFG getSurface(uint2 idx, bool prev)
     return SurfaceFG(surfaceData, viewDir);
 }
 
-void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r, inout CausticSample causticSample, in SurfaceFG surface)
+void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r, inout CausticSample causticSample, in SurfaceFG surface, uint buffIdx = 0)
 {
     uint historyLimit = gMaxAge * r.M;
 
@@ -126,7 +127,7 @@ void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r
             continue;
 
         //Test if a sample from the temporal surface could be in the domain of the current surface
-        if (distance(surface.posW, temporalSurface.posW) > (gPhotonRadius * 2))
+        if (distance(surface.posW, temporalSurface.posW) > (gPhotonRadius[buffIdx] * 2))
             continue;
 
         //Valid hit was found
@@ -137,11 +138,11 @@ void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r
     //If temporal surface was found, resample the previous sample
     if (foundTemporalSurface)
     {
-        Reservoir prev = Reservoir(gReservoirPrev[idx]);
+        Reservoir prev = Reservoir(gReservoirPrev[buffIdx][idx]);
         prev.M = min(prev.M, historyLimit);
         previousM = prev.M;
 
-        CausticSample cauPrev = gCausticSamplePrev[index2Dto1D(idx, gFrameDim.x)];
+        CausticSample cauPrev = gCausticSamplePrev[buffIdx][index2Dto1D(idx, gFrameDim.x)];
        
         //Get target pdf at current location if reservoir and sample are valid
         float targetFunc = 0;
@@ -153,7 +154,7 @@ void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r
                 targetFunc = surface.getPdf(cauPrev.dir, luminance(cauPrev.flux)) / NdotL;
 
             // Shift into the domain
-            if (distance(cauPrev.pos, surface.posW) > gPhotonRadius)
+            if (distance(cauPrev.pos, surface.posW) > gPhotonRadius[buffIdx])
                 targetFunc = 0;
 
             selectPrevSample = r.combineReservoir(prev, targetFunc, sampleNext1D(sg));
@@ -175,7 +176,7 @@ void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r
         float NdotL = dot(causticSample.dir, temporalSurface.normal);
         if (NdotL > kMinCosTheta)
             ps = temporalSurface.getPdf(causticSample.dir, luminance(causticSample.flux)) / NdotL;
-        if (distance(causticSample.pos, temporalSurface.posW) > gPhotonRadius)
+        if (distance(causticSample.pos, temporalSurface.posW) > gPhotonRadius[buffIdx])
             ps = 0.0;
 
         pi = selectPrevSample ? ps : pi;
@@ -187,7 +188,7 @@ void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r
 #endif // BIAS_CORRECTION
 }
 
-void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r, inout CausticSample causticSample, in SurfaceFG surface)
+void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r, inout CausticSample causticSample, in SurfaceFG surface, uint buffIdx = 0)
 {
     uint historyLimit = gMaxAge;
 
@@ -229,7 +230,7 @@ void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reser
             continue;
 
         //Test if a sample from the temporal surface could be in the domain of the current surface
-        if (distance(surface.posW, temporalSurface.posW) > (gPhotonRadius * 2))
+        if (distance(surface.posW, temporalSurface.posW) > (gPhotonRadius[buffIdx] * 2))
             continue;
 
         //Valid hit was found
@@ -287,15 +288,15 @@ void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reser
                 continue;
 
             //Test if a sample from the temporal surface could be in the domain of the current surface
-            if (distance(surface.posW, neighSurface.posW) > (gPhotonRadius * 2))
+            if (distance(surface.posW, neighSurface.posW) > (gPhotonRadius[buffIdx] * 2))
                 continue;
         }
             
         //If neighbor surface has passed the tests get reservoir and compair them
-        Reservoir sampledReservoir = Reservoir(gReservoirPrev[idx]);
+        Reservoir sampledReservoir = Reservoir(gReservoirPrev[buffIdx][idx]);
         sampledReservoir.M = min(sampledReservoir.M, historyLimit);
 
-        CausticSample cauPrev = gCausticSamplePrev[index2Dto1D(idx, gFrameDim.x)];
+        CausticSample cauPrev = gCausticSamplePrev[buffIdx][index2Dto1D(idx, gFrameDim.x)];
 
         //Store indices
         cachedIndices[i] = (idx.x & 0xFFFF) << 16 | (idx.y & 0xFFFF);
@@ -314,7 +315,7 @@ void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reser
                 targetFunc = surface.getPdf(cauPrev.dir, luminance(cauPrev.flux)) / NdotL;
 
             // Shift into the domain
-            if (distance(cauPrev.pos, surface.posW) > gPhotonRadius)
+            if (distance(cauPrev.pos, surface.posW) > gPhotonRadius[buffIdx])
                 targetFunc = 0;
         }
         //Combine Reservoirs
@@ -349,7 +350,7 @@ void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reser
                 float NdotL = dot(causticSample.dir, biasSurface.normal);
                 if (NdotL > kMinCosTheta)
                     ps = biasSurface.getPdf(causticSample.dir, luminance(causticSample.flux)) / NdotL;
-                if (distance(causticSample.pos, biasSurface.posW) > gPhotonRadius)
+                if (distance(causticSample.pos, biasSurface.posW) > gPhotonRadius[buffIdx])
                     ps = 0.0;
             }
     
@@ -373,7 +374,11 @@ void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reser
 void main(uint2 dTid : SV_DispatchThreadID)
 {    
     //Check if surface is valid
-    SurfaceFG surface = getSurface(dTid, false);
+    float4 viewDir = gView[dTid];
+    SurfaceFG surface = SurfaceFG(gSurface[index2Dto1D(dTid, gFrameDim.x)],viewDir.xyz);
+
+    bool collectDirect = (viewDir.w > 0.1) && kCollectDirectPhotons; // Check for direct photon collection
+    //SurfaceFG surface = getSurface(dTid, false);
     if (!surface.valid)
         return;
 
@@ -387,10 +392,10 @@ void main(uint2 dTid : SV_DispatchThreadID)
     CausticSample causticData = CausticSample();
 
     //Load current reservoir in 
-    Reservoir current = Reservoir(gReservoir[dTid]);
+    Reservoir current = Reservoir(gReservoir[0][dTid]);
     if (current.M > 0)
     {
-        causticData = gCausticSample[index2Dto1D(dTid, gFrameDim.x)];
+        causticData = gCausticSample[0][index2Dto1D(dTid, gFrameDim.x)];
     }
     
     r.combineReservoir(current, current.targetPdf, 0.5 /* random */);
@@ -405,12 +410,42 @@ void main(uint2 dTid : SV_DispatchThreadID)
 
     //Store reservoir and sample data    
 #if USE_REDUCED_RESERVOIR_FORMAT
-    gReservoir[dTid] = r.packReduced();
+    gReservoir[0][dTid] = r.packReduced();
 #else
-    gReservoir[dTid] = r.pack();
+    gReservoir[0][dTid] = r.pack();
 #endif
-    gCausticSample[index2Dto1D(dTid, gFrameDim.x)] = causticData;
+    gCausticSample[0][index2Dto1D(dTid, gFrameDim.x)] = causticData;
 
+    //Final Gather sample
+    if(collectDirect)
+    {
+        r = {};
+        causticData = CausticSample();
+
+        //Load current reservoir in 
+        current = Reservoir(gReservoir[1][dTid]);
+        if (current.M > 0)
+        {
+            causticData = gCausticSample[1][index2Dto1D(dTid, gFrameDim.x)];
+        }
+        r.combineReservoir(current, current.targetPdf, 0.5 /* random */);
+
+        #if MODE_SPATIOTEMPORAL
+            spatiotemporalResampling(dTid, sg, r, causticData, surface, 1);
+        #elif MODE_TEMPORAL
+            temporalResampling(dTid, sg, r, causticData, surface, 1);
+        #endif //Resampling Mode
+
+    
+            //Store reservoir and sample data    
+        #if USE_REDUCED_RESERVOIR_FORMAT
+            gReservoir[1][dTid] = r.packReduced();
+        #else
+            gReservoir[1][dTid] = r.pack();
+        #endif
+            gCausticSample[1][index2Dto1D(dTid, gFrameDim.x)] = causticData;
+    }
+    
     #if STORE_SAMPLE_GEN_STATE
         gSampleGenState[index2Dto1D(dTid, gFrameDim.x)] = sg;
     #endif //STORE_SAMPLE_GEN_STATE

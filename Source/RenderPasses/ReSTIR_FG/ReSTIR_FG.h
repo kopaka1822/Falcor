@@ -262,9 +262,10 @@ private:
     bool mEmissionToCausticFilter = true;
 
     ResamplingMode mCausticResamplingMode = ResamplingMode::Temporal;
-    uint gCausticResamplingConfidenceCap = 20;
-    uint gCausticResamplingSpatialSamples = 1;
-    float gCausticResamplingSpatialRadius = 2.5f;
+    uint mCausticResamplingConfidenceCap = 20;
+    uint mCausticResamplingSpatialSamples = 1;
+    float mCausticResamplingSpatialRadius = 2.5f;
+    bool mCausticResamplingForFGDirect = false;
 
     bool mUseStochasticCollect = true;                     //Stochastic collect using reservoir sampling.
     uint mStochasticCollectNumPhotons = 3;
@@ -319,6 +320,8 @@ private:
     ref<Texture> mpTemporalCausticSurface[2];   //Small buffer for surface rejection of temporal samples
     ref<Texture> mpCausticReservoir[2];
     ref<Buffer> mpCausticSample[2];
+    ref<Texture> mpDirectFGReservoir[2];
+    ref<Buffer> mpDirectFGSample[2];
     ref<Buffer> mpSampleGenState;       //SampleGeneratorState
 
     ref<Texture> mpVBufferDI;          // Work copy for VBuffer (RTXDI or DirectAnalytical)

@@ -66,6 +66,8 @@ Texture2D<float4> gThp; //Thp for caustic and final gathering
 StructuredBuffer<PackedSurfaceDataFG> gSurface;
 RWTexture2D<uint4> gCausticReservoir;
 RWStructuredBuffer<CausticSample> gCausticSample;
+RWTexture2D<uint4> gDirectFGReservoir;
+RWStructuredBuffer<CausticSample> gDirectFGSample;
 
 //Inputs Temporal Caustic Filter (can be null)
 Texture2D<float2> gMVec;
@@ -197,8 +199,9 @@ void anyHitReservoir(inout RayDataReservoir rayDataRes : SV_RayPayload, SphereAt
     }
 
     //float target = (luminance(pd.flux) * M_1_PI) / surface.diffuseProb;
+
     float target = surface.getPdf(pd.dir, luminance(pd.flux))/ NdotL;
-    if(rayDataRes.r.updateReservoir(gPhotonWeight.y, target, sampleNext1D(rayDataRes.sg)))
+    if(rayDataRes.r.updateReservoir(gPhotonWeight[InstanceIndex()], target, sampleNext1D(rayDataRes.sg)))
     //if(rayDataRes.r.updateReservoir(1.0, target, sampleNext1D(rayDataRes.sg)))
         rayDataRes.idx = primIndex;
     IgnoreHit();
@@ -389,6 +392,14 @@ void causticPhotonCollection(in ShadingData sd, inout RayData rayData, bool coll
         ray.Direction = -sd.V;
     #endif
 
+    #if (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR) && RESERVOIR_PHOTON_DIRECT
+        RayDataReservoir rayDataResDirect;
+        rayDataResDirect.r = Reservoir();
+        rayDataResDirect.surface = rayDataRes.surface;
+        rayDataResDirect.idx = -1;
+        ray.Direction = -sd.V;
+    #endif
+
     if(validSurface){
         //Init material model if stochastic collect is used
         #if USE_STOCHASTIC_COLLECT
@@ -433,17 +444,27 @@ void causticPhotonCollection(in ShadingData sd, inout RayData rayData, bool coll
             rayData.radiance = float3(0);
             rayData.countPhotons += 1 << 24; //Flag that only the first hit should be collected
         #endif
-
+        #if (CAUSTIC_COLLECTION_MODE == CAUSTIC_COLLECT_MODE_RESERVOIR) && RESERVOIR_PHOTON_DIRECT
+            ray.Direction = -sd.V;
+            rayDataResDirect.sg = rayData.sg;
+            TraceRay(gPhotonAS, kRayFlags, 1 /* instanceInclusionMask */, 1 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayDataResDirect);
+            if(rayDataResDirect.r.M > 0 && rayDataResDirect.idx >= 0){
+                rayDataResDirect.r.finalizeSample(1, 1.f);
+            }
+            rayDataResDirect.r.M = 1;
+            rayData.sg = rayDataResDirect.sg;
+        #else
             TraceRay(gPhotonAS, kRayFlags, 1 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
             float w = gPhotonWeight.x;
-        #if USE_STOCHASTIC_COLLECT
-            rayData.counter &= 0xFFFFFF;    //Delete flag
-            directRadiance += w * stochPhotonContribution(sd, mi, miProperties.guideNormal, rayData, false);
-        #else // USE_STOCHASTIC_COLLECT
-            rayData.countPhotons = 0; //delete flag
-            directRadiance += w * rayData.radiance;
-        #endif // USE_STOCHASTIC_COLLECT
+            #if USE_STOCHASTIC_COLLECT
+                rayData.counter &= 0xFFFFFF;    //Delete flag
+                directRadiance += w * stochPhotonContribution(sd, mi, miProperties.guideNormal, rayData, false);
+            #else // USE_STOCHASTIC_COLLECT
+                rayData.countPhotons = 0; //delete flag
+                directRadiance += w * rayData.radiance;
+            #endif // USE_STOCHASTIC_COLLECT
             //if((kEmissionToCausticFilter || MODE_FINAL_GATHER) && collectEmissive) directRadiance += miProperties.emission;
+        #endif
         }
     } //end if(validSurface)
 
@@ -490,9 +511,22 @@ void causticPhotonCollection(in ShadingData sd, inout RayData rayData, bool coll
             currSample.dir = pd.dir;
         }
 
-        gCausticOut[launchIndex] = float4((directRadiance), 1.f);
         gCausticSample[index2Dto1D(launchIndex, launchDim.x)] = currSample;
         gCausticReservoir[launchIndex] = rayDataRes.r.pack();
+        #if RESERVOIR_PHOTON_DIRECT
+            currSample = {};
+            if (rayDataResDirect.idx >= 0) {
+                AABB pAABB = gPhotonAABB[0][rayDataResDirect.idx];
+                PhotonData pd = PhotonData(gPackedPhotonData[0][rayDataResDirect.idx]);
+                currSample.pos = pAABB.center();
+                currSample.flux = pd.flux;
+                currSample.dir = pd.dir;
+            }
+            gDirectFGSample[index2Dto1D(launchIndex, launchDim.x)] = currSample;
+            gDirectFGReservoir[launchIndex] = rayDataResDirect.r.pack();
+        #else
+            gCausticOut[launchIndex] = float4((directRadiance), 1.f);
+        #endif
     #else
         gCausticOut[launchIndex] = float4((causticRadiance + directRadiance), 1.f);
     #endif
