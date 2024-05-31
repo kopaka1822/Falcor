@@ -291,7 +291,6 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
         mClearReservoir = true;
         changed = true;
     }
-    
 
     if (auto group = widget.group("Specular Trace Options"))
     {
@@ -579,6 +578,15 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                 mRTXDIOptions = mpRTXDI->getOptions();
             changed |= rtxdiChanged;
         }
+    }
+
+    if (auto group = widget.group("Material Options"))
+    {
+        changed |= group.checkbox("Use Lambertian Diffuse BRDF", mUseLambertianDiffuse);
+        group.tooltip("Replaces the Frostbyte Diffuse BRDF with the Lambertian Diffuse BRDF");
+        changed |= group.checkbox("Diasable Diffuse BRDF", mDisableDiffuse);
+        changed |= group.checkbox("Disable Specular BRDF", mDisableSpecular);
+        changed |= group.checkbox("Disable Translucency", mDisableTranslucency);
     }
 
     mOptionsChanged |= changed;
@@ -974,6 +982,15 @@ void ReSTIR_FG::prepareAccelerationStructure() {
     }
 }
 
+DefineList ReSTIR_FG::getMaterialDefines() {
+    DefineList defines;
+    defines.add("DiffuseBrdf", mUseLambertianDiffuse ? "DiffuseBrdfLambert" : "DiffuseBrdfFrostbite");
+    defines.add("enableDiffuse", mDisableDiffuse ? "0" : "1");
+    defines.add("enableSpecular", mDisableSpecular ? "0" : "1");
+    defines.add("enableTranslucency", mDisableTranslucency ? "0" : "1");
+    return defines;
+}
+
 void ReSTIR_FG::prepareRayTracingShaders(RenderContext* pRenderContext) {
     auto globalTypeConformances = mpScene->getMaterialSystem().getTypeConformances();
 
@@ -1027,7 +1044,7 @@ void ReSTIR_FG::traceTransmissiveDelta(RenderContext* pRenderContext, const Rend
     mTraceTransmissionDelta.pProgram->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
     mTraceTransmissionDelta.pProgram->addDefine("USE_RESTIR_GI", mRenderMode == RenderMode::ReSTIRGI ? "1" : "0");
     if (mpRTXDI) mTraceTransmissionDelta.pProgram->addDefines(mpRTXDI->getDefines());
-
+    mTraceTransmissionDelta.pProgram->addDefines(getMaterialDefines());
     if (!mTraceTransmissionDelta.pVars)
         mTraceTransmissionDelta.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
 
@@ -1082,7 +1099,7 @@ void ReSTIR_FG::generateReSTIRGISamples(RenderContext* pRenderContext, const Ren
         mReSTIRGISamplePass.pProgram->addDefines(mpRTXDI->getDefines());
     if (mpGIEmissiveLightSampler)
         mReSTIRGISamplePass.pProgram->addDefines(mpGIEmissiveLightSampler->getDefines());
-
+    mReSTIRGISamplePass.pProgram->addDefines(getMaterialDefines());
     if (!mReSTIRGISamplePass.pVars)
         mReSTIRGISamplePass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
 
@@ -1124,7 +1141,7 @@ void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const Rende
     mFinalGatherSamplePass.pProgram->addDefine("USE_PHOTON_CULLING", mUsePhotonCulling ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
     mFinalGatherSamplePass.pProgram->addDefine("USE_CAUSTIC_CULLING", (mCausticCollectMode != CausticCollectionMode::None) && mUseCausticCulling ? "1" : "0");
-    
+    mFinalGatherSamplePass.pProgram->addDefines(getMaterialDefines());
         
     if (!mFinalGatherSamplePass.pVars)
         mFinalGatherSamplePass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
@@ -1205,7 +1222,7 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
     mGeneratePhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_ROUGH_CUTOFF", std::to_string(mTraceRoughnessCutoff));
     mGeneratePhotonPass.pProgram->addDefine("TRACE_TRANS_SPEC_DIFFUSEPART_CUTOFF", std::to_string(mTraceDiffuseCutoff));
     mGeneratePhotonPass.pProgram->addDefine("USE_REDUCED_PD_FORMAT", mUseReducePhotonData ? "1" : "0");
-
+    mGeneratePhotonPass.pProgram->addDefines(getMaterialDefines());
     
     if (!mGeneratePhotonPass.pVars)
     {
@@ -1344,7 +1361,8 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
 
      mCollectPhotonPass.pProgram->addDefine("USE_STOCHASTIC_COLLECT", mUseStochasticCollect ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefine("STOCH_NUM_PHOTONS", std::to_string(mStochasticCollectNumPhotons));
-    
+     mCollectPhotonPass.pProgram->addDefines(getMaterialDefines());
+
      if (!mCollectPhotonPass.pVars)
         mCollectPhotonPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
      FALCOR_ASSERT(mCollectPhotonPass.pVars);
@@ -1474,6 +1492,7 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
         defines.add("MODE_TEMPORAL", mResamplingMode == ResamplingMode::Temporal ? "1" : "0");
         defines.add("MODE_SPATIAL", mResamplingMode == ResamplingMode::Spartial ? "1" : "0");
         defines.add("BIAS_CORRECTION_MODE", std::to_string((uint)mBiasCorrectionMode));
+        defines.add(getMaterialDefines());
 
         mpResamplingPass = ComputePass::create(mpDevice, desc, defines, true);
      }
@@ -1486,7 +1505,7 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
      mpResamplingPass->getProgram()->addDefine("MODE_SPATIAL", mResamplingMode == ResamplingMode::Spartial ? "1" : "0");
      mpResamplingPass->getProgram()->addDefine("BIAS_CORRECTION_MODE", std::to_string((uint)mBiasCorrectionMode));
      mpResamplingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT" ,mUseReducedReservoirFormat ? "1" : "0");
-
+     mpResamplingPass->getProgram()->addDefines(getMaterialDefines());
      
     // Set variables
      auto var = mpResamplingPass->getRootVar();
@@ -1563,6 +1582,7 @@ void ReSTIR_FG::causticResamplingPass(RenderContext* pRenderContext, const Rende
         defines.add("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
         defines.add("MODE_SPATIOTEMPORAL", mCausticResamplingMode == ResamplingMode::SpartioTemporal ? "1" : "0");
         defines.add("MODE_TEMPORAL", mCausticResamplingMode == ResamplingMode::Temporal ? "1" : "0");
+        defines.add(getMaterialDefines());
 
         mpCausticResamplingPass = ComputePass::create(mpDevice, desc, defines, true);
      }
@@ -1573,6 +1593,7 @@ void ReSTIR_FG::causticResamplingPass(RenderContext* pRenderContext, const Rende
      mpCausticResamplingPass->getProgram()->addDefine("MODE_SPATIOTEMPORAL", mCausticResamplingMode == ResamplingMode::SpartioTemporal ? "1" : "0");
      mpCausticResamplingPass->getProgram()->addDefine("MODE_TEMPORAL", mCausticResamplingMode == ResamplingMode::Temporal ? "1" : "0");
      mpCausticResamplingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
+     mpCausticResamplingPass->getProgram()->addDefines(getMaterialDefines());
 
      // Set variables
      auto var = mpCausticResamplingPass->getRootVar();
@@ -1648,6 +1669,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         if (mpRTXDI) defines.add(mpRTXDI->getDefines());
         defines.add("USE_RTXDI", mpRTXDI ? "1" : "0");
         defines.add("USE_RESTIR_GI", mRenderMode == RenderMode::ReSTIRGI ? "1" : "0");
+        defines.add(getMaterialDefines());
 
         mpFinalShadingPass = ComputePass::create(mpDevice, desc, defines, true);
      }
@@ -1660,8 +1682,10 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      mpFinalShadingPass->getProgram()->addDefine("USE_ENV_BACKROUND", mpScene->useEnvBackground() ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("EMISSION_TO_CAUSTIC_FILTER", (mCausticCollectMode == CausticCollectionMode::Temporal && mEmissionToCausticFilter) ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_CAUSTIC_FILTER_RESERVOIR", mCausticCollectMode == CausticCollectionMode::Reservoir ? "1" : "0");
+     mpFinalShadingPass->getProgram()->addDefines(getMaterialDefines());
      // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
      mpFinalShadingPass->getProgram()->addDefines(getValidResourceDefines(kOutputChannels, renderData));
+     
 
      // Set variables
      auto var = mpFinalShadingPass->getRootVar();
@@ -1733,6 +1757,7 @@ void ReSTIR_FG::directAnalytic(RenderContext* pRenderContext, const RenderData& 
         DefineList defines;
         defines.add(mpScene->getSceneDefines());
         defines.add(mpSampleGenerator->getDefines());
+        defines.add(getMaterialDefines());
         defines.add(getValidResourceDefines(kOutputChannels, renderData));
         defines.add(getValidResourceDefines(kInputChannels, renderData));
        
@@ -1740,6 +1765,7 @@ void ReSTIR_FG::directAnalytic(RenderContext* pRenderContext, const RenderData& 
      }
      FALCOR_ASSERT(mpDirectAnalyticPass);
 
+     mpDirectAnalyticPass->getProgram()->addDefines(getMaterialDefines());
      // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
      mpDirectAnalyticPass->getProgram()->addDefines(getValidResourceDefines(kOutputChannels, renderData));
 

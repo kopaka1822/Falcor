@@ -110,6 +110,11 @@ private:
     /** Prepares the custom Acceleration Structure
     */
     void prepareAccelerationStructure();
+
+    /** Material Defines
+    */
+    DefineList getMaterialDefines();
+
     /** Initializes all the ray tracing shaders
     */
     void prepareRayTracingShaders(RenderContext* pRenderContext);
@@ -196,6 +201,12 @@ private:
     bool mUseReducePhotonData = false;
     bool mResetTex = false;
     bool mOptionsChanged = false;
+
+    //Material Settings
+    bool mUseLambertianDiffuse = true;  //Diffuse BRDF used by ReSTIR PT and SuffixReSTIR
+    bool mDisableDiffuse = false;
+    bool mDisableSpecular = false;
+    bool mDisableTranslucency = false;  
 
     //Specular Trace Options
     uint mTraceMaxBounces = 10;                                          //Number of Specular/Transmissive bounces allowed
