@@ -36,6 +36,7 @@ Texture2D<float4> gView;
 Texture2D <float>gLinZ;
 
 //Outputs
+RWStructuredBuffer<PackedSurfaceDataFG> gSurfaceData;
 RWStructuredBuffer<SampleGenerator> gSampleGenState;
 RWStructuredBuffer<FGData> gGISample;
 
@@ -441,7 +442,8 @@ void rayGen()
     #endif //STORE_SAMPLE_GEN_STATE
 
     gGISample[index2Dto1D(launchIndex, launchDim.x)] = giData;
-    
+    gSurfaceData[index2Dto1D(launchIndex, launchDim.x)] = surface.pack();
+
     #if USE_REDUCED_RESERVOIR_FORMAT
         gReservoir[launchIndex] = reservoir.packReduced();
     #else

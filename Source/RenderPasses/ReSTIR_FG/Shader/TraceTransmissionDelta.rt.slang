@@ -251,9 +251,9 @@ void rayGen()
             }
         }else
             bouncesAfterValid++;
-        
+
     }
-        
+            
     //Fill the RTXDI surface if it is enabled
 #if USE_RTXDI
     if(hitInfoDI.isValid())
@@ -280,9 +280,10 @@ void rayGen()
     gOutThpDI[launchIndex] = float4(thpDI, 1.f);
 
     //Set surface to invalid if the specular surface did not produce a valid sample
-    if(invalidSample && !isDiffuse)
-        hitInfo = {};
-
+    #if !USE_RESTIR_GI
+        if(invalidSample && !isDiffuse)
+            hitInfo = {};
+    #endif
     //Write
     #if STORE_SAMPLE_GEN_STATE
         gSampleGenState[index2Dto1D(launchIndex, launchDim.x)] = sg;

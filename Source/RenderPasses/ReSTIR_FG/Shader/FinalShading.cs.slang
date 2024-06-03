@@ -262,10 +262,9 @@ void main(uint2 pixel : SV_DispatchThreadID)
 
         #if !USE_RESTIR_GI
 
-            #if USE_CAUSTIC_FILTER_RESERVOIR && !RESERVOIR_PHOTON_DIRECT
+            #if (USE_CAUSTIC_FILTER_RESERVOIR && !RESERVOIR_PHOTON_DIRECT) || !USE_CAUSTIC_FILTER_RESERVOIR
                 caustic += gCausticRadiance[pixel].xyz * thp;
             #endif
-
             #if USE_CAUSTIC_FILTER_RESERVOIR
                 //sd.mtl.setActiveLobes((uint)LobeType::All);
                 Reservoir causticReservoir = Reservoir(gCausticReservoir[pixel]);

@@ -46,6 +46,7 @@ namespace
     //const uint kMaxPayloadBytesCollect = 48u;
     const uint kMaxPayloadBytesCollect = 64u;
     const uint kMaxPayloadBytesGenerateFGSamples = 20u;
+    const uint kMaxPayloadBytesGI = 32u;
 
     //Render Pass inputs and outputs
     const std::string kInputVBuffer = "vbuffer";
@@ -1056,7 +1057,7 @@ void ReSTIR_FG::prepareRayTracingShaders(RenderContext* pRenderContext) {
         RtProgram::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kReSTIRGISampleShader);
-        desc.setMaxPayloadSize(kMaxPayloadBytesGenerateFGSamples);
+        desc.setMaxPayloadSize(kMaxPayloadBytesGI);
         desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
         desc.setMaxTraceRecursionDepth(1);
         if (!mpScene->hasProceduralGeometry())
@@ -1173,6 +1174,7 @@ void ReSTIR_FG::generateReSTIRGISamples(RenderContext* pRenderContext, const Ren
     var["gLinZ"] = mpRayDist;
 
     var["gReservoir"] = mpReservoirBuffer[mFrameCount % 2];
+    var["gSurfaceData"] = mpSurfaceBuffer[mFrameCount % 2];
     var["gGISample"] = mpFGSampelDataBuffer[mFrameCount % 2];
     var["gSampleGenState"] = mpSampleGenState;
 
