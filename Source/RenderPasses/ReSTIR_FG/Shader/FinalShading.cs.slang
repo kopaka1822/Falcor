@@ -141,7 +141,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     bool validSample = false;
 
     #if STORE_SAMPLE_GEN_STATE
-        SampleGenerator sg = gSampleGenState[index2Dto1D(pixels, gFrameDim.x)];
+        SampleGenerator sg = gSampleGenState[index2Dto1D(pixel, gFrameDim.x)];
     #else
         SampleGenerator sg = SampleGenerator(pixel, gFrameCount + 9 * 32);
     #endif
