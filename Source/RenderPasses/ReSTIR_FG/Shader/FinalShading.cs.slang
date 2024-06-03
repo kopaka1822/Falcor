@@ -197,6 +197,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     viewDir = -viewTmp.xyz;
     bool needEmissive = viewTmp.w > 1.1 ; //Direct light for indirect flag
     gViewPrev[pixel] = float4(-viewDir,1); //copy view
+    hitInfo = {};
     hitInfo = HitInfo(gVBuffer[pixel]);
 
     bool wasTraced = false;
@@ -237,11 +238,15 @@ void main(uint2 pixel : SV_DispatchThreadID)
             if (!rayQuery.traceVisibilityRay(ray, RAY_FLAG_NONE, 0xff))
                 validIndirectReservoir = false;
         }
-        //Kill the reservor if it was not valid
-        if (!validIndirectReservoir) {
-            r.weightSum = 0;
-            gReservoir[pixel] = r.pack();
-        }
+
+        //For final gather we need to clear invalid reservoirs
+        #if USE_FINAL_GATHER
+            if (!validIndirectReservoir) {
+                r.weightSum = 0;
+                r.M = 0;
+                gReservoir[pixel] = r.pack();
+            }
+        #endif
         
         if (validIndirectReservoir)
         {
@@ -280,7 +285,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
 
                         sd.mtl.setActiveLobes((uint) LobeType::SpecularReflection);
                         f_r = bsdf.eval(sd, causticSample.dir, sg);
-                        causticResRadianceSpec = max(0.f, (f_r / NdotL) * causticSample.flux * causticReservoir.weightSum);
+                        causticResRadianceSpec += max(0.f, (f_r / NdotL) * causticSample.flux * causticReservoir.weightSum);
                     }
                 }
                 #if RESERVOIR_PHOTON_DIRECT
@@ -309,7 +314,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     {
         color += diffuse + specular + caustic;    //Add diffuse and specular parts together
         color += emission;  //Do this or demodulate it?
-
+          
         // NRD
         if(wasTraced){
             float3 combined = (diffuse + specular + emission + caustic);
@@ -333,7 +338,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
             }
         }
     }
-        
+
     if (is_valid(gOutColor)) gOutColor[pixel] = float4(color, 1.f);
     if (is_valid(gOutEmission)) gOutEmission[pixel] = float4(emission, 1.f);
     if (is_valid(gOutDiffuseRadiance)) gOutDiffuseRadiance[pixel] = float4(diffuseIllumination, hitT);

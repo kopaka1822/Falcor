@@ -191,6 +191,13 @@ void anyHitReservoir(inout RayDataReservoir rayDataRes : SV_RayPayload, SphereAt
     PhotonData pd = PhotonData(gPackedPhotonData[InstanceIndex()][primIndex]);
     SurfaceFG surface = SurfaceFG(rayDataRes.surface, -WorldRayDirection());
 
+    //Check if first hit check is required
+    if(InstanceIndex() == 0)
+    {
+        if (!pd.isFirstHit)
+            IgnoreHit();
+    }
+
     //Check if photon sample is in valid hemisphere
     float NdotL = dot(pd.dir, surface.normal);
     if (NdotL < kMinCosTheta) 

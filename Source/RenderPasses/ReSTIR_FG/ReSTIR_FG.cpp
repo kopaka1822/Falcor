@@ -243,7 +243,7 @@ void ReSTIR_FG::execute(RenderContext* pRenderContext, const RenderData& renderD
     
 
     //Do resampling
-    if (mReservoirValid && (mRenderMode == RenderMode::ReSTIRFG) || (mRenderMode == RenderMode::ReSTIRGI))
+    if ((mRenderMode == RenderMode::ReSTIRFG) || (mRenderMode == RenderMode::ReSTIRGI))
         resamplingPass(pRenderContext, renderData);
 
     if (mReservoirValid && mCausticCollectMode == CausticCollectionMode::Reservoir &&
@@ -1744,6 +1744,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
         defines.add("USE_RTXDI", mpRTXDI ? "1" : "0");
         defines.add("USE_RESTIR_GI", mRenderMode == RenderMode::ReSTIRGI ? "1" : "0");
         defines.add("RESERVOIR_PHOTON_DIRECT", mCausticResamplingForFGDirect ? "1" : "0");
+        defines.add("USE_FINAL_GATHER", mRenderMode == RenderMode::FinalGather ? "1" : "0");
         defines.add(getMaterialDefines());
 
         mpFinalShadingPass = ComputePass::create(mpDevice, desc, defines, true);
@@ -1758,6 +1759,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      mpFinalShadingPass->getProgram()->addDefine("EMISSION_TO_CAUSTIC_FILTER", (mCausticCollectMode == CausticCollectionMode::Temporal && mEmissionToCausticFilter) ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_CAUSTIC_FILTER_RESERVOIR", mCausticCollectMode == CausticCollectionMode::Reservoir ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("RESERVOIR_PHOTON_DIRECT", mCausticResamplingForFGDirect ? "1" : "0");
+     mpFinalShadingPass->getProgram()->addDefine("USE_FINAL_GATHER", mRenderMode == RenderMode::FinalGather ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefines(getMaterialDefines());
      // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
      mpFinalShadingPass->getProgram()->addDefines(getValidResourceDefines(kOutputChannels, renderData));
