@@ -80,12 +80,12 @@ namespace
     const Gui::DropdownList kResamplingModeList{
         {(uint)ReSTIR_FG::ResamplingMode::Temporal, "Temporal"},
         {(uint)ReSTIR_FG::ResamplingMode::Spartial, "Spartial"},
-        {(uint)ReSTIR_FG::ResamplingMode::SpartioTemporal, "SpartioTemporal"},
+        {(uint)ReSTIR_FG::ResamplingMode::SpartioTemporal, "SpatioTemporal"},
     };
 
     const Gui::DropdownList kCausticResamplingModeList{
         {(uint)ReSTIR_FG::ResamplingMode::Temporal, "Temporal"},
-        {(uint)ReSTIR_FG::ResamplingMode::SpartioTemporal, "SpartioTemporal"},
+        {(uint)ReSTIR_FG::ResamplingMode::SpartioTemporal, "SpatioTemporal"},
     };
 
     const Gui::DropdownList kBiasCorrectionModeList{
