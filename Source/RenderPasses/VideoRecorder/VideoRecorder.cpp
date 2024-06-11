@@ -434,13 +434,14 @@ void VideoRecorder::updateCamera()
     };
 
     auto updateCamera = [&](const PathPoint& curr) {
+        bool updatePoint = false;
         if (!mLastFramePathPointValid)
         {
             mLastFramePathPoint = curr;
             mLastFramePathPointValid = true;
+            updatePoint = true;
         }
             
-        bool updatePoint = false;
         const float error = 0.00001f;
 
         updatePoint |= any(abs(mLastFramePathPoint.pos - curr.pos) > error);
