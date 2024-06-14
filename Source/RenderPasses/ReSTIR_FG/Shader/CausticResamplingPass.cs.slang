@@ -167,8 +167,8 @@ void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r
 
     //Bias correction via MIS
 #if BIAS_CORRECTION
-    float pi = r.targetPdf;
-    float piSum = r.targetPdf; //piSum = target * M_initial ; M_initial is always 1 for us
+    float pi = r.targetFunc;
+    float piSum = r.targetFunc; //piSum = target * M_initial ; M_initial is always 1 for us
 
     if (foundTemporalSurface)
     {
@@ -328,8 +328,8 @@ void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reser
 
   //Bias correction
     #if BIAS_CORRECTION
-        float pi = r.targetPdf;
-        float piSum = r.targetPdf; //piSum = target * M_initial
+        float pi = r.targetFunc;
+        float piSum = r.targetFunc; //piSum = target * M_initial
         
         //go through all neighbors again
         for (int i = 0; i < numSamples; i++)
@@ -398,7 +398,7 @@ void main(uint2 dTid : SV_DispatchThreadID)
         causticData = gCausticSample[0][index2Dto1D(dTid, gFrameDim.x)];
     }
     
-    r.combineReservoir(current, current.targetPdf, 0.5 /* random */);
+    r.combineReservoir(current, current.targetFunc, 0.5 /* random */);
 
 
 #if MODE_SPATIOTEMPORAL
@@ -428,7 +428,7 @@ void main(uint2 dTid : SV_DispatchThreadID)
         {
             causticData = gCausticSample[1][index2Dto1D(dTid, gFrameDim.x)];
         }
-        r.combineReservoir(current, current.targetPdf, 0.5 /* random */);
+        r.combineReservoir(current, current.targetFunc, 0.5 /* random */);
 
         #if MODE_SPATIOTEMPORAL
             spatiotemporalResampling(dTid, sg, r, causticData, surface, 1);

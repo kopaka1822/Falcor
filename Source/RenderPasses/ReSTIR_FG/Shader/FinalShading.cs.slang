@@ -93,6 +93,7 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
 
 void getEmissiveLight(uint idx,in float3 worldPos, out float distance ,out float3 toLight, out float3 Li){
     //Get light position
+    Li = float3(0);
     FGData fgData = gFGSampleData[idx];
 
     if(fgData.valid){

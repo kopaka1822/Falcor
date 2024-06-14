@@ -50,7 +50,7 @@ cbuffer TemporalFilter{
     uint gTemporalFilterHistoryLimit;
     float gDepthThreshold;              //Depth Threshold
     float gNormalThreshold;             //Normal Threshold
-    float gMatThreshold;                //Material Threshold
+    uint _pad;
 }
 
 // Inputs
@@ -558,20 +558,6 @@ void fgSampleCollection(float3 genPosW, inout RayData rayData, bool valid){
     BSDFProperties bsdfProperties = {};
     ShadingData sd = {};   
 
-    /* Surface Rejection TODO Remove (not necessary)
-    uint lobeTypes = bsdf.getLobeTypes(sd);
-    bool hasDiffuseParts = true;
-    if(kRejectDiffuseSurfaces)
-    {
-        float3 diffuseProb = bsdfProperties.diffuseReflectionAlbedo / (bsdfProperties.diffuseReflectionAlbedo + bsdfProperties.specularReflectionAlbedo + bsdfProperties.diffuseTransmissionAlbedo + bsdfProperties.specularTransmissionAlbedo);
-        float meanDiffuseProb = (diffuseProb.x + diffuseProb.y + diffuseProb.z) / 3;
-        hasDiffuseParts = (meanDiffuseProb > kTraceDiffuseCutoff) || bsdfProperties.roughness > kTraceRoughnessCutoff;
-    }
-    //Reject surfaces where no photons are stored anyway. The emissive case is handled by ReSTIR for Direct Lights
-    bool isDiffuse = hasDiffuseParts && !any(bsdfProperties.emission > 0) && ((lobeTypes & (uint)LobeType::Delta) == 0);
-    valid &= isDiffuse;  
-    */
-
     float3 fgRadiance = float3(0);
     float jacoDeter = -1.f;
     
@@ -642,7 +628,7 @@ void fgSampleCollection(float3 genPosW, inout RayData rayData, bool valid){
     r.M = 1; //set M to the right value
 
     float Li = luminance(fgRadiance);
-    r.targetPdf *= Li; //Add the missing parts of the targetPDF (Li)
+    r.targetFunc *= Li; //Add the missing parts of the targetFunc (Li)
 
         //Create the final gather sample
     FGData fgData = { };

@@ -113,7 +113,7 @@ void photonCulling(float3 hitPos, float radius){
     //Insert them into the hash buffer
     [unroll]
     for(uint i=0; i<8; i++){
-        uint h = hash(cells[i]) & (gHashSize - 1);    //calculateHash TODO: Test other hashes
+        uint h = hash(cells[i]) & (gHashSize - 1);    //calculateHash
         gPhotonCullingMask[ReSTIR_LinearIndexToZCurve(h)] = 1;
     }
 }
@@ -192,7 +192,7 @@ void rayGen()
         surface = SurfaceFG::create(sd.computeNewRayOrigin(), bsdfProperties.guideNormal, sd.V, viewDepth, bsdfProperties.roughness,
                                       luminance(bsdfProperties.diffuseReflectionAlbedo), luminance(bsdfProperties.specularReflectance));
         
-        reservoir.targetPdf = surface.getPdf(bsdfSample.wo);
+        reservoir.targetFunc = surface.getPdf(bsdfSample.wo);
     
         reservoir.weightSum = 1.f / bsdfSample.pdf; // 1/selectPDF
 
@@ -235,7 +235,7 @@ void rayGen()
     
     //Store data in buffers
     gFinalGatherHit[launchIndex] = traceData.packedHitInfo;
-    gSurfaceData[index2Dto1D(launchIndex, launchDim.x)] = surface.pack();   //TODO better index
+    gSurfaceData[index2Dto1D(launchIndex, launchDim.x)] = surface.pack(); 
     #if STORE_SAMPLE_GEN_STATE
         gSampleGenState[index2Dto1D(launchIndex, launchDim.x)] = sg;
     #endif //STORE_SAMPLE_GEN_STATE

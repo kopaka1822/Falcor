@@ -221,8 +221,8 @@ private:
     float mPhotonAnalyticRatio = 0.5f;                              //Analytic photon distribution ratio in a mixed light case. E.g. 0.3 -> 30% analytic, 70% emissive
 
     //Reservoir
-    bool mUseReducedReservoirFormat = false;                        //Use a reduced reservoir format TODO: Add
-    bool mRebuildReservoirBuffer = false;                            //Rebuild the reservoir buffer
+    bool mUseReducedReservoirFormat = false;                        //Use a reduced reservoir format
+    bool mRebuildReservoirBuffer = false;                           //Rebuild the reservoir buffer
     bool mClearReservoir = true;                                    //Clears both reservoirs
     float mSampleRadiusAttenuation = 0.00f;                         //Radius for the better defined attenuation
     uint mTemporalMaxAge = 20;                                      // Max age of an temporal reservoir

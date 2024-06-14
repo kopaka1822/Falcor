@@ -52,10 +52,10 @@ cbuffer Constant
     float gSamplingRadius;          //Sampling radius
     float gDepthThreshold;          //Relative depth offset
     float gNormalThreshold;         //Maximum cosine between both Normals that is allowed
-    float gMatThreshold;            //Differences between the diffuse probabilities of the materials TODO Remove/ is not used
     uint gDisocclusionBoostSamples; //Number of spartial samples if no temporal surface was found
     float gAttenuationRadius;       //Radius for the attenuation
     float2 gJacobianMinMax;         //Minimum and Maximum values for the jacobian
+    uint _pad;
 }
 
 struct LightSample{
@@ -177,7 +177,7 @@ void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r
         }
 
         //Get target pdf at current location if reservoir and sample are valid
-        float targetPdf = 0;
+        float targetFunc = 0;
         bool combine = true;
         if (prev.M > 0 && sampleValid)
         {
@@ -185,11 +185,11 @@ void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r
             float dis = 0;
             if (!getLightSample(fgPrev, surface.posW, ls, dis))
                 combine = false;
-            targetPdf = surface.getPdf(ls.dir, ls.Li);
+            targetFunc = surface.getPdf(ls.dir, ls.Li);
         }
 
         if(combine)
-            selectPrevSample = r.combineReservoir(prev, targetPdf, sampleNext1D(sg));
+            selectPrevSample = r.combineReservoir(prev, targetFunc, sampleNext1D(sg));
         if (selectPrevSample)
             fgSample = fgPrev;
     }
@@ -197,8 +197,8 @@ void temporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r
 
     //Bias correction via MIS
 #if BIAS_CORRECTION_MODE >= BIAS_MODE_BASIC
-    float pi = r.targetPdf;
-    float piSum = r.targetPdf; //piSum = target * M_initial ; M_initial is always 1 for us
+    float pi = r.targetFunc;
+    float piSum = r.targetFunc; //piSum = target * M_initial ; M_initial is always 1 for us
 
     if (foundTemporalSurface)
     {
@@ -284,17 +284,17 @@ void spatialResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r,
         cachedM[i / 2] |= M;
 
         //Get neightbor target PDF for current surface
-        float sampleTargetPdf = 0.f;
+        float sampletargetFunc = 0.f;
         if (sampledReservoir.M > 0 && sampleValid)
         {
             LightSample ls = { };
             float dis;
             if (!getLightSample(fgNeigh, surface.posW, ls, dis))
                 continue;
-            sampleTargetPdf = surface.getPdf(ls.dir, ls.Li);
+            sampletargetFunc = surface.getPdf(ls.dir, ls.Li);
         }
         //Combine Reservoirs
-        if (r.combineReservoir(sampledReservoir, sampleTargetPdf, sampleNext1D(sg)))
+        if (r.combineReservoir(sampledReservoir, sampletargetFunc, sampleNext1D(sg)))
         {
             selectedSample = i;
             fgSample = fgNeigh;
@@ -304,8 +304,8 @@ void spatialResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r,
     //Bias correction
     #if BIAS_CORRECTION_MODE >= BIAS_MODE_BASIC
         
-        float pi = r.targetPdf;
-        float piSum = r.targetPdf; //piSum = target * M_initial ; M_initial is always 1 for us
+        float pi = r.targetFunc;
+        float piSum = r.targetFunc; //piSum = target * M_initial ; M_initial is always 1 for us
         
         //go through all neighbors again
         for (int i = 0; i < numSamples; i++)
@@ -477,17 +477,17 @@ void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reser
         cachedM[i / 2] |= M;
         
         //Get neightbor light target PDF for current surface
-        float sampleTargetPdf = 0.f;
+        float sampletargetFunc = 0.f;
         if (sampledReservoir.M > 0 && sampleValid)
         {
             LightSample ls = { };
             float dis;
             if (!getLightSample(fgPrev, surface.posW, ls, dis))
                 continue;
-            sampleTargetPdf = surface.getPdf(ls.dir, ls.Li);
+            sampletargetFunc = surface.getPdf(ls.dir, ls.Li);
         }
         //Combine Reservoirs
-        if (r.combineReservoir(sampledReservoir, sampleTargetPdf, sampleNext1D(sg)))
+        if (r.combineReservoir(sampledReservoir, sampletargetFunc, sampleNext1D(sg)))
         {
             selectedSample = i;
             fgSample = fgPrev;
@@ -497,8 +497,8 @@ void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reser
   //Bias correction
     #if BIAS_CORRECTION_MODE >= BIAS_MODE_BASIC
         
-        float pi = r.targetPdf;
-        float piSum = r.targetPdf; //piSum = target * M_initial
+        float pi = r.targetFunc;
+        float piSum = r.targetFunc; //piSum = target * M_initial
         
         //go through all neighbors again
         for (int i = 0; i < numSamples; i++)
@@ -588,7 +588,7 @@ void main(uint2 dTid : SV_DispatchThreadID)
     }
 #endif //MODE_SPATIAL
 
-    r.combineReservoir(current, current.targetPdf, 0.5 /* random */);
+    r.combineReservoir(current, current.targetFunc, 0.5 /* random */);
     //Do resampling
 #if MODE_SPATIOTEMPORAL
     spatiotemporalResampling(dTid, sg, r, fgData, surface);
@@ -597,7 +597,7 @@ void main(uint2 dTid : SV_DispatchThreadID)
 #elif MODE_SPATIAL
     spatialResampling(dTid, sg, r, fgData, surface);
 #endif //Resampling Mode
-
+    
     //Store reservoir and sample data    
 #if USE_REDUCED_RESERVOIR_FORMAT
     gReservoir[dTid] = r.packReduced();

@@ -152,7 +152,6 @@ bool generateAnalyticLightSample(const in ShadingData sd, inout SampleGenerator 
         return false;
 
     // Sample analytic light source selected uniformly from the light list.
-    // TODO: Sample based on estimated contributions as pdf.
     uint lightIndex = min(uint(sampleNext1D(sg) * lightCount), lightCount - 1);
 
     // Sample local light source.
@@ -329,7 +328,7 @@ void rayGen()
         surface = SurfaceFG::create(sd.computeNewRayOrigin(), bsdfProperties.guideNormal, sd.V, viewDepth, bsdfProperties.roughness,
                                       luminance(bsdfProperties.diffuseReflectionAlbedo), luminance(bsdfProperties.specularReflectance));
         
-        reservoir.targetPdf = surface.getPdf(bsdfSample.wo);
+        reservoir.targetFunc = surface.getPdf(bsdfSample.wo);
     
         reservoir.weightSum = 1.f / bsdfSample.pdf; // 1/selectPDF
 
@@ -428,7 +427,7 @@ void rayGen()
         {
             giData.flux = radiance;
             reservoir.M = 1; 
-            reservoir.targetPdf *= luminance(radiance);
+            reservoir.targetFunc *= luminance(radiance);
         }
         else
         {

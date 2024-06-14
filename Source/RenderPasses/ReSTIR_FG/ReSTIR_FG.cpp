@@ -43,7 +43,6 @@ namespace
 
     const std::string kShaderModel = "6_5";
     const uint kMaxPayloadBytes = 96u;
-    //const uint kMaxPayloadBytesCollect = 48u;
     const uint kMaxPayloadBytesCollect = 64u;
     const uint kMaxPayloadBytesGenerateFGSamples = 20u;
     const uint kMaxPayloadBytesGI = 32u;
@@ -51,8 +50,6 @@ namespace
     //Render Pass inputs and outputs
     const std::string kInputVBuffer = "vbuffer";
     const std::string kInputMotionVectors = "mvec";
-    //const std::string kInputViewDir = "viewW";
-    //const std::string kInputRayDistance = "rayDist";
 
     const Falcor::ChannelList kInputChannels{
         {kInputVBuffer, "gVBuffer", "Visibility buffer in packed format"},
@@ -558,7 +555,7 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
 
             mRebuildReservoirBuffer |= group.checkbox("Use reduced Reservoir format", mUseReducedReservoirFormat);
             group.tooltip(
-                "If enabled uses RG32_UINT instead of RGBA32_UINT. In reduced format the targetPDF and M only have 16 bits while the "
+                "If enabled uses RG32_UINT instead of RGBA32_UINT. In reduced format the targetFunc and M only have 16 bits while the "
                 "weight still has full precision"
             );
 
@@ -650,7 +647,6 @@ bool ReSTIR_FG::prepareLighting(RenderContext* pRenderContext)
         {
             // Ensure that emissive light struct is build by falcor
             FALCOR_ASSERT(pLights && pLights->getActiveLightCount(pRenderContext) > 0);
-            // TODO: Support different types of sampler
             mpEmissiveLightSampler = std::make_unique<EmissivePowerSampler>(pRenderContext, mpScene);
             lightingChanged = true;
         }
@@ -1044,7 +1040,6 @@ DefineList ReSTIR_FG::getMaterialDefines() {
 void ReSTIR_FG::prepareRayTracingShaders(RenderContext* pRenderContext) {
     auto globalTypeConformances = mpScene->getMaterialSystem().getTypeConformances();
 
-    //TODO specify the payload bytes for each pass
     mFinalGatherSamplePass.initRTProgram(mpDevice, mpScene, kFinalGatherSamplesShader, kMaxPayloadBytesGenerateFGSamples, globalTypeConformances);
     mGeneratePhotonPass.initRTProgram(mpDevice, mpScene, kGeneratePhotonsShader, kMaxPayloadBytes, globalTypeConformances);
     mTraceTransmissionDelta.initRTProgram(mpDevice, mpScene, kTraceTransmissionDeltaShader, kMaxPayloadBytes, globalTypeConformances);
@@ -1184,7 +1179,6 @@ void ReSTIR_FG::generateReSTIRGISamples(RenderContext* pRenderContext, const Ren
 
 void ReSTIR_FG::getFinalGatherHitPass(RenderContext* pRenderContext, const RenderData& renderData) {
     FALCOR_PROFILE(pRenderContext, "FinalGatherSample");
-    // Clear the buffer if photon culling is used TODO Compute pass to clear?
     if (mUsePhotonCulling)
     {
         pRenderContext->clearUAV(mpPhotonCullingMask->getUAV().get(), uint4(0));
@@ -1240,7 +1234,6 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
     std::string passName = mMixedLights ? (secondPass ? "PhotonGenAnalytic" : "PhotonGenEmissive") : "PhotonGeneration";
     FALCOR_PROFILE(pRenderContext, passName);
 
-    //TODO Clear via Compute pass?
     if (!secondPass)
     {
         pRenderContext->clearUAV(mpPhotonCounter[mFrameCount % kPhotonCounterCount]->getUAV().get(), uint4(0));
@@ -1398,7 +1391,7 @@ void ReSTIR_FG::handlePhotonCounter(RenderContext* pRenderContext)
 void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& renderData) {
      FALCOR_PROFILE(pRenderContext, "CollectPhotons");
 
-     //Defines TODO add
+     //Defines
      mCollectPhotonPass.pProgram->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
      mCollectPhotonPass.pProgram->addDefine("CAUSTIC_COLLECTION_MODE", std::to_string((uint)mCausticCollectMode));
      mCollectPhotonPass.pProgram->addDefine("CAUSTIC_COLLECTION_INDIRECT", mUseCausticsForIndirectLight ? "1" : "0");
@@ -1438,7 +1431,6 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
         var[nameBuf]["gTemporalFilterHistoryLimit"] = mCausticTemporalFilterHistoryLimit;
         var[nameBuf]["gDepthThreshold"] = mRelativeDepthThreshold;
         var[nameBuf]["gNormalThreshold"] = mNormalThreshold;
-        var[nameBuf]["gMatThreshold"] = mMaterialThreshold;
 
         var["gMVec"] = renderData[kInputMotionVectors]->asTexture();
         //Bind necessary buffer and textures
@@ -1606,7 +1598,6 @@ void ReSTIR_FG::resamplingPass(RenderContext* pRenderContext, const RenderData& 
      var[uniformName]["gSamplingRadius"] = mSamplingRadius;
      var[uniformName]["gDepthThreshold"] = mRelativeDepthThreshold;
      var[uniformName]["gNormalThreshold"] = mNormalThreshold;
-     var[uniformName]["gMatThreshold"] = mMaterialThreshold;
      var[uniformName]["gDisocclusionBoostSamples"] = mDisocclusionBoostSamples;
      var[uniformName]["gAttenuationRadius"] = mSampleRadiusAttenuation;
      var[uniformName]["gJacobianMinMax"] = mJacobianMinMax;
@@ -1751,7 +1742,7 @@ void ReSTIR_FG::finalShadingPass(RenderContext* pRenderContext, const RenderData
      }
      FALCOR_ASSERT(mpFinalShadingPass);
 
-     if (mpRTXDI) mpFinalShadingPass->getProgram()->addDefines(mpRTXDI->getDefines());  //TODO only set once?
+     if (mpRTXDI) mpFinalShadingPass->getProgram()->addDefines(mpRTXDI->getDefines()); 
      mpFinalShadingPass->getProgram()->addDefine("USE_RTXDI", mpRTXDI ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_RESTIR_GI", mRenderMode == RenderMode::ReSTIRGI ? "1" : "0");
      mpFinalShadingPass->getProgram()->addDefine("USE_REDUCED_RESERVOIR_FORMAT", mUseReducedReservoirFormat ? "1" : "0");
