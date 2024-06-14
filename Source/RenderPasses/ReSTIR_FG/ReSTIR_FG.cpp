@@ -1308,8 +1308,6 @@ void ReSTIR_FG::generatePhotonsPass(RenderContext* pRenderContext, const RenderD
     var[nameBuf]["gPhotonRadius"] = mPhotonCollectRadius;
     var[nameBuf]["gHashScaleFactor"] = 1.f / (2 * hashRad); // Hash scale factor. 1/diameter.
 
-    // Upload constant buffer only if options changed
-
     // Fill flags
     uint flags = 0;
     if (mPhotonUseAlphaTest) flags |= 0x01;
@@ -1667,7 +1665,6 @@ void ReSTIR_FG::causticResamplingPass(RenderContext* pRenderContext, const Rende
      // Set variables
      auto var = mpCausticResamplingPass->getRootVar();
 
-     //mpScene->setRaytracingShaderData(pRenderContext, var, 1); // Set scene data
      mpSampleGenerator->setShaderData(var);                    // Sample generator
 
      // Bind Reservoir and surfaces
