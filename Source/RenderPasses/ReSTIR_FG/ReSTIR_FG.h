@@ -61,7 +61,7 @@ public:
     enum class ResamplingMode : uint
     {
         Temporal = 0u,
-        Spartial = 1u,
+        Spatial = 1u,
         SpartioTemporal = 2u
     };
 
@@ -226,11 +226,10 @@ private:
     bool mClearReservoir = true;                                    //Clears both reservoirs
     float mSampleRadiusAttenuation = 0.00f;                         //Radius for the better defined attenuation
     uint mTemporalMaxAge = 20;                                      // Max age of an temporal reservoir
-    uint mSpartialSamples = 1;                                      // Number of spartial samples
-    uint mDisocclusionBoostSamples = 2;                             // Number of spartial samples if no temporal surface was found
+    uint mspatialSamples = 1;                                      // Number of spatial samples
+    uint mDisocclusionBoostSamples = 2;                             // Number of spatial samples if no temporal surface was found
     float mSamplingRadius = 20.f;                                   // Sampling radius in pixel
     float mRelativeDepthThreshold = 0.15f;                          // Realtive Depth threshold (is neighbor 0.1 = 10% as near as the current depth)
-    float mMaterialThreshold = 0.2f;                                // Maximum absolute difference in diffuse material probability
     float mNormalThreshold = 0.6f;                                  // Cosine of maximum angle between both normals allowed
     float2 mJacobianMinMax = float2(1 / 10.f, 10.f);                // Min and Max values that are allowed for the jacobian determinant (Angle/dist too different if lower/higher)
     BiasCorrectionMode mBiasCorrectionMode = BiasCorrectionMode::RayTraced; // Bias Correction Mode
@@ -261,11 +260,11 @@ private:
     uint mCausticTemporalFilterHistoryLimit = 60;
     bool mEmissionToCausticFilter = true;
 
-    ResamplingMode mCausticResamplingMode = ResamplingMode::Temporal;
+    ResamplingMode mCausticResamplingMode = ResamplingMode::SpartioTemporal;
     uint mCausticResamplingConfidenceCap = 20;
     uint mCausticResamplingSpatialSamples = 1;
     float mCausticResamplingSpatialRadius = 2.5f;
-    bool mCausticResamplingForFGDirect = false;
+    bool mCausticResamplingForFGDirect = true;
 
     bool mUseStochasticCollect = true;                     //Stochastic collect using reservoir sampling.
     uint mStochasticCollectNumPhotons = 3;

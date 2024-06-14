@@ -52,7 +52,7 @@ cbuffer Constant
     float gSamplingRadius;          //Sampling radius
     float gDepthThreshold;          //Relative depth offset
     float gNormalThreshold;         //Maximum cosine between both Normals that is allowed
-    uint gDisocclusionBoostSamples; //Number of spartial samples if no temporal surface was found
+    uint gDisocclusionBoostSamples; //Number of spatial samples if no temporal surface was found
     float gAttenuationRadius;       //Radius for the attenuation
     float2 gJacobianMinMax;         //Minimum and Maximum values for the jacobian
     uint _pad;
@@ -249,8 +249,8 @@ void spatialResampling(uint2 pixel, inout SampleGenerator sg, inout Reservoir r,
         int2 idx = int2(pixel);
 
         float2 randSamp = (sampleNext2D(sg) * 2.f) - 1.f; //random sample in [-1,1]
-        int2 spartialOffset = int2(round(randSamp * gSamplingRadius));
-        idx += spartialOffset;
+        int2 spatialOffset = int2(round(randSamp * gSamplingRadius));
+        idx += spatialOffset;
 
         //Outside index is invalid
         if(any(idx < 0) || any(idx >= gFrameDim))
@@ -438,8 +438,8 @@ void spatiotemporalResampling(uint2 pixel, inout SampleGenerator sg, inout Reser
         {
             //Get sample from sampling mask
             float2 randSamp = (sampleNext2D(sg) * 2.f) - 1.f; //random sample in [-1,1]
-            int2 spartialOffset = int2(round(randSamp * gSamplingRadius));
-            idx = prevIdx + spartialOffset;
+            int2 spatialOffset = int2(round(randSamp * gSamplingRadius));
+            idx = prevIdx + spatialOffset;
 
             //Outside index is invalid
             if(any(idx < 0) || any(idx >= gFrameDim))

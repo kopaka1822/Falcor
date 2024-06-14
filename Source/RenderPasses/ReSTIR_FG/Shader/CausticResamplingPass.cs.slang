@@ -47,7 +47,7 @@ cbuffer Constant
     float gSamplingRadius;          //Sampling radius
     float gDepthThreshold;          //Relative depth offset
     float gNormalThreshold;         //Maximum cosine between both Normals that is allowed
-    uint gDisocclusionBoostSamples; // Number of spartial samples if no temporal surface was found
+    uint gDisocclusionBoostSamples; // Number of spatial samples if no temporal surface was found
     float2 gPhotonRadius;            //Caustic Photon Radius
 }
 
