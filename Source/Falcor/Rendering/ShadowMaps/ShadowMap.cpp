@@ -1776,8 +1776,8 @@ bool ShadowMap::renderUILeakTracing(Gui::Widgets& widget, bool leakTracingEnable
                 group.text("Hybrid Shadows (AMD FideletyFX) with 2x2 PCF used!. LTT Mask settings still apply");
             }
             bool biasChanged = false;
-            biasChanged |= group.var("Bias", mBias, 0, 256, 1);
-            biasChanged |= group.var("Slope Bias", mSlopeBias, 0.f, 50.f, 0.001f);
+            biasChanged |= group.var("Bias", mBias, 0, 2048, 1);
+            biasChanged |= group.var("Slope Bias", mSlopeBias, 0.f, 400.f, 0.001f);
 
             if (biasChanged)
             {
