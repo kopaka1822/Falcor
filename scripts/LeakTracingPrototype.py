@@ -1,9 +1,9 @@
 from pathlib import WindowsPath, PosixPath
 from falcor import *
 
-def render_graph_DeferredRenderer():
-    g = RenderGraph('DeferredRenderer')
-    g.create_pass('GBufferRaster', 'GBufferRaster', {'outputSize': 'Default', 'samplePattern': 'DirectX', 'sampleCount': 8, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': 'Back'})
+def render_graph_LeakTracingPrototype():
+    g = RenderGraph('LeakTracingPrototype')
+    g.create_pass('GBufferRaster', 'GBufferRaster', {'outputSize': 'Default', 'samplePattern': 'Center', 'sampleCount': 8, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': 'Back'})
     g.create_pass('ShadowPass', 'ShadowPass', {})
     g.create_pass('VideoRecorder', 'VideoRecorder', {})
     g.create_pass('PathBenchmark', 'PathBenchmark', {})
@@ -19,6 +19,6 @@ def render_graph_DeferredRenderer():
     g.mark_output('ShadowPass.color')
     return g
 
-DeferredRenderer = render_graph_DeferredRenderer()
-try: m.addGraph(DeferredRenderer)
+LeakTracingPrototype = render_graph_LeakTracingPrototype()
+try: m.addGraph(LeakTracingPrototype)
 except NameError: None

@@ -1,35 +1,33 @@
 from pathlib import WindowsPath, PosixPath
 from falcor import *
 
-def render_graph_DeferredRenderer():
-    g = RenderGraph('DeferredRenderer')
+def render_graph_LeakTracingPrototype():
+    g = RenderGraph('LeakTracingPrototype')
     g.create_pass('GBufferRaster', 'GBufferRaster', {'outputSize': 'Default', 'samplePattern': 'DirectX', 'sampleCount': 8, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': 'Back'})
-    g.create_pass('ToneMapper', 'ToneMapper', {'outputSize': 'Default', 'useSceneMetadata': True, 'exposureCompensation': 0.0, 'autoExposure': False, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': 'Aces', 'clamp': True, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': 'AperturePriority'})
     g.create_pass('ShadowPass', 'ShadowPass', {})
     g.create_pass('VideoRecorder', 'VideoRecorder', {})
-    g.create_pass('DLSSPass', 'DLSSPass', {'enabled': True, 'outputSize': 'Default', 'profile': 'Balanced', 'motionVectorScale': 'Relative', 'isHDR': True, 'sharpness': 0.0, 'exposure': 0.0})
+    g.create_pass('DLSSPass', 'DLSSPass', {'enabled': True, 'outputSize': 'Default', 'profile': 'Balanced', 'motionVectorScale': 'Relative', 'isHDR': False, 'useJitteredMV': False, 'sharpness': 0.0, 'exposure': 0.0})
     g.create_pass('PathBenchmark', 'PathBenchmark', {})
+    g.create_pass('TAA', 'TAA', {'alpha': 0.10000000149011612, 'colorBoxSigma': 1.0, 'antiFlicker': True})
     g.add_edge('GBufferRaster.posW', 'ShadowPass.posW')
     g.add_edge('GBufferRaster.faceNormalW', 'ShadowPass.faceNormalW')
-    g.add_edge('GBufferRaster.tangentW', 'ShadowPass.tangentW')
-    g.add_edge('GBufferRaster.texC', 'ShadowPass.texCoord')
-    g.add_edge('GBufferRaster.mtlData', 'ShadowPass.MaterialInfo')
-    g.add_edge('GBufferRaster.texGrads', 'ShadowPass.texGrads')
     g.add_edge('GBufferRaster.diffuseOpacity', 'ShadowPass.diffuse')
     g.add_edge('GBufferRaster.specRough', 'ShadowPass.specularRoughness')
     g.add_edge('GBufferRaster.emissive', 'ShadowPass.emissive')
-    g.add_edge('GBufferRaster.normW', 'ShadowPass.normalW')
     g.add_edge('GBufferRaster.guideNormalW', 'ShadowPass.guideNormalW')
     g.add_edge('ShadowPass.color', 'DLSSPass.color')
-    g.add_edge('DLSSPass.output', 'ToneMapper.src')
     g.add_edge('GBufferRaster.depth', 'DLSSPass.depth')
     g.add_edge('GBufferRaster.mvec', 'DLSSPass.mvec')
     g.add_edge('GBufferRaster.mvec', 'ShadowPass.motionVector')
     g.add_edge('VideoRecorder', 'GBufferRaster')
     g.add_edge('PathBenchmark', 'VideoRecorder')
-    g.mark_output('ToneMapper.dst')
+    g.add_edge('ShadowPass.color', 'TAA.colorIn')
+    g.add_edge('GBufferRaster.mvec', 'TAA.motionVecs')
+    g.mark_output('DLSSPass.output')
+    g.mark_output('ShadowPass.color')
+    g.mark_output('TAA.colorOut')
     return g
 
-DeferredRenderer = render_graph_DeferredRenderer()
-try: m.addGraph(DeferredRenderer)
+LeakTracingPrototype = render_graph_LeakTracingPrototype()
+try: m.addGraph(LeakTracingPrototype)
 except NameError: None
