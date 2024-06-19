@@ -33,7 +33,7 @@ namespace Falcor
 {
 namespace
 {
-const std::string kShaderFile = "Rendering/ShadowMaps/SMGaussianBlur.cs.slang";
+const std::string kShaderFile = "Rendering/ShadowMaps/Blur/SMGaussianBlur.cs.slang";
 const std::string kShaderModel = "6_5";
 
 } // namespace
