@@ -175,11 +175,10 @@ void rayGen()
     //Closest hit shader can be skipped
     uint rayFlags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES;
     float3 radiance = float3(0);
-
+    
     //Collect Caustic Photon
     if (valid)
     {
-        float3 thp = gThp[launchIndex].xyz;
         TraceRay(gPhotonAS, rayFlags, 1 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         float w = 1 / (M_PI * gPhotonRadius.x * gPhotonRadius.x);
         radiance += w * rayData.radiance;
@@ -188,16 +187,17 @@ void rayGen()
         TraceRay(gPhotonAS, rayFlags, 2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
         w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
         radiance += rayData.radiance * w;
-
-        radiance *= thp;
     }
 
+    float3 thp = gThp[launchIndex].xyz;
     ShadingData sd = loadShadingData(hit, view, lod);
     uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
     let bsdf = gScene.materials.getMaterialInstance(sd, lod, hints);
     let bsdfProperties = bsdf.getProperties(sd);
 
     radiance += bsdfProperties.emission;
+
+    radiance *= thp;
 
     gColor[launchIndex] = float4(radiance, 1.f);
 
