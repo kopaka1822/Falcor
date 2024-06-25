@@ -19,6 +19,19 @@ import HBAOData;
 #define MSAA_SAMPLES 1
 #endif
 
+#if DEPTH_MODE == DEPTH_MODE_SINGLE
+// disable all stencil operations if no secondary pass exists
+#define STENCIL(x) 
+#else
+#define STENCIL(x) x
+#endif
+
+struct PSOut
+{
+    float ao1;
+    STENCIL(uint stencil);
+};
+
 cbuffer StaticCB
 {
     HBAOData gData;
@@ -118,14 +131,82 @@ bool RecomputeAO(float3 P, float3 N, float3 S, inout float ao)
     return angleTerm > 0.0 && distanceTerm.x <= 0.0; // sample is in positive hemisphere but further away than the radius
 }
 
-float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+// converts from screen uv coordinates to pixel coordinates of stochastic depth map.
+// UV can be negative or greater than one if the guard band for the SD-map is used (gData.sdGuard)
+int2 UVToSDPixel(float2 uv)
 {
+    int2 pixel = int2(floor(uv * gData.quarterResolution)) + int2(gData.sdGuard);
+    return clamp(pixel, 0, int2(gData.quarterResolution) + gData.sdGuard * 2 - 1);
+}
+
+struct IntersectionResult {
+    float tStart;  // t parameter for the intersection with the sphere
+    float tEnd;    // t parameter for the exit point from the sphere or intersection with the plane
+    bool valid;    // Indicates if the intersection is valid
+};
+
+IntersectionResult CalculateIntersections(float3 P, float3 N, float3 S, float r) {
+    IntersectionResult result;
+    
+    // Normalize S and N to ensure they are unit vectors
+    S = normalize(S);
+    N = normalize(N);
+    
+    // Initialize variables
+    result.valid = false;
+    result.tStart = 0.0f; // Default value
+    result.tEnd = 0.0f;   // Default value
+    
+    // Calculate the intersection with the plane
+    float tPlane = dot(N, P) / dot(N, S);
+    
+    // Calculate the intersection with the sphere
+    float a = dot(S, S);
+    float b = 2.0 * dot(S, -P);
+    float c = dot(P, P) - r * r;
+    float discriminant = b * b - 4.0 * a * c;
+    
+    if (discriminant >= 0) {
+        result.valid = true;
+        float sqrtDiscriminant = sqrt(discriminant);
+        float t1 = (-b + sqrtDiscriminant) / (2.0 * a);
+        float t2 = (-b - sqrtDiscriminant) / (2.0 * a);
+        
+        // Determine the entry (smallest t) and exit (largest t) points
+        result.tStart = min(t1, t2);
+        float tExit = max(t1, t2);
+        
+        // Determine the final tEnd value
+        result.tEnd = min(tPlane, tExit);
+        
+        // Validate that the plane intersection is not before the entry point
+        if (tPlane < result.tStart) {
+            result.valid = false;
+        }
+    }
+
+    result.tStart = max(0.0, result.tStart);
+    result.tEnd = max(0.0, result.tEnd);
+    
+    return result;
+}
+
+
+PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+{
+    PSOut output;
+    output.ao1 = 0.0;
+    STENCIL(output.stencil = 0);
+
     // adjust texC for quarter resolution texcoord
     svPos.xy = floor(svPos.xy) * 4.0 + quarterOffset + 0.5;
     texC = svPos.xy * gData.invResolution;
     float linearDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, texC, 0).r;
     if (linearDepth >= gCamera.data.farZ)
-        return 1.0f;
+    {
+        output.ao1 = 1.0;
+        return output;
+    }
 
     const float3 ViewPosition = UVToViewSpace(texC, linearDepth);
 
@@ -141,7 +222,10 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
     // early out when radius is too small
     [branch]
     if (RadiusInPixels < 1.0)
-        return 1.0;
+    {
+        output.ao1 = 1.0;
+        return output;
+    }
 
     // Compute AO
     // Divide by NUM_STEPS+1 so that the farthest samples are not fully attenuated
@@ -150,7 +234,6 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
     const float Alpha = 2.0 * 3.141f / NUM_DIRECTIONS;
 
-    float AO = 0.0;
     // sample NUM_DIRECTIONS directions on the view space disc
     [unroll]
     for (int i = 0; i < NUM_DIRECTIONS; ++i)
@@ -171,11 +254,22 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
             float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
             float ao = 0.0;
-            if(RecomputeAO(ViewPosition, ViewNormal, S, ao))
+            if(RecomputeAO(ViewPosition, ViewNormal, S, ao) && DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
             {
-                // TODO add intervals
+                // calculate intersection with sphere
+                IntersectionResult ir = CalculateIntersections(ViewPosition, ViewNormal, S, gData.radius);
+                if(ir.valid)
+                {
+                    STENCIL(output.stencil |= 1u << (i * NUM_STEPS + step));
+                    uint rayMin, rayMax;
+                    rayMin = asuint(ir.tStart);
+                    rayMax = asuint(ir.tEnd);
+                    uint2 pixel = UVToSDPixel(snappedSampleUV);
+                    InterlockedMin(gRayMinAccess[pixel], rayMin);
+                    InterlockedMax(gRayMaxAccess[pixel], rayMax);
+                }
             }
-            AO += ao;
+            output.ao1 += ao;
             
             /*else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
             {
@@ -214,10 +308,14 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         }
     }
 
-    AO /= (NUM_DIRECTIONS * NUM_STEPS);
-    // artistic modifications
-    float res = saturate(1.0 - AO * 2.0);
-    res = pow(res, gData.powerExponent);
+    output.ao1 /= (NUM_DIRECTIONS * NUM_STEPS);
 
-    return res;
+    STENCIL(if(output.stencil == 0))
+    {
+        float res = saturate(1.0 - output.ao1 * 2.0);
+        output.ao1 = pow(res, gData.powerExponent);
+    }
+    
+
+    return output;
 }

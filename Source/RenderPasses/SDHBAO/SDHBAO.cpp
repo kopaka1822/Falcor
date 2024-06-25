@@ -120,9 +120,9 @@ RenderPassReflection SDHBAO::reflect(const CompileData& compileData)
     reflector.addInput(kNormal, "normals").bindFlags(ResourceBindFlags::ShaderResource);//.texture2D(0, 0, 1, 1, 16);
 
     // ao mask and rayMin/rayMax texures
-    reflector.addOutput(kAoStencil, "internal ao mask").format(ResourceFormat::R32Uint).texture2D(dstWidth, dstWidth, 1, 1, 16); // for 32 samples per pixel
-    reflector.addOutput(kInternalRayMin, "internal ray min").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dstWidth, dstWidth);
-    reflector.addOutput(kInternalRayMax, "internal ray max").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dstWidth, dstWidth);
+    reflector.addOutput(kAoStencil, "internal ao mask").format(ResourceFormat::R32Uint).texture2D(dstWidth, dstHeight, 1, 1, 16); // for 32 samples per pixel
+    reflector.addOutput(kInternalRayMin, "internal ray min").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dstWidth, dstHeight);
+    reflector.addOutput(kInternalRayMax, "internal ray max").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dstWidth, dstHeight);
 
     reflector.addOutput(kAmbientMap, "ambient occlusion (deinterleaved)").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource)
         .texture2D(dstWidth, dstHeight, 1, 1, 16).format(ResourceFormat::RG8Unorm);
@@ -167,6 +167,7 @@ void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
         mData.resolution = float2(renderData.getDefaultTextureDims().x, renderData.getDefaultTextureDims().y);
         mData.invResolution = float2(1.0f) / mData.resolution;
         mData.noiseScale = mData.resolution / 4.0f; // noise texture is 4x4 resolution
+        mData.quarterResolution = float2(pDepthIn->getWidth(), pDepthIn->getHeight());
         mData.invQuarterResolution = float2(1.0f) / float2(pDepthIn->getWidth(), pDepthIn->getHeight());
         vars["StaticCB"].setBlob(mData);
 
