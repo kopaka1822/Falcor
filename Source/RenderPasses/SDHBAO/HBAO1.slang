@@ -12,7 +12,7 @@ import HBAOData;
 #define DEPTH_MODE_STOCHASTIC 2
 
 #ifndef DEPTH_MODE
-#define DEPTH_MODE DEPTH_MODE_DUAL
+#define DEPTH_MODE DEPTH_MODE_SINGLE
 #endif
 
 #ifndef MSAA_SAMPLES
@@ -32,18 +32,12 @@ cbuffer PerFrameCB
     uint sliceIndex;
 }
 
-SamplerState gNoiseSampler;
 SamplerState gTextureSampler;
-
-// quarter resolution texture s
 Texture2D<float> gDepthTexQuarter;
-Texture2D<float> gDepthTex2Quarter;
-
-Texture2DMSArray<float> gsDepthTex;
-
+Texture2DArray<float4> gsDepthTex; // stochastic depth map
 Texture2D gNormalTex;
-Texture2D gNoiseTex; // xy = random normalized direciton, zw = normalized random number => SNORM texture format
-
+RWTexture2D<uint> gRayMinAccess;
+RWTexture2D<uint> gRayMaxAccess;
 
 float2 Rotate2D(float2 vec, float theta)
 {
@@ -93,23 +87,16 @@ float GetAORadiusInPixels(float ViewDepth)
 }
 
 // distance falloff function
-float2 Falloff(float DistanceSquare)
+float Falloff(float DistanceSquare)
 {
-    // 1.0 - (d*d)/(r*r)
-    float2 res;
-    res.x = DistanceSquare * gData.negInvRsq + 1.0;
-    res.y = 1.0; // no distance falloff for dark halos
-    //res.y = res.x <= 0.0 ? 1.0 : res.x;
-    return res;
-    //return 1.0 - DistanceSquare / (gData.radius * gData.radius);
-
+    return DistanceSquare * gData.negInvRsq + 1.0;
 }
 
 // ambient occlusion kernel
 // P: view space position
 // N: view space normal
 // S: view space sample position
-float2 ComputeAO(float3 P, float3 N, float3 S)
+float ComputeAO(float3 P, float3 N, float3 S)
 {
     float3 V = S - P;
     float VdotV = dot(V, V);
@@ -119,19 +106,19 @@ float2 ComputeAO(float3 P, float3 N, float3 S)
 }
 
 // returns true if the given sample requires more depth layers
-bool RecomputeAO(float3 P, float3 N, float3 S, inout float2 ao)
+bool RecomputeAO(float3 P, float3 N, float3 S, inout float ao)
 {
     float3 V = S - P;
     float VdotV = dot(V, V);
     float NdotV = dot(N, V) * rsqrt(VdotV);
 
     float angleTerm = saturate(NdotV - gData.NdotVBias);
-    float2 distanceTerm = saturate(Falloff(VdotV));
+    float distanceTerm = saturate(Falloff(VdotV));
     ao = angleTerm * distanceTerm;
     return angleTerm > 0.0 && distanceTerm.x <= 0.0; // sample is in positive hemisphere but further away than the radius
 }
 
-float2 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 {
     // adjust texC for quarter resolution texcoord
     svPos.xy = floor(svPos.xy) * 4.0 + quarterOffset + 0.5;
@@ -163,7 +150,7 @@ float2 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
     const float Alpha = 2.0 * 3.141f / NUM_DIRECTIONS;
 
-    float2 AO = 0.0; // bright / dark version
+    float AO = 0.0;
     // sample NUM_DIRECTIONS directions on the view space disc
     [unroll]
     for (int i = 0; i < NUM_DIRECTIONS; ++i)
@@ -181,27 +168,16 @@ float2 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
         {
             // calculate sample position in uv space (round ray pixels to sample in pixel center)
             float2 snappedSampleUV = texC + round(RayPixels * Direction) * gData.invQuarterResolution;
-            if (DEPTH_MODE == DEPTH_MODE_SINGLE)
+            float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+            float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
+            float ao = 0.0;
+            if(RecomputeAO(ViewPosition, ViewNormal, S, ao))
             {
-                float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
-                float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
-                AO += ComputeAO(ViewPosition, ViewNormal, S);
+                // TODO add intervals
             }
-            else if (DEPTH_MODE == DEPTH_MODE_DUAL)
-            {
-                float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
-                float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
-                float2 ao = 0.0;
-                [branch]
-                if (RecomputeAO(ViewPosition, ViewNormal, S, ao))
-                {
-                    float linearSampleDepth = gDepthTex2Quarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
-                    float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
-                    ao = max(ao, ComputeAO(ViewPosition, ViewNormal, S));
-                }
-                AO += ao;
-            }
-            else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
+            AO += ao;
+            
+            /*else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
             {
                 float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
                 
@@ -232,7 +208,7 @@ float2 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                     }
                 }
                 AO += ao;
-            }
+            }*/
 
             RayPixels += StepSizePixels;
         }
@@ -240,7 +216,7 @@ float2 main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
     AO /= (NUM_DIRECTIONS * NUM_STEPS);
     // artistic modifications
-    float2 res = saturate(1.0 - AO * 2.0);
+    float res = saturate(1.0 - AO * 2.0);
     res = pow(res, gData.powerExponent);
 
     return res;

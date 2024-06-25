@@ -34,19 +34,21 @@ namespace
     const char kDesc[] = "HBAO Plus von NVIDIA with interleaved texture access";
 
     const std::string kDepth = "depth";
-    const std::string kDepth2 = "depth2";
 
-    const std::string ksDepth = "stochasticDepth";
     const std::string kNormal = "normals";
+
+    const std::string kAoStencil = "aomask";
+    const std::string kInternalRayMin = "internalRayMin";
+    const std::string kInternalRayMax = "internalRayMax";
+
 
     const std::string kAmbientMap = "ambientMap";
 
-    const std::string kProgram = "RenderPasses/HBAO/HBAO.ps.slang";
+    const std::string kProgram = "RenderPasses/SDHBAO/HBAO1.slang";
 
     const Gui::DropdownList kDepthModeDropdown =
     {
         { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
-        { (uint32_t)DepthMode::DualDepth, "DualDepth" },
         { (uint32_t)DepthMode::StochasticDepth, "StochasticDepth" },
     };
 
@@ -114,10 +116,13 @@ RenderPassReflection SDHBAO::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addInput(kDepth, "linear-depth (deinterleaved version)").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 1, 1, 16);
-    reflector.addInput(kDepth2, "linear-depth2 (deinterleaved version)").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 1, 1, 16);
 
     reflector.addInput(kNormal, "normals").bindFlags(ResourceBindFlags::ShaderResource);//.texture2D(0, 0, 1, 1, 16);
-    reflector.addInput(ksDepth, "linearized stochastic depths").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 0, 1, 0);
+
+    // ao mask and rayMin/rayMax texures
+    reflector.addOutput(kAoStencil, "internal ao mask").format(ResourceFormat::R32Uint).texture2D(dstWidth, dstWidth, 1, 1, 16); // for 32 samples per pixel
+    reflector.addOutput(kInternalRayMin, "internal ray min").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dstWidth, dstWidth);
+    reflector.addOutput(kInternalRayMax, "internal ray max").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dstWidth, dstWidth);
 
     reflector.addOutput(kAmbientMap, "ambient occlusion (deinterleaved)").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource)
         .texture2D(dstWidth, dstHeight, 1, 1, 16).format(ResourceFormat::RG8Unorm);
@@ -129,13 +134,10 @@ void SDHBAO::compile(RenderContext* pRenderContext, const CompileData& compileDa
 {
     mDirty = true;
 
-    // static defines
-    auto sdepths = compileData.connectedResources.getField(ksDepth);
-    if (!sdepths) throw std::runtime_error("HBAOPlus::compile - missing incoming reflection information");
-
+    
     //mpPass->getProgram()->addDefine("MSAA_SAMPLES", std::to_string(sdepths->getSampleCount()));
-    if (sdepths->getArraySize() == 1) mpPass->getProgram()->removeDefine("STOCHASTIC_ARRAY");
-    else mpPass->getProgram()->addDefine("STOCHASTIC_ARRAY");
+    //if (sdepths->getArraySize() == 1) mpPass->getProgram()->removeDefine("STOCHASTIC_ARRAY");
+    //else mpPass->getProgram()->addDefine("STOCHASTIC_ARRAY");
 }
 
 void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -143,10 +145,12 @@ void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
     if (!mpScene) return;
 
     auto pDepthIn = renderData[kDepth]->asTexture();
-    auto pDepth2In = renderData[kDepth2]->asTexture();
-    auto psDepth = renderData[ksDepth]->asTexture();
     auto pNormal = renderData[kNormal]->asTexture();
     auto pAmbientOut = renderData[kAmbientMap]->asTexture();
+    auto pAoMask = renderData[kAoStencil]->asTexture();
+
+    auto pInternalRayMin = renderData[kInternalRayMin]->asTexture();
+    auto pInternalRayMax = renderData[kInternalRayMax]->asTexture();
 
     if (!mEnabled)
     {
@@ -175,23 +179,42 @@ void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
 
     pCamera->setShaderData(vars["PerFrameCB"]["gCamera"]);
     vars["gNormalTex"] = pNormal;
-    vars["gsDepthTex"] = psDepth;
 
     auto& dict = renderData.getDictionary();
     auto guardBand = dict.getValue("guardBand", 0);
     setGuardBandScissors(*mpPass->getState(), uint2(pDepthIn->getWidth(), pDepthIn->getHeight()), guardBand / 4);
 
-    for (int sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
     {
-        mpFbo->attachColorTarget(pAmbientOut, 0, 0, sliceIndex, 1);
-        vars["gDepthTexQuarter"].setSrv(pDepthIn->getSRV(0, 1, sliceIndex, 1));
-        vars["gDepthTex2Quarter"].setSrv(pDepth2In->getSRV(0, 1, sliceIndex, 1));
-        vars["PerFrameCB"]["Rand"] = mNoiseTexture[sliceIndex];
-        vars["PerFrameCB"]["quarterOffset"] = uint2(sliceIndex % 4, sliceIndex / 4);
-        vars["PerFrameCB"]["sliceIndex"] = sliceIndex;
+        FALCOR_PROFILE(pRenderContext, "AO 1");
 
-        mpPass->execute(pRenderContext, mpFbo, false);
+        // rayMin/rayMax setup
+        if (mDepthMode == DepthMode::StochasticDepth)
+        {
+            FALCOR_PROFILE(pRenderContext, "Clear RayMinMax");
+            pRenderContext->clearUAV(pInternalRayMax->getUAV().get(), uint4(0u));
+            pRenderContext->clearUAV(pInternalRayMin->getUAV().get(), uint4(asuint(std::numeric_limits<float>::max())));
+        }
+
+        vars["gRayMinAccess"] = pInternalRayMin;
+        vars["gRayMaxAccess"] = pInternalRayMax;
+
+        // render
+        for (int sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
+        {
+            mpFbo->attachColorTarget(pAmbientOut, 0, 0, sliceIndex, 1);
+            mpFbo->attachColorTarget(pAoMask, 1, 0, sliceIndex, 1);
+            vars["gDepthTexQuarter"].setSrv(pDepthIn->getSRV(0, 1, sliceIndex, 1));
+            vars["PerFrameCB"]["Rand"] = mNoiseTexture[sliceIndex];
+            vars["PerFrameCB"]["quarterOffset"] = uint2(sliceIndex % 4, sliceIndex / 4);
+            vars["PerFrameCB"]["sliceIndex"] = sliceIndex;
+
+            mpPass->execute(pRenderContext, mpFbo, false);
+        }
     }
+
+    if (mDepthMode != DepthMode::StochasticDepth) return;
+
+    // TODO render stochastic depth map
 }
 
 void SDHBAO::renderUI(Gui::Widgets& widget)
