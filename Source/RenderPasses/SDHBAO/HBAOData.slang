@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-21, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -26,49 +26,22 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #pragma once
-#include "Falcor.h"
-#include "Core/Pass/FullScreenPass.h"
-#include "RenderGraph/RenderPass.h"
-#include "../VAO/DepthMode.h"
-#include "HBAOData.slang"
+#include "Utils/HostDeviceShared.slangh"
 
-using namespace Falcor;
+BEGIN_NAMESPACE_FALCOR
 
-class HBAO : public RenderPass
+struct HBAOData
 {
-public:
-    FALCOR_PLUGIN_CLASS(HBAO, "HBAO", "Horizon Based Ambient Occlusion");
+    float2 invResolution; // (1/width, 1/height)
+    float2 resolution;
 
-    static ref<HBAO> create(ref<Device> pDevice, const Properties& props);
+    float radius = 0.3f;
+    float negInvRsq = -1.0f;
+    float NdotVBias = 0.1f;
+    float powerExponent = 2.0f;
 
-    HBAO(ref<Device> pDevice, const Properties& props);
-
-    virtual Properties getProperties() const override;
-    virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
-    virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
-    virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override { mpScene = pScene; }
-    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
-    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
-
-    void setRadius(float r);
-    void setDepthMode(DepthMode m);
-
-    std::vector<float4> genNoiseTexture();
-private:
-
-    ref<Fbo> mpFbo;
-    ref<FullScreenPass> mpPass;
-    ref<Sampler> mpTextureSampler;
-
-    ref<Scene> mpScene;
-
-    DepthMode mDepthMode = DepthMode::SingleDepth;
-    bool mEnabled = true;
-
-    HBAOData mData;
-    bool mDirty = true;
-
-    std::vector<float4> mNoiseTexture;
+    float2 noiseScale = float2(1, 1);
+    float2 invQuarterResolution; // for interleaved
 };
+
+END_NAMESPACE_FALCOR

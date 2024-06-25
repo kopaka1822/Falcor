@@ -34,14 +34,14 @@
 
 using namespace Falcor;
 
-class HBAO : public RenderPass
+class SDHBAO : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(HBAO, "HBAO", "Horizon Based Ambient Occlusion");
+    FALCOR_PLUGIN_CLASS(SDHBAO, "SDHBAO", "Stochastic Depth Horizon Based Ambient Occlusion");
 
-    static ref<HBAO> create(ref<Device> pDevice, const Properties& props);
+    static ref<SDHBAO> create(ref<Device> pDevice, const Properties& props);
 
-    HBAO(ref<Device> pDevice, const Properties& props);
+    SDHBAO(ref<Device> pDevice, const Properties& props);
 
     virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
