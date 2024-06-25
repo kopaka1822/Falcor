@@ -351,7 +351,11 @@ void StochasticDepthMap::renderUI(Gui::Widgets& widget)
         mCullMode = (RasterizerState::CullMode)cullMode;
 
     if (widget.dropdown("Sample Count", kSampleCountList, mSampleCount))
+    {
+        mAlpha = 1.5f / mSampleCount;
         requestRecompile(); // reload pass (recreate texture)
+    }
+        
 
     if (widget.var("Alpha", mAlpha, 0.0f, 1.0f, 0.01f))
         requestRecompile();

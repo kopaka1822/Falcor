@@ -1,3 +1,4 @@
+# Graphs
 from pathlib import WindowsPath, PosixPath
 from falcor import *
 
@@ -8,7 +9,7 @@ def render_graph_HBAO():
     g.create_pass('LinearizeDepth', 'LinearizeDepth', {'depthFormat': 'R32Float'})
     g.create_pass('EnvMapPass', 'EnvMapPass', {})
     g.create_pass('RayShadow', 'RayShadow', {})
-    g.create_pass('DepthPeeling', 'DepthPeeling', {'cullMode': 'Back', 'depthFormat': 'D32Float', 'minSeparationDistance': 0.5})
+    g.create_pass('DepthPeeling', 'DepthPeeling', {'cullMode': 'Back', 'depthFormat': 'D32Float', 'minSeparationDistance': 0.019999999552965164})
     g.create_pass('MaterialDoubleSided', 'MaterialDoubleSided', {})
     g.create_pass('GuardBand', 'GuardBand', {'guardBand': 64})
     g.create_pass('ToneMapper', 'ToneMapper', {'outputSize': 'Default', 'useSceneMetadata': True, 'exposureCompensation': 0.0, 'autoExposure': False, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': 'Aces', 'clamp': True, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': 'AperturePriority'})
@@ -17,8 +18,9 @@ def render_graph_HBAO():
     g.create_pass('InterleaveTexture0', 'InterleaveTexture', {})
     g.create_pass('Ambient', 'ImageEquation', {'formula': 'I0[xy].rrra', 'format': 'RGBA32Float'})
     g.create_pass('Diffuse', 'ImageEquation', {'formula': 'I0[xy].r * I1[xy]', 'format': 'RGBA32Float'})
-    g.create_pass('HBAO', 'HBAO', {'radius': 1.0, 'depthMode': 'SingleDepth', 'depthBias': 0.10000000149011612, 'exponent': 2.0})
+    g.create_pass('HBAO', 'HBAO', {'radius': 0.30000001192092896, 'depthMode': 'StochasticDepth', 'depthBias': 0.10000000149011612, 'exponent': 2.0})
     g.create_pass('DeinterleaveTexture', 'DeinterleaveTexture', {})
+    g.create_pass('StochasticDepthMap', 'StochasticDepthMap', {'SampleCount': 4, 'Alpha': 0.375, 'CullMode': 'Back', 'linearize': True, 'depthFormat': 'D32Float', 'AlphaTest': True, 'Implementation': 'Default'})
     g.add_edge('GBufferRaster.depth', 'ForwardLighting.depth')
     g.add_edge('EnvMapPass.color', 'ForwardLighting.color')
     g.add_edge('RayShadow.visibility', 'ForwardLighting.visibilityBuffer')
@@ -41,10 +43,9 @@ def render_graph_HBAO():
     g.add_edge('CrossBilateralBlurBL.colorOut', 'Ambient.I0')
     g.add_edge('Ambient.out', 'Diffuse.I0')
     g.add_edge('GBufferRaster.normW', 'RayShadow.normalW')
+    g.add_edge('GBufferRaster.depth', 'StochasticDepthMap.depthMap')
+    g.add_edge('StochasticDepthMap.stochasticDepth', 'HBAO.stochasticDepth')
     g.mark_output('Ambient.out')
     g.mark_output('Diffuse.out')
     return g
-
-HBAO = render_graph_HBAO()
-try: m.addGraph(HBAO)
-except NameError: None
+m.addGraph(render_graph_HBAO())

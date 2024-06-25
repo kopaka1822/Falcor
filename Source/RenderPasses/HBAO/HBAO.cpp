@@ -116,7 +116,7 @@ RenderPassReflection HBAO::reflect(const CompileData& compileData)
     reflector.addInput(kDepth2, "linear-depth2 (deinterleaved version)").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 1, 1, 16);
 
     reflector.addInput(kNormal, "normals").bindFlags(ResourceBindFlags::ShaderResource);//.texture2D(0, 0, 1, 1, 16);
-    //reflector.addInput(ksDepth, "linearized stochastic depths").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 0, 1, 0);
+    reflector.addInput(ksDepth, "linearized stochastic depths").bindFlags(ResourceBindFlags::ShaderResource).texture2D(0, 0, 0, 1, 0);
 
     reflector.addOutput(kAmbientMap, "ambient occlusion (deinterleaved)").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource)
         .texture2D(dstWidth, dstHeight, 1, 1, 16).format(ResourceFormat::RG8Unorm);
@@ -129,12 +129,12 @@ void HBAO::compile(RenderContext* pRenderContext, const CompileData& compileData
     mDirty = true;
 
     // static defines
-    //auto sdepths = compileData.connectedResources.getField(ksDepth);
-    //if (!sdepths) throw std::runtime_error("HBAOPlus::compile - missing incoming reflection information");
+    auto sdepths = compileData.connectedResources.getField(ksDepth);
+    if (!sdepths) throw std::runtime_error("HBAOPlus::compile - missing incoming reflection information");
 
     //mpPass->getProgram()->addDefine("MSAA_SAMPLES", std::to_string(sdepths->getSampleCount()));
-    //if (sdepths->getArraySize() == 1) mpPass->getProgram()->removeDefine("STOCHASTIC_ARRAY");
-    //else mpPass->getProgram()->addDefine("STOCHASTIC_ARRAY");
+    if (sdepths->getArraySize() == 1) mpPass->getProgram()->removeDefine("STOCHASTIC_ARRAY");
+    else mpPass->getProgram()->addDefine("STOCHASTIC_ARRAY");
 }
 
 void HBAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -143,7 +143,7 @@ void HBAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     auto pDepthIn = renderData[kDepth]->asTexture();
     auto pDepth2In = renderData[kDepth2]->asTexture();
-    //auto psDepth = renderData[ksDepth]->asTexture();
+    auto psDepth = renderData[ksDepth]->asTexture();
     auto pNormal = renderData[kNormal]->asTexture();
     auto pAmbientOut = renderData[kAmbientMap]->asTexture();
 
@@ -174,7 +174,7 @@ void HBAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     pCamera->setShaderData(vars["PerFrameCB"]["gCamera"]);
     vars["gNormalTex"] = pNormal;
-    //vars["gsDepthTex"] = psDepth;
+    vars["gsDepthTex"] = psDepth;
 
     auto& dict = renderData.getDictionary();
     auto guardBand = dict.getValue("guardBand", 0);
