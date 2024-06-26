@@ -46,6 +46,7 @@ namespace
     const std::string kAmbientMap = "ambientMap";
 
     const std::string kProgram = "RenderPasses/SDHBAO/HBAO1.slang";
+    const std::string kProgram2 = "RenderPasses/SDHBAO/HBAO2.slang";
 
     const Gui::DropdownList kDepthModeDropdown =
     {
@@ -83,7 +84,9 @@ SDHBAO::SDHBAO(ref<Device> pDevice, const Properties& props)
     }
 
     mpFbo = Fbo::create(mpDevice);
+    mpFbo2 = Fbo::create(mpDevice);
     mpPass = FullScreenPass::create(mpDevice, kProgram);
+    mpPass2 = FullScreenPass::create(mpDevice, kProgram2);
     // create sampler
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point).setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
@@ -174,6 +177,7 @@ void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
     }
 
     auto vars = mpPass->getRootVar();
+    auto vars2 = mpPass2->getRootVar();
 
     if (mDirty)
     {
@@ -184,23 +188,27 @@ void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
         mData.quarterResolution = float2(pDepthIn->getWidth(), pDepthIn->getHeight());
         mData.invQuarterResolution = float2(1.0f) / float2(pDepthIn->getWidth(), pDepthIn->getHeight());
         vars["StaticCB"].setBlob(mData);
-
+        vars2["StaticCB"].setBlob(mData);
 
         vars["gTextureSampler"] = mpTextureSampler;
+        vars2["gTextureSampler"] = mpTextureSampler;
         mDirty = false;
     }
 
     auto pCamera = mpScene->getCamera().get();
 
     pCamera->setShaderData(vars["PerFrameCB"]["gCamera"]);
+    pCamera->setShaderData(vars2["PerFrameCB"]["gCamera"]);
     vars["gNormalTex"] = pNormal;
+    vars2["gNormalTex"] = pNormal;
 
     auto& dict = renderData.getDictionary();
     auto guardBand = dict.getValue("guardBand", 0);
-    setGuardBandScissors(*mpPass->getState(), uint2(pDepthIn->getWidth(), pDepthIn->getHeight()), guardBand / 4);
 
     {
         FALCOR_PROFILE(pRenderContext, "AO 1");
+
+        setGuardBandScissors(*mpPass->getState(), uint2(pDepthIn->getWidth(), pDepthIn->getHeight()), guardBand / 4);
 
         // rayMin/rayMax setup
         if (mDepthMode == DepthMode::StochasticDepth)
@@ -244,8 +252,25 @@ void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
 
     // second AO pass
     {
-        FALCOR_PROFILE(pRenderContext, "AO 1");
-        // TODO
+        FALCOR_PROFILE(pRenderContext, "AO 2");
+
+        setGuardBandScissors(*mpPass2->getState(), uint2(pDepthIn->getWidth(), pDepthIn->getHeight()), guardBand / 4);
+
+        vars2["gsDepthTex"] = pStochasticDepthMap;
+
+        // render
+        for (int sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
+        {
+            mpFbo2->attachColorTarget(pAmbientOut, 0, 0, sliceIndex, 1);
+            vars2["gDepthTexQuarter"].setSrv(pDepthIn->getSRV(0, 1, sliceIndex, 1));
+            vars2["gAO1"].setSrv(pAmbientOut->getSRV(0, 1, sliceIndex, 1));
+            vars2["gAoMask"].setSrv(pAoMask->getSRV(0, 1, sliceIndex, 1));
+            vars2["PerFrameCB"]["Rand"] = mNoiseTexture[sliceIndex];
+            vars2["PerFrameCB"]["quarterOffset"] = uint2(sliceIndex % 4, sliceIndex / 4);
+            vars2["PerFrameCB"]["sliceIndex"] = sliceIndex;
+
+            mpPass2->execute(pRenderContext, mpFbo2, false);
+        }
     }
 }
 

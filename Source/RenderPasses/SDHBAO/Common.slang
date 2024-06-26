@@ -41,7 +41,6 @@ cbuffer PerFrameCB
 
 SamplerState gTextureSampler;
 Texture2D<float> gDepthTexQuarter;
-Texture2DArray<float4> gsDepthTex; // stochastic depth map
 Texture2D gNormalTex;
 
 float2 Rotate2D(float2 vec, float theta)

@@ -5,11 +5,11 @@ RWTexture2D<uint> gRayMaxAccess;
 
 struct PSOut
 {
-    float ao1;
-    STENCIL(uint stencil);
+    float ao1 : SV_TARGET0;
+    STENCIL(uint stencil : SV_TARGET1);
 };
 
-PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) 
 {
     PSOut output;
     output.ao1 = 0.0;
@@ -71,7 +71,7 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
             float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
             float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
             float ao = 0.0;
-            if(RecomputeAO(ViewPosition, ViewNormal, S, ao) && DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
+            if(RecomputeAO(ViewPosition, ViewNormal, S, ao) && DEPTH_MODE == DEPTH_MODE_STOCHASTIC && RayPixels * 4.0 > 6.0)
             {
                 // calculate intersection with sphere
                 IntersectionResult ir = CalculateIntersections(ViewPosition, ViewNormal, S, gData.radius);
@@ -87,40 +87,6 @@ PSOut main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
                 }
             }
             output.ao1 += ao;
-            
-            /*else if (DEPTH_MODE == DEPTH_MODE_STOCHASTIC)
-            {
-                float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
-                
-                float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
-                float2 ao = 0.0;
-                [branch]
-                if (RecomputeAO(ViewPosition, ViewNormal, S, ao))
-                {
-#ifdef STOCHASTIC_ARRAY
-                    int2 pixelCoord = int2(floor(snappedSampleUV * gData.resolution * 0.25));
-#else
-                    int2 pixelCoord = int2(floor(snappedSampleUV * gData.resolution));
-#endif
-                    const float depthRange = gCamera.data.farZ - gCamera.data.nearZ;
-                    const float depthOffset = gCamera.data.nearZ;
-                    [unroll]
-                    for (uint i = 0; i < MSAA_SAMPLES; ++i)
-                    {
-#ifdef STOCHASTIC_ARRAY
-                        float linearSampleDepth = gsDepthTex.Load(int3(pixelCoord, sliceIndex), i);
-#else
-                        float linearSampleDepth = gsDepthTex.Load(int3(pixelCoord, 0), i);
-#endif
-                        // linearSampleDepth is in [0, 1] => scale accordingly
-                        linearSampleDepth = linearSampleDepth * depthRange + depthOffset;
-                        float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
-                        ao = max(ao, ComputeAO(ViewPosition, ViewNormal, S));
-                    }
-                }
-                AO += ao;
-            }*/
-
             RayPixels += StepSizePixels;
         }
     }

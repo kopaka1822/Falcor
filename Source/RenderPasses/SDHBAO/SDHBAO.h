@@ -60,6 +60,9 @@ private:
 
     ref<Fbo> mpFbo;
     ref<FullScreenPass> mpPass;
+    ref<Fbo> mpFbo2;
+    ref<FullScreenPass> mpPass2;
+
     ref<Sampler> mpTextureSampler;
 
     ref<Scene> mpScene;
