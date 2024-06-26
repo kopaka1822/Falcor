@@ -206,10 +206,10 @@ RenderPassReflection StochasticDepthMapRT::reflect(const CompileData& compileDat
     }
 
     RenderPassReflection reflector;
-    reflector.addInput(kDepthIn, "non-linear (primary) depth map").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kDepthIn, "(optional) non-linear (primary) depth map").bindFlags(ResourceBindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addInput(kStencil, "(optional) stencil-mask").format(ResourceFormat::R8Uint).flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addInput(kRayMin, "min ray T distance for depth values").flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addInput(kRayMax, "max ray T distance for depth values").flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addInput(kRayMin, "(optional) min ray T distance for depth values").flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addInput(kRayMax, "(optional) max ray T distance for depth values").flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(ksDepth, "stochastic depths in [0,1]").bindFlags(ResourceBindFlags::AllColorViews).format(depthFormat).texture2D(0, 0, 1, 1, layerCount);
     reflector.addInternal(kInternalStencil, "stencil-mask").bindFlags(ResourceBindFlags::DepthStencil).format(ResourceFormat::D32FloatS8X24);
     return reflector;
@@ -232,7 +232,8 @@ void StochasticDepthMapRT::execute(RenderContext* pRenderContext, const RenderDa
 {
     if (!mpScene) return;
 
-    auto pDepthIn = renderData[kDepthIn]->asTexture();
+    ref<Texture> pDepthIn;
+    if(renderData[kDepthIn]) pDepthIn = renderData[kDepthIn]->asTexture();
     auto psDepths = renderData[ksDepth]->asTexture();
     ref<Texture> pStencilMask;
     if (renderData[kStencil]) pStencilMask = renderData[kStencil]->asTexture();

@@ -28,6 +28,7 @@
 #include "SDHBAO.h"
 #include "../Utils/GuardBand/guardband.h"
 #include <random>
+#include "RenderGraph/RenderGraph.h"
 
 namespace
 {
@@ -112,6 +113,7 @@ RenderPassReflection SDHBAO::reflect(const CompileData& compileData)
 
     auto dstWidth = (srcWidth + 4 - 1) / 4;
     auto dstHeight = (srcHeight + 4 - 1) / 4;
+    auto quarterGuard = mData.sdGuard / 4;
 
     // Define the required resources here
     RenderPassReflection reflector;
@@ -121,8 +123,8 @@ RenderPassReflection SDHBAO::reflect(const CompileData& compileData)
 
     // ao mask and rayMin/rayMax texures
     reflector.addOutput(kAoStencil, "internal ao mask").format(ResourceFormat::R32Uint).texture2D(dstWidth, dstHeight, 1, 1, 16); // for 32 samples per pixel
-    reflector.addOutput(kInternalRayMin, "internal ray min").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dstWidth, dstHeight);
-    reflector.addOutput(kInternalRayMax, "internal ray max").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dstWidth, dstHeight);
+    reflector.addOutput(kInternalRayMin, "internal ray min").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dstWidth + quarterGuard * 2, dstHeight + quarterGuard * 2);
+    reflector.addOutput(kInternalRayMax, "internal ray max").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dstWidth + quarterGuard * 2, dstHeight + quarterGuard * 2);
 
     reflector.addOutput(kAmbientMap, "ambient occlusion (deinterleaved)").bindFlags(ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource)
         .texture2D(dstWidth, dstHeight, 1, 1, 16).format(ResourceFormat::RG8Unorm);
@@ -134,10 +136,22 @@ void SDHBAO::compile(RenderContext* pRenderContext, const CompileData& compileDa
 {
     mDirty = true;
 
-    
-    //mpPass->getProgram()->addDefine("MSAA_SAMPLES", std::to_string(sdepths->getSampleCount()));
-    //if (sdepths->getArraySize() == 1) mpPass->getProgram()->removeDefine("STOCHASTIC_ARRAY");
-    //else mpPass->getProgram()->addDefine("STOCHASTIC_ARRAY");
+    Properties sdDict;
+    sdDict["SampleCount"] = 4; // paper N
+    sdDict["MaxCount"] = 8; // paper MAX_COUNT
+    sdDict["CullMode"] = RasterizerState::CullMode::Back;
+    sdDict["AlphaTest"] = true;
+    sdDict["RayInterval"] = true;
+    sdDict["normalize"] = true;
+    sdDict["StoreNormals"] = false;
+    sdDict["Jitter"] = true;
+    sdDict["GuardBand"] = mData.sdGuard / 4;
+    auto pStochasticDepthPass = RenderPass::create("StochasticDepthMapRT", mpDevice, sdDict);
+    mpStochasticDepthGraph = RenderGraph::create(mpDevice, "Stochastic Depth");
+    mpStochasticDepthGraph->addPass(pStochasticDepthPass, "StochasticDepthMap");
+    mpStochasticDepthGraph->markOutput("StochasticDepthMap.stochasticDepth");
+    mpStochasticDepthGraph->setScene(mpScene);
+    mStochLastSize = uint2(0);
 }
 
 void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -215,7 +229,24 @@ void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
 
     if (mDepthMode != DepthMode::StochasticDepth) return;
 
-    // TODO render stochastic depth map
+    mpStochasticDepthGraph->setInput("StochasticDepthMap.rayMin", pInternalRayMin);
+    mpStochasticDepthGraph->setInput("StochasticDepthMap.rayMax", pInternalRayMax);
+
+    auto stochSize = uint2(pDepthIn->getWidth(), pDepthIn->getHeight()) + uint2(mData.sdGuard / 4 * 2);
+    if (any(mStochLastSize != stochSize))
+    {
+        auto stochFbo = Fbo::create2D(mpDevice, stochSize.x, stochSize.y, ResourceFormat::R32Float);
+        mpStochasticDepthGraph->onResize(stochFbo.get());
+        mStochLastSize = stochSize;
+    }
+    mpStochasticDepthGraph->execute(pRenderContext);
+    auto pStochasticDepthMap = mpStochasticDepthGraph->getOutput("StochasticDepthMap.stochasticDepth")->asTexture();
+
+    // second AO pass
+    {
+        FALCOR_PROFILE(pRenderContext, "AO 1");
+        // TODO
+    }
 }
 
 void SDHBAO::renderUI(Gui::Widgets& widget)

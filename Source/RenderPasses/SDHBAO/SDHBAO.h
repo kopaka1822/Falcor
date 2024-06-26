@@ -71,4 +71,7 @@ private:
     bool mDirty = true;
 
     std::vector<float4> mNoiseTexture;
+
+    ref<RenderGraph> mpStochasticDepthGraph;
+    uint2 mStochLastSize;
 };
