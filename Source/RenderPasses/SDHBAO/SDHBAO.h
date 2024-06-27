@@ -58,10 +58,8 @@ public:
     std::vector<float4> genNoiseTexture();
 private:
 
-    ref<Fbo> mpFbo;
-    ref<FullScreenPass> mpPass;
-    ref<Fbo> mpFbo2;
-    ref<FullScreenPass> mpPass2;
+    ref<ComputePass> mpPass;
+    ref<ComputePass> mpPass2;
 
     ref<Sampler> mpTextureSampler;
 

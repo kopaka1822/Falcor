@@ -4,21 +4,22 @@ Texture2D<float> gAO1;
 Texture2D<uint> gAoMask;
 Texture2DArray<float4> gsDepthTex; // stochastic depth map
 
-float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
+RWTexture2D<unorm float> gAmbientOut;
+
+[numthreads(16, 16, 1)]
+void main(uint3 id : SV_DispatchThreadID)
 {
-    uint2 pixel = uint2(svPos.xy);
-    uint stencil = gAoMask[pixel];
+    uint stencil = gAoMask[id.xy + guardBand / 4];
     if (stencil == 0)
-        discard;
-    
-    // adjust texC for quarter resolution texcoord
-    svPos.xy = floor(svPos.xy) * 4.0 + quarterOffset + 0.5;
-    texC = svPos.xy * gData.invResolution;
+        return;
+
+    float2 svPos = id.xy * 4.0 + quarterOffset + 0.5 + guardBand;
+    float2 texC = svPos.xy * gData.invResolution;
     float linearDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, texC, 0).r;
     const float3 ViewPosition = UVToViewSpace(texC, linearDepth);
 
     // view space normal of current pixel
-    float3 WorldNormal = gNormalTex.Sample(gTextureSampler, texC).xyz;
+    float3 WorldNormal = gNormalTex.SampleLevel(gTextureSampler, texC, 0).xyz;
     float3 ViewNormal = mul(float3x3(gCamera.data.viewMat), WorldNormal);
     if (dot(ViewPosition, ViewNormal) > 0.0)
         ViewNormal = -ViewNormal;
@@ -100,10 +101,10 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_TARGET0
 
     aoUpdate /= (NUM_DIRECTIONS * NUM_STEPS);
 
-    float res = gAO1[pixel];
+    float res = gAO1[id.xy + guardBand / 4];
     res += aoUpdate;
     res = saturate(1.0 - res * 2.0);
     res = pow(res, gData.powerExponent);
    
-    return res;
+    gAmbientOut[id.xy + guardBand / 4] = res;
 }

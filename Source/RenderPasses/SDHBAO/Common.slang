@@ -37,6 +37,7 @@ cbuffer PerFrameCB
     float4 Rand; // the random values are fixed for a quarter res texture (4x4 grid)
     uint2 quarterOffset; // offset inside the quarter resolution texture
     uint sliceIndex;
+    uint guardBand;
 }
 
 SamplerState gTextureSampler;
