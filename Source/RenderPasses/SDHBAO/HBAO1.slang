@@ -3,8 +3,8 @@
 RWTexture2D<uint> gRayMinAccess;
 RWTexture2D<uint> gRayMaxAccess;
 
-RWTexture2D<unorm float> gAmbientOut;
-RWTexture2D<uint> gAoMask;
+RWTexture2DArray<unorm float> gAmbientOut;
+RWTexture2DArray<uint> gAoMask;
 
 struct PSOut
 {
@@ -19,9 +19,9 @@ void main(uint3 id : SV_DispatchThreadID)
     output.ao1 = 0.0;
     STENCIL(output.stencil = 0);
 
-    float2 svPos = id.xy * 4.0 + quarterOffset + 0.5 + guardBand;
+    float2 svPos = id.xy * 4.0 + uint2(id.z % 4, id.z / 4) + 0.5 + guardBand;
     float2 texC = svPos.xy * gData.invResolution;
-    float linearDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, texC, 0).r;
+    float linearDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, float3(texC, id.z), 0).r;
     // radius in full-res pixels
     float RadiusInPixels = GetAORadiusInPixels(linearDepth);
     
@@ -55,17 +55,17 @@ void main(uint3 id : SV_DispatchThreadID)
             float Angle = Alpha * float(i);
 
             // random normalized 2D direction
-            float2 Direction = Rotate2D(Rand.xy, Angle);
+            float2 Direction = Rotate2D(Rand[id.z].xy, Angle);
 
             // Jitter starting sample within the first step
-            float RayPixels = (Rand.z * StepSizePixels + 1.0);
+            float RayPixels = (Rand[id.z].z * StepSizePixels + 1.0);
 
             // sample NUM_STEPS steps for each direction
             for (int step = 0; step < NUM_STEPS; ++step)
             {
                 // calculate sample position in uv space (round ray pixels to sample in pixel center)
                 float2 snappedSampleUV = texC + round(RayPixels * Direction) * gData.invQuarterResolution;
-                float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+                float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, float3(snappedSampleUV, id.z), 0);
                 float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
                 float ao = 0.0;
                 if (RecomputeAO(ViewPosition, ViewNormal, S, ao) && DEPTH_MODE == DEPTH_MODE_STOCHASTIC && RayPixels * 4.0 > 6.0)
@@ -96,7 +96,8 @@ void main(uint3 id : SV_DispatchThreadID)
             output.ao1 = pow(res, gData.powerExponent);
         }
     }
-    
-    gAmbientOut[id.xy + guardBand / 4] = output.ao1;
-    STENCIL(gAoMask[id.xy + guardBand / 4] = output.stencil);
+
+    id.xy += guardBand / 4;
+    gAmbientOut[id] = output.ao1;
+    STENCIL(gAoMask[id] = output.stencil);
 }

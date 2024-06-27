@@ -31,17 +31,16 @@ cbuffer StaticCB
     HBAOData gData;
 }
 
+Buffer<float4> Rand;
+
 cbuffer PerFrameCB
 {
     Camera gCamera;
-    float4 Rand; // the random values are fixed for a quarter res texture (4x4 grid)
-    uint2 quarterOffset; // offset inside the quarter resolution texture
-    uint sliceIndex;
     uint guardBand;
 }
 
 SamplerState gTextureSampler;
-Texture2D<float> gDepthTexQuarter;
+Texture2DArray<float> gDepthTexQuarter;
 Texture2D gNormalTex;
 
 float2 Rotate2D(float2 vec, float theta)

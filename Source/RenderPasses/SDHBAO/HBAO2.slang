@@ -1,21 +1,24 @@
 #include "Common.slang"
 
-Texture2D<float> gAO1;
-Texture2D<uint> gAoMask;
+Texture2DArray<float> gAO1;
+Texture2DArray<uint> gAoMask;
 Texture2DArray<float4> gsDepthTex; // stochastic depth map
 
-RWTexture2D<unorm float> gAmbientOut;
+RWTexture2DArray<unorm float> gAmbientOut;
 
 [numthreads(16, 16, 1)]
 void main(uint3 id : SV_DispatchThreadID)
 {
-    uint stencil = gAoMask[id.xy + guardBand / 4];
+    float2 svPos = id.xy * 4.0 + uint2(id.z % 4, id.z / 4) + 0.5 + guardBand;
+    float2 texC = svPos.xy * gData.invResolution;
+
+    id.xy += guardBand / 4;
+    uint stencil = gAoMask[id];
     if (stencil == 0)
         return;
 
-    float2 svPos = id.xy * 4.0 + quarterOffset + 0.5 + guardBand;
-    float2 texC = svPos.xy * gData.invResolution;
-    float linearDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, texC, 0).r;
+    
+    float linearDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, float3(texC, id.z), 0).r;
     const float3 ViewPosition = UVToViewSpace(texC, linearDepth);
 
     // view space normal of current pixel
@@ -56,16 +59,16 @@ void main(uint3 id : SV_DispatchThreadID)
         float Angle = Alpha * float(i);
 
         // random normalized 2D direction
-        float2 Direction = Rotate2D(Rand.xy, Angle);
+        float2 Direction = Rotate2D(Rand[id.z].xy, Angle);
 
         // Jitter starting sample within the first step
-        float RayPixels = (Rand.z * StepSizePixels + 1.0) + step * StepSizePixels;
+        float RayPixels = (Rand[id.z].z * StepSizePixels + 1.0) + step * StepSizePixels;
 
         // handle the step
         {
             // calculate sample position in uv space (round ray pixels to sample in pixel center)
             float2 snappedSampleUV = texC + round(RayPixels * Direction) * gData.invQuarterResolution;
-            float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, snappedSampleUV, 0);
+            float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, float3(snappedSampleUV, id.z), 0);
             float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
             float ao = ComputeAO(ViewPosition, ViewNormal, S);
             float oldAo = ao;
@@ -101,10 +104,10 @@ void main(uint3 id : SV_DispatchThreadID)
 
     aoUpdate /= (NUM_DIRECTIONS * NUM_STEPS);
 
-    float res = gAO1[id.xy + guardBand / 4];
+    float res = gAO1[id];
     res += aoUpdate;
     res = saturate(1.0 - res * 2.0);
     res = pow(res, gData.powerExponent);
    
-    gAmbientOut[id.xy + guardBand / 4] = res;
+    gAmbientOut[id] = res;
 }

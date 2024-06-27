@@ -94,6 +94,7 @@ SDHBAO::SDHBAO(ref<Device> pDevice, const Properties& props)
     setRadius(mData.radius);
 
     mNoiseTexture = genNoiseTexture();
+    mpNoiseBuffer = Buffer::createStructured(mpDevice, sizeof(float4), 16, Resource::BindFlags::ShaderResource, Buffer::CpuAccess::None, mNoiseTexture.data(), false);
 }
 
 Properties SDHBAO::getProperties() const
@@ -190,6 +191,9 @@ void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
 
         vars["gTextureSampler"] = mpTextureSampler;
         vars2["gTextureSampler"] = mpTextureSampler;
+
+        vars["Rand"] = mpNoiseBuffer;
+        vars2["Rand"] = mpNoiseBuffer;
         mDirty = false;
     }
 
@@ -220,17 +224,11 @@ void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
         vars["PerFrameCB"]["guardBand"] = guardBand;
 
         // render
-        for (int sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
-        {
-            vars["gAmbientOut"].setUav(pAmbientOut->getUAV(0, sliceIndex, 1));
-            vars["gAoMask"].setUav(pAoMask->getUAV(0, sliceIndex, 1));
-            vars["gDepthTexQuarter"].setSrv(pDepthIn->getSRV(0, 1, sliceIndex, 1));
-            vars["PerFrameCB"]["Rand"] = mNoiseTexture[sliceIndex];
-            vars["PerFrameCB"]["quarterOffset"] = uint2(sliceIndex % 4, sliceIndex / 4);
-            vars["PerFrameCB"]["sliceIndex"] = sliceIndex;
+        vars["gAmbientOut"] = pAmbientOut;
+        vars["gAoMask"] = pAoMask;
+        vars["gDepthTexQuarter"] = pDepthIn;
 
-            mpPass->execute(pRenderContext, pDepthIn->getWidth() - quarterGuard * 2, pDepthIn->getHeight() - quarterGuard * 2);
-        }
+        mpPass->execute(pRenderContext, pDepthIn->getWidth() - quarterGuard * 2, pDepthIn->getHeight() - quarterGuard * 2, 16);
     }
 
     if (mDepthMode != DepthMode::StochasticDepth) return;
@@ -256,18 +254,12 @@ void SDHBAO::execute(RenderContext* pRenderContext, const RenderData& renderData
         vars2["PerFrameCB"]["guardBand"] = guardBand;
 
         // render
-        for (int sliceIndex = 0; sliceIndex < 16; ++sliceIndex)
-        {
-            vars2["gAmbientOut"].setUav(pAmbientOut->getUAV(0, sliceIndex, 1));
-            vars2["gDepthTexQuarter"].setSrv(pDepthIn->getSRV(0, 1, sliceIndex, 1));
-            vars2["gAO1"].setSrv(pAmbientOut->getSRV(0, 1, sliceIndex, 1));
-            vars2["gAoMask"].setSrv(pAoMask->getSRV(0, 1, sliceIndex, 1));
-            vars2["PerFrameCB"]["Rand"] = mNoiseTexture[sliceIndex];
-            vars2["PerFrameCB"]["quarterOffset"] = uint2(sliceIndex % 4, sliceIndex / 4);
-            vars2["PerFrameCB"]["sliceIndex"] = sliceIndex;
+        vars2["gAmbientOut"] = pAmbientOut;
+        vars2["gDepthTexQuarter"] = pDepthIn;
+        vars2["gAO1"] = pAmbientOut;
+        vars2["gAoMask"] = pAoMask;
 
-            mpPass2->execute(pRenderContext, pDepthIn->getWidth() - quarterGuard * 2, pDepthIn->getHeight() - quarterGuard * 2);
-        }
+        mpPass2->execute(pRenderContext, pDepthIn->getWidth() - quarterGuard * 2, pDepthIn->getHeight() - quarterGuard * 2, 16);
     }
 }
 

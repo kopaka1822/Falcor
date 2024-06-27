@@ -75,4 +75,6 @@ private:
 
     ref<RenderGraph> mpStochasticDepthGraph;
     uint2 mStochLastSize;
+
+    ref<Buffer> mpNoiseBuffer;
 };
