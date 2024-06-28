@@ -109,19 +109,6 @@ float ComputeAO(float3 P, float3 N, float3 S)
     return saturate(NdotV - gData.NdotVBias) * saturate(Falloff(VdotV));
 }
 
-// returns true if the given sample requires more depth layers
-bool RecomputeAO(float3 P, float3 N, float3 S, inout float ao)
-{
-    float3 V = S - P;
-    float VdotV = dot(V, V);
-    float NdotV = dot(N, V) * rsqrt(VdotV);
-
-    float angleTerm = saturate(NdotV - gData.NdotVBias);
-    float distanceTerm = saturate(Falloff(VdotV));
-    ao = angleTerm * distanceTerm;
-    return angleTerm > 0.0 && distanceTerm.x <= 0.0; // sample is in positive hemisphere but further away than the radius
-}
-
 // converts from screen uv coordinates to pixel coordinates of stochastic depth map.
 // UV can be negative or greater than one if the guard band for the SD-map is used (gData.sdGuard)
 int2 UVToSDPixel(float2 uv)

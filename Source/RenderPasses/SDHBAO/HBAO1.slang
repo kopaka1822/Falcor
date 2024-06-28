@@ -68,7 +68,8 @@ void main(uint3 id : SV_DispatchThreadID)
                 float linearSampleDepth = gDepthTexQuarter.SampleLevel(gTextureSampler, float3(snappedSampleUV, id.z), 0);
                 float3 S = UVToViewSpace(snappedSampleUV, linearSampleDepth);
                 float ao = 0.0;
-                if (RecomputeAO(ViewPosition, ViewNormal, S, ao) && DEPTH_MODE == DEPTH_MODE_STOCHASTIC && RayPixels * 4.0 > 6.0)
+                ao = ComputeAO(ViewPosition, ViewNormal, S);
+                if (S.z - ViewPosition.z > gData.radius && DEPTH_MODE == DEPTH_MODE_STOCHASTIC && RayPixels * 4.0 > 6.0)
                 {
                     // calculate intersection with sphere
                     IntersectionResult ir = CalculateIntersections(ViewPosition, ViewNormal, S, gData.radius);
