@@ -263,7 +263,7 @@ private:
     ResamplingMode mCausticResamplingMode = ResamplingMode::SpartioTemporal;
     uint mCausticResamplingConfidenceCap = 20;
     uint mCausticResamplingSpatialSamples = 1;
-    float mCausticResamplingSpatialRadius = 2.5f;
+    float mCausticResamplingSpatialRadius = 4.f;
     bool mCausticResamplingForFGDirect = true;
 
     bool mUseStochasticCollect = true;                     //Stochastic collect using reservoir sampling.
@@ -279,7 +279,7 @@ private:
     bool mUseDynamicePhotonDispatchCount = true;  // Dynamically change the number of photons to fit the max photon number
     uint mPhotonDynamicDispatchMax = 2000000;     // Max value for dynamically dispatched photons
     float mPhotonDynamicGuardPercentage = 0.08f;  // Determines how much space of the buffer is used to guard against buffer overflows
-    float mPhotonDynamicChangePercentage = 0.05f; // The percentage the buffer is increased/decreased per frame
+    float mPhotonDynamicChangePercentage = 0.04f; // The percentage the buffer is increased/decreased per frame
 
     bool mUseSPPM = false;
     float2 mSPPMAlpha = float2(2.f / 3.f);

@@ -289,6 +289,11 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
     {
         mClearReservoir = true;
         changed = true;
+        //Switch Caustic Collection mode to fit the algorithm
+        if (mRenderMode == RenderMode::FinalGather)
+            mCausticCollectMode = CausticCollectionMode::All;
+        if (mRenderMode == RenderMode::ReSTIRFG)
+            mCausticCollectMode = CausticCollectionMode::Reservoir;        
     }
 
     if (auto group = widget.group("Specular Trace Options"))
@@ -303,7 +308,7 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
             group.tooltip("Material only counts as diffuse if the mean diffuse part is over this value");
         }
         group.checkbox("Show Debug Path Mask", mDebugSpecularTraceMask);
-        group.tooltip("Shows a mask which path is used for which pixel. TODO Color Codings");
+        group.tooltip("Shows a mask which path is used for which pixel.) \n Blue: First hit is diffuse \n Red: DI and FG evaluated on the same surface \n Green: DI and FG evaluated on different surfaces.");
     }
 
     //Photon Mapping Options
@@ -627,7 +632,7 @@ void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
     {
         const auto& bounds= mpScene->getSceneBounds();
         const float sceneExtend = math::length(bounds.extent());
-        mPhotonFirstHitGuard = sceneExtend * 0.01f; // Init to 1% of scene size
+        mPhotonFirstHitGuard = sceneExtend * 0.01f;   //Init to 1% of scene size
 
         if (mpScene->hasGeometryType(Scene::GeometryType::Custom))
         {
@@ -636,12 +641,13 @@ void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
 
         prepareRayTracingShaders(pRenderContext);
 
-        // Expermental approximate Radius
+        //Expermental approximate Radius
         float startRadius = sceneExtend;
         if (sceneExtend < 50.f)
             startRadius *= 0.0015f;
         else
             startRadius *= 0.00075f;
+        
         mPhotonCollectionRadiusStart = float2(startRadius, startRadius / 4.0f);
         mPhotonCollectRadius = mPhotonCollectionRadiusStart;
     }
