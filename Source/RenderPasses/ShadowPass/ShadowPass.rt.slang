@@ -60,7 +60,7 @@ RWTexture2D<float4> gDebug;
 cbuffer CB
 {
     uint gFrameCount;   //Current Frame Count for the sample generator
-    bool gLTTMaskValid;  //Tells if the hybrid mask is valid
+    bool gLTTMaskValid;  //Tells if the LTT mask is valid
 }
 
 //Defines for syntax highlighting
@@ -72,8 +72,8 @@ cbuffer CB
 #define DEBUG_MODE 0
 #endif
 
-#ifndef HYBRID_ALPHA_ONLY
-#define HYBRID_ALPHA_ONLY 0
+#ifndef LTT_ALPHA_ONLY
+#define LTT_ALPHA_ONLY 0
 #endif
 
 // Static configuration based on defines set from the host.
@@ -87,8 +87,8 @@ static const bool kUseEnvMap= USE_ENV_MAP;
 static const bool kUseEmissive = true;
 static const bool kMipsEnabled = SHADOW_MIPS_ENABLED;
 static const float kDisableAlphaTestAtDistance = DISABLE_ALPHATEST_DISTANCE;
-static const bool kEnableHybridBlending = HYBRID_USE_BLENDING;
-static const float2 kHybridBlendingRange = HYBRID_BLENDING_RANGE;   //x=Min; y=Range
+static const bool kEnableLTTBlending = LTT_USE_BLENDING;
+static const float2 kLTTBlendingRange = LTT_BLENDING_RANGE;   //x=Min; y=Range
 static const bool kStochasticCascadedLevelEnabled = DEBUG_STOCH_CASC_ENABLED;
 static const uint kDebugLightIndex = DEBUG_LIGHT_INDEX;
 
@@ -160,7 +160,8 @@ bool evalShadowMap(const in SMLightData smLightData, float3 posW, float3 faceN, 
 #endif
     return useRay;
 }
-
+/** Dispatches shadow ray. Return either 0.0 (shadowed) or 1.0 (lit)
+*/
 float evalShadowRay(in const AnalyticLightSample ls, float3 posW, float3 faceN, bool disableAlphaTest = false){
     float rtShadow = 0.f;
     RayDesc ray;
@@ -232,7 +233,7 @@ float3 handleDebugTex(bool useRay, bool isSMIsShadowed, float shadow, const in S
             }
             
         }
-    #elif DEBUG_MODE == 3   //Hybrid mask texture
+    #elif DEBUG_MODE == 3   //LTT mask texture
         debug.x += useRay ? 1.f : 0.f;
         debug.y += isSMIsShadowed ? 1.f : 0.f;
         debug.z += useRay && (shadow < 0.5) ? 1.f : 0.f;
@@ -398,7 +399,7 @@ void rayGen()
                 }
             }
 
-            #if HYBRID_ALPHA_ONLY
+            #if LTT_ALPHA_ONLY
                 if (!lttProps.shadowTest)
                     useRay |= true;
             #endif
@@ -424,17 +425,17 @@ void rayGen()
                 debugOut += handleDebugTex(useRay, shadow < kShadowCutoff, rtShadow, smLightData, posW, faceNormalW, random);
             }
 
-            if(kEnableHybridBlending && kShadowMode != (uint)SPShadowMode::RayShadows && smLightData.type == (uint)LightTypeSM::Directional){
-                float blendT = saturate((camDist - kHybridBlendingRange.x)/kHybridBlendingRange.y);
+            if (kEnableLTTBlending && kShadowMode != (uint)SPShadowMode::RayShadows && smLightData.type == (uint)LightTypeSM::Directional) {
+                float blendT = saturate((camDist - kLTTBlendingRange.x) / kLTTBlendingRange.y);
                 shadow = lerp(rtShadow, shadow, blendT);
-            }else
+            } else
                 shadow = rtShadow;
 
             #if SHADOW_ONLY
                 color += float3(shadow / lightCount);
             #else
-            if(shadow > 0)
-                color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, ls.dir) * ls.Li * shadow;
+                if(shadow > 0)
+                    color += simplifiedShading(posW,normalW, view, diffuse, specRough.xyz, specRough.w, ls.dir) * ls.Li * shadow;
             #endif //SHADOW_ONLY
         }
 
@@ -456,20 +457,20 @@ void rayGen()
         
         //Ambient Color
         #if !SHADOW_ONLY
-        color += kAmbientFactor * diffuse;
+            color += kAmbientFactor * diffuse;
 
-        //Envmap
-        if (kUseEnvMap)
-        {
-            float3 R = reflect(-view, normalW);
-            float diffLod = roughnessToLod(specRough.w * 2.f);
-            float specLod = roughnessToLod(specRough.w);
-            float envMaxIntensity = roughnessToIntensity(specRough.w);
-            //TODO Currently hacked. Do properly by using microfacet N
-            float3 F = evalFresnelSchlick(specRough.xyz, 1.0 - specRough.w, max(0.0, dot(view, normalW)));
-            color += kEnvMapFactor * diffuse * min(gScene.envMap.eval(normalW, diffLod), 1.0);
-            color += kEnvMapFactor * F * min(gScene.envMap.eval(R, specLod), envMaxIntensity);
-        }
+            //Envmap
+            if (kUseEnvMap)
+            {
+                float3 R = reflect(-view, normalW);
+                float diffLod = roughnessToLod(specRough.w * 2.f);
+                float specLod = roughnessToLod(specRough.w);
+                float envMaxIntensity = roughnessToIntensity(specRough.w);
+                //Not completely correct, as the cos should be between a microfacette normal and the view
+                float3 F = evalFresnelSchlick(specRough.xyz, 1.0 - specRough.w, max(0.0, dot(view, normalW)));
+                color += kEnvMapFactor * diffuse * min(gScene.envMap.eval(normalW, diffLod), 1.0);
+                color += kEnvMapFactor * F * min(gScene.envMap.eval(R, specLod), envMaxIntensity);
+            }
         
         #if is_valid(gEmissive)
             emissive = gEmissive[pixel].xyz;
@@ -481,21 +482,20 @@ void rayGen()
 
         #endif //!SHADOW_ONLY
 
-    //Divide the debug output by light count for some modes
-    #if (DEBUG_MODE != 2) && (DEBUG_MODE != 4)
-        if(is_valid(gDebug))
-            debugOut /= lightCount;
-    #endif
-
+        //For some modes, normalize the debug output
+        #if (DEBUG_MODE != 2) && (DEBUG_MODE != 4)
+            if(is_valid(gDebug))
+                debugOut /= lightCount;
+        #endif
     }
-    else if(kUseEnvMap)
+    else if(kUseEnvMap) //No geometry hit
     {
         color = kEnvMapFactor * gScene.envMap.eval(-view);
     }
 
     gColor[pixel] = float4(color, 1.f);
+
     if (is_valid(gDebug)) {
         gDebug[pixel] = float4(debugOut, 1.f);
     }
-        
 }

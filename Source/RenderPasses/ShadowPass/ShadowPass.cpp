@@ -98,11 +98,7 @@ RenderPassReflection ShadowPass::reflect(const CompileData& compileData)
     // Define our input/output channels.
     addRenderPassInputs(reflector, kInputChannels);
 
-    //Set starting size
-    if (mOutputSize.x == 0 && mOutputSize.y == 0)
-        mOutputSize = compileData.defaultTexDims;
-
-    addRenderPassOutputs(reflector, kOutputChannels, ResourceBindFlags::UnorderedAccess, mOutputSize);
+    addRenderPassOutputs(reflector, kOutputChannels, ResourceBindFlags::UnorderedAccess);
 
     return reflector;
 }
@@ -119,15 +115,8 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
         mOptionsChanged = false;
     }
 
-    //TODO add a dict flag
     // Check if Input Size matches the output size
     const auto inTex = renderData.getTexture(kInputChannels[0].name);
-    if (mOutputSize.x != inTex->getWidth() || mOutputSize.y != inTex->getHeight())
-    {
-        mOutputSize = uint2(inTex->getWidth(), inTex->getHeight());
-        requestRecompile();
-        return;
-    }
 
     //Clear Outputs Lamda
     auto clearOutputs = [&]()
@@ -159,7 +148,7 @@ void ShadowPass::execute(RenderContext* pRenderContext, const RenderData& render
             return;
 
     //Handle hybrid mask textures
-    handleHybridMaskData(pRenderContext, mOutputSize, mpScene->getLightCount());
+    handleHybridMaskData(pRenderContext, renderData.getDefaultTextureDims(), mpScene->getLightCount());
  
     shade(pRenderContext, renderData);
     mFrameCount++;
@@ -221,12 +210,12 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     mShadowTracer.pProgram->addDefine("DEBUG_LIGHT_INDEX", std::to_string(mLTTDebugLight));
     mShadowTracer.pProgram->addDefine("SHADOW_ONLY", mShadowOnly ? "1" : "0");
     mShadowTracer.pProgram->addDefine("SHADOW_MIPS_ENABLED", mpShadowMap->getMipMapsEnabled() ? "1" : "0");
-    mShadowTracer.pProgram->addDefine("HYBRID_USE_BLENDING", mEnableHybridRTBlend ? "1" : "0");
+    mShadowTracer.pProgram->addDefine("LTT_USE_BLENDING", mEnableHybridRTBlend ? "1" : "0");
     mShadowTracer.pProgram->addDefine(
-        "HYBRID_BLENDING_RANGE", "float2(" + std::to_string(mHybridRTBlend.x) + "," + std::to_string(mHybridRTBlend.y) + ")"
+        "LTT_BLENDING_RANGE", "float2(" + std::to_string(mHybridRTBlend.x) + "," + std::to_string(mHybridRTBlend.y) + ")"
     );
     mShadowTracer.pProgram->addDefine("DEBUG_STOCH_CASC_ENABLED", useStochCascLevel ? "1" : "0");
-    mShadowTracer.pProgram->addDefine("HYBRID_ALPHA_ONLY", mpShadowMap->getRenderDoubleSidedOnly() ? "1" : "0");
+    mShadowTracer.pProgram->addDefine("LTT_ALPHA_ONLY", mpShadowMap->getRenderDoubleSidedOnly() ? "1" : "0");
 
     mShadowTracer.pProgram->addDefines(mpShadowMap->getDefines());
     mShadowTracer.pProgram->addDefines(hybridMaskDefines());
@@ -240,14 +229,14 @@ void ShadowPass::shade(RenderContext* pRenderContext, const RenderData& renderDa
     }
 
     // Get dimensions of ray dispatch.
-    const uint2 targetDim = mOutputSize;
+    const uint2 targetDim = renderData.getDefaultTextureDims();
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
 
     // Bind Resources
     auto var = mShadowTracer.pVars->getRootVar();
 
     // Set Shadow Map per Iteration Shader Data
-    mpShadowMap->setShaderDataAndBindBlock(var, mOutputSize);
+    mpShadowMap->setShaderDataAndBindBlock(var, targetDim);
     mpSampleGenerator->setShaderData(var);
 
     var["CB"]["gFrameCount"] = mFrameCount;
@@ -320,7 +309,6 @@ void ShadowPass::renderUI(Gui::Widgets& widget)
         {
             group.separator();
             changed |= mpShadowMap->renderUILeakTracing(group, mShadowMode == SPShadowMode::LeakTracing);
-            //changed |= mpShadowMap->renderUI(group);
             group.separator();
         }
             
@@ -395,7 +383,7 @@ void ShadowPass::handleHybridMaskData(RenderContext* pRenderContext,uint2 screen
 
         if (mpHybridMask[0]) // testing one texture for this is sufficent
         {
-            if (mpHybridMask[0]->getWidth() != mOutputSize.x || mpHybridMask[0]->getHeight() != mOutputSize.y)
+            if (mpHybridMask[0]->getWidth() != screenDims.x || mpHybridMask[0]->getHeight() != screenDims.y)
                 sizeChanged = true;
         }
 

@@ -66,7 +66,6 @@ private:
     ref<Scene> mpScene;                     ///< Current scene.
     std::unique_ptr<ShadowMap> mpShadowMap; ///< Shadow Map
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
-    uint2 mOutputSize = uint2(0);           ///< Output texture size
     uint mFrameCount = 0;
     bool mShadowModeChanged = false;
 
