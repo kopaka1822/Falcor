@@ -309,7 +309,7 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                 "(only for values between).\n Useful for rough metals");
         }
         group.checkbox("Show Debug Path Mask", mDebugSpecularTraceMask);
-        group.tooltip("Shows a mask which path is used for which pixel.) \n Blue: First hit is diffuse \n Red: DI and FG evaluated on the same surface \n Green: DI and FG evaluated on different surfaces.");
+        group.tooltip("Shows a mask which path is used for which pixel. \n Blue: First hit is diffuse \n Red: DI and FG evaluated on the same surface \n Green: DI and FG evaluated on different surfaces.");
     }
 
     //Photon Mapping Options
