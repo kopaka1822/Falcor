@@ -30,6 +30,7 @@
 #include "RenderGraph/RenderPass.h"
 #include "Utils/Sampling/SampleGenerator.h"
 #include "Rendering/Utils/PixelStats.h"
+#include "PathSMStructs.slang"
 
 using namespace Falcor;
 
@@ -76,10 +77,7 @@ public:
             {ShadowMode::RayShadows, "RayShadows"},
         }
     );
-
-private:
-    
-    
+private:  
     struct LightMVP
     {
         float4x4 view = float4x4();
@@ -129,7 +127,12 @@ private:
     uint mShowLight = 0;
     float mLtBoundsStart = 0.05f;
     float mLtBoundsMaxReduction = 0.2f;
-  
+
+    //Debug
+    bool mEnableDebug = false;
+    PathSMDebugModes mDebugMode = PathSMDebugModes::LeakTracingMask;
+    bool mAccumulateDebug = true;
+    bool mResetDebugAccumulate = true;
 
     // Runtime data
     uint mFrameCount = 0; ///< Frame count since scene was loaded.

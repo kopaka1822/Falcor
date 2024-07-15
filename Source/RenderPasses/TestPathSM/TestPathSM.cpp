@@ -53,6 +53,7 @@ const ChannelList kInputChannels = {
 
 const ChannelList kOutputChannels = {
     {"color", "gOutputColor", "Output color (sum of direct and indirect)", false, ResourceFormat::RGBA32Float},
+    {"debug", "gDebug", "Debug", false, ResourceFormat::RGBA32Float},
 };
 
 const char kMaxBounces[] = "maxBounces";
@@ -175,6 +176,17 @@ void TestPathSM::execute(RenderContext* pRenderContext, const RenderData& render
         logWarning("Depth-of-field requires the '{}' input. Expect incorrect shading.", kInputViewDir);
     }
 
+    //Debug Accumulate
+    if (mAccumulateDebug)
+    {
+        auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
+        bool refresh = is_set(RenderPassRefreshFlags::RenderOptionsChanged, flags);
+        auto cameraChanges = mpScene->getCamera()->getChanges();
+        refresh |= cameraChanges != Camera::Changes::None;
+        if (refresh)
+            mResetDebugAccumulate = true;
+    }
+
     //Pixel Stats
     mpPixelStats->beginFrame(pRenderContext, renderData.getDefaultTextureDims());
 
@@ -189,6 +201,7 @@ void TestPathSM::execute(RenderContext* pRenderContext, const RenderData& render
 
     mpPixelStats->endFrame(pRenderContext);
     mFrameCount++;
+    mResetDebugAccumulate = false;
 }
 
 void TestPathSM::renderUI(Gui::Widgets& widget)
@@ -218,6 +231,19 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
     dirty |= widget.dropdown("Shadow Map mode", mShadowMode);
 
     widget.checkbox("Disable Shadow Ray", mDisableShadowRay);
+
+    if (auto group = widget.group("Debug"))
+    {
+        group.checkbox("Enable", mEnableDebug);
+        if (mEnableDebug)
+        {
+            group.dropdown("Debug Mode", mDebugMode);
+
+            mResetDebugAccumulate |= group.checkbox("Accumulate Debug", mAccumulateDebug);
+            mResetDebugAccumulate |= group.button("Reset Accumulate");
+        }
+    }
+    
 
     if (auto group = widget.group("ShadowMap Options"))
     {
@@ -481,6 +507,9 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("USE_SHADOW_RAY", mShadowMode != ShadowMode::ShadowMap ? "1" : "0");
     mTracer.pProgram->addDefine("USE_MIN_MAX_SM", mUseMinMaxShadowMap ? "1" : "0");
     mTracer.pProgram->addDefine("LT_BOUNDS_START", std::to_string(mLtBoundsStart));
+    mTracer.pProgram->addDefine("USE_DEBUG", mEnableDebug ? "1" : "0");
+    mTracer.pProgram->addDefine("DEBUG_MODE", std::to_string((uint32_t)mDebugMode));
+    mTracer.pProgram->addDefine("DEBUG_ACCUMULATE", mAccumulateDebug ? "1" : "0");
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     // TODO: This should be moved to a more general mechanism using Slang.
@@ -502,6 +531,7 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     var["CB"]["gUseShadowMap"] = mShadowMode != ShadowMode::RayShadows;
     var["CB"]["gShadowMapRes"] = mShadowMapSize;
     var["CB"]["gLtBoundsMaxReduction"] = mLtBoundsMaxReduction;
+    var["CB"]["gResetDebugAccumulation"] = mResetDebugAccumulate;
     
     //Bind Shadow MVPS and Shadow Map
     FALCOR_ASSERT(mpShadowMaps.size() == mShadowMapMVP.size());
