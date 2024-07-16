@@ -56,9 +56,11 @@ const ChannelList kOutputChannels = {
     {"debug", "gDebug", "Debug", false, ResourceFormat::RGBA32Float},
 };
 
+//Properties Parsing
 const char kMaxBounces[] = "maxBounces";
 const char kComputeDirect[] = "computeDirect";
 const char kUseImportanceSampling[] = "useImportanceSampling";
+const char kShadowTracingMode[] = "shadowTracingMode";
 
 const Gui::DropdownList kBlockSizes{
     {4, "4x4"},
@@ -110,6 +112,8 @@ void TestPathSM::parseProperties(const Properties& props)
             mComputeDirect = value;
         else if (key == kUseImportanceSampling)
             mUseImportanceSampling = value;
+        else if (key == kShadowTracingMode)
+            mShadowMode = value;
         else
             logWarning("Unknown property '{}' in TestPathSM properties.", key);
     }
@@ -121,6 +125,7 @@ Properties TestPathSM::getProperties() const
     props[kMaxBounces] = mMaxBounces;
     props[kComputeDirect] = mComputeDirect;
     props[kUseImportanceSampling] = mUseImportanceSampling;
+    props[kShadowTracingMode] = mShadowMode;
     return props;
 }
 
