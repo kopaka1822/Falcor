@@ -187,7 +187,8 @@ void TestPathSM::execute(RenderContext* pRenderContext, const RenderData& render
         auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
         bool refresh = is_set(RenderPassRefreshFlags::RenderOptionsChanged, flags);
         auto cameraChanges = mpScene->getCamera()->getChanges();
-        refresh |= cameraChanges != Camera::Changes::None;
+        auto excluded = Camera::Changes::Jitter | Camera::Changes::History;
+        refresh |= (cameraChanges & ~excluded) != Camera::Changes::None;
         if (refresh)
             mResetDebugAccumulate = true;
     }
@@ -197,12 +198,13 @@ void TestPathSM::execute(RenderContext* pRenderContext, const RenderData& render
 
     generateShadowMap(pRenderContext, renderData);
 
-    if (mShowShadowMap)
+    if (mEnableDebug && (mDebugMode == PathSMDebugModes::ShadowMap))
     {
-        ref<Texture> outTex = renderData.getTexture("color");
+        ref<Texture> outTex = renderData.getTexture("debug");
         pRenderContext->blit(mpShadowMaps[mShowLight]->getSRV(), outTex->getRTV());
-    }else
-        traceScene(pRenderContext, renderData);
+    }
+
+    traceScene(pRenderContext, renderData);
 
     mpPixelStats->endFrame(pRenderContext);
     mFrameCount++;
@@ -242,10 +244,18 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
         group.checkbox("Enable", mEnableDebug);
         if (mEnableDebug)
         {
-            group.dropdown("Debug Mode", mDebugMode);
+            mResetDebugAccumulate |= group.dropdown("Debug Mode", mDebugMode);
 
-            mResetDebugAccumulate |= group.checkbox("Accumulate Debug", mAccumulateDebug);
-            mResetDebugAccumulate |= group.button("Reset Accumulate");
+            if (mDebugMode != PathSMDebugModes::ShadowMap)
+            {
+                mResetDebugAccumulate |= group.checkbox("Accumulate Debug", mAccumulateDebug);
+                mResetDebugAccumulate |= group.button("Reset Accumulate");
+            }
+
+            if (mDebugMode == PathSMDebugModes::ShadowMap && mpScene)
+            {
+                widget.var("Select Light", mShowLight, 0u, mpScene->getLightCount() - 1, 1u);
+            }
         }
     }
     
@@ -265,15 +275,6 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
         group.var("Shadow Map Samples", mShadowMapSamples, 1u, 4096u, 1u);
         group.tooltip("Sets the shadow map samples. Manual reset is necessary for it to take effect");
         mRerenderSM |= group.button("Reset Shadow Map");
-
-
-
-        if (mpScene)
-        {
-            dirty |= group.checkbox("Show Shadow Map", mShowShadowMap);
-            if (mShowShadowMap)
-                dirty |= widget.var("Select Light", mShowLight, 0u, mpScene->getLightCount() - 1, 1u);
-        }
 
         dirty |= mRebuildSMBuffers || mRerenderSM;
     }
@@ -300,6 +301,7 @@ void TestPathSM::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
     mGenerateSM.pVars = nullptr;
     mFrameCount = 0;
     mRebuildSMBuffers = true;
+    mResetDebugAccumulate = true;
     // Set new scene.
     mpScene = pScene;
 
@@ -512,7 +514,7 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("USE_SHADOW_RAY", mShadowMode != ShadowMode::ShadowMap ? "1" : "0");
     mTracer.pProgram->addDefine("USE_MIN_MAX_SM", mUseMinMaxShadowMap ? "1" : "0");
     mTracer.pProgram->addDefine("LT_BOUNDS_START", std::to_string(mLtBoundsStart));
-    mTracer.pProgram->addDefine("USE_DEBUG", mEnableDebug ? "1" : "0");
+    mTracer.pProgram->addDefine("USE_DEBUG", mEnableDebug && mDebugMode != PathSMDebugModes::ShadowMap ? "1" : "0");
     mTracer.pProgram->addDefine("DEBUG_MODE", std::to_string((uint32_t)mDebugMode));
     mTracer.pProgram->addDefine("DEBUG_ACCUMULATE", mAccumulateDebug ? "1" : "0");
 

@@ -7,12 +7,14 @@ BEGIN_NAMESPACE_FALCOR
 enum class PathSMDebugModes : uint32_t
 {
     LeakTracingMask = 0,
-    RaySMDiff = 1
+    RaySMDiff = 1,
+    ShadowMap = 2,
 };
 
 FALCOR_ENUM_INFO(PathSMDebugModes, {
     {PathSMDebugModes::LeakTracingMask, "LeakTracingMask"},
     {PathSMDebugModes::RaySMDiff, "RaySMDifference"},
+    {PathSMDebugModes::ShadowMap, "ShadowMap"},
 });
 FALCOR_ENUM_REGISTER(PathSMDebugModes);
 

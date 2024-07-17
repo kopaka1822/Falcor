@@ -418,8 +418,8 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, floa
         }                
     }
 
-    if(shadow <= 0.0)
-        return float3(0);
+    //if(shadow <= 0.0)
+    //    return float3(0);
     // Evaluate contribution.
     return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
 
