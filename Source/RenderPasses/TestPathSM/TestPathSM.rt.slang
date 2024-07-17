@@ -84,7 +84,7 @@ cbuffer CB
     bool        gUseShadowMap;
     uint        gShadowMapRes;
     float       gLtBoundsMaxReduction;  //Max reduction per hit
-    bool        gResetDebugAccumulation;
+    uint        gIterationCount;        //Current number of still iterations
 }
 
 cbuffer ShadowVPs
@@ -100,6 +100,7 @@ Texture2D<float2> gShadowMap[COUNT_SM];
 // Outputs
 RWTexture2D<float4> gOutputColor;
 RWTexture2D<float4> gDebug;
+RWTexture2D<uint> gShadowAccessDebugTex[COUNT_SM];
 
 //Texture Sampler
 SamplerState gShadowSamplerPoint;
@@ -122,6 +123,7 @@ static const uint kSeperateLightSamplerBlockSize = LIGHT_SAMPLER_BLOCK_SIZE;
 static const bool kEnableShadowRay = USE_SHADOW_RAY;
 static const bool kUseMinMaxSM = USE_MIN_MAX_SM;
 static const bool kEnableDebug = USE_DEBUG;
+static const bool kWriteDebug = WRITE_TO_DEBUG;
 static const uint kDebugMode = DEBUG_MODE;
 static const bool kDebugAccumulate = DEBUG_ACCUMULATE;
 
@@ -357,6 +359,24 @@ bool evalShadowMap(uint lightIdx, float3 posW, float leakTracingBound ,out float
     return false;       //No Ray
 }
 
+/* Makes an entry in the shadow map access texture for the specified light if called
+*/
+void addShadowMapAccessEntry(uint lightIdx, float3 posW){
+    float4 shadowPos = mul(gShadowMapVP[lightIdx], float4(posW, 1));
+    shadowPos.xyz /= shadowPos.w;
+
+    shadowPos.y *= -1;  //Flip
+    shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+    //Outside
+    if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
+        return;    
+
+    uint2 shadowMapPixel = uint2(2048 * shadowPos.xy);
+    //Call an atomic add for the shadow map pixel
+    uint origValue = 0;
+    InterlockedAdd(gShadowAccessDebugTex[lightIdx][shadowMapPixel], 1u, origValue);
+}
+
 /** Evaluates the direct illumination from analytic lights.
     This function samples Falcor's light list uniformly with one shadow ray.
     \param[in] sd Shading data.
@@ -404,18 +424,23 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, floa
     if(kEnableDebug){
         if(kDebugMode == (uint)PathSMDebugModes::LeakTracingMask){
             debug += float3(shadow, useRay ? 1.0 : 0.0, smShadow) * invPdf;
-        }else if (kDebugMode == (uint)PathSMDebugModes::RaySMDiff){
+        }else if (kDebugMode == (uint)PathSMDebugModes::RaySMDiff || kDebugMode == (uint)PathSMDebugModes::ShadowMapRayDiff){
             // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
             const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
             // Test visibility by tracing a shadow ray.
             bool RayV = traceShadowRay(origin, ls.dir, ls.distance);
             bool shadowV = shadow > 0.5;
             float3 brdf = mi.eval(sd, ls.dir, sg);
-            if(RayV != shadowV && all(brdf > 0))
+            if(RayV != shadowV && all(brdf > 0)){
                 debug.x += 10000.0;
+                if(kDebugMode == (uint)PathSMDebugModes::ShadowMapRayDiff)
+                    addShadowMapAccessEntry(lightIndex, sd.posW);
+            }
             else if(RayV)
                 debug += (brdf * shadow);
-        }                
+        }else if(kDebugMode == (uint)PathSMDebugModes::ShadowMapAccess){ // Add an entry for every access
+            addShadowMapAccessEntry(lightIndex, sd.posW);
+        }             
     }
 
     //if(shadow <= 0.0)
@@ -804,19 +829,17 @@ void rayGen()
     float3 color = tracePath(pixel, frameDim, debug);
 
     gOutputColor[pixel] = float4(color, 1.f);
-    if(kEnableDebug)
+    if(kWriteDebug)
     {
-        float count = 1.f;
-        if(kDebugAccumulate && !gResetDebugAccumulation){
+        float count = float(gIterationCount);
+        if(kDebugAccumulate){
             float4 lastFrame = gDebug[pixel];
-            count = lastFrame.w;
             float curWeight = 1.0 / (count + 1);
             if(count > 0){
                 debug = ((lastFrame.xyz * count) + debug) * curWeight;
-            }
-            count += 1.f;   
+            } 
         }
-        gDebug[pixel] = float4(debug, count);
+        gDebug[pixel] = float4(debug, 1.f);
     }
         
 }

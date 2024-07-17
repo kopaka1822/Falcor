@@ -215,8 +215,6 @@ void ErrorOverlay::renderUI(Gui::Widgets& widget)
         }
 
         mCaptureCurrentFrame = group.button("Capture Current Frame");
-
-
      }
 
      if (auto group = widget.group("Controls"))

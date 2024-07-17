@@ -6,6 +6,7 @@ target_sources(TestPathSM PRIVATE
     TestPathSM.rt.slang
     GenerateShadowMap.rt.slang
 	PathSMStructs.slang
+    DebugShadowMap.cs.slang
 )
 
 

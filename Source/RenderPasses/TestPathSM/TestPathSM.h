@@ -88,10 +88,12 @@ private:
 
 
     void parseProperties(const Properties& props);
+    void prepareBuffers();
     void prepareVars();
 
     void generateShadowMap(RenderContext* pRenderContext, const RenderData& renderData);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
+    void debugShadowMapPass(RenderContext* pRenderContext, const RenderData& renderData);
 
     // Internal state
     ref<Scene> mpScene;                     ///< Current scene.
@@ -116,7 +118,7 @@ private:
     bool mRebuildSMBuffers = true;
     bool mRerenderSM = true;
     bool mAlwaysRenderSM = false;
-    bool mShowShadowMap = false;
+    bool mShadowMapFlag = false;
     bool mUseShadowMap = true;
     bool mUseMinMaxShadowMap = true;
     bool mDisableShadowRay = false;
@@ -124,7 +126,6 @@ private:
     uint mShadowMapSamples = 32;
     std::vector<LightMVP> mShadowMapMVP;
     float2 mNearFar = float2(0.1, 60);
-    uint mShowLight = 0;
     float mLtBoundsStart = 0.05f;
     float mLtBoundsMaxReduction = 0.2f;
 
@@ -133,6 +134,17 @@ private:
     PathSMDebugModes mDebugMode = PathSMDebugModes::LeakTracingMask;
     bool mAccumulateDebug = true;
     bool mResetDebugAccumulate = true;
+    bool mClearDebugAccessTex = false;
+    uint mDebugShowLight = 0;
+    uint mIterationCount = 0;
+    float mDebugHeatMapMaxCount = 4.f;
+    float mDebugAccessBlendVal = 0.3f;
+    float2 mDebugBrighnessMod = float2(5.f,1.f);
+    bool mDebugUseSMAspect = true;
+
+    std::vector<ref<Texture>> mpShadowMapAccessTex;
+    ref<Texture> mpShadowMapBlit;
+    ref<ComputePass> mpDebugShadowMapPass;
 
     // Runtime data
     uint mFrameCount = 0; ///< Frame count since scene was loaded.
@@ -151,3 +163,4 @@ private:
 };
 
 FALCOR_ENUM_REGISTER(TestPathSM::ShadowMode);
+FALCOR_ENUM_CLASS_OPERATORS(PathSMDebugModes);
