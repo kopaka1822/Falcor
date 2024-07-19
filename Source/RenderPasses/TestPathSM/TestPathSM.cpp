@@ -101,6 +101,7 @@ TestPathSM::TestPathSM(ref<Device> pDevice, const Properties& props) : RenderPas
     samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear);
     mpShadowSamplerLinear = Sampler::create(mpDevice, samplerDesc);
     FALCOR_ASSERT(mpShadowSamplerLinear);
+    mpShadowMapOracle = std::make_unique<ShadowMapOracle>(false);
 }
 
 void TestPathSM::parseProperties(const Properties& props)
@@ -216,6 +217,14 @@ void TestPathSM::execute(RenderContext* pRenderContext, const RenderData& render
 
     generateShadowMap(pRenderContext, renderData);
 
+    //Oracle
+    if (mpShadowMapOracle->isEnabled())
+    {
+        std::vector<float2> empty;
+        mpShadowMapOracle->update(mpScene, renderData.getDefaultTextureDims(), mShadowMapSize, mShadowMapSize, mShadowMapSize, 0u, empty);
+    }
+        
+
     traceScene(pRenderContext, renderData);
 
     //Debug pass
@@ -308,7 +317,12 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
     {
         mpPixelStats->renderUI(group);
     }
-           
+
+
+    if (auto group = widget.group("Oracle"))
+    {
+        dirty |= mpShadowMapOracle->renderUI(group);
+    }
     // If rendering options that modify the output have changed, set flag to indicate that.
     // In execute() we will pass the flag to other passes for reset of temporal data etc.
     mOptionsChanged |= dirty;
@@ -521,6 +535,8 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("WRITE_TO_DEBUG", mEnableDebug && !is_set(mDebugMode, PathSMDebugModes::ShadowMapFlag) ? "1" : "0");
     mTracer.pProgram->addDefine("DEBUG_MODE", std::to_string((uint32_t)mDebugMode));
     mTracer.pProgram->addDefine("DEBUG_ACCUMULATE", mAccumulateDebug ? "1" : "0");
+
+    mTracer.pProgram->addDefines(mpShadowMapOracle->getDefines());
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     // TODO: This should be moved to a more general mechanism using Slang.

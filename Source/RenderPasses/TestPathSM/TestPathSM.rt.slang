@@ -64,9 +64,11 @@ import Utils.Sampling.SampleGenerator;
 import Utils.Color.ColorHelpers;
 import Rendering.Lights.LightHelpers;
 import Rendering.Utils.PixelStats;
+import Rendering.ShadowMaps.ShadowMapData;
 import Rendering.ShadowMaps.ShadowTestFunctions;
 import Rendering.ShadowMaps.ShadowMapHelpers;
 import PathSMStructs;
+import Rendering.ShadowMaps.Oracle.ShadowMapOracle;
 
 #ifndef COUNT_SM
 #define COUNT_SM 1
@@ -144,7 +146,7 @@ struct RayHitData{
     }
 }
 
-/** Payload for scatter ray (up to 72B).
+/** Struct for used path data
 */
 struct PathData
 {
@@ -155,10 +157,13 @@ struct PathData
     float3  origin;         ///< Next path segment origin.
     float   leakTracingBounds; ///<Bounds for leakTracing
     float3  direction;      ///< Next path segment direction.
-
     SampleGenerator sg;     ///< Per-ray state for the sample generator (up to 16B).
 #if USE_SEPERATE_LIGHT_SAMPLER
     SampleGenerator lightSg;///< Per-Ray sample generator for lights
+#endif
+#if USE_ORACLE_FUNCTION
+    float distance;         ///< Distance the path traveled
+    float lobeDistFactor;   ///< Factor how the lobe affects the distance of the ray 
 #endif
 
     /** Initializes ray payload with default parameters.
@@ -173,6 +178,11 @@ struct PathData
         this.direction = float3(0, 0, 0);
         this.leakTracingBounds = 0.0;
         this.sg = sg;
+
+        #if USE_ORACLE_FUNCTION
+        this.lobeDistFactor = 1.0;
+        this.distance = 0.0;
+        #endif
     }
 };
 
@@ -342,7 +352,7 @@ bool evalShadowMap(uint lightIdx, float3 posW, float leakTracingBound ,out float
             shadow = 1.0;
         else{
             shadow = 0.5;
-             return true;
+            return true;
         }     
     } else {
         float2 shadowValue = gShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0.0);
@@ -384,18 +394,27 @@ void addShadowMapAccessEntry(uint lightIdx, float3 posW){
     \param[in,out] sg SampleGenerator object.
     \return Outgoing radiance in view direction.
 */
-float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, float u, float leakTracingBounds ,inout SampleGenerator sg, inout float3 debug)
+float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout PathData rayData, inout float3 debug)
 {
     const uint lightCount = gScene.getLightCount();
     if (lightCount == 0) return float3(0.f);
 
+    //Select a light
+    float lightSelect = 0.0;
+    #if USE_SEPERATE_LIGHT_SAMPLER
+        lightSelect = sampleNext1D(rayData.lightSg);
+    #else
+        lightSelect = sampleNext1D(rayData.sg);
+    #endif
+
     // Pick one of the analytic light sources randomly with equal probability.
-    const uint lightIndex = min(uint(u * lightCount), lightCount - 1);
+    const uint lightIndex = min(uint(lightSelect * lightCount), lightCount - 1);
     float invPdf = lightCount; // Light selection pdf = 1.0 / lightCount.
 
     // Sample local light source.
     AnalyticLightSample ls;
-    if (!sampleLight(sd.posW, gScene.getLight(lightIndex), sg, ls)) return float3(0.f);
+    LightData lightData = gScene.getLight(lightIndex);
+    if (!sampleLight(sd.posW,lightData , rayData.sg, ls)) return float3(0.f);
 
     // Reject sample if not in the hemisphere of a BSDF lobe.
     const uint lobeTypes = mi.getLobeTypes(sd);
@@ -407,9 +426,27 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, floa
 
     bool useRay = !gUseShadowMap;
 
+    //Oracle
+    #if USE_ORACLE_FUNCTION
+       if(gUseShadowMap){
+           //Create SM Data struct
+           SMLightData smLightData;
+           smLightData.posW = lightData.posW;
+           smLightData.dirW = lightData.dirW;
+           smLightData.type = getShadowMapLightType(lightData);
+           smLightData.index = lightIndex;
+
+           float oracle = ShadowMapOracle::oracleFunction(smLightData, sd, rayData.distance);
+           useRay = ShadowMapOracle::oracleNeedRay(oracle);
+       } 
+    #endif
+
     float shadow = 0.0;
     if(!useRay){
-        useRay = evalShadowMap(lightIndex, sd.posW, leakTracingBounds,shadow);
+        useRay = evalShadowMap(lightIndex, sd.posW, rayData.leakTracingBounds,shadow);
+        #if USE_ORACLE_FUNCTION
+        useRay = false;
+        #endif
     }
 
     float smShadow = shadow;
@@ -430,7 +467,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, floa
             // Test visibility by tracing a shadow ray.
             bool RayV = traceShadowRay(origin, ls.dir, ls.distance);
             bool shadowV = shadow > 0.5;
-            float3 brdf = mi.eval(sd, ls.dir, sg);
+            float3 brdf = mi.eval(sd, ls.dir, rayData.sg);
             if(RayV != shadowV && all(brdf > 0)){
                 debug.x += 10000.0;
                 if(kDebugMode == (uint)PathSMDebugModes::ShadowMapRayDiff)
@@ -446,7 +483,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, floa
     //if(shadow <= 0.0)
     //    return float3(0);
     // Evaluate contribution.
-    return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
+    return mi.eval(sd, ls.dir, rayData.sg) * ls.Li * invPdf * shadow;
 
 }
 
@@ -475,6 +512,9 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool i
         float roughSq = miProperties.roughness * miProperties.roughness;
         rayData.leakTracingBounds += gLtBoundsMaxReduction * roughSq;
         rayData.leakTracingBounds = min(0.5, rayData.leakTracingBounds);
+        #if USE_ORACLE_FUNCTION
+            rayData.lobeDistFactor = ShadowMapOracle::getOracleDistanceFunctionFactor(miProperties, bsdfSample);
+        #endif //USE_ORACLE_FUNCTION
 
         return any(rayData.thp > 0.f);
     }
@@ -496,6 +536,10 @@ void handleHit(const HitInfo hit, inout PathData rayData, inout float3 debug)
 
     // Load shading data.
     ShadingData sd = loadShadingData(hit, rayData.origin, rayData.direction, lod);
+
+    #if USE_ORACLE_FUNCTION
+        rayData.distance += distance(sd.posW, rayData.origin) * rayData.lobeDistFactor;
+    #endif
 
     // Create material instance.
     uint hints = 0;
@@ -529,15 +573,8 @@ void handleHit(const HitInfo hit, inout PathData rayData, inout float3 debug)
 
     // Add contribution of direct light from analytic lights.
     if (kUseAnalyticLights)
-    {
-        float lightSelect;
-        #if USE_SEPERATE_LIGHT_SAMPLER
-        lightSelect = sampleNext1D(rayData.lightSg);
-        #else
-        lightSelect = sampleNext1D(rayData.sg);
-        #endif
-        
-        float3 Lr = evalDirectAnalytic(sd, mi, lightSelect, rayData.leakTracingBounds,rayData.sg,debug);
+    {        
+        float3 Lr = evalDirectAnalytic(sd, mi, rayData, debug);
         rayData.radiance += rayData.thp * Lr;
     }
 
@@ -602,7 +639,6 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim ,out float3 debug)
         #endif
         }
 
-
         // Compute ray origin for new rays spawned from the G-buffer.
         float3 rayOrigin;
         if (isCurveHit)
@@ -615,6 +651,17 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim ,out float3 debug)
             rayOrigin = sd.computeNewRayOrigin();
         }
 
+        
+        // Prepare ray payload.
+        PathData pathData = PathData(sg);
+        pathData.leakTracingBounds = kLeakTracingBoundsStart;
+        #if USE_SEPERATE_LIGHT_SAMPLER
+            pathData.lightSg = lightSg;
+        #endif
+        #if USE_ORACLE_FUNCTION
+            pathData.distance = distance(gScene.camera.data.posW, sd.posW);  //set the currently traveled distance
+        #endif
+
         if (kComputeDirect)
         {
             // Always output directly emitted light, independent of whether emissive materials are treated as light sources or not.
@@ -622,21 +669,8 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim ,out float3 debug)
 
             // Add contribution of direct light from analytic lights.
             // Light probe and mesh lights are handled by the scatter ray hit/miss shaders.
-            float lightSelect;
-        #if USE_SEPERATE_LIGHT_SAMPLER
-            lightSelect = sampleNext1D(lightSg);
-        #else
-            lightSelect = sampleNext1D(sg);
-        #endif // USE_SEPERATE_LIGHT_SAMPLER
-            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi,lightSelect, kLeakTracingBoundsStart,sg, debug) : float3(0.f);
+            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi,pathData, debug) : float3(0.f);
         }
-
-        // Prepare ray payload.
-        PathData pathData = PathData(sg);
-        pathData.leakTracingBounds = kLeakTracingBoundsStart;
-    #if USE_SEPERATE_LIGHT_SAMPLER
-        pathData.lightSg = lightSg;
-    #endif
 
         // Generate scatter ray.
         if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, pathData)) pathData.terminated = true;

@@ -31,6 +31,7 @@
 #include "Utils/Sampling/SampleGenerator.h"
 #include "Rendering/Utils/PixelStats.h"
 #include "PathSMStructs.slang"
+#include "Rendering/ShadowMaps/Oracle/ShadowMapOracle.h"
 
 using namespace Falcor;
 
@@ -99,6 +100,7 @@ private:
     ref<Scene> mpScene;                     ///< Current scene.
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
     std::unique_ptr<PixelStats> mpPixelStats;           ///< Stats for the current path
+    std::unique_ptr<ShadowMapOracle> mpShadowMapOracle; ///< Shadow Map Oracle for tests
 
     //Buffer and Samplers
     std::vector<ref<Texture>> mpShadowMaps;

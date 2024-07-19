@@ -7,6 +7,11 @@ namespace Falcor
 DefineList ShadowMapOracle::getDefines() const
 {
     DefineList defines;
+    defines.add("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
+
+    //Abort early if oracle is disabled
+    if (!mUseSMOracle)
+        return defines;
 
     defines.add("SMORACLE_NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
     defines.add("SMORACLE_NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
@@ -33,7 +38,7 @@ DefineList ShadowMapOracle::getDefines() const
     }
    
 
-    defines.add("USE_ORACLE_FUNCTION", mUseSMOracle ? "1" : "0");
+    
     defines.add("ORACLE_COMP_VALUE", std::to_string(mOracleCompaireValue));
     defines.add("ORACLE_ADD_RAYS", mOracleAddRays ? "1" : "0");
     defines.add("ORACLE_UPPER_BOUND", std::to_string(mOracleCompaireUpperBound));

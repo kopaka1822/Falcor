@@ -8,8 +8,13 @@ import Utils.Color.ColorHelpers;
 import Rendering.ShadowMaps.ShadowMapData;
 import Rendering.ShadowMaps.ShadowMapHelpers;
 
+#ifndef USE_ORACLE_FUNCTION
+#define USE_ORACLE_FUNCTION 0
+#endif
+
 struct ShadowMapOracle
 {
+#if USE_ORACLE_FUNCTION
     //StructuredBuffer<float> gShadowMapNPSBuffer;                                    
     static const float kLightsNPS[SMORACLE_NUM_LIGHTS] = SMORACLE_LIGHTS_NPS;            //Buffer for the Normalized Pixel Size [Point | Spot | Cascaded]
     static const float kCameraNPS = SMORACLE_CAMERA_NPS;                                 //Normalized Pixel Size for the Camera
@@ -19,9 +24,15 @@ struct ShadowMapOracle
     static const uint kNPSOffsetCasc = SMORACLE_NPS_OFFSET_CASCADED;                 //Cascaded offset for kLightsNPS
     static const uint kOracleDistFunctionMode = SMORACLE__DIST_FUNCTION_MODE;  //Mode for the Oracle Distance Function
 
+    //Static Settings
+    static const float kOracleCompaireValue = ORACLE_COMP_VALUE;        //Shoot an ray when the Oracle function is lower than this value
+
+    #ifdef USE_SM_MIP
     static const bool kUseSMMips = USE_SM_MIP;
     static const float kMipBias = SM_MIP_BIAS; // angle bias used in mip calculation (cos theta^bias)
-        
+    #endif //USE_SM_MIP
+
+#endif //USE_ORACLE_FUNCTION 
     /** Oracle Funktion for determening if a shadow map can be used without quality loss or if a ray should be used instead
     \param[in] analytical light index.
     \param[in] light information.
@@ -33,6 +44,9 @@ struct ShadowMapOracle
     static float oracleFunction(const in SMLightData lightData, const in ShadingData sd, float rayDistance, out float mipLevel)
     {
         mipLevel = 0.f; //Default value
+    #if !USE_ORACLE_FUNCTION
+        return 0.0;
+    #else
         uint lightIdx = lightData.index;
 
         if (lightData.type == (uint) LightTypeSM::Spot)
@@ -66,12 +80,15 @@ struct ShadowMapOracle
         float pixelAreaSM = kLightsNPS[lightIdx];
         float projSMArea = pixelAreaSM * distanceToLight * distanceToLight;
 
+        #ifdef USE_SM_MIP
         //Calculate MIP
         if(kUseSMMips){
             mipLevel = 0.5f * log2(( projAreaCam * pow(angleLight,kMipBias) ) / ( projSMArea * pow(angleCamera,kMipBias) + 1e-10f) ); 
         }
+        #endif //USE_SM_MIP
         
         return ( projSMArea * angleCamera) / ( projAreaCam * angleLight + 1e-10f);  //Divide the projected areas
+    #endif//USE_ORACLE_FUNCTION
     }
 
     /** Oracle Funktion for determening if a shadow map can be used without quality loss or if a ray should be used instead
@@ -83,6 +100,9 @@ struct ShadowMapOracle
     */
     static float oracleFunction(const in SMLightData lightData, const in ShadingData sd, float rayDistance)
     {
+    #if !USE_ORACLE_FUNCTION
+        return 0.0;
+    #else
         uint lightIdx = lightData.index;
 
         if (lightData.type == (uint) LightTypeSM::Spot)
@@ -117,8 +137,19 @@ struct ShadowMapOracle
         float projSMArea = pixelAreaSM * distanceToLight * distanceToLight;
                 
         return ( projSMArea * angleCamera) / ( projAreaCam * angleLight + 1e-10f);  //Divide the projected areas
+    #endif //USE_ORACLE_FUNCTION
     }
-    
+
+     /** Bool if the oracle value should result in a ray or not
+     */
+    static bool oracleNeedRay(float oracleValue){
+        #if !USE_ORACLE_FUNCTION
+        return true;
+        #else
+        return oracleValue > kOracleCompaireValue;
+        #endif
+    }
+
      /** Calculate the Oracle distance factor based on the currently selected mode. Should be used on bounces only
     \param[in] material/bsdf properties.
     \param[in] current reflection sample.
@@ -126,6 +157,9 @@ struct ShadowMapOracle
     */
     static float getOracleDistanceFunctionFactor(const in BSDFProperties bsdfProperties,const in BSDFSample bsdfSample)
     {
+    #if !USE_ORACLE_FUNCTION
+        return 1.0;
+    #else
         switch (OracleDistFunction(kOracleDistFunctionMode))
         {
             case OracleDistFunction::RoughnessLinear:
@@ -157,5 +191,6 @@ struct ShadowMapOracle
         }
         //default case 
         return 1.f;
+    #endif //USE_ORACLE_FUNCTION
     }   
 };

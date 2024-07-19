@@ -38,7 +38,7 @@ class RenderContext;
 class FALCOR_API ShadowMapOracle
 {
 public:
-    ShadowMapOracle() {}
+    ShadowMapOracle(bool enable = false) { mUseSMOracle = enable; }
 
     DefineList getDefines() const;
     bool renderUI(Gui::Widgets& widget);
@@ -52,6 +52,7 @@ public:
         uint cascadedLevelCount,
         std::vector<float2>& cascadedWidthHeight
     );
+    bool isEnabled() { return mUseSMOracle; }
 
 private:
     // Get Normalized pixel size used in oracle function
