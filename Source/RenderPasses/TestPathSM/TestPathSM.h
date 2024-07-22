@@ -31,6 +31,7 @@
 #include "Utils/Sampling/SampleGenerator.h"
 #include "Rendering/Utils/PixelStats.h"
 #include "PathSMStructs.slang"
+#include "Rendering/ShadowMaps/ShadowMap.h"
 #include "Rendering/ShadowMaps/Oracle/ShadowMapOracle.h"
 
 using namespace Falcor;
@@ -78,6 +79,7 @@ public:
             {ShadowMode::RayShadows, "RayShadows"},
         }
     );
+
 private:  
     struct LightMVP
     {
@@ -101,6 +103,7 @@ private:
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
     std::unique_ptr<PixelStats> mpPixelStats;           ///< Stats for the current path
     std::unique_ptr<ShadowMapOracle> mpShadowMapOracle; ///< Shadow Map Oracle for tests
+    std::unique_ptr<ShadowMap> mpRasterShadowMap;       //< Raster Shadow Map
 
     //Buffer and Samplers
     std::vector<ref<Texture>> mpShadowMaps;
@@ -117,13 +120,13 @@ private:
 
     //Config Shadow Map
     ShadowMode mShadowMode = ShadowMode::LeakTracing;
+    uint mSMGenerationUseRay = 1;       //Shadow Map Generation: 0-> Raster; 1-> Ray
     bool mRebuildSMBuffers = true;
     bool mRerenderSM = true;
     bool mAlwaysRenderSM = false;
     bool mShadowMapFlag = false;
     bool mUseShadowMap = true;
     bool mUseMinMaxShadowMap = true;
-    bool mDisableShadowRay = false;
     uint mShadowMapSize = 2048;
     uint mShadowMapSamples = 32;
     std::vector<LightMVP> mShadowMapMVP;

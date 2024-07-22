@@ -64,11 +64,16 @@ import Utils.Sampling.SampleGenerator;
 import Utils.Color.ColorHelpers;
 import Rendering.Lights.LightHelpers;
 import Rendering.Utils.PixelStats;
-import Rendering.ShadowMaps.ShadowMapData;
-import Rendering.ShadowMaps.ShadowTestFunctions;
-import Rendering.ShadowMaps.ShadowMapHelpers;
 import PathSMStructs;
 import Rendering.ShadowMaps.Oracle.ShadowMapOracle;
+
+#if SM_GENERATION_RAYTRACING
+    import Rendering.ShadowMaps.ShadowMapData;
+    import Rendering.ShadowMaps.ShadowTestFunctions;
+    import Rendering.ShadowMaps.ShadowMapHelpers;
+#else
+    import Rendering.ShadowMaps.ShadowMap;
+#endif
 
 #ifndef COUNT_SM
 #define COUNT_SM 1
@@ -84,20 +89,20 @@ cbuffer CB
     float       gNear;
     float       gFar;
     bool        gUseShadowMap;
-    uint        gShadowMapRes;
+    uint        gRayShadowMapRes;
     float       gLtBoundsMaxReduction;  //Max reduction per hit
     uint        gIterationCount;        //Current number of still iterations
 }
 
 cbuffer ShadowVPs
 {
-    float4x4 gShadowMapVP[COUNT_SM];
+    float4x4 gRayShadowMapVP[COUNT_SM];
 }
 
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
-Texture2D<float2> gShadowMap[COUNT_SM];
+Texture2D<float2> gRayShadowMap[COUNT_SM];
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -293,86 +298,87 @@ void traceScatterRay(inout PathData rayData, inout RayHitData hitData)
     TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, hitData);
 }
 
-bool evalShadowMap(uint lightIdx, float3 posW, float leakTracingBound ,out float shadow){
-    shadow = 0.0;
-    float4 shadowPos = mul(gShadowMapVP[lightIdx], float4(posW, 1));
-    shadowPos.xyz /= shadowPos.w;
+#if SM_GENERATION_RAYTRACING
+    bool evalShadowMap(uint lightIdx, float3 posW, float leakTracingBound ,out float shadow){
+        shadow = 0.0;
+        float4 shadowPos = mul(gRayShadowMapVP[lightIdx], float4(posW, 1));
+        shadowPos.xyz /= shadowPos.w;
 
-    shadowPos.y *= -1;  //Flip
-    shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
-    float lightDist = (shadowPos.w - gNear) / (gFar - gNear);
+        shadowPos.y *= -1;  //Flip
+        shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+        float lightDist = (shadowPos.w - gNear) / (gFar - gNear);
 
-    if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
-        return true;    //ray needed
+        if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
+            return true;    //ray needed
 
-    if (kUseMinMaxSM) {
-        float2 gatherUV;
-        float4 w = getGatherWeights(shadowPos.xy, gShadowMapRes, gatherUV);
-        float4 minSMValues = gShadowMap[lightIdx].GatherRed(gShadowSamplerPoint, gatherUV);
-        float4 maxSMValues = gShadowMap[lightIdx].GatherGreen(gShadowSamplerPoint, gatherUV);
-        float2 sMValues = gShadowMap[lightIdx].SampleLevel(gShadowSamplerPoint, shadowPos.xy, 0.0);
+        if (kUseMinMaxSM) {
+            float2 gatherUV;
+            float4 w = getGatherWeights(shadowPos.xy, gRayShadowMapRes, gatherUV);
+            float4 minSMValues = gRayShadowMap[lightIdx].GatherRed(gShadowSamplerPoint, gatherUV);
+            float4 maxSMValues = gRayShadowMap[lightIdx].GatherGreen(gShadowSamplerPoint, gatherUV);
+            float2 sMValues = gRayShadowMap[lightIdx].SampleLevel(gShadowSamplerPoint, shadowPos.xy, 0.0);
 
-    #if 1 //Variance
-        float2 minShadowValue = float2(0);
-        float2 maxShadowValue = float2(0);
-        for (uint i = 0; i < 4; i++) {
-            minShadowValue += float2(minSMValues[i], minSMValues[i] * minSMValues[i]) * w[i];
-            maxShadowValue += float2(maxSMValues[i], maxSMValues[i] * maxSMValues[i]) * w[i];
+            #if 1 //Variance
+                float2 minShadowValue = float2(0);
+                float2 maxShadowValue = float2(0);
+                for (uint i = 0; i < 4; i++) {
+                    minShadowValue += float2(minSMValues[i], minSMValues[i] * minSMValues[i]) * w[i];
+                    maxShadowValue += float2(maxSMValues[i], maxSMValues[i] * maxSMValues[i]) * w[i];
+                }
+                float minShadow = ChebyshevUpperBound(minShadowValue.xy, lightDist, 1e-9f);
+                float maxShadow = ChebyshevUpperBound(maxShadowValue.xy, lightDist, 1e-9f);
+            #elif 0 //EVMS
+                float4 minShadowValueEvsm = float4(0);
+                float4 maxShadowValueEvsm = float4(0);
+                for (uint i = 0; i < 4; i++) {
+                    float rescaledDepth = (2.f * minSMValues[i]) - 1.f;
+                    float4 evsm = recreateEVSMFromSingleDepth(rescaledDepth);
+                    minShadowValueEvsm += w[i] * evsm;
+                    rescaledDepth = (2.f * maxSMValues[i]) - 1.f;
+                    evsm = recreateEVSMFromSingleDepth(rescaledDepth);
+                    maxShadowValueEvsm += w[i] * evsm;
+                }
+                float2 minShadowEvsm =  exponentialVarianceShadowTest(minShadowValueEvsm, lightDist);
+                 float2 maxShadowEvsm =  exponentialVarianceShadowTest(maxShadowValueEvsm, lightDist);
+                float minShadow = min(minShadowEvsm.x, minShadowEvsm.y);
+                float maxShadow = min(maxShadowEvsm.x, maxShadowEvsm.y);
+            #else // MSM
+                float4 minShadowValueMsm = float4(0);
+                float4 maxShadowValueMsm = float4(0);
+                for (uint i = 0; i < 4; i++) {
+                    minShadowValueMsm += float4(minSMValues[i], minSMValues[i] * minSMValues[i], minSMValues[i] * minSMValues[i] * minSMValues[i],minSMValues[i] * minSMValues[i] * minSMValues[i] * minSMValues[i]) * w[i];
+                    maxShadowValueMsm += float4(maxSMValues[i], maxSMValues[i] * maxSMValues[i], maxSMValues[i] * maxSMValues[i]* maxSMValues[i],maxSMValues[i] * maxSMValues[i] * maxSMValues[i] * maxSMValues[i]) * w[i];
+                }
+                float minShadow = msmHamburger(minShadowValueMsm, lightDist);
+                float maxShadow = msmHamburger(maxShadowValueMsm, lightDist);
+            #endif
+            if (minShadow <= leakTracingBound && maxShadow <= leakTracingBound)
+                shadow = 0.0;
+            else if (minShadow >= (1.0 - leakTracingBound) && maxShadow >= (1.0 - leakTracingBound))
+                shadow = 1.0;
+            else{
+                shadow = 0.5;
+                return true;
+            }     
+        } else {
+            float2 shadowValue = gRayShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0.0);
+            shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-9f);
+
+            if (shadow <= leakTracingBound)
+                shadow = 0.0;
+            else if (shadow >= (1.0 - leakTracingBound))
+                shadow = 1.0;
+            else
+                return true;
         }
-        float minShadow = ChebyshevUpperBound(minShadowValue.xy, lightDist, 1e-9f);
-        float maxShadow = ChebyshevUpperBound(maxShadowValue.xy, lightDist, 1e-9f);
-    #elif 0 //EVMS
-        float4 minShadowValueEvsm = float4(0);
-        float4 maxShadowValueEvsm = float4(0);
-        for (uint i = 0; i < 4; i++) {
-            float rescaledDepth = (2.f * minSMValues[i]) - 1.f;
-            float4 evsm = recreateEVSMFromSingleDepth(rescaledDepth);
-            minShadowValueEvsm += w[i] * evsm;
-            rescaledDepth = (2.f * maxSMValues[i]) - 1.f;
-            evsm = recreateEVSMFromSingleDepth(rescaledDepth);
-            maxShadowValueEvsm += w[i] * evsm;
-        }
-        float2 minShadowEvsm =  exponentialVarianceShadowTest(minShadowValueEvsm, lightDist);
-         float2 maxShadowEvsm =  exponentialVarianceShadowTest(maxShadowValueEvsm, lightDist);
-        float minShadow = min(minShadowEvsm.x, minShadowEvsm.y);
-        float maxShadow = min(maxShadowEvsm.x, maxShadowEvsm.y);
-    #else // MSM
-        float4 minShadowValueMsm = float4(0);
-        float4 maxShadowValueMsm = float4(0);
-        for (uint i = 0; i < 4; i++) {
-            minShadowValueMsm += float4(minSMValues[i], minSMValues[i] * minSMValues[i], minSMValues[i] * minSMValues[i] * minSMValues[i],minSMValues[i] * minSMValues[i] * minSMValues[i] * minSMValues[i]) * w[i];
-            maxShadowValueMsm += float4(maxSMValues[i], maxSMValues[i] * maxSMValues[i], maxSMValues[i] * maxSMValues[i]* maxSMValues[i],maxSMValues[i] * maxSMValues[i] * maxSMValues[i] * maxSMValues[i]) * w[i];
-        }
-        float minShadow = msmHamburger(minShadowValueMsm, lightDist);
-        float maxShadow = msmHamburger(maxShadowValueMsm, lightDist);
-    #endif
-        if (minShadow <= leakTracingBound && maxShadow <= leakTracingBound)
-            shadow = 0.0;
-        else if (minShadow >= (1.0 - leakTracingBound) && maxShadow >= (1.0 - leakTracingBound))
-            shadow = 1.0;
-        else{
-            shadow = 0.5;
-            return true;
-        }     
-    } else {
-        float2 shadowValue = gShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0.0);
-        shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-9f);
-
-        if (shadow <= leakTracingBound)
-            shadow = 0.0;
-        else if (shadow >= (1.0 - leakTracingBound))
-            shadow = 1.0;
-        else
-            return true;
-    }
     
-    return false;       //No Ray
-}
-
+        return false;       //No Ray
+    }
+#endif
 /* Makes an entry in the shadow map access texture for the specified light if called
 */
 void addShadowMapAccessEntry(uint lightIdx, float3 posW){
-    float4 shadowPos = mul(gShadowMapVP[lightIdx], float4(posW, 1));
+    float4 shadowPos = mul(gRayShadowMapVP[lightIdx], float4(posW, 1));
     shadowPos.xyz /= shadowPos.w;
 
     shadowPos.y *= -1;  //Flip
@@ -426,17 +432,18 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 
     bool useRay = !gUseShadowMap;
 
+    #if USE_ORACLE_FUNCTION || !SM_GENERATION_RAYTRACING
+        //Create SM Data struct
+        SMLightData smLightData;
+        smLightData.posW = lightData.posW;
+        smLightData.dirW = lightData.dirW;
+        smLightData.type = getShadowMapLightType(lightData);
+        smLightData.index = lightIndex;
+    #endif 
     //Oracle
     #if USE_ORACLE_FUNCTION
         bool disableOracle = ShadowMapOracle::kIgnoreOracleForDirect && pathData.pathLength == 0;
         if(gUseShadowMap && !disableOracle){
-            //Create SM Data struct
-            SMLightData smLightData;
-            smLightData.posW = lightData.posW;
-            smLightData.dirW = lightData.dirW;
-            smLightData.type = getShadowMapLightType(lightData);
-            smLightData.index = lightIndex;
-
             float oracle = ShadowMapOracle::oracleFunction(smLightData, sd, pathData.distance);
             useRay = ShadowMapOracle::oracleNeedRay(oracle);
         }else if(disableOracle){
@@ -446,13 +453,19 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 
     float shadow = 0.0;
     if(!useRay){
-        useRay = evalShadowMap(lightIndex, sd.posW, pathData.leakTracingBounds,shadow);
+        #if SM_GENERATION_RAYTRACING
+            useRay = evalShadowMap(lightIndex, sd.posW, pathData.leakTracingBounds,shadow);
+        #else //SM_GENERATION_RAYTRACING
+            bool isDynamic;
+            useRay = !gShadowMap.evalShadowMap(sd.posW, smLightData, 0.5f /*random (unused)*/, 1.0 /*MipLevel*/, shadow, isDynamic, true);
+        #endif //SM_GENERATION_RAYTRACING
+
         #if USE_ORACLE_FUNCTION
             #if !SMORACLE_USE_LEAK_TRACING
                 useRay = false;
                 shadow = shadow < 0.5 ? 0.0 : 1.0;
-            #endif
-        #endif
+            #endif //!SMORACLE_USE_LEAK_TRACING
+        #endif //USE_ORACLE_FUNCTION
     }
 
     float smShadow = shadow;

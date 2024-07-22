@@ -79,6 +79,11 @@ const Gui::DropdownList kShadowMapSizes{
     {4096, "4096x4096"},
 };
 
+const Gui::DropdownList kSMGenerationRenderer{
+    {0, "Rasterizer"},
+    {1, "RayTracing"},
+};
+
 } // namespace
 
 TestPathSM::TestPathSM(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
@@ -215,7 +220,28 @@ void TestPathSM::execute(RenderContext* pRenderContext, const RenderData& render
     //Pixel Stats
     mpPixelStats->beginFrame(pRenderContext, renderData.getDefaultTextureDims());
 
-    generateShadowMap(pRenderContext, renderData);
+    //Shadow Map Generation
+    if (mSMGenerationUseRay) //Ray
+    {
+        generateShadowMap(pRenderContext, renderData);
+
+        if (mpRasterShadowMap)
+        {
+            mpRasterShadowMap.reset();
+            mTracer.pVars.reset();
+        }
+            
+    }
+    else //Raster
+    {
+        if (!mpRasterShadowMap)
+        {
+            mpRasterShadowMap = std::make_unique<ShadowMap>(mpDevice, mpScene);
+            mTracer.pVars.reset();
+        }
+        mpRasterShadowMap->update(pRenderContext);
+    }
+   
 
     //Oracle
     if (mpShadowMapOracle->isEnabled())
@@ -261,9 +287,40 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
         dirty |= widget.dropdown("Light Sampler Block Sizes", kBlockSizes, mSeperateLightSamplerBlockSize);
     }
 
-    dirty |= widget.dropdown("Shadow Map mode", mShadowMode);
+    dirty |= widget.dropdown("Shadow Render Mode", mShadowMode);
+    widget.dropdown("SM Renderer", kSMGenerationRenderer, mSMGenerationUseRay);
 
-    widget.checkbox("Disable Shadow Ray", mDisableShadowRay);
+    if (auto group = widget.group("ShadowMap Options"))
+    {
+        //Ray SM Options
+        if (mSMGenerationUseRay)
+        {
+            mRebuildSMBuffers |= group.dropdown("Shadow Map Size", kShadowMapSizes, mShadowMapSize);
+
+            mRerenderSM |= group.checkbox("Use Min/Max SM", mUseMinMaxShadowMap);
+            dirty |= group.checkbox("Always Render Shadow Map", mAlwaysRenderSM);
+
+            group.var("SM Near/Far", mNearFar, 0.f, FLT_MAX, 0.001f);
+            group.tooltip("Sets the near and far for the shadow map");
+            group.var("LtBounds Start", mLtBoundsStart, 0.0f, 0.5f, 0.001f, false, "%.5f");
+            group.var("LtBounds Max Reduction", mLtBoundsMaxReduction, 0.0f, 0.5f, 0.001f, false, "%.5f");
+
+            group.var("Shadow Map Samples", mShadowMapSamples, 1u, 4096u, 1u);
+            group.tooltip("Sets the shadow map samples. Manual reset is necessary for it to take effect");
+            mRerenderSM |= group.button("Reset Shadow Map");
+
+            dirty |= mRebuildSMBuffers || mRerenderSM;
+        }
+        else if (mpRasterShadowMap) //Raster SM options
+        {
+            dirty |= mpRasterShadowMap->renderUILeakTracing(group, mShadowMode == ShadowMode::LeakTracing);
+        }
+    }
+
+    if (auto group = widget.group("Oracle"))
+    {
+        dirty |= mpShadowMapOracle->renderUI(group);
+    }
 
     if (auto group = widget.group("Debug"))
     {
@@ -286,31 +343,12 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
             {
                 group.var("Blend with SM", mDebugAccessBlendVal, 0.f, 1.f, 0.001f);
                 group.var("HeatMap/SM Brightness", mDebugBrighnessMod, 0.f, FLT_MAX, 0.001f);
-                group.var("HeatMap max val", mDebugHeatMapMaxCount, 0.f, FLT_MAX, mDebugMode == PathSMDebugModes::ShadowMapAccess ? 0.1f : 0.001f);
+                group.var(
+                    "HeatMap max val", mDebugHeatMapMaxCount, 0.f, FLT_MAX, mDebugMode == PathSMDebugModes::ShadowMapAccess ? 0.1f : 0.001f
+                );
                 group.checkbox("Use correct aspect", mDebugUseSMAspect);
-                
             }
         }
-    }
-    
-
-    if (auto group = widget.group("ShadowMap Options"))
-    {
-        mRebuildSMBuffers |= group.dropdown("Shadow Map Size", kShadowMapSizes, mShadowMapSize);
-
-        mRerenderSM |= group.checkbox("Use Min/Max SM", mUseMinMaxShadowMap);
-        dirty |= group.checkbox("Always Render Shadow Map", mAlwaysRenderSM);
-
-        group.var("SM Near/Far", mNearFar, 0.f, FLT_MAX, 0.001f);
-        group.tooltip("Sets the near and far for the shadow map");
-        group.var("LtBounds Start", mLtBoundsStart, 0.0f, 0.5f, 0.001f, false, "%.5f");
-        group.var("LtBounds Max Reduction", mLtBoundsMaxReduction, 0.0f, 0.5f, 0.001f, false, "%.5f");
-
-        group.var("Shadow Map Samples", mShadowMapSamples, 1u, 4096u, 1u);
-        group.tooltip("Sets the shadow map samples. Manual reset is necessary for it to take effect");
-        mRerenderSM |= group.button("Reset Shadow Map");
-
-        dirty |= mRebuildSMBuffers || mRerenderSM;
     }
 
     if (auto group = widget.group("Statistics"))
@@ -319,10 +357,7 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
     }
 
 
-    if (auto group = widget.group("Oracle"))
-    {
-        dirty |= mpShadowMapOracle->renderUI(group);
-    }
+   
     // If rendering options that modify the output have changed, set flag to indicate that.
     // In execute() we will pass the flag to other passes for reset of temporal data etc.
     mOptionsChanged |= dirty;
@@ -535,8 +570,12 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("WRITE_TO_DEBUG", mEnableDebug && !is_set(mDebugMode, PathSMDebugModes::ShadowMapFlag) ? "1" : "0");
     mTracer.pProgram->addDefine("DEBUG_MODE", std::to_string((uint32_t)mDebugMode));
     mTracer.pProgram->addDefine("DEBUG_ACCUMULATE", mAccumulateDebug ? "1" : "0");
+    mTracer.pProgram->addDefine("SM_GENERATION_RAYTRACING", std::to_string(mSMGenerationUseRay));
 
     mTracer.pProgram->addDefines(mpShadowMapOracle->getDefines());
+
+    if (mpRasterShadowMap)
+        mTracer.pProgram->addDefines(mpRasterShadowMap->getDefines());
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     // TODO: This should be moved to a more general mechanism using Slang.
@@ -556,7 +595,7 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     var["CB"]["gNear"] = mNearFar.x;
     var["CB"]["gFar"] = mNearFar.y;
     var["CB"]["gUseShadowMap"] = mShadowMode != ShadowMode::RayShadows;
-    var["CB"]["gShadowMapRes"] = mShadowMapSize;
+    var["CB"]["gRayShadowMapRes"] = mShadowMapSize;
     var["CB"]["gLtBoundsMaxReduction"] = mLtBoundsMaxReduction;
     var["CB"]["gIterationCount"] = mIterationCount;
     
@@ -564,8 +603,8 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     FALCOR_ASSERT(mpShadowMaps.size() == mShadowMapMVP.size());
     for (uint i = 0; i < mpShadowMaps.size(); i++)
     {
-        var["ShadowVPs"]["gShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
-        var["gShadowMap"][i] = mpShadowMaps[i];
+        var["ShadowVPs"]["gRayShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
+        var["gRayShadowMap"][i] = mpShadowMaps[i];
         if (mpShadowMapAccessTex.size() == mpShadowMaps.size())
             var["gShadowAccessDebugTex"][i] = mpShadowMapAccessTex[i];
     }
@@ -573,6 +612,12 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     //Bind Samplers
     var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
     var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
+
+    //RasterSM
+    if (mpRasterShadowMap)
+    {
+        mpRasterShadowMap->setShaderDataAndBindBlock(var, renderData.getDefaultTextureDims());
+    }
 
     //Pixel Stats
     mpPixelStats->prepareProgram(mTracer.pProgram, var);
