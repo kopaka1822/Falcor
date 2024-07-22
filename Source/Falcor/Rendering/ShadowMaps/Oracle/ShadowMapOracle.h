@@ -70,6 +70,7 @@ private:
     bool mUseOracleDistFactor = true;  ///< Enables a lobe distance factor that is used in the oracle function
     OracleDistFunction mOracleDistanceFunctionMode = OracleDistFunction::None; // Distance functions used in Oracle
     bool mOracleAddRays = false; //Additionally adds rays if the oracle is over the upper bound value
+    bool mUseLeakTracing = true; //Uses Leak Tracing when shadow map should be used
 
     float mOracleCompaireValue = 1.f; ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea.
     float mOracleCompaireUpperBound = 32.f; ///< Hybrid mode only. If oracle is over this value, shoot an ray

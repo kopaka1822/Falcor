@@ -15,7 +15,7 @@ DefineList ShadowMapOracle::getDefines() const
 
     defines.add("SMORACLE_NPS_OFFSET_SPOT", std::to_string(mNPSOffsets.x));
     defines.add("SMORACLE_NPS_OFFSET_CASCADED", std::to_string(mNPSOffsets.y));
-    defines.add("SMORACLE__DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
+    defines.add("SMORACLE_DIST_FUNCTION_MODE", std::to_string((uint)mOracleDistanceFunctionMode));
     defines.add("SMORACLE_CAMERA_NPS", std::to_string(mCameraNPS));
     if (mLightNPS.size() > 0)
     {
@@ -38,12 +38,12 @@ DefineList ShadowMapOracle::getDefines() const
     }
    
 
-    
+    defines.add("SMORACLE_USE_LEAK_TRACING", mUseLeakTracing ? "1" : "0");
     defines.add("ORACLE_COMP_VALUE", std::to_string(mOracleCompaireValue));
     defines.add("ORACLE_ADD_RAYS", mOracleAddRays ? "1" : "0");
     defines.add("ORACLE_UPPER_BOUND", std::to_string(mOracleCompaireUpperBound));
     defines.add("USE_ORACLE_DISTANCE_FUNCTION", mOracleDistanceFunctionMode == OracleDistFunction::None ? "0" : "1");
-    defines.add("USE_ORACLE_FOR_DIRECT", mOracleIgnoreDirect ? "1" : "0");
+    defines.add("SMORACLE_IGNORE_FOR_DIRECT", mOracleIgnoreDirect ? "1" : "0");
     defines.add("USE_ORACLE_FOR_DIRECT_ROUGHNESS", std::to_string(mOracleIgnoreDirectRoughness));
 
     return defines;
@@ -163,6 +163,8 @@ bool ShadowMapOracle::renderUI(Gui::Widgets& widget)
 
         dirty |= widget.dropdown("Oracle Distance Mode", mOracleDistanceFunctionMode);
         widget.tooltip("Mode for the distance factor applied on bounces.");
+
+        dirty |= widget.checkbox("Oracle use Leak Tracing", mUseLeakTracing);
 
         dirty |= widget.checkbox("Ignore Oracle on direct hit", mOracleIgnoreDirect);
         widget.tooltip("Ignores the oracle on direct and very specular hits");

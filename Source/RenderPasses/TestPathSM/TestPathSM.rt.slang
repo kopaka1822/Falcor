@@ -394,7 +394,7 @@ void addShadowMapAccessEntry(uint lightIdx, float3 posW){
     \param[in,out] sg SampleGenerator object.
     \return Outgoing radiance in view direction.
 */
-float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout PathData rayData, inout float3 debug)
+float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout PathData pathData, inout float3 debug)
 {
     const uint lightCount = gScene.getLightCount();
     if (lightCount == 0) return float3(0.f);
@@ -402,9 +402,9 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     //Select a light
     float lightSelect = 0.0;
     #if USE_SEPERATE_LIGHT_SAMPLER
-        lightSelect = sampleNext1D(rayData.lightSg);
+        lightSelect = sampleNext1D(pathData.lightSg);
     #else
-        lightSelect = sampleNext1D(rayData.sg);
+        lightSelect = sampleNext1D(pathData.sg);
     #endif
 
     // Pick one of the analytic light sources randomly with equal probability.
@@ -414,7 +414,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     // Sample local light source.
     AnalyticLightSample ls;
     LightData lightData = gScene.getLight(lightIndex);
-    if (!sampleLight(sd.posW,lightData , rayData.sg, ls)) return float3(0.f);
+    if (!sampleLight(sd.posW,lightData , pathData.sg, ls)) return float3(0.f);
 
     // Reject sample if not in the hemisphere of a BSDF lobe.
     const uint lobeTypes = mi.getLobeTypes(sd);
@@ -428,24 +428,30 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 
     //Oracle
     #if USE_ORACLE_FUNCTION
-       if(gUseShadowMap){
-           //Create SM Data struct
-           SMLightData smLightData;
-           smLightData.posW = lightData.posW;
-           smLightData.dirW = lightData.dirW;
-           smLightData.type = getShadowMapLightType(lightData);
-           smLightData.index = lightIndex;
+        bool disableOracle = ShadowMapOracle::kIgnoreOracleForDirect && pathData.pathLength == 0;
+        if(gUseShadowMap && !disableOracle){
+            //Create SM Data struct
+            SMLightData smLightData;
+            smLightData.posW = lightData.posW;
+            smLightData.dirW = lightData.dirW;
+            smLightData.type = getShadowMapLightType(lightData);
+            smLightData.index = lightIndex;
 
-           float oracle = ShadowMapOracle::oracleFunction(smLightData, sd, rayData.distance);
-           useRay = ShadowMapOracle::oracleNeedRay(oracle);
-       } 
+            float oracle = ShadowMapOracle::oracleFunction(smLightData, sd, pathData.distance);
+            useRay = ShadowMapOracle::oracleNeedRay(oracle);
+        }else if(disableOracle){
+            useRay = true;
+        }
     #endif
 
     float shadow = 0.0;
     if(!useRay){
-        useRay = evalShadowMap(lightIndex, sd.posW, rayData.leakTracingBounds,shadow);
+        useRay = evalShadowMap(lightIndex, sd.posW, pathData.leakTracingBounds,shadow);
         #if USE_ORACLE_FUNCTION
-        useRay = false;
+            #if !SMORACLE_USE_LEAK_TRACING
+                useRay = false;
+                shadow = shadow < 0.5 ? 0.0 : 1.0;
+            #endif
         #endif
     }
 
@@ -467,7 +473,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
             // Test visibility by tracing a shadow ray.
             bool RayV = traceShadowRay(origin, ls.dir, ls.distance);
             bool shadowV = shadow > 0.5;
-            float3 brdf = mi.eval(sd, ls.dir, rayData.sg);
+            float3 brdf = mi.eval(sd, ls.dir, pathData.sg);
             if(RayV != shadowV && all(brdf > 0)){
                 debug.x += 10000.0;
                 if(kDebugMode == (uint)PathSMDebugModes::ShadowMapRayDiff)
@@ -483,7 +489,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     //if(shadow <= 0.0)
     //    return float3(0);
     // Evaluate contribution.
-    return mi.eval(sd, ls.dir, rayData.sg) * ls.Li * invPdf * shadow;
+    return mi.eval(sd, ls.dir, pathData.sg) * ls.Li * invPdf * shadow;
 
 }
 
@@ -495,28 +501,28 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     \param[in,out] rayData Ray payload.
     \return True if the path continues.
 */
-bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool isCurveHit, float3 rayOrigin, inout PathData rayData)
+bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool isCurveHit, float3 rayOrigin, inout PathData pathData)
 {
     // Sample material.
     BSDFSample bsdfSample;
-    if (mi.sample(sd, rayData.sg, bsdfSample, kUseImportanceSampling))
+    if (mi.sample(sd, pathData.sg, bsdfSample, kUseImportanceSampling))
     {
-        rayData.origin = rayOrigin;
+        pathData.origin = rayOrigin;
         if (!isCurveHit && bsdfSample.isLobe(LobeType::Transmission))
         {
-            rayData.origin = sd.computeNewRayOrigin(false);
+            pathData.origin = sd.computeNewRayOrigin(false);
         }
-        rayData.direction = bsdfSample.wo;
-        rayData.thp *= bsdfSample.weight;
+        pathData.direction = bsdfSample.wo;
+        pathData.thp *= bsdfSample.weight;
         let miProperties = mi.getProperties(sd);
         float roughSq = miProperties.roughness * miProperties.roughness;
-        rayData.leakTracingBounds += gLtBoundsMaxReduction * roughSq;
-        rayData.leakTracingBounds = min(0.5, rayData.leakTracingBounds);
+        pathData.leakTracingBounds += gLtBoundsMaxReduction * roughSq;
+        pathData.leakTracingBounds = min(0.5, pathData.leakTracingBounds);
         #if USE_ORACLE_FUNCTION
-            rayData.lobeDistFactor = ShadowMapOracle::getOracleDistanceFunctionFactor(miProperties, bsdfSample);
+            pathData.lobeDistFactor = ShadowMapOracle::getOracleDistanceFunctionFactor(miProperties, bsdfSample);
         #endif //USE_ORACLE_FUNCTION
 
-        return any(rayData.thp > 0.f);
+        return any(pathData.thp > 0.f);
     }
 
     return false;
@@ -529,16 +535,16 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool i
     \param[in,out] rayData Ray payload.
 
 */
-void handleHit(const HitInfo hit, inout PathData rayData, inout float3 debug)
+void handleHit(const HitInfo hit, inout PathData pathData, inout float3 debug)
 {
     const bool isCurveHit = hit.getType() == HitType::Curve;
     let lod = ExplicitLodTextureSampler(0.f);
 
     // Load shading data.
-    ShadingData sd = loadShadingData(hit, rayData.origin, rayData.direction, lod);
+    ShadingData sd = loadShadingData(hit, pathData.origin, pathData.direction, lod);
 
     #if USE_ORACLE_FUNCTION
-        rayData.distance += distance(sd.posW, rayData.origin) * rayData.lobeDistFactor;
+        pathData.distance += distance(sd.posW, pathData.origin) * pathData.lobeDistFactor;
     #endif
 
     // Create material instance.
@@ -547,15 +553,15 @@ void handleHit(const HitInfo hit, inout PathData rayData, inout float3 debug)
     let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
 
     // Add emitted light.
-    if (kUseEmissiveLights && (kComputeDirect || rayData.pathLength > 0))
+    if (kUseEmissiveLights && (kComputeDirect || pathData.pathLength > 0))
     {
-        rayData.radiance += rayData.thp * mi.getProperties(sd).emission;
+        pathData.radiance += pathData.thp * mi.getProperties(sd).emission;
     }
 
     // Check whether to terminate based on max depth.
-    if (rayData.pathLength >= kMaxBounces)
+    if (pathData.pathLength >= kMaxBounces)
     {
-        rayData.terminated = true;
+        pathData.terminated = true;
         return;
     }
 
@@ -574,19 +580,19 @@ void handleHit(const HitInfo hit, inout PathData rayData, inout float3 debug)
     // Add contribution of direct light from analytic lights.
     if (kUseAnalyticLights)
     {        
-        float3 Lr = evalDirectAnalytic(sd, mi, rayData, debug);
-        rayData.radiance += rayData.thp * Lr;
+        float3 Lr = evalDirectAnalytic(sd, mi, pathData, debug);
+        pathData.radiance += pathData.thp * Lr;
     }
 
     // Generate scatter ray for the next path segment.
     // The raygen shader will continue the path based on the returned payload.
-    if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, rayData))
+    if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, pathData))
     {
-        rayData.terminated = true;
+        pathData.terminated = true;
         return;
     }
 
-    rayData.pathLength++;
+    pathData.pathLength++;
 }
 
 /** This is the main entry point for the minimal path tracer.

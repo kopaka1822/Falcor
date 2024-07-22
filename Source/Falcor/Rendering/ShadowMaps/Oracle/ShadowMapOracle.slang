@@ -22,10 +22,12 @@ struct ShadowMapOracle
     //Static Constants
     static const uint kNPSOffsetSpot = SMORACLE_NPS_OFFSET_SPOT;                     //Spotlight offset for kLightsNPS
     static const uint kNPSOffsetCasc = SMORACLE_NPS_OFFSET_CASCADED;                 //Cascaded offset for kLightsNPS
-    static const uint kOracleDistFunctionMode = SMORACLE__DIST_FUNCTION_MODE;  //Mode for the Oracle Distance Function
-
+    static const uint kOracleDistFunctionMode = SMORACLE_DIST_FUNCTION_MODE;  //Mode for the Oracle Distance Function
+    
     //Static Settings
     static const float kOracleCompaireValue = ORACLE_COMP_VALUE;        //Shoot an ray when the Oracle function is lower than this value
+    static const bool kOracleUseLeakTracing = SMORACLE_USE_LEAK_TRACING;        //Setting for leak trace usage
+    static const bool kIgnoreOracleForDirect = SMORACLE_IGNORE_FOR_DIRECT;
 
     #ifdef USE_SM_MIP
     static const bool kUseSMMips = USE_SM_MIP;
