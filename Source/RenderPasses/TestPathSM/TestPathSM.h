@@ -80,6 +80,21 @@ public:
         }
     );
 
+    enum class FilterSMMode : uint32_t
+    {
+        Variance = 0,
+        ESVM = 1,
+        MSM = 2,
+    };
+    FALCOR_ENUM_INFO(
+        TestPathSM::FilterSMMode,
+        {
+            {FilterSMMode::Variance, "Variance"},
+            {FilterSMMode::ESVM, "ESVM"},
+            {FilterSMMode::MSM, "MSM"},
+        }
+    );
+
 private:  
     struct LightMVP
     {
@@ -93,6 +108,7 @@ private:
     void parseProperties(const Properties& props);
     void prepareBuffers();
     void prepareVars();
+    DefineList filterSMModesDefines();
 
     void generateShadowMap(RenderContext* pRenderContext, const RenderData& renderData);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
@@ -106,7 +122,8 @@ private:
     std::unique_ptr<ShadowMap> mpRasterShadowMap;       //< Raster Shadow Map
 
     //Buffer and Samplers
-    std::vector<ref<Texture>> mpShadowMaps;
+    std::vector<ref<Texture>> mpRayShadowMaps;
+    std::vector<ref<Texture>> mpRayShadowMapsMinMax;
     ref<Sampler> mpShadowSamplerPoint;
     ref<Sampler> mpShadowSamplerLinear;
 
@@ -120,6 +137,7 @@ private:
 
     //Config Shadow Map
     ShadowMode mShadowMode = ShadowMode::LeakTracing;
+    FilterSMMode mFilterSMMode = FilterSMMode::Variance;
     uint mSMGenerationUseRay = 1;       //Shadow Map Generation: 0-> Raster; 1-> Ray
     bool mRebuildSMBuffers = true;
     bool mRerenderSM = true;
@@ -142,7 +160,8 @@ private:
     bool mClearDebugAccessTex = false;
     uint mDebugShowLight = 0;
     uint mIterationCount = 0;
-    float mDebugHeatMapMaxCount = 4.f;
+    float mDebugHeatMapMaxCountAccess = 4.f;
+    float mDebugHeatMapMaxCountDifference = 0.25f;
     float mDebugAccessBlendVal = 0.3f;
     float2 mDebugBrighnessMod = float2(5.f,1.f);
     bool mDebugUseSMAspect = true;
@@ -168,4 +187,5 @@ private:
 };
 
 FALCOR_ENUM_REGISTER(TestPathSM::ShadowMode);
+FALCOR_ENUM_REGISTER(TestPathSM::FilterSMMode);
 FALCOR_ENUM_CLASS_OPERATORS(PathSMDebugModes);

@@ -103,6 +103,7 @@ cbuffer ShadowVPs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
 Texture2D<float2> gRayShadowMap[COUNT_SM];
+Texture2D<float2> gRayShadowMapMinMax[COUNT_SM];
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -314,11 +315,10 @@ void traceScatterRay(inout PathData rayData, inout RayHitData hitData)
         if (kUseMinMaxSM) {
             float2 gatherUV;
             float4 w = getGatherWeights(shadowPos.xy, gRayShadowMapRes, gatherUV);
-            float4 minSMValues = gRayShadowMap[lightIdx].GatherRed(gShadowSamplerPoint, gatherUV);
-            float4 maxSMValues = gRayShadowMap[lightIdx].GatherGreen(gShadowSamplerPoint, gatherUV);
-            float2 sMValues = gRayShadowMap[lightIdx].SampleLevel(gShadowSamplerPoint, shadowPos.xy, 0.0);
+            float4 minSMValues = gRayShadowMapMinMax[lightIdx].GatherRed(gShadowSamplerPoint, gatherUV);
+            float4 maxSMValues = gRayShadowMapMinMax[lightIdx].GatherGreen(gShadowSamplerPoint, gatherUV);
 
-            #if 1 //Variance
+            #if FILTER_SM_VARIANCE
                 float2 minShadowValue = float2(0);
                 float2 maxShadowValue = float2(0);
                 for (uint i = 0; i < 4; i++) {
@@ -327,7 +327,7 @@ void traceScatterRay(inout PathData rayData, inout RayHitData hitData)
                 }
                 float minShadow = ChebyshevUpperBound(minShadowValue.xy, lightDist, 1e-9f);
                 float maxShadow = ChebyshevUpperBound(maxShadowValue.xy, lightDist, 1e-9f);
-            #elif 0 //EVMS
+            #elif FILTER_SM_ESVM
                 float4 minShadowValueEvsm = float4(0);
                 float4 maxShadowValueEvsm = float4(0);
                 for (uint i = 0; i < 4; i++) {
@@ -342,7 +342,7 @@ void traceScatterRay(inout PathData rayData, inout RayHitData hitData)
                  float2 maxShadowEvsm =  exponentialVarianceShadowTest(maxShadowValueEvsm, lightDist);
                 float minShadow = min(minShadowEvsm.x, minShadowEvsm.y);
                 float maxShadow = min(maxShadowEvsm.x, maxShadowEvsm.y);
-            #else // MSM
+            #else // FILTER_SM_MSM
                 float4 minShadowValueMsm = float4(0);
                 float4 maxShadowValueMsm = float4(0);
                 for (uint i = 0; i < 4; i++) {
@@ -361,9 +361,35 @@ void traceScatterRay(inout PathData rayData, inout RayHitData hitData)
                 return true;
             }     
         } else {
-            float2 shadowValue = gRayShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0.0);
-            shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-9f);
-
+            float2 gatherUV;
+            float4 w = getGatherWeights(shadowPos.xy, gRayShadowMapRes, gatherUV);
+            float4 shadowValues = gRayShadowMap[lightIdx].GatherRed(gShadowSamplerPoint, gatherUV);
+            #if FILTER_SM_VARIANCE
+                float2 shadowValue = float2(0.0);
+                //Interpolate
+                [unroll]
+                for (uint i = 0; i < 4; i++) {
+                    shadowValue += float2(shadowValues[i], shadowValues[i] * shadowValues[i]) * w[i];
+                }
+                shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-9f);
+            #elif FILTER_SM_ESVM
+                float4 shadowValueEvsm = float4(0);
+                [unroll]
+                for (uint i = 0; i < 4; i++) {
+                    float rescaledDepth = (2.f * shadowValues[i]) - 1.f;
+                    float4 evsm = recreateEVSMFromSingleDepth(rescaledDepth);
+                    shadowValueEvsm += w[i] * evsm;
+                }
+                float2 shadowEvsm =  exponentialVarianceShadowTest(shadowValueEvsm, lightDist);
+                shadow = min(shadowEvsm.x, shadowEvsm.y);
+            #else // FILTER_SM_MSM
+                float4 shadowValueMsm = float4(0);
+                for (uint i = 0; i < 4; i++) {
+                    shadowValueMsm += float4(shadowValues[i], shadowValues[i] * shadowValues[i], shadowValues[i] * shadowValues[i] * shadowValues[i],shadowValues[i] * shadowValues[i] * shadowValues[i] * shadowValues[i]) * w[i];
+                }
+                shadow = msmHamburger(shadowValueMsm, lightDist);
+            #endif
+            //Leak Tracing Test
             if (shadow <= leakTracingBound)
                 shadow = 0.0;
             else if (shadow >= (1.0 - leakTracingBound))
@@ -387,7 +413,7 @@ void addShadowMapAccessEntry(uint lightIdx, float3 posW){
     if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
         return;    
 
-    uint2 shadowMapPixel = uint2(2048 * shadowPos.xy);
+    uint2 shadowMapPixel = uint2(gRayShadowMapRes * shadowPos.xy);
     //Call an atomic add for the shadow map pixel
     uint origValue = 0;
     InterlockedAdd(gShadowAccessDebugTex[lightIdx][shadowMapPixel], 1u, origValue);

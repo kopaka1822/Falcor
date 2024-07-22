@@ -1,9 +1,13 @@
 import PathSMStructs;
 
-Texture2D<float2> gShadowMap;
+Texture2D<float> gRayShadowMap;
+Texture2D<float2> gRayShadowMapMinMax;
+
 Texture2D<uint> gShadowAccessTex;
 
 RWTexture2D<float4> gOut;
+
+static const bool kUseMinMaxSM = USE_MINMAX_SM;
 
 cbuffer CB
 {
@@ -54,7 +58,10 @@ void main(uint2 pixel: SV_DispatchThreadID)
     float4 output = float4(0,0,0,1);
 
     //Copy SM
-    output.xy = gShadowMap[pixel];
+    if(kUseMinMaxSM)
+        output.xy = gRayShadowMapMinMax[pixel];
+    else
+        output.xyz = float3(gRayShadowMap[pixel]);
 
     if(gDebugMode != (uint)PathSMDebugModes::ShadowMap){
         output = shadowMapAccessOverlay(pixel, output);

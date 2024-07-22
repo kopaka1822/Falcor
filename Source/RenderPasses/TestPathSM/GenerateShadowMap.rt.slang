@@ -84,7 +84,8 @@ cbuffer CB
     float4x4    gInvViewProj;     // View Projection for current light
 }
 
-RWTexture2D<float2> gShadowMap;
+RWTexture2D<float2> gRayShadowMapMinMax;
+RWTexture2D<float> gRayShadowMap;
 
 //Shaders
 
@@ -133,11 +134,13 @@ void rayGen()
     float2 shadowValue = gUseMinMaxSM ? float2(1 , 0) : float2(0);
     float weight = (1.0 / gSamples);
 
-    for (uint i = 0; i < gSamples; i++) {
-        float2 random = sampleNext2D(sg);
-        if (gSamples == 1)
-            random = float2(0.5);
+    uint samples = gUseMinMaxSM ? gSamples : 1;
 
+    for (uint i = 0; i < samples; i++) {
+        float2 random = float2(0.5);
+        if (samples > 1)
+            random = sampleNext2D(sg);
+        
         float2 pixelSample = pixel + random;
 
         float2 relFramePos = pixelSample / frameDim;
@@ -166,10 +169,13 @@ void rayGen()
             shadowValue = float2(min(shadowValue.x, rayData.depth), max(shadowValue.y, rayData.depth));
         }
         else {
-            shadowValue += float2(rayData.depth, rayData.depth * rayData.depth) * weight;
+            shadowValue += float2(rayData.depth,0);
         }
         
     }
 
-    gShadowMap[pixel] = shadowValue;
+    if(gUseMinMaxSM)
+        gRayShadowMapMinMax[pixel] = shadowValue;
+    else
+        gRayShadowMap[pixel] = shadowValue.x;
 }

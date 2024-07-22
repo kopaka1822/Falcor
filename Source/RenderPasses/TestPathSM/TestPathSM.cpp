@@ -296,6 +296,8 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
         if (mSMGenerationUseRay)
         {
             mRebuildSMBuffers |= group.dropdown("Shadow Map Size", kShadowMapSizes, mShadowMapSize);
+            dirty |= group.dropdown("Filter SM Mode", mFilterSMMode);
+            group.tooltip("Filtered shadow map is always recreated from one depth");
 
             mRerenderSM |= group.checkbox("Use Min/Max SM", mUseMinMaxShadowMap);
             dirty |= group.checkbox("Always Render Shadow Map", mAlwaysRenderSM);
@@ -305,8 +307,11 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
             group.var("LtBounds Start", mLtBoundsStart, 0.0f, 0.5f, 0.001f, false, "%.5f");
             group.var("LtBounds Max Reduction", mLtBoundsMaxReduction, 0.0f, 0.5f, 0.001f, false, "%.5f");
 
-            group.var("Shadow Map Samples", mShadowMapSamples, 1u, 4096u, 1u);
-            group.tooltip("Sets the shadow map samples. Manual reset is necessary for it to take effect");
+            if (mUseMinMaxShadowMap)
+            {
+                group.var("Shadow Map Samples", mShadowMapSamples, 1u, 4096u, 1u);
+                group.tooltip("Sets the shadow map samples. Manual reset is necessary for it to take effect");
+            }
             mRerenderSM |= group.button("Reset Shadow Map");
 
             dirty |= mRebuildSMBuffers || mRerenderSM;
@@ -337,14 +342,15 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
 
             if (is_set(mDebugMode, PathSMDebugModes::ShadowMapFlag) && mpScene)
             {
-                group.var("Select Light", mDebugShowLight, 0u, mpScene->getLightCount() - 1, 1u);
+                group.slider("Select Light", mDebugShowLight, 0u, mpScene->getLightCount() - 1, 1u);
             }
             if (mDebugMode == PathSMDebugModes::ShadowMapAccess || mDebugMode == PathSMDebugModes::ShadowMapRayDiff)
             {
                 group.var("Blend with SM", mDebugAccessBlendVal, 0.f, 1.f, 0.001f);
                 group.var("HeatMap/SM Brightness", mDebugBrighnessMod, 0.f, FLT_MAX, 0.001f);
                 group.var(
-                    "HeatMap max val", mDebugHeatMapMaxCount, 0.f, FLT_MAX, mDebugMode == PathSMDebugModes::ShadowMapAccess ? 0.1f : 0.001f
+                    "HeatMap max val", mDebugMode == PathSMDebugModes::ShadowMapAccess ? mDebugHeatMapMaxCountAccess : mDebugHeatMapMaxCountDifference, 0.f, FLT_MAX,
+                    mDebugMode == PathSMDebugModes::ShadowMapAccess ? 0.1f : 0.001f
                 );
                 group.checkbox("Use correct aspect", mDebugUseSMAspect);
             }
@@ -535,8 +541,10 @@ void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderDa
         var["CB"]["gUseMinMaxSM"] = mUseMinMaxShadowMap;
         var["CB"]["gInvViewProj"] = mShadowMapMVP[i].invViewProjection;
 
-
-        var["gShadowMap"] = mpShadowMaps[i];
+        if(mUseMinMaxShadowMap)
+            var["gRayShadowMapMinMax"] = mpRayShadowMapsMinMax[i];
+        else
+            var["gRayShadowMap"] = mpRayShadowMaps[i];
 
         // Spawn the rays.
         mpScene->raytrace(pRenderContext, mGenerateSM.pProgram.get(), mGenerateSM.pVars, uint3(targetDim, 1));
@@ -560,7 +568,9 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("USE_ENV_LIGHT", mpScene->useEnvLight() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE", mUseRussianRoulette ? "1" : "0");
-    mTracer.pProgram->addDefine("COUNT_SM", std::to_string(mpShadowMaps.size()));
+    mTracer.pProgram->addDefine(
+        "COUNT_SM", mUseMinMaxShadowMap ? std::to_string(mpRayShadowMapsMinMax.size()) : std::to_string(mpRayShadowMaps.size())
+    );
     mTracer.pProgram->addDefine("USE_SEPERATE_LIGHT_SAMPLER", mUseSeperateLightSampler ? "1" : "0");
     mTracer.pProgram->addDefine("LIGHT_SAMPLER_BLOCK_SIZE", std::to_string(mSeperateLightSamplerBlockSize));
     mTracer.pProgram->addDefine("USE_SHADOW_RAY", mShadowMode != ShadowMode::ShadowMap ? "1" : "0");
@@ -571,7 +581,7 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("DEBUG_MODE", std::to_string((uint32_t)mDebugMode));
     mTracer.pProgram->addDefine("DEBUG_ACCUMULATE", mAccumulateDebug ? "1" : "0");
     mTracer.pProgram->addDefine("SM_GENERATION_RAYTRACING", std::to_string(mSMGenerationUseRay));
-
+    mTracer.pProgram->addDefines(filterSMModesDefines());
     mTracer.pProgram->addDefines(mpShadowMapOracle->getDefines());
 
     if (mpRasterShadowMap)
@@ -600,12 +610,18 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     var["CB"]["gIterationCount"] = mIterationCount;
     
     //Bind Shadow MVPS and Shadow Map
-    FALCOR_ASSERT(mpShadowMaps.size() == mShadowMapMVP.size());
-    for (uint i = 0; i < mpShadowMaps.size(); i++)
+    FALCOR_ASSERT(mpRayShadowMaps.size() == mShadowMapMVP.size() || mpRayShadowMapsMinMax.size() == mShadowMapMVP.size());
+    for (uint i = 0; i < mShadowMapMVP.size(); i++)
     {
         var["ShadowVPs"]["gRayShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
-        var["gRayShadowMap"][i] = mpShadowMaps[i];
-        if (mpShadowMapAccessTex.size() == mpShadowMaps.size())
+        if (mUseMinMaxShadowMap)
+            var["gRayShadowMapMinMax"][i] = mpRayShadowMapsMinMax[i];
+        else
+            var["gRayShadowMap"][i] = mpRayShadowMaps[i];
+
+        bool validAccessTex = (mpShadowMapAccessTex.size() == mpRayShadowMaps.size()) || (mpShadowMapAccessTex.size() == mpRayShadowMapsMinMax.size());
+        validAccessTex &= !mpShadowMapAccessTex.empty();
+        if (validAccessTex)
             var["gShadowAccessDebugTex"][i] = mpShadowMapAccessTex[i];
     }
         
@@ -648,34 +664,68 @@ void TestPathSM::prepareBuffers() {
     //Shadow Map
     if (mRebuildSMBuffers)
     {
-        mpShadowMaps.clear();
+        mpRayShadowMaps.clear();
+        mpRayShadowMapsMinMax.clear();
         mShadowMapMVP.clear();
+        mpShadowMapBlit.reset();
+        mpShadowMapAccessTex.clear();
+
         mRerenderSM = true;
     }
 
     // Get Analytic light data
     auto lights = mpScene->getActiveLights();
-    // Check if the buffer is up to date
-    if (mpShadowMaps.size() != lights.size() && lights.size() > 0)
+    uint numShadowMaps = mUseMinMaxShadowMap ? mpRayShadowMapsMinMax.size() : mpRayShadowMaps.size();
+
+    // Check if the shadow map is up to date
+    if (mUseMinMaxShadowMap)
     {
-        mpShadowMaps.clear();
-        // Create a shadow map per light
-        for (uint i = 0; i < lights.size(); i++)
+        if (numShadowMaps != lights.size() && lights.size() > 0)
         {
-            ref<Texture> tex = Texture::create2D(
-                mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::RG32Float, 1u, 1u, nullptr,
-                ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
-            );
-            tex->setName("TestPathSM::ShadowMap" + i);
-            mpShadowMaps.push_back(tex);
+            mpRayShadowMapsMinMax.clear();
+            // Create a shadow map per light
+            for (uint i = 0; i < lights.size(); i++)
+            {
+                ref<Texture> tex = Texture::create2D(
+                    mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::RG32Float, 1u, 1u, nullptr,
+                    ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+                );
+                tex->setName("TestPathSM::ShadowMap" + i);
+                mpRayShadowMapsMinMax.push_back(tex);
+            }
         }
+
+        if (!mpRayShadowMaps.empty())
+            mpRayShadowMaps.clear();
+    }
+    else
+    {
+        if (numShadowMaps != lights.size() && lights.size() > 0)
+        {
+            mpRayShadowMaps.clear();
+            // Create a shadow map per light
+            for (uint i = 0; i < lights.size(); i++)
+            {
+                ref<Texture> tex = Texture::create2D(
+                    mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::R32Float, 1u, 1u, nullptr,
+                    ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+                );
+                tex->setName("TestPathSM::ShadowMap" + i);
+                mpRayShadowMaps.push_back(tex);
+            }
+        }
+
+        if (!mpRayShadowMapsMinMax.empty())
+            mpRayShadowMapsMinMax.clear();
     }
 
+    //Update
+    numShadowMaps = mUseMinMaxShadowMap ? mpRayShadowMapsMinMax.size() : mpRayShadowMaps.size();
 
     //Debug Textures
 
     //Blit Tex
-    if (mEnableDebug && is_set(mDebugMode, PathSMDebugModes::ShadowMapFlag) && !mpShadowMaps.empty())
+    if (mEnableDebug && is_set(mDebugMode, PathSMDebugModes::ShadowMapFlag) && numShadowMaps > 0)
     {
         // Reset if size is not right
         if (mpShadowMapBlit)
@@ -697,12 +747,13 @@ void TestPathSM::prepareBuffers() {
 
     //SM accumulate tex
     if (mEnableDebug && (mDebugMode == PathSMDebugModes::ShadowMapAccess || mDebugMode == PathSMDebugModes::ShadowMapRayDiff) &&
-        !mpShadowMaps.empty())
+        numShadowMaps > 0)
     {
         //Check if size and shadow map size is still right
         if (!mpShadowMapAccessTex.empty())
         {
-            if ((mpShadowMapAccessTex.size() != mpShadowMaps.size()) || (mpShadowMapAccessTex[0]->getWidth() != mShadowMapSize))
+            
+            if ((mpShadowMapAccessTex.size() != numShadowMaps) || (mpShadowMapAccessTex[0]->getWidth() != mShadowMapSize))
             {
                 mpShadowMapAccessTex.clear();
             }
@@ -711,8 +762,8 @@ void TestPathSM::prepareBuffers() {
         //Create
         if (mpShadowMapAccessTex.empty())
         {
-            mpShadowMapAccessTex.resize(mpShadowMaps.size());
-            for (uint i = 0; i < mpShadowMaps.size(); i++)
+            mpShadowMapAccessTex.resize(numShadowMaps);
+            for (uint i = 0; i < numShadowMaps; i++)
             {
                 mpShadowMapAccessTex[i] = Texture::create2D(
                     mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::R32Uint,1u, 1u, nullptr,
@@ -747,6 +798,14 @@ void TestPathSM::prepareVars()
     mpSampleGenerator->setShaderData(var);
 }
 
+DefineList TestPathSM::filterSMModesDefines() {
+    DefineList defines;
+    defines.add("FILTER_SM_VARIANCE", mFilterSMMode == FilterSMMode::Variance ? "1" : "0");
+    defines.add("FILTER_SM_ESVM", mFilterSMMode == FilterSMMode::ESVM ? "1" : "0");
+    defines.add("FILTER_SM_MSM", mFilterSMMode == FilterSMMode::MSM ? "1" : "0");
+    return defines;
+}
+
 void TestPathSM::debugShadowMapPass(RenderContext* pRenderContext, const RenderData& renderData) {
     FALCOR_PROFILE(pRenderContext, "DebugShadowMap");
  
@@ -757,20 +816,31 @@ void TestPathSM::debugShadowMapPass(RenderContext* pRenderContext, const RenderD
         desc.addShaderLibrary(kShaderDebugSM).csEntry("main").setShaderModel("6_5");
 
         DefineList defines;
+        defines.add("USE_MINMAX_SM", mUseMinMaxShadowMap ? "1" : "0");
 
         mpDebugShadowMapPass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
     FALCOR_ASSERT(mpDebugShadowMapPass);
 
+    //Runtime defines
+    mpDebugShadowMapPass->getProgram()->addDefine("USE_MINMAX_SM", mUseMinMaxShadowMap ? "1" : "0");
+
     // Set variables
+    float debugHeatMapMaxCount =
+        mDebugMode == PathSMDebugModes::ShadowMapAccess ? mDebugHeatMapMaxCountAccess : mDebugHeatMapMaxCountDifference;
+
     auto var = mpDebugShadowMapPass->getRootVar();
     var["CB"]["gDebugMode"] = (uint)mDebugMode;
     var["CB"]["gBlendVal"] = mDebugAccessBlendVal;
-    var["CB"]["gMaxValue"] = mDebugHeatMapMaxCount * (mIterationCount + 1);
+    var["CB"]["gMaxValue"] = debugHeatMapMaxCount * (mIterationCount + 1);
     var["CB"]["gBrightnessIncrease"] = mDebugBrighnessMod;
 
-    var["gShadowMap"] = mpShadowMaps[mDebugShowLight];
+    if (mUseMinMaxShadowMap)
+        var["gRayShadowMapMinMax"] = mpRayShadowMapsMinMax[mDebugShowLight];
+    else
+        var["gRayShadowMap"] = mpRayShadowMaps[mDebugShowLight];
+
     if (mpShadowMapAccessTex.size() > mDebugShowLight)
         var["gShadowAccessTex"] = mpShadowMapAccessTex[mDebugShowLight];
     var["gOut"] = mpShadowMapBlit;
