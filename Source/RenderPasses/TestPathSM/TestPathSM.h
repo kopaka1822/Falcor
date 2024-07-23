@@ -134,6 +134,7 @@ private:
     bool mUseRussianRoulette = true;
     bool mUseSeperateLightSampler = false;
     uint mSeperateLightSamplerBlockSize = 32;
+    PathSMLightSampleMode mPathLightSampleMode = PathSMLightSampleMode::Uniform;    //Mode for sampling the analytic lights 
 
     //Config Shadow Map
     ShadowMode mShadowMode = ShadowMode::LeakTracing;
@@ -160,6 +161,8 @@ private:
     bool mClearDebugAccessTex = false;
     uint mDebugShowLight = 0;
     uint mIterationCount = 0;
+    uint mDebugShowBounce = 0;
+    float mDebugMult = 1.0f;
     float mDebugHeatMapMaxCountAccess = 4.f;
     float mDebugHeatMapMaxCountDifference = 0.25f;
     float mDebugAccessBlendVal = 0.3f;

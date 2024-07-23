@@ -92,6 +92,8 @@ cbuffer CB
     uint        gRayShadowMapRes;
     float       gLtBoundsMaxReduction;  //Max reduction per hit
     uint        gIterationCount;        //Current number of still iterations
+    uint        gSelectedBounce;               // Debug show selected bounce
+    float       gDebugFactor;           //Factor for the debug value
 }
 
 cbuffer ShadowVPs
@@ -134,6 +136,7 @@ static const bool kEnableDebug = USE_DEBUG;
 static const bool kWriteDebug = WRITE_TO_DEBUG;
 static const uint kDebugMode = DEBUG_MODE;
 static const bool kDebugAccumulate = DEBUG_ACCUMULATE;
+static const uint kLightSampleMode = PATHSM_LIGHT_SAMPLE_MODE;
 
 /** Payload for shadow ray.
 */
@@ -299,6 +302,40 @@ void traceScatterRay(inout PathData rayData, inout RayHitData hitData)
     TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, hitData);
 }
 
+AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathData pathData, out uint lightIndex, out float invPdf, out uint lightType) {
+    AnalyticLightSample ls = {};
+
+    if (kLightSampleMode == (uint)PathSMLightSampleMode::Uniform) {
+        float lightSelect = 0.0;
+        #if USE_SEPERATE_LIGHT_SAMPLER
+                lightSelect = sampleNext1D(pathData.lightSg);
+        #else
+                lightSelect = sampleNext1D(pathData.sg);
+        #endif
+
+        // Pick one of the analytic light sources randomly with equal probability.
+        lightIndex = min(uint(lightSelect * lightCount), lightCount - 1);
+        invPdf = lightCount; // Light selection pdf = 1.0 / lightCount.
+
+        // Sample local light source.
+        LightData lightData = gScene.getLight(lightIndex);
+        lightType = getShadowMapLightType(lightData);
+        sampleLight(posW, lightData, pathData.sg, ls);
+    } else if (kLightSampleMode == (uint)PathSMLightSampleMode::RIS) {
+        //TODO
+    }
+    else { // Invalid type
+        lightIndex = 0;
+        invPdf = 1.0;
+        lightType = 0;
+    }
+
+    
+    
+
+    return ls;
+}
+
 #if SM_GENERATION_RAYTRACING
     bool evalShadowMap(uint lightIdx, float3 posW, float leakTracingBound ,out float shadow){
         shadow = 0.0;
@@ -431,22 +468,11 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     const uint lightCount = gScene.getLightCount();
     if (lightCount == 0) return float3(0.f);
 
-    //Select a light
-    float lightSelect = 0.0;
-    #if USE_SEPERATE_LIGHT_SAMPLER
-        lightSelect = sampleNext1D(pathData.lightSg);
-    #else
-        lightSelect = sampleNext1D(pathData.sg);
-    #endif
-
-    // Pick one of the analytic light sources randomly with equal probability.
-    const uint lightIndex = min(uint(lightSelect * lightCount), lightCount - 1);
-    float invPdf = lightCount; // Light selection pdf = 1.0 / lightCount.
-
-    // Sample local light source.
-    AnalyticLightSample ls;
-    LightData lightData = gScene.getLight(lightIndex);
-    if (!sampleLight(sd.posW,lightData , pathData.sg, ls)) return float3(0.f);
+    // Sample a light
+    uint lightIndex = 0;
+    float invPdf = 1.0;
+    uint lightType = 0;
+    AnalyticLightSample ls = sampleLightIndex(sd.posW, lightCount, pathData, lightIndex, invPdf, lightType);
 
     // Reject sample if not in the hemisphere of a BSDF lobe.
     const uint lobeTypes = mi.getLobeTypes(sd);
@@ -460,10 +486,10 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 
     #if USE_ORACLE_FUNCTION || !SM_GENERATION_RAYTRACING
         //Create SM Data struct
-        SMLightData smLightData;
-        smLightData.posW = lightData.posW;
-        smLightData.dirW = lightData.dirW;
-        smLightData.type = getShadowMapLightType(lightData);
+    SMLightData smLightData;
+        smLightData.posW = ls.posW;
+        smLightData.dirW = ls.dir;
+        smLightData.type = lightType;
         smLightData.index = lightIndex;
     #endif 
     //Oracle
@@ -506,6 +532,10 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     if(kEnableDebug){
         if(kDebugMode == (uint)PathSMDebugModes::LeakTracingMask){
             debug += float3(shadow, useRay ? 1.0 : 0.0, smShadow) * invPdf;
+        }
+        else if (kDebugMode == (uint)PathSMDebugModes::LeakTracingMaskPerBounce) {
+            if (pathData.pathLength == gSelectedBounce)
+                debug += float3(shadow, useRay ? 1.0 : 0.0, smShadow) * invPdf;
         }else if (kDebugMode == (uint)PathSMDebugModes::RaySMDiff || kDebugMode == (uint)PathSMDebugModes::ShadowMapRayDiff){
             // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
             const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
@@ -522,7 +552,10 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
                 debug += (brdf * shadow);
         }else if(kDebugMode == (uint)PathSMDebugModes::ShadowMapAccess){ // Add an entry for every access
             addShadowMapAccessEntry(lightIndex, sd.posW);
-        }             
+        } else if (kDebugMode == (uint)PathSMDebugModes::PathLengthValidLight) {
+            if (pathData.pathLength == gSelectedBounce)
+                debug += 1;
+        }           
     }
 
     //if(shadow <= 0.0)
@@ -598,7 +631,7 @@ void handleHit(const HitInfo hit, inout PathData pathData, inout float3 debug)
     }
 
     // Check whether to terminate based on max depth.
-    if (pathData.pathLength >= kMaxBounces)
+    if (pathData.pathLength > kMaxBounces)
     {
         pathData.terminated = true;
         return;
@@ -630,8 +663,6 @@ void handleHit(const HitInfo hit, inout PathData pathData, inout float3 debug)
         pathData.terminated = true;
         return;
     }
-
-    pathData.pathLength++;
 }
 
 /** This is the main entry point for the minimal path tracer.
@@ -725,6 +756,7 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim ,out float3 debug)
         uint pathDepth;
         for (pathDepth = 0; pathDepth <= kMaxBounces && !pathData.terminated; pathDepth++)
         {
+            pathData.pathLength++;
             // Trace scatter ray. If it hits geometry, the closest hit shader samples
             // direct illumination and generates the next scatter ray.
             traceScatterRay(pathData, hitData);
@@ -910,8 +942,9 @@ void rayGen()
     gOutputColor[pixel] = float4(color, 1.f);
     if(kWriteDebug)
     {
+        debug *= gDebugFactor;
         float count = float(gIterationCount);
-        if(kDebugAccumulate){
+        if (kDebugAccumulate) {
             float4 lastFrame = gDebug[pixel];
             float curWeight = 1.0 / (count + 1);
             if(count > 0){

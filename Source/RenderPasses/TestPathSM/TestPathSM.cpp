@@ -279,6 +279,9 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
     dirty |= widget.checkbox("Use Russian Roulette", mUseRussianRoulette);
     widget.tooltip("Enables Russian Roulette to end path with low throuput prematurely", true);
 
+    dirty |= widget.dropdown("Analytic Light Sample Mode", mPathLightSampleMode);
+    widget.tooltip("Select the mode for sampling the analytic lights");
+
     dirty |= widget.checkbox("Use Seperate Light Sampler", mUseSeperateLightSampler);
     widget.tooltip("Seperate Light sampler that allows block sampling", true);
 
@@ -342,7 +345,7 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
 
             if (is_set(mDebugMode, PathSMDebugModes::ShadowMapFlag) && mpScene)
             {
-                group.slider("Select Light", mDebugShowLight, 0u, mpScene->getLightCount() - 1, 1u);
+                group.slider("Select Light", mDebugShowLight, 0u, mpScene->getLightCount() - 1);
             }
             if (mDebugMode == PathSMDebugModes::ShadowMapAccess || mDebugMode == PathSMDebugModes::ShadowMapRayDiff)
             {
@@ -354,6 +357,10 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
                 );
                 group.checkbox("Use correct aspect", mDebugUseSMAspect);
             }
+            if (mDebugMode == PathSMDebugModes::PathLengthValidLight || mDebugMode == PathSMDebugModes::LeakTracingMaskPerBounce)
+                mResetDebugAccumulate |= group.slider("Shown Bounce", mDebugShowBounce, 0u, mMaxBounces);
+            mResetDebugAccumulate |= group.var("Debug Factor", mDebugMult, 0.f, FLT_MAX, 0.1f);
+            group.tooltip("Multiplicator for the debug value");
         }
     }
 
@@ -571,6 +578,7 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine(
         "COUNT_SM", mUseMinMaxShadowMap ? std::to_string(mpRayShadowMapsMinMax.size()) : std::to_string(mpRayShadowMaps.size())
     );
+    mTracer.pProgram->addDefine("PATHSM_LIGHT_SAMPLE_MODE", std::to_string((uint32_t)mPathLightSampleMode));
     mTracer.pProgram->addDefine("USE_SEPERATE_LIGHT_SAMPLER", mUseSeperateLightSampler ? "1" : "0");
     mTracer.pProgram->addDefine("LIGHT_SAMPLER_BLOCK_SIZE", std::to_string(mSeperateLightSamplerBlockSize));
     mTracer.pProgram->addDefine("USE_SHADOW_RAY", mShadowMode != ShadowMode::ShadowMap ? "1" : "0");
@@ -583,6 +591,7 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("SM_GENERATION_RAYTRACING", std::to_string(mSMGenerationUseRay));
     mTracer.pProgram->addDefines(filterSMModesDefines());
     mTracer.pProgram->addDefines(mpShadowMapOracle->getDefines());
+
 
     if (mpRasterShadowMap)
         mTracer.pProgram->addDefines(mpRasterShadowMap->getDefines());
@@ -608,6 +617,8 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     var["CB"]["gRayShadowMapRes"] = mShadowMapSize;
     var["CB"]["gLtBoundsMaxReduction"] = mLtBoundsMaxReduction;
     var["CB"]["gIterationCount"] = mIterationCount;
+    var["CB"]["gSelectedBounce"] = mDebugShowBounce;
+    var["CB"]["gDebugFactor"] = mDebugMult;
     
     //Bind Shadow MVPS and Shadow Map
     FALCOR_ASSERT(mpRayShadowMaps.size() == mShadowMapMVP.size() || mpRayShadowMapsMinMax.size() == mShadowMapMVP.size());
