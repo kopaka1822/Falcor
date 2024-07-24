@@ -119,6 +119,9 @@ SamplerState gShadowSamplerLinear;
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
 static const uint kMaxBounces = MAX_BOUNCES;
+static const uint kMaxDiffuseBounces = MAX_DIFFUSE_BOUNCES;
+static const uint kMaxSpecularBounces = MAX_SPECULAR_BOUNCES;
+static const uint kMaxTransmissiveBounces = MAX_TRANSMISSVE_BOUNCES;
 static const bool kComputeDirect = COMPUTE_DIRECT;
 static const bool kUseImportanceSampling = USE_IMPORTANCE_SAMPLING;
 static const bool kUseAnalyticLights = USE_ANALYTIC_LIGHTS;
@@ -162,7 +165,7 @@ struct PathData
     float3  radiance;       ///< Accumulated outgoing radiance from path.
     bool    terminated;     ///< Set to true when path is terminated.
     float3  thp;            ///< Current path throughput. This is updated at each path vertex.
-    uint    pathLength;     ///< Path length in number of path segments (0 at origin, 1 at first secondary hit, etc.). Max 2^31.
+    uint    pathLengthData; ///< Path length data. Structure: transmissive | specular | diffuse | total
     float3  origin;         ///< Next path segment origin.
     float   leakTracingBounds; ///<Bounds for leakTracing
     float3  direction;      ///< Next path segment direction.
@@ -180,7 +183,7 @@ struct PathData
     __init(SampleGenerator sg)
     {
         this.terminated = false;
-        this.pathLength = 0;
+        this.pathLengthData = 0;
         this.radiance = float3(0, 0, 0);
         this.thp = float3(1, 1, 1);
         this.origin = float3(0, 0, 0);
@@ -192,6 +195,64 @@ struct PathData
         this.lobeDistFactor = 1.0;
         this.distance = 0.0;
         #endif
+    }
+
+    property uint pathLength{
+        get { return pathLengthData & 0xFF; }
+        set { pathLengthData = (pathLengthData & ~0xFF) | (newValue & 0xFF); }
+    }
+
+    property uint diffuseBounce{
+        get { return (pathLengthData>>8) & 0xFF; }
+        set { pathLengthData = (pathLengthData & ~0xFF00) | ((newValue & 0xFF)<<8); }
+    }
+
+    property uint specularBounce{
+        get { return (pathLengthData>>16) & 0xFF; }
+        set { pathLengthData = (pathLengthData & ~0xFF0000) | ((newValue & 0xFF)<<16); }
+    }
+
+    property uint transmissiveBounce{
+        get { return (pathLengthData>>24) & 0xFF; }
+        set { pathLengthData = (pathLengthData & ~0xFF000000) | ((newValue & 0xFF)<<24); }
+    }
+};
+
+//For RIS light sampling
+struct RISReservoir{
+    uint lightIdx;      //Light Index
+    float wSum;       //Weight and Weight sum
+    //uint M;         //Unused, as all possible Samples are seen
+
+    /** Initializes ray payload with default parameters.
+    */
+    __init(){
+        lightIdx = 0;
+        wSum = 0.0;
+        //M = 0;
+    }
+
+    [mutating] bool update(uint index, float risWeight, float rnd){
+        wSum += risWeight;
+        //M += 1;
+        bool selectSample = (rnd * wSum < risWeight);
+        if(selectSample){
+            lightIdx = index;
+        }
+        return selectSample;
+    }
+
+    [mutating] void finalize(float targetFunction){
+        /* //When not looping through all lights
+        if(targetFunction > 0 && M > 0){
+            wSum = (1.0 / targetFunction) * ((1.0/M) * wSum);
+            r.M = 1; 
+        */
+        if(targetFunction > 0){
+            wSum = wSum / targetFunction;
+        }else{
+            wSum = 0;
+        }
     }
 };
 
@@ -322,16 +383,31 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
         lightType = getShadowMapLightType(lightData);
         sampleLight(posW, lightData, pathData.sg, ls);
     } else if (kLightSampleMode == (uint)PathSMLightSampleMode::RIS) {
-        //TODO
+        RISReservoir r = RISReservoir();
+        LightData selectedLightData = {};
+        //Loop through all lights
+        for(uint i=0; i<lightCount; i++){
+            float randomNum = i == 0 ? 0.5 : sampleNext1D(pathData.sg);     //Random number
+            LightData lightData = gScene.getLight(i);
+            AnalyticLightSample itLs;
+            sampleLight(posW, lightData, pathData.sg, itLs);
+            float w = luminance(itLs.Li); //Take the Light attenuation as weight
+            if(r.update(i, w, randomNum)){
+                ls = itLs;
+                selectedLightData = lightData;
+            }
+        }
+        r.finalize(luminance(ls.Li));  //targetFunction
+        //Out data
+        lightIndex = r.lightIdx;
+        invPdf = r.wSum;    //W
+        lightType = getShadowMapLightType(selectedLightData);
     }
     else { // Invalid type
         lightIndex = 0;
         invPdf = 1.0;
         lightType = 0;
-    }
-
-    
-    
+    } 
 
     return ls;
 }
@@ -594,6 +670,14 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool i
             pathData.lobeDistFactor = ShadowMapOracle::getOracleDistanceFunctionFactor(miProperties, bsdfSample);
         #endif //USE_ORACLE_FUNCTION
 
+        //Handle bounce counter
+        if(bsdfSample.isLobe(LobeType::Diffuse))
+            pathData.diffuseBounce++;
+        if(bsdfSample.isLobe(LobeType::Specular))
+            pathData.specularBounce++;
+        if(bsdfSample.isLobe(LobeType::Transmission))
+            pathData.transmissiveBounce++;
+
         return any(pathData.thp > 0.f);
     }
 
@@ -631,7 +715,8 @@ void handleHit(const HitInfo hit, inout PathData pathData, inout float3 debug)
     }
 
     // Check whether to terminate based on max depth.
-    if (pathData.pathLength > kMaxBounces)
+    if (pathData.pathLength > kMaxBounces || pathData.diffuseBounce > kMaxDiffuseBounces ||
+        pathData.specularBounce > kMaxSpecularBounces || pathData.transmissiveBounce > kMaxTransmissiveBounces)
     {
         pathData.terminated = true;
         return;

@@ -267,8 +267,24 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
 {
     bool dirty = false;
 
-    dirty |= widget.var("Max bounces", mMaxBounces, 0u, 1u << 16);
-    widget.tooltip("Maximum path length for indirect illumination.\n0 = direct only\n1 = one indirect bounce etc.", true);
+    dirty |= widget.var("Max bounces", mMaxBounces, 0u, (1u << 8)-1);
+    widget.tooltip("Maximum number of surface bounces (diffuse + specular + transmission)", true);
+
+    dirty |= widget.var("Max diffuse bounces", mMaxDiffuseBounces, 0u, (1u << 8) - 1);
+    widget.tooltip("Maximum number of diffuse bounces.\n0 = direct only\n1 = one indirect bounce etc.");
+
+    dirty |= widget.var("Max specular bounces", mMaxSpecularBounces, 0u, (1u << 8) - 1);
+    widget.tooltip("Maximum number of specular bounces.\n0 = direct only\n1 = one indirect bounce etc.");
+
+    dirty |= widget.var("Max transmissive bounces", mMaxTransmissiveBounces, 0u, (1u << 8) - 1);
+    widget.tooltip("Maximum number of tranmissive bounces.\n0 = direct only\n1 = one indirect bounce etc.");
+
+    if (widget.button("Set all to Max Bounce"))
+    {
+        mMaxDiffuseBounces = mMaxBounces;
+        mMaxSpecularBounces = mMaxBounces;
+        mMaxTransmissiveBounces = mMaxBounces;
+    }
 
     dirty |= widget.checkbox("Evaluate direct illumination", mComputeDirect);
     widget.tooltip("Compute direct illumination.\nIf disabled only indirect is computed (when max bounces > 0).", true);
@@ -568,6 +584,9 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     // Specialize program.
     // These defines should not modify the program vars. Do not trigger program vars re-creation.
     mTracer.pProgram->addDefine("MAX_BOUNCES", std::to_string(mMaxBounces));
+    mTracer.pProgram->addDefine("MAX_DIFFUSE_BOUNCES", std::to_string(std::min(mMaxDiffuseBounces,mMaxBounces)));
+    mTracer.pProgram->addDefine("MAX_SPECULAR_BOUNCES", std::to_string(std::min(mMaxSpecularBounces, mMaxBounces)));
+    mTracer.pProgram->addDefine("MAX_TRANSMISSVE_BOUNCES", std::to_string(std::min(mMaxTransmissiveBounces, mMaxBounces)));
     mTracer.pProgram->addDefine("COMPUTE_DIRECT", mComputeDirect ? "1" : "0");
     mTracer.pProgram->addDefine("USE_IMPORTANCE_SAMPLING", mUseImportanceSampling ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ANALYTIC_LIGHTS", mpScene->useAnalyticLights() ? "1" : "0");
