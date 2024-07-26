@@ -321,8 +321,24 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
             mRerenderSM |= group.checkbox("Use Min/Max SM", mUseMinMaxShadowMap);
             dirty |= group.checkbox("Always Render Shadow Map", mAlwaysRenderSM);
 
-            group.var("SM Near/Far", mNearFar, 0.f, FLT_MAX, 0.001f);
-            group.tooltip("Sets the near and far for the shadow map");
+            dirty |= group.checkbox("Use SM for direct light", mUseSMForDirect);
+
+            mRerenderSM |= group.checkbox("Use optimized near far", mUseOptimizedNearFarForShadowMap);
+            group.tooltip("Optimized near far is calculated using an additional ray tracing depth pass");
+
+            if (mUseOptimizedNearFarForShadowMap && mpScene)
+            {
+                group.slider("Selected Light", mUISelectedLight, 0u, mpScene->getLightCount() - 1);
+                group.text(
+                    "Near:" + std::to_string(mNearFarPerLight[mUISelectedLight].x) +
+                    ", Far: " + std::to_string(mNearFarPerLight[mUISelectedLight].y)
+                );
+            }
+            else
+            {
+                group.var("SM Near/Far", mNearFar, 0.f, FLT_MAX, 0.001f);
+                group.tooltip("Sets the near and far for the shadow map");
+            }
             group.var("LtBounds Start", mLtBoundsStart, 0.0f, 0.5f, 0.001f, false, "%.5f");
             group.var("LtBounds Max Reduction", mLtBoundsMaxReduction, 0.0f, 0.5f, 0.001f, false, "%.5f");
 
@@ -492,8 +508,65 @@ void TestPathSM::setScene(RenderContext* pRenderContext, const ref<Scene>& pScen
 
             mGenerateSM.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
         }
-        
+
+        //Check if the scene has more than 1 light
+        if (mpScene->getLightCount() <= 1)
+            mPathLightSampleMode = PathSMLightSampleMode::Uniform;
     }
+}
+
+void TestPathSM::LightMVP::calculate(ref<Light> light, float2 nearFar)
+{
+    auto& data = light->getData();
+    float3 lightTarget = data.posW + data.dirW;
+    const float3 up = abs(data.dirW.y) == 1 ? float3(0, 0, 1) : float3(0, 1, 0);
+    view = math::matrixFromLookAt(data.posW, lightTarget, up);
+    projection = math::perspective(data.openingAngle * 2, 1.f, nearFar.x, nearFar.y);
+    viewProjection = math::mul(projection, view);
+    invViewProjection = math::inverse(viewProjection);
+}
+
+void TestPathSM::calculateShadowMapNearFar(RenderContext* pRenderContext, const RenderData& renderData, ShaderVar& var) {
+    // Get Analytic light data
+    auto lights = mpScene->getActiveLights();
+
+    for (uint i = 0; i < lights.size(); i++)
+    {
+        var["CB"]["gFrameCount"] = mFrameCount;
+        var["CB"]["gLightPos"] = lights[i]->getData().posW;
+        var["CB"]["gNear"] = mNearFar.x;
+        var["CB"]["gFar"] = mNearFar.y;
+        var["CB"]["gViewProj"] = mShadowMapMVP[i].viewProjection;
+        var["CB"]["gSamples"] = 1;
+        var["CB"]["gUseMinMaxSM"] = true;
+        var["CB"]["gInvViewProj"] = mShadowMapMVP[i].invViewProjection;
+        var["CB"]["gCalcNearFar"] = true;
+
+        var["gRayShadowMapMinMax"] = mpShadowMapMinMaxOpti;
+
+        const uint2 targetDim = uint2(mShadowMapSize);
+        // Spawn the rays.
+        mpScene->raytrace(pRenderContext, mGenerateSM.pProgram.get(), mGenerateSM.pVars, uint3(targetDim, 1));
+
+        mpShadowMapMinMaxOpti->generateMips(pRenderContext, true,-1,true);
+
+        //CPU read back
+        uint subresourceIndex = mpShadowMapMinMaxOpti->getSubresourceIndex(0, mpShadowMapMinMaxOpti->getMipCount()-2);
+        std::vector<uint8_t> texData = pRenderContext->readTextureSubresource(mpShadowMapMinMaxOpti.get(), subresourceIndex);
+        FALCOR_ASSERT(texData.size() == 32); //There should be 4 values
+        float2* minMaxData = reinterpret_cast<float2*>(texData.data());
+        float2 minMax = float2(FLT_MAX, 0.f); 
+        for (uint j = 0; j < texData.size() / 8; j++)
+        {
+            minMax.x = std::min(minMaxData[j].x, minMax.x);
+            minMax.y = std::max(minMaxData[j].y, minMax.y);
+        }
+        float constOffset = 0.f; //(minMax.y - minMax.x) * 0.01f;
+        mNearFarPerLight[i] = float2(minMax.x - constOffset, minMax.y + constOffset);
+
+        mShadowMapMVP[i].calculate(lights[i], mNearFarPerLight[i]);
+    }
+
 }
 
 void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -510,6 +583,7 @@ void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderDa
     if (mShadowMapMVP.size() != lights.size())
     {
         mShadowMapMVP.resize(lights.size());
+        mNearFarPerLight.resize(lights.size());
         rebuildAll = true;
     }
     for (uint i = 0; i < lights.size(); i++)
@@ -519,13 +593,7 @@ void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderDa
         rebuild |= rebuildAll;
         if (rebuild)
         {
-            auto& data = lights[i]->getData();
-            float3 lightTarget = data.posW + data.dirW;
-            const float3 up = abs(data.dirW.y) == 1 ? float3(0, 0, 1) : float3(0, 1, 0);
-            mShadowMapMVP[i].view = math::matrixFromLookAt(data.posW, lightTarget, up);
-            mShadowMapMVP[i].projection = math::perspective(data.openingAngle * 2, 1.f, mNearFar.x, mNearFar.y);
-            mShadowMapMVP[i].viewProjection = math::mul(mShadowMapMVP[i].projection, mShadowMapMVP[i].view);
-            mShadowMapMVP[i].invViewProjection = math::inverse(mShadowMapMVP[i].viewProjection);
+            mShadowMapMVP[i].calculate(lights[i], mNearFar);
         }
         mRerenderSM |= rebuild;
     }
@@ -551,18 +619,22 @@ void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderDa
     auto var = mGenerateSM.pVars->getRootVar();
     mpSampleGenerator->setShaderData(var);
 
+    if (mUseOptimizedNearFarForShadowMap)
+        calculateShadowMapNearFar(pRenderContext, renderData,var);
+
     const uint2 targetDim = uint2(mShadowMapSize);
     //Generate one shadow map per light
     for (uint i = 0; i < lights.size(); i++)
     {
         var["CB"]["gFrameCount"] = mFrameCount;
         var["CB"]["gLightPos"] = lights[i]->getData().posW;
-        var["CB"]["gNear"] = mNearFar.x;
-        var["CB"]["gFar"] = mNearFar.y;
+        var["CB"]["gNear"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[i].x : mNearFar.x;
+        var["CB"]["gFar"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[i].y : mNearFar.y;
         var["CB"]["gViewProj"] = mShadowMapMVP[i].viewProjection;
         var["CB"]["gSamples"] = mShadowMapSamples;
         var["CB"]["gUseMinMaxSM"] = mUseMinMaxShadowMap;
         var["CB"]["gInvViewProj"] = mShadowMapMVP[i].invViewProjection;
+        var["CB"]["gCalcNearFar"] = false;
 
         if(mUseMinMaxShadowMap)
             var["gRayShadowMapMinMax"] = mpRayShadowMapsMinMax[i];
@@ -630,19 +702,19 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     // Set constants.
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
-    var["CB"]["gNear"] = mNearFar.x;
-    var["CB"]["gFar"] = mNearFar.y;
     var["CB"]["gUseShadowMap"] = mShadowMode != ShadowMode::RayShadows;
     var["CB"]["gRayShadowMapRes"] = mShadowMapSize;
     var["CB"]["gLtBoundsMaxReduction"] = mLtBoundsMaxReduction;
     var["CB"]["gIterationCount"] = mIterationCount;
     var["CB"]["gSelectedBounce"] = mDebugShowBounce;
     var["CB"]["gDebugFactor"] = mDebugMult;
+    var["CB"]["gUseRayForDirect"] = !mUseSMForDirect;
     
     //Bind Shadow MVPS and Shadow Map
     FALCOR_ASSERT(mpRayShadowMaps.size() == mShadowMapMVP.size() || mpRayShadowMapsMinMax.size() == mShadowMapMVP.size());
     for (uint i = 0; i < mShadowMapMVP.size(); i++)
     {
+        var["ShadowNearFar"]["gSMNearFar"][i] = mUseOptimizedNearFarForShadowMap?  mNearFarPerLight[i] : mNearFar;
         var["ShadowVPs"]["gRayShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
         if (mUseMinMaxShadowMap)
             var["gRayShadowMapMinMax"][i] = mpRayShadowMapsMinMax[i];
@@ -699,6 +771,7 @@ void TestPathSM::prepareBuffers() {
         mShadowMapMVP.clear();
         mpShadowMapBlit.reset();
         mpShadowMapAccessTex.clear();
+        mpShadowMapMinMaxOpti.reset();
 
         mRerenderSM = true;
     }
@@ -751,6 +824,18 @@ void TestPathSM::prepareBuffers() {
 
     //Update
     numShadowMaps = mUseMinMaxShadowMap ? mpRayShadowMapsMinMax.size() : mpRayShadowMaps.size();
+
+    //MinMax opti buffer
+    if (!mpShadowMapMinMaxOpti && mUseOptimizedNearFarForShadowMap)
+    {
+        mpShadowMapMinMaxOpti = Texture::create2D(
+            mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::RG32Float, 1u, Texture::kMaxPossible, nullptr,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget
+        );
+        mpShadowMapMinMaxOpti->setName("ShadowMap::MinMaxOpti");
+    }
+    else if (mpShadowMapMinMaxOpti && !mUseOptimizedNearFarForShadowMap)
+        mpShadowMapMinMaxOpti.reset();
 
     //Debug Textures
 

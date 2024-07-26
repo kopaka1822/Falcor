@@ -82,6 +82,7 @@ cbuffer CB
     bool        gUseMinMaxSM;      //Use the min max shadow map
     float4x4    gViewProj;     // View Projection for current light
     float4x4    gInvViewProj;     // View Projection for current light
+    bool        gCalcNearFar;   //Used for nearFar calculations
 }
 
 RWTexture2D<float2> gRayShadowMapMinMax;
@@ -118,7 +119,10 @@ void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes att
 {
     float3 posW = WorldRayOrigin() + WorldRayDirection() * RayTCurrent(); //Get the current world positon
     float4 posH = mul(gViewProj, float4(posW, 1.f));
-    rayData.depth = (posH.w - gNear) / (gFar - gNear);   //Linear depth in [0,1]
+    if(gCalcNearFar)
+        rayData.depth = posH.w;
+    else
+        rayData.depth = (posH.w - gNear) / (gFar - gNear);   //Linear depth in [0,1]
 }
 
 //
@@ -138,7 +142,8 @@ void rayGen()
 
     for (uint i = 0; i < samples; i++) {
         float2 random = float2(0.5);
-        if (samples > 1)
+        //if (samples > 1)
+        if (i != 0)
             random = sampleNext2D(sg);
         
         float2 pixelSample = pixel + random;
@@ -155,8 +160,8 @@ void rayGen()
         posWPixelNear.xyz /= posWPixelNear.w;
         float3 toPoint = posWPixelNear.xyz - gLightPos;
 
-        ray.TMin = length(toPoint);                                        // Real near for the pixel
-        ray.TMax = distance(gLightPos, posWPixelFar.xyz / posWPixelFar.w); // Real far for the pixel
+        ray.TMin = gCalcNearFar ? 0.0 : length(toPoint);                                        // Real near for the pixel
+        ray.TMax = gCalcNearFar ? FLT_MAX : distance(gLightPos, posWPixelFar.xyz / posWPixelFar.w); // Real far for the pixel
         ray.Origin = gLightPos;
         ray.Direction = normalize(toPoint); // World direction
 
@@ -166,7 +171,16 @@ void rayGen()
         TraceRay(gScene.rtAccel, 0, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
         if (gUseMinMaxSM) {
-            shadowValue = float2(min(shadowValue.x, rayData.depth), max(shadowValue.y, rayData.depth));
+            if(gCalcNearFar)
+                shadowValue = float2(rayData.depth);
+            else{
+                //shadowValue = float2(min(shadowValue.x, rayData.depth), max(shadowValue.y, rayData.depth));
+                if(i == 0)
+                    shadowValue = float2((rayData.depth), max(shadowValue.y, rayData.depth));
+                else
+                    shadowValue = float2((shadowValue.x), max(shadowValue.y, rayData.depth));
+            }
+                
         }
         else {
             shadowValue += float2(rayData.depth,0);

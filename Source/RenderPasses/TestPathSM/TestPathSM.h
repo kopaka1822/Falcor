@@ -102,6 +102,8 @@ private:
         float4x4 projection = float4x4();
         float4x4 viewProjection = float4x4();
         float4x4 invViewProjection = float4x4();
+
+        void calculate(ref<Light> light, float2 nearFar);
     };
 
 
@@ -111,6 +113,7 @@ private:
     DefineList filterSMModesDefines();
 
     void generateShadowMap(RenderContext* pRenderContext, const RenderData& renderData);
+    void calculateShadowMapNearFar(RenderContext* pRenderContext, const RenderData& renderData, ShaderVar& var);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void debugShadowMapPass(RenderContext* pRenderContext, const RenderData& renderData);
 
@@ -124,6 +127,7 @@ private:
     //Buffer and Samplers
     std::vector<ref<Texture>> mpRayShadowMaps;
     std::vector<ref<Texture>> mpRayShadowMapsMinMax;
+    ref<Texture> mpShadowMapMinMaxOpti;
     ref<Sampler> mpShadowSamplerPoint;
     ref<Sampler> mpShadowSamplerLinear;
 
@@ -143,16 +147,20 @@ private:
     ShadowMode mShadowMode = ShadowMode::LeakTracing;
     FilterSMMode mFilterSMMode = FilterSMMode::Variance;
     uint mSMGenerationUseRay = 1;       //Shadow Map Generation: 0-> Raster; 1-> Ray
+    bool mUseSMForDirect = true;
     bool mRebuildSMBuffers = true;
     bool mRerenderSM = true;
     bool mAlwaysRenderSM = false;
     bool mShadowMapFlag = false;
     bool mUseShadowMap = true;
-    bool mUseMinMaxShadowMap = true;
+    bool mUseMinMaxShadowMap = false;
     uint mShadowMapSize = 2048;
     uint mShadowMapSamples = 32;
     std::vector<LightMVP> mShadowMapMVP;
     float2 mNearFar = float2(0.1, 60);
+    std::vector<float2> mNearFarPerLight;
+    bool mUseOptimizedNearFarForShadowMap = true;
+    uint mUISelectedLight = 0;
     float mLtBoundsStart = 0.05f;
     float mLtBoundsMaxReduction = 0.2f;
 

@@ -86,16 +86,18 @@ cbuffer CB
 {
     uint        gFrameCount;        // Frame count since scene was loaded.
     uint        gPRNGDimension;     // First available PRNG dimension.
-    float       gNear;
-    float       gFar;
     bool        gUseShadowMap;
     uint        gRayShadowMapRes;
     float       gLtBoundsMaxReduction;  //Max reduction per hit
     uint        gIterationCount;        //Current number of still iterations
     uint        gSelectedBounce;               // Debug show selected bounce
     float       gDebugFactor;           //Factor for the debug value
+    bool        gUseRayForDirect;       //Always uses Ray for direct light
 }
 
+cbuffer ShadowNearFar{
+    float2 gSMNearFar[COUNT_SM];
+}
 cbuffer ShadowVPs
 {
     float4x4 gRayShadowMapVP[COUNT_SM];
@@ -420,7 +422,8 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
 
         shadowPos.y *= -1;  //Flip
         shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
-        float lightDist = (shadowPos.w - gNear) / (gFar - gNear);
+        float2 nearFar = gSMNearFar[lightIdx];
+        float lightDist = (shadowPos.w - nearFar.x) / (nearFar.y - nearFar.x);
 
         if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
             return true;    //ray needed
@@ -436,10 +439,12 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
                 float2 maxShadowValue = float2(0);
                 for (uint i = 0; i < 4; i++) {
                     minShadowValue += float2(minSMValues[i], minSMValues[i] * minSMValues[i]) * w[i];
-                    maxShadowValue += float2(maxSMValues[i], maxSMValues[i] * maxSMValues[i]) * w[i];
+                    //maxShadowValue += float2(maxSMValues[i], maxSMValues[i] * maxSMValues[i]) * w[i];
+                    maxShadowValue = float2(max(maxSMValues[i], maxShadowValue.x), 0);
                 }
                 float minShadow = ChebyshevUpperBound(minShadowValue.xy, lightDist, 1e-9f);
-                float maxShadow = ChebyshevUpperBound(maxShadowValue.xy, lightDist, 1e-9f);
+                //float maxShadow = ChebyshevUpperBound(maxShadowValue.xy, lightDist, 1e-9f);
+                float maxShadow = maxShadowValue.x > lightDist ? 1 : 0;
             #elif FILTER_SM_ESVM
                 float4 minShadowValueEvsm = float4(0);
                 float4 maxShadowValueEvsm = float4(0);
@@ -558,7 +563,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     if ((NdotL <= kMinCosTheta && !hasTransmission) || (NdotL >= -kMinCosTheta && !hasReflection)  || all(ls.Li <= 0)) // 
         return float3(0.f);
 
-    bool useRay = !gUseShadowMap;
+    bool useRay = !gUseShadowMap || (gUseRayForDirect && pathData.pathLength == 0);
 
     #if USE_ORACLE_FUNCTION || !SM_GENERATION_RAYTRACING
         //Create SM Data struct
