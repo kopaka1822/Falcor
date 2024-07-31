@@ -246,11 +246,20 @@ void TestPathSM::execute(RenderContext* pRenderContext, const RenderData& render
     //Oracle
     if (mpShadowMapOracle->isEnabled())
     {
-        std::vector<float2> empty;
-        mpShadowMapOracle->update(mpScene, renderData.getDefaultTextureDims(), mShadowMapSize, mShadowMapSize, mShadowMapSize, 0u, empty);
+        if (mSMGenerationUseRay)
+        {
+            std::vector<float2> empty;
+            mpShadowMapOracle->update(
+                mpScene, renderData.getDefaultTextureDims(), mShadowMapSize, mShadowMapSize, mShadowMapSize, 0u, empty
+            );
+        }
+        else //Raster
+        {
+            mpShadowMapOracle->update(mpScene, renderData.getDefaultTextureDims(), mpRasterShadowMap.get());
+        }
+        
     }
         
-
     traceScene(pRenderContext, renderData);
 
     //Debug pass
