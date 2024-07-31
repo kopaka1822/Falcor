@@ -578,7 +578,20 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
         bool disableOracle = ShadowMapOracle::kIgnoreOracleForDirect && pathData.pathLength == 0;
         if(gUseShadowMap && !disableOracle){
             float oracle = ShadowMapOracle::oracleFunction(smLightData, sd, pathData.distance);
+            #if 0 //Dither patter for pixel center
+            float4 shadowPos = mul(gRayShadowMapVP[smLightData.index], float4(sd.posW, 1));
+            shadowPos.xyz /= shadowPos.w;
+            shadowPos.y *= -1;  //Flip
+            shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+            float2 shadowPixel = gRayShadowMapRes * shadowPos.xy;
+            uint2 shadowPixelInt = uint2(shadowPixel);
+            shadowPixel = shadowPixel - shadowPixelInt;
+            float lerpVal = saturate(distance(shadowPixel, float2(0.5)) * 2.0);
+            float oracleCompValue = lerp(1.0, 0.25, lerpVal);
+            useRay = oracle > oracleCompValue;
+            #else
             useRay = ShadowMapOracle::oracleNeedRay(oracle);
+            #endif
         }else if(disableOracle){
             useRay = true;
         }

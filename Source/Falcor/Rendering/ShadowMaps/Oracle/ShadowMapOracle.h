@@ -59,7 +59,7 @@ private:
     float getNormalizedPixelSize(uint2 frameDim, float fovY, float aspect);
     float getNormalizedPixelSizeOrtho(uint2 frameDim, float width, float height); // Ortho case
 
-    static constexpr float kNPSFactor = 1000.f;
+    static constexpr float kNPSFactor = 1000.f; //For numerical stability
 
     uint2 mNPSOffsets = uint2(0); // x = idx first spot; y = idx first cascade
     float mCameraNPS = 0.f;
@@ -72,7 +72,7 @@ private:
     bool mOracleAddRays = false; //Additionally adds rays if the oracle is over the upper bound value
     bool mUseLeakTracing = true; //Uses Leak Tracing when shadow map should be used
 
-    float mOracleCompaireValue = 1.f; ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea.
+    float mOracleCompaireValue = 0.25f; ///< Compaire Value for the Oracle test. Tested against ShadowMapArea/CameraPixelArea.
     float mOracleCompaireUpperBound = 32.f; ///< Hybrid mode only. If oracle is over this value, shoot an ray
 
     bool mOracleIgnoreDirect = true; ///< Skip the Oracle function for direct hits and very specular (under the rougness thrs. below)
