@@ -1,7 +1,7 @@
 import ErrorOverlayEnums;
 
-Texture2D<float4> gInput1;
-Texture2D<float4> gInput2;
+Texture2D<float4> gImage;
+Texture2D<float4> gRef;
 Texture2D<float4> gMSE;
 Texture2D<float4> gFLIP;
 
@@ -19,11 +19,11 @@ cbuffer CB
 float4 getValueFromType(uint overlayMode, uint2 pixel) {
     float4 val = float4(0);
     switch (overlayMode) {
-    case (uint)ErrorOverlayMode::Input1:
-        val = gInput1[pixel];
+    case (uint)ErrorOverlayMode::Image:
+        val = gImage[pixel];
         break;
-    case (uint)ErrorOverlayMode::Input2:
-        val = gInput2[pixel];
+    case (uint)ErrorOverlayMode::Reference:
+        val = gRef[pixel];
         break;
     case (uint)ErrorOverlayMode::MSE:
         val = gMSE[pixel];

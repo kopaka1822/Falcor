@@ -41,8 +41,8 @@ namespace
 
     //Inputs
     const ChannelList kInputChannels = {
-        {"Input1", "gInput1", "First input"},
-        {"Input2", "gInput2", "Second input"},
+        {"Image", "gImage", "Image Input"},
+        {"Reference", "gRef", "Reference input"},
         {"MSE", "gMSE", "MSE error"},
         {"FLIP", "gFLIP", "FLIP error"},
     };
@@ -338,8 +338,8 @@ void ErrorOverlay::captureCurrentFrame(const RenderData& renderData, const uint 
     if (validImages == 0)
         return;
 
-    auto input1Tex = renderData.getTexture(kInputChannels[0].name);
-    auto input2Tex = renderData.getTexture(kInputChannels[1].name);
+    auto imgTex = renderData.getTexture(kInputChannels[0].name);
+    auto refTex = renderData.getTexture(kInputChannels[1].name);
     auto mseTex = renderData.getTexture(kInputChannels[2].name);
     auto flipTex = renderData.getTexture(kInputChannels[3].name);
 
@@ -364,11 +364,11 @@ void ErrorOverlay::captureCurrentFrame(const RenderData& renderData, const uint 
         ErrorOverlayMode type = ErrorOverlayMode(imageTypes[i]);
         switch (type)
         {
-        case Falcor::ErrorOverlayMode::Input1:
-            captureTexture(input1Tex, "1");
+        case Falcor::ErrorOverlayMode::Image:
+            captureTexture(imgTex, "img");
             break;
-        case Falcor::ErrorOverlayMode::Input2:
-            captureTexture(input2Tex, "2");
+        case Falcor::ErrorOverlayMode::Reference:
+            captureTexture(refTex, "ref");
             break;
         case Falcor::ErrorOverlayMode::MSE:
             captureTexture(mseTex, "mse");

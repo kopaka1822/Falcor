@@ -132,10 +132,10 @@ private:
     ref<Sampler> mpShadowSamplerLinear;
 
     // Configuration Path Tracer
-    uint mMaxBounces = 12;               ///< Max number of indirect bounces (0 = none).
+    uint mMaxBounces = 10;               ///< Max number of indirect bounces (0 = none).
     uint mMaxDiffuseBounces = 5;        ///< Max number of diffuse bounces
     uint mMaxSpecularBounces = 5;        ///< Max number of specular bounces
-    uint mMaxTransmissiveBounces = 12;   ///< Max number of transmissive bounces
+    uint mMaxTransmissiveBounces = 10;   ///< Max number of transmissive bounces
     bool mComputeDirect = true;         ///< Compute direct illumination (otherwise indirect only).
     bool mUseImportanceSampling = true; ///< Use importance sampling for materials.
     bool mUseRussianRoulette = false;

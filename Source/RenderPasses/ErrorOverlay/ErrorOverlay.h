@@ -59,7 +59,7 @@ private:
     uint mLineThickness = 1;
     float3 mLineColor = float3(1.0f);
     std::array<ErrorOverlayMode, 4> mImageModes = {
-        ErrorOverlayMode::Input1, ErrorOverlayMode::Input2, ErrorOverlayMode::None, ErrorOverlayMode::None};
+        ErrorOverlayMode::Image, ErrorOverlayMode::Reference, ErrorOverlayMode::None, ErrorOverlayMode::None};
 
     //Output
     std::string mBaseFilename = "Mogwai";
