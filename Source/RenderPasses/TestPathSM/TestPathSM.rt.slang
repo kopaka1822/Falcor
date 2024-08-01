@@ -426,7 +426,7 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
         float lightDist = (shadowPos.w - nearFar.x) / (nearFar.y - nearFar.x);
 
         if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
-            return true;    //ray needed
+            return false;    //TODO set per define
 
         if (kUseMinMaxSM) {
             float2 gatherUV;

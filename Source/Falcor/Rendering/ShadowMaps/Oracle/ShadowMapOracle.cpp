@@ -20,24 +20,7 @@ DefineList ShadowMapOracle::getDefines() const
     if (mLightNPS.size() > 0)
     {
         defines.add("SMORACLE_NUM_LIGHTS", std::to_string(mLightNPS.size()));
-
-        std::string lightNpsArray = "{";
-        for (uint i = 0; i < mLightNPS.size(); i++)
-        {
-            lightNpsArray.append(std::to_string(mLightNPS[i]));
-            if (i < mLightNPS.size() - 1)
-                lightNpsArray.append(",");
-        }
-        lightNpsArray.append("}");
-        defines.add("SMORACLE_LIGHTS_NPS", lightNpsArray);
     }
-    else
-    {
-        defines.add("SMORACLE_NUM_LIGHTS", std::to_string(1));
-        defines.add("SMORACLE_LIGHTS_NPS", "{0.0}");
-    }
-   
-
     defines.add("SMORACLE_USE_LEAK_TRACING", mUseLeakTracing ? "1" : "0");
     defines.add("ORACLE_COMP_VALUE", std::to_string(mOracleCompaireValue));
     defines.add("ORACLE_ADD_RAYS", mOracleAddRays ? "1" : "0");
@@ -47,6 +30,17 @@ DefineList ShadowMapOracle::getDefines() const
     defines.add("USE_ORACLE_FOR_DIRECT_ROUGHNESS", std::to_string(mOracleIgnoreDirectRoughness));
 
     return defines;
+}
+
+void ShadowMapOracle::setVars(ShaderVar& var) {
+    if (!mUseSMOracle)
+    {
+        for (uint i = 0; i < mLightNPS.size(); i++)
+        {
+            var["ShadowMapOracleCB"]["kLightsNPS"][i] = mLightNPS[i];
+        }
+    }   
+   
 }
 
 // Gets the pixel size at distance 1. Assumes every pixel has the same size.

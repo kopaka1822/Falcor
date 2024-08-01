@@ -12,11 +12,17 @@ import Rendering.ShadowMaps.ShadowMapHelpers;
 #define USE_ORACLE_FUNCTION 0
 #endif
 
+#ifndef SMORACLE_NUM_LIGHTS
+#define SMORACLE_NUM_LIGHTS 1
+#endif
+
+cbuffer ShadowMapOracleCB {
+    float kLightsNPS[SMORACLE_NUM_LIGHTS];
+}
+
 struct ShadowMapOracle
 {
-#if USE_ORACLE_FUNCTION
-    //StructuredBuffer<float> gShadowMapNPSBuffer;                                    
-    static const float kLightsNPS[SMORACLE_NUM_LIGHTS] = SMORACLE_LIGHTS_NPS;            //Buffer for the Normalized Pixel Size [Point | Spot | Cascaded]
+#if USE_ORACLE_FUNCTION                                  
     static const float kCameraNPS = SMORACLE_CAMERA_NPS;                                 //Normalized Pixel Size for the Camera
 
     //Static Constants
@@ -80,6 +86,14 @@ struct ShadowMapOracle
         
         float projAreaCam = kCameraNPS * rayDistance * rayDistance;
         float pixelAreaSM = kLightsNPS[lightIdx];
+        /*
+        float pixelAreaSM = 1.0;
+        [unroll]
+        for (int i = 0; i < SMORACLE_NUM_LIGHTS; i++){
+            if (i == lightIdx)
+                pixelAreaSM = kLightsNPS[i];
+        }
+        */
         float projSMArea = pixelAreaSM * distanceToLight * distanceToLight;
 
         #ifdef USE_SM_MIP

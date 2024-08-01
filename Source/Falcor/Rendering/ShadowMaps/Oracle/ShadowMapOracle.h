@@ -41,6 +41,7 @@ public:
     ShadowMapOracle(bool enable = false) { mUseSMOracle = enable; }
 
     DefineList getDefines() const;
+    void setVars(ShaderVar& var);
     bool renderUI(Gui::Widgets& widget);
     void update(ref<Scene> pScene, const uint2 frameDim, ShadowMap* pShadowMap);
     void update(

@@ -368,7 +368,11 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
 
     if (auto group = widget.group("Oracle"))
     {
-        dirty |= mpShadowMapOracle->renderUI(group);
+        //TODO do properly
+        bool oracleChanged = mpShadowMapOracle->renderUI(group);
+        if (oracleChanged)
+            mTracer.pVars.reset();
+        dirty |= oracleChanged;
     }
 
     if (auto group = widget.group("Debug"))
@@ -537,7 +541,7 @@ void TestPathSM::LightMVP::calculate(ref<Light> light, float2 nearFar)
 
 void TestPathSM::calculateShadowMapNearFar(RenderContext* pRenderContext, const RenderData& renderData, ShaderVar& var) {
     // Get Analytic light data
-    auto lights = mpScene->getActiveLights();
+    auto lights = mpScene->getLights();
 
     for (uint i = 0; i < lights.size(); i++)
     {
@@ -582,7 +586,7 @@ void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderDa
     FALCOR_PROFILE(pRenderContext, "Generate Shadow Map");
 
     //Get Analytic light data
-    auto lights = mpScene->getActiveLights();
+    auto lights = mpScene->getLights();
     //Nothing to do if there are no lights
     if (lights.size() == 0)
         return;
@@ -718,7 +722,9 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     var["CB"]["gSelectedBounce"] = mDebugShowBounce;
     var["CB"]["gDebugFactor"] = mDebugMult;
     var["CB"]["gUseRayForDirect"] = !mUseSMForDirect;
-    
+
+    mpShadowMapOracle->setVars(var);
+
     //Bind Shadow MVPS and Shadow Map
     FALCOR_ASSERT(mpRayShadowMaps.size() == mShadowMapMVP.size() || mpRayShadowMapsMinMax.size() == mShadowMapMVP.size());
     for (uint i = 0; i < mShadowMapMVP.size(); i++)
@@ -786,7 +792,7 @@ void TestPathSM::prepareBuffers() {
     }
 
     // Get Analytic light data
-    auto lights = mpScene->getActiveLights();
+    auto lights = mpScene->getLights();
     uint numShadowMaps = mUseMinMaxShadowMap ? mpRayShadowMapsMinMax.size() : mpRayShadowMaps.size();
 
     // Check if the shadow map is up to date
