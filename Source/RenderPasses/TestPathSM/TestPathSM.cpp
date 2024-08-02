@@ -249,13 +249,15 @@ void TestPathSM::execute(RenderContext* pRenderContext, const RenderData& render
         if (mSMGenerationUseRay)
         {
             std::vector<float2> empty;
-            mpShadowMapOracle->update(
-                mpScene, renderData.getDefaultTextureDims(), mShadowMapSize, mShadowMapSize, mShadowMapSize, 0u, empty
-            );
+            if (mpShadowMapOracle->update(
+                    mpScene, renderData.getDefaultTextureDims(), mShadowMapSize, mShadowMapSize, mShadowMapSize, 0u, empty
+                ))
+                mTracer.pVars.reset();
         }
         else //Raster
         {
-            mpShadowMapOracle->update(mpScene, renderData.getDefaultTextureDims(), mpRasterShadowMap.get());
+            if(mpShadowMapOracle->update(mpScene, renderData.getDefaultTextureDims(), mpRasterShadowMap.get()))
+                mTracer.pVars.reset();
         }
         
     }
@@ -368,11 +370,7 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
 
     if (auto group = widget.group("Oracle"))
     {
-        //TODO do properly
-        bool oracleChanged = mpShadowMapOracle->renderUI(group);
-        if (oracleChanged)
-            mTracer.pVars.reset();
-        dirty |= oracleChanged;
+        dirty |= mpShadowMapOracle->renderUI(group);
     }
 
     if (auto group = widget.group("Debug"))
@@ -601,8 +599,9 @@ void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderDa
     }
     for (uint i = 0; i < lights.size(); i++)
     {
-        auto changes = lights[i]->getChanges();
-        bool rebuild = is_set(changes, Light::Changes::Position) || is_set(changes, Light::Changes::Direction);
+        auto changes = lights[i]->getChanges(); 
+        bool rebuild = is_set(changes, Light::Changes::Position) || is_set(changes, Light::Changes::Direction) ||
+                       is_set(changes, Light::Changes::SurfaceArea);
         rebuild |= rebuildAll;
         if (rebuild)
         {

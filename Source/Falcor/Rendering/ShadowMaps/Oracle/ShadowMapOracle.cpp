@@ -29,11 +29,12 @@ DefineList ShadowMapOracle::getDefines() const
     defines.add("SMORACLE_IGNORE_FOR_DIRECT", mOracleIgnoreDirect ? "1" : "0");
     defines.add("USE_ORACLE_FOR_DIRECT_ROUGHNESS", std::to_string(mOracleIgnoreDirectRoughness));
 
+    
     return defines;
 }
 
 void ShadowMapOracle::setVars(ShaderVar& var) {
-    if (!mUseSMOracle)
+    if (mUseSMOracle)
     {
         for (uint i = 0; i < mLightNPS.size(); i++)
         {
@@ -60,15 +61,15 @@ float ShadowMapOracle::getNormalizedPixelSizeOrtho(uint2 frameDim, float width, 
     return wPix * hPix * kNPSFactor;
 }
 
-void ShadowMapOracle::update(ref<Scene> pScene, const uint2 frameDim, ShadowMap* pShadowMap)
+bool ShadowMapOracle::update(ref<Scene> pScene, const uint2 frameDim, ShadowMap* pShadowMap)
 {
     uint3 smSize = pShadowMap->getShadowMapSizes();
-    update(
+    return update(
         pScene, frameDim, smSize.x, smSize.y, smSize.z, pShadowMap->getCascadedLevels(), pShadowMap->getCascadedWidthHeight()
     );
 }
 
-void ShadowMapOracle::update(
+bool ShadowMapOracle::update(
     ref<Scene> pScene,
     const uint2 frameDim,
     uint shadowMapSize,
@@ -81,13 +82,48 @@ void ShadowMapOracle::update(
     const auto& cameraData = pScene->getCamera()->getData();
     mCameraNPS = getNormalizedPixelSize(frameDim, focalLengthToFovY(cameraData.focalLength, cameraData.frameHeight), cameraData.aspectRatio);
     
-    //TODO only reset if lights have changed
-
     std::vector<float> pointNPS;
     std::vector<float> spotNPS;
     std::vector<float> dirNPS;
 
     uint cascadedCount = 0;
+
+    // Get Analytic light data
+    auto lights = pScene->getLights();
+    // Nothing to do if there are no lights
+    if (lights.size() == 0)
+        return false;
+
+    //Check if NPS needs to be calculated
+    bool resetNPSCalcs = false;
+    bool resetShaderVars = false;
+    //Check if sizes changed
+    if (mLightNPS.size() != lights.size())
+    {
+        resetNPSCalcs = true;
+        resetShaderVars = true; // Recompilation needed, as buffer size changed
+    }
+    
+    //Light changes
+    if (!resetNPSCalcs)
+    {
+        for (uint i = 0; i < lights.size(); i++)
+        {
+            auto changes = lights[i]->getChanges();
+            resetNPSCalcs |= is_set(changes, Light::Changes::SurfaceArea);
+        }
+    }
+    //Resolution changes
+    resetNPSCalcs |= shadowMapSize != mShadowMapSizes.x;
+    resetNPSCalcs |= shadowCubeSize != mShadowMapSizes.y;
+    resetNPSCalcs |= shadowCascSize != mShadowMapSizes.z;
+    resetNPSCalcs |= cascadedLevelCount != mShadowMapSizes.w;
+
+    if (!resetNPSCalcs)
+        return false;
+
+    //Set Resolutions
+    mShadowMapSizes = uint4(shadowMapSize, shadowCubeSize, shadowCascSize, cascadedLevelCount);
 
     //TODO Use modular solution for this
     auto getLightType = [&](const ref<Light> light) {
@@ -138,6 +174,8 @@ void ShadowMapOracle::update(
         mLightNPS.push_back(nps);
     for (auto nps : dirNPS)
         mLightNPS.push_back(nps);
+
+    return resetShaderVars;
 }
 
 bool ShadowMapOracle::renderUI(Gui::Widgets& widget)

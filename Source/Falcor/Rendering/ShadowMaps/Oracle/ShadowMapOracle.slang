@@ -94,7 +94,7 @@ struct ShadowMapOracle
                 pixelAreaSM = kLightsNPS[i];
         }
         */
-        float projSMArea = pixelAreaSM * distanceToLight * distanceToLight;
+        float projSMArea = pixelAreaSM;
 
         #ifdef USE_SM_MIP
         //Calculate MIP
@@ -104,6 +104,7 @@ struct ShadowMapOracle
         #endif //USE_SM_MIP
         
         return ( projSMArea * angleCamera) / ( projAreaCam * angleLight + 1e-10f);  //Divide the projected areas
+       
     #endif//USE_ORACLE_FUNCTION
     }
 

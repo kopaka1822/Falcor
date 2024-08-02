@@ -43,8 +43,10 @@ public:
     DefineList getDefines() const;
     void setVars(ShaderVar& var);
     bool renderUI(Gui::Widgets& widget);
-    void update(ref<Scene> pScene, const uint2 frameDim, ShadowMap* pShadowMap);
-    void update(
+    // Updates Oracle. Should be called once a frame. Returns if shader vars of the pass using the oracle should be reset
+    bool update(ref<Scene> pScene, const uint2 frameDim, ShadowMap* pShadowMap);
+    //Updates Oracle. Should be called once a frame. Returns if shader vars of the pass using the oracle should be reset
+    bool update(
         ref<Scene> pScene,
         const uint2 frameDim,
         uint shadowMapSize,
@@ -78,5 +80,8 @@ private:
 
     bool mOracleIgnoreDirect = true; ///< Skip the Oracle function for direct hits and very specular (under the rougness thrs. below)
     float mOracleIgnoreDirectRoughness = 0.085f; ///< Roughness threshold for which hits are counted as very specular
+
+    //Runtime checks
+    uint4 mShadowMapSizes = uint4(0); // Store changes the NPS was build with (Spot|Point|Cascaded|CascadedLevel)
 };
 } // namespace Falcor
