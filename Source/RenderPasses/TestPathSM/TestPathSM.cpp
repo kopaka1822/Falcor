@@ -353,6 +353,8 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
             group.var("LtBounds Start", mLtBoundsStart, 0.0f, 0.5f, 0.001f, false, "%.5f");
             group.var("LtBounds Max Reduction", mLtBoundsMaxReduction, 0.0f, 0.5f, 0.001f, false, "%.5f");
 
+            group.checkbox("Use Ray outside of SM", mDistributeRayOutsideOfSM);
+
             if (mUseMinMaxShadowMap)
             {
                 group.var("Shadow Map Samples", mShadowMapSamples, 1u, 4096u, 1u);
@@ -388,7 +390,7 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
 
             if (is_set(mDebugMode, PathSMDebugModes::ShadowMapFlag) && mpScene)
             {
-                group.slider("Select Light", mDebugShowLight, 0u, mpScene->getLightCount() - 1);
+                group.slider("Select Light", mUISelectedLight, 0u, mpScene->getLightCount() - 1);
             }
             if (mDebugMode == PathSMDebugModes::ShadowMapAccess || mDebugMode == PathSMDebugModes::ShadowMapRayDiff)
             {
@@ -692,6 +694,7 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("DEBUG_MODE", std::to_string((uint32_t)mDebugMode));
     mTracer.pProgram->addDefine("DEBUG_ACCUMULATE", mAccumulateDebug ? "1" : "0");
     mTracer.pProgram->addDefine("SM_GENERATION_RAYTRACING", std::to_string(mSMGenerationUseRay));
+    mTracer.pProgram->addDefine("DISTRIBUTE_RAY_OUTSIDE_SM", mDistributeRayOutsideOfSM ? "1" : "0");
     mTracer.pProgram->addDefines(filterSMModesDefines());
     mTracer.pProgram->addDefines(mpShadowMapOracle->getDefines());
 
@@ -966,12 +969,12 @@ void TestPathSM::debugShadowMapPass(RenderContext* pRenderContext, const RenderD
     var["CB"]["gBrightnessIncrease"] = mDebugBrighnessMod;
 
     if (mUseMinMaxShadowMap)
-        var["gRayShadowMapMinMax"] = mpRayShadowMapsMinMax[mDebugShowLight];
+        var["gRayShadowMapMinMax"] = mpRayShadowMapsMinMax[mUISelectedLight];
     else
-        var["gRayShadowMap"] = mpRayShadowMaps[mDebugShowLight];
+        var["gRayShadowMap"] = mpRayShadowMaps[mUISelectedLight];
 
-    if (mpShadowMapAccessTex.size() > mDebugShowLight)
-        var["gShadowAccessTex"] = mpShadowMapAccessTex[mDebugShowLight];
+    if (mpShadowMapAccessTex.size() > mUISelectedLight)
+        var["gShadowAccessTex"] = mpShadowMapAccessTex[mUISelectedLight];
     var["gOut"] = mpShadowMapBlit;
 
     // Execute

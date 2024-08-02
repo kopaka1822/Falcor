@@ -142,6 +142,7 @@ static const bool kWriteDebug = WRITE_TO_DEBUG;
 static const uint kDebugMode = DEBUG_MODE;
 static const bool kDebugAccumulate = DEBUG_ACCUMULATE;
 static const uint kLightSampleMode = PATHSM_LIGHT_SAMPLE_MODE;
+static const bool kDistributeRayOutsideOfShadowMap = DISTRIBUTE_RAY_OUTSIDE_SM;
 
 /** Payload for shadow ray.
 */
@@ -417,16 +418,16 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
 #if SM_GENERATION_RAYTRACING
     bool evalShadowMap(uint lightIdx, float3 posW, float leakTracingBound ,out float shadow){
         shadow = 0.0;
+        float2 nearFar = gSMNearFar[lightIdx];
         float4 shadowPos = mul(gRayShadowMapVP[lightIdx], float4(posW, 1));
         shadowPos.xyz /= shadowPos.w;
 
         shadowPos.y *= -1;  //Flip
         shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
-        float2 nearFar = gSMNearFar[lightIdx];
         float lightDist = (shadowPos.w - nearFar.x) / (nearFar.y - nearFar.x);
 
         if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
-            return false;    //TODO set per define
+            return kDistributeRayOutsideOfShadowMap;    //TODO set per define
 
         if (kUseMinMaxSM) {
             float2 gatherUV;
@@ -502,6 +503,7 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
                 shadow = min(shadowEvsm.x, shadowEvsm.y);
             #else // FILTER_SM_MSM
                 float4 shadowValueMsm = float4(0);
+                [unroll]
                 for (uint i = 0; i < 4; i++) {
                     shadowValueMsm += float4(shadowValues[i], shadowValues[i] * shadowValues[i], shadowValues[i] * shadowValues[i] * shadowValues[i],shadowValues[i] * shadowValues[i] * shadowValues[i] * shadowValues[i]) * w[i];
                 }
@@ -575,7 +577,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     #endif 
     //Oracle
     #if USE_ORACLE_FUNCTION
-        bool disableOracle = ShadowMapOracle::kIgnoreOracleForDirect && pathData.pathLength == 0;
+        bool disableOracle = (ShadowMapOracle::kIgnoreOracleForDirect && pathData.pathLength == 0);
         if(gUseShadowMap && !disableOracle){
             float oracle = ShadowMapOracle::oracleFunction(smLightData, sd, pathData.distance);
             #if 0 //Dither patter for pixel center

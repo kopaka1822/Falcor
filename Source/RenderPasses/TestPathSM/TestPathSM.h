@@ -163,6 +163,7 @@ private:
     uint mUISelectedLight = 0;
     float mLtBoundsStart = 0.05f;
     float mLtBoundsMaxReduction = 0.2f;
+    bool mDistributeRayOutsideOfSM = false;
 
     //Debug
     bool mEnableDebug = false;
@@ -170,7 +171,6 @@ private:
     bool mAccumulateDebug = true;
     bool mResetDebugAccumulate = true;
     bool mClearDebugAccessTex = false;
-    uint mDebugShowLight = 0;
     uint mIterationCount = 0;
     uint mDebugShowBounce = 0;
     float mDebugMult = 1.0f;
