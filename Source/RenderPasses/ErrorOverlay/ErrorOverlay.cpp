@@ -352,7 +352,7 @@ void ErrorOverlay::captureCurrentFrame(const RenderData& renderData, const uint 
 
         auto ext = Bitmap::getFileExtFromResourceFormat(pTex->getFormat());
         auto fileformat = Bitmap::getFormatFromFileExtension(ext);
-        std::string filename = path.string() + "." + suffix + "." + ext;
+        std::string filename = path.string() + "_" + suffix + "." + ext;
         Bitmap::ExportFlags flags = Bitmap::ExportFlags::None;
 
         pTex->captureToFile(0, 0, filename, fileformat);
