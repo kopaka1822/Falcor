@@ -39,6 +39,7 @@ namespace
 const char kShaderFile[] = "RenderPasses/TestPathSM/TestPathSM.rt.slang";
 const char kShaderSMGeneration[] = "RenderPasses/TestPathSM/GenerateShadowMap.rt.slang";
 const char kShaderDebugSM[] = "RenderPasses/TestPathSM/DebugShadowMap.cs.slang";
+const char kShaderMinMaxMips[] = "RenderPasses/TestPathSM/GenMinMaxMips.cs.slang";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -561,7 +562,8 @@ void TestPathSM::calculateShadowMapNearFar(RenderContext* pRenderContext, const 
         // Spawn the rays.
         mpScene->raytrace(pRenderContext, mGenerateSM.pProgram.get(), mGenerateSM.pVars, uint3(targetDim, 1));
 
-        mpShadowMapMinMaxOpti->generateMips(pRenderContext, true,-1,true);
+        //mpShadowMapMinMaxOpti->generateMips(pRenderContext, true,-1,true);
+        generateMinMaxMips(pRenderContext, mpShadowMapMinMaxOpti);
 
         //CPU read back
         uint subresourceIndex = mpShadowMapMinMaxOpti->getSubresourceIndex(0, mpShadowMapMinMaxOpti->getMipCount()-2);
@@ -580,6 +582,42 @@ void TestPathSM::calculateShadowMapNearFar(RenderContext* pRenderContext, const 
         mShadowMapMVP[i].calculate(lights[i], mNearFarPerLight[i]);
     }
 
+}
+
+void TestPathSM::generateMinMaxMips(RenderContext* pRenderContext, ref<Texture> pTexture) {
+    // Create Pass
+    if (!mpGenMinMaxMipsPass)
+    {
+        Program::Desc desc;
+        desc.addShaderLibrary(kShaderMinMaxMips).csEntry("main").setShaderModel("6_5");
+
+        DefineList defines;
+
+        mpGenMinMaxMipsPass = ComputePass::create(mpDevice, desc, defines, true);
+    }
+
+    FALCOR_ASSERT(mpGenMinMaxMipsPass);
+
+    //Loop through the mip levels
+    uint mipLevels = pTexture->getMipCount();
+    uint2 texSize = uint2(pTexture->getWidth(), pTexture->getHeight());
+
+    for (uint i = 0; i < mipLevels-1; i++)
+    {
+        auto uavSrc = pTexture->getUAV(i, 0, 1);
+        auto uavDst = pTexture->getUAV(i + 1, 0, 1);
+
+        auto var = mpGenMinMaxMipsPass->getRootVar();
+        uint2 texSizeDst = texSize / 2u;    
+
+        var["gMinMaxSrc"].setSrv(pTexture->getSRV(i,1,0,1));
+        var["gMinMaxDst"].setUav(pTexture->getUAV(i + 1, 0, 1));
+
+        mpGenMinMaxMipsPass->execute(pRenderContext, uint3(texSizeDst, 1));
+
+        //Reduce TexSize for the next pass
+        texSize = texSizeDst;
+    }
 }
 
 void TestPathSM::generateShadowMap(RenderContext* pRenderContext, const RenderData& renderData) {

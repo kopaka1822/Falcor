@@ -93,7 +93,10 @@ RWTexture2D<float> gRayShadowMap;
 [shader("miss")]
 void miss(inout RayData rayData)
 {
-    rayData.depth = 1.0;
+    if (gCalcNearFar)
+        rayData.depth = -1.0; //Set to invalid value
+    else
+        rayData.depth = 1.0;
 }
 
 //

@@ -117,6 +117,9 @@ private:
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void debugShadowMapPass(RenderContext* pRenderContext, const RenderData& renderData);
 
+    //Takes a float2 input tex and writes the min max to the mip maps of the texture
+    void generateMinMaxMips(RenderContext* pRenderContext, ref<Texture> texture);
+
     // Internal state
     ref<Scene> mpScene;                     ///< Current scene.
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
@@ -183,6 +186,7 @@ private:
     std::vector<ref<Texture>> mpShadowMapAccessTex;
     ref<Texture> mpShadowMapBlit;
     ref<ComputePass> mpDebugShadowMapPass;
+    ref<ComputePass> mpGenMinMaxMipsPass;
 
     // Runtime data
     uint mFrameCount = 0; ///< Frame count since scene was loaded.

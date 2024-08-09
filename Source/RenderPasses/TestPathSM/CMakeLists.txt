@@ -5,8 +5,9 @@ target_sources(TestPathSM PRIVATE
     TestPathSM.h
     TestPathSM.rt.slang
     GenerateShadowMap.rt.slang
-	PathSMStructs.slang
+    PathSMStructs.slang
     DebugShadowMap.cs.slang
+    GenMinMaxMips.cs.slang
 )
 
 
