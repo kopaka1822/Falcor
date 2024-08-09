@@ -143,6 +143,7 @@ static const uint kDebugMode = DEBUG_MODE;
 static const bool kDebugAccumulate = DEBUG_ACCUMULATE;
 static const uint kLightSampleMode = PATHSM_LIGHT_SAMPLE_MODE;
 static const bool kDistributeRayOutsideOfShadowMap = DISTRIBUTE_RAY_OUTSIDE_SM;
+static const bool kCheckForNaN = CHECK_FOR_NAN;
 
 /** Payload for shadow ray.
 */
@@ -1043,6 +1044,12 @@ void rayGen()
     logSetPixel(pixel);
     float3 debug = float3(0);
     float3 color = tracePath(pixel, frameDim, debug);
+
+    if(kCheckForNaN){
+        if(any(isnan(color) || isinf(color))){
+            color = float3(0);
+        }
+    }
 
     gOutputColor[pixel] = float4(color, 1.f);
     if(kWriteDebug)

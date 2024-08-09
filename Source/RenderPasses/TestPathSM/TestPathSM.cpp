@@ -307,6 +307,9 @@ void TestPathSM::renderUI(Gui::Widgets& widget)
     dirty |= widget.checkbox("Use Russian Roulette", mUseRussianRoulette);
     widget.tooltip("Enables Russian Roulette to end path with low throuput prematurely", true);
 
+    dirty |= widget.checkbox("Check for NaN and Inf", mCheckForNaN);
+    widget.tooltip("Enable checks for NaN and Inf before writing into the output texture.");
+
     dirty |= widget.dropdown("Analytic Light Sample Mode", mPathLightSampleMode);
     widget.tooltip("Select the mode for sampling the analytic lights");
 
@@ -733,6 +736,7 @@ void TestPathSM::traceScene(RenderContext* pRenderContext, const RenderData& ren
     mTracer.pProgram->addDefine("DEBUG_ACCUMULATE", mAccumulateDebug ? "1" : "0");
     mTracer.pProgram->addDefine("SM_GENERATION_RAYTRACING", std::to_string(mSMGenerationUseRay));
     mTracer.pProgram->addDefine("DISTRIBUTE_RAY_OUTSIDE_SM", mDistributeRayOutsideOfSM ? "1" : "0");
+    mTracer.pProgram->addDefine("CHECK_FOR_NAN", mCheckForNaN ? "1" : "0");
     mTracer.pProgram->addDefines(filterSMModesDefines());
     mTracer.pProgram->addDefines(mpShadowMapOracle->getDefines());
 

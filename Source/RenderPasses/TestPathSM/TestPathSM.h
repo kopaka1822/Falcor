@@ -142,6 +142,7 @@ private:
     bool mComputeDirect = true;         ///< Compute direct illumination (otherwise indirect only).
     bool mUseImportanceSampling = true; ///< Use importance sampling for materials.
     bool mUseRussianRoulette = false;
+    bool mCheckForNaN = true; ///< Checks for NaN before writing to texture
     bool mUseSeperateLightSampler = false;
     uint mSeperateLightSamplerBlockSize = 32;
     PathSMLightSampleMode mPathLightSampleMode = PathSMLightSampleMode::RIS;    //Mode for sampling the analytic lights 
