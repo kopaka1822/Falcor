@@ -43,6 +43,16 @@ enum class RenderPassRefreshFlags : uint32_t
 };
 
 /**
+ * Flags that indicate if NRD was turned on or off
+ */
+enum class NRDEnableFlags : uint32_t
+{
+    None = 0x0,
+    NRDEnabled = 0x1,      ///< NRD was turned on
+    NRDDisabled = 0x2, ///< NRD was turned off
+};
+
+/**
  * The refresh flags above are passed to RenderPass::execute() via a
  * field with this name in the dictionary.
  */
@@ -50,6 +60,7 @@ static const char kRenderPassRefreshFlags[] = "_refreshFlags";
 static const char kRenderPassTime[] = "_time";
 static const char kRenderGraph[] = "_renderGraph";
 static const char kRenderGlobalClock[] = "_renderGlobalClock";
+static const char kRenderPassEnableNRD[] = "_enableNRD";
 
 /**
  * First available preudorandom number generator dimension.

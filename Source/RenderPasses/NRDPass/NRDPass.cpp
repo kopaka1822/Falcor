@@ -27,6 +27,7 @@
  **************************************************************************/
 #include "Falcor.h"
 #include "Core/API/NativeHandleTraits.h"
+#include "RenderGraph/RenderPassStandardFlags.h"
 
 #include "NRDPass.h"
 #include "RenderPasses/Shared/Denoising/NRDConstants.slang"
@@ -370,9 +371,16 @@ void NRDPass::execute(RenderContext* pRenderContext, const RenderData& renderDat
 {
     if (!mpScene) return;
 
+    //Check if a dict NRD refresh flag was set and overwrite enabled
+    auto& dict = renderData.getDictionary();
+    auto nrdEnableFlag = dict.getValue(kRenderPassEnableNRD, NRDEnableFlags::None);
+    if (mEnabled && (nrdEnableFlag == NRDEnableFlags::NRDDisabled))
+        mEnabled = false;
+    else if (!mEnabled && (nrdEnableFlag == NRDEnableFlags::NRDEnabled))
+        mEnabled = true;
+
     bool enabled = false;
     enabled = mEnabled;
-
     if (enabled)
     {
         executeInternal(pRenderContext, renderData);

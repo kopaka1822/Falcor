@@ -101,6 +101,7 @@ void RayTracedSoftShadows::execute(RenderContext* pRenderContext, const RenderDa
     {
         auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
         dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
+        dict[Falcor::kRenderPassEnableNRD] = mEnableNRD ? NRDEnableFlags::NRDEnabled : NRDEnableFlags::NRDDisabled;
         mOptionsChanged = false;
     }
 
@@ -195,7 +196,7 @@ void RayTracedSoftShadows::shade(RenderContext* pRenderContext, const RenderData
     //SetDefines
     mSoftShadowPip.pProgram->addDefine("ALPHA_TEST", mUseAlphaTest ? "1" : "0");
     mSoftShadowPip.pProgram->addDefine("USE_ENV_MAP", mpScene->useEnvBackground() ? "1" : "0");
-    mSoftShadowPip.pProgram->addDefine("NRD_DEMODULATION", mEnableDemodulationNRD ? "1" : "0");
+    mSoftShadowPip.pProgram->addDefine("NRD_DEMODULATION", mEnableNRD ? "1" : "0");
 
     if (mpEmissiveLightSampler)
         mSoftShadowPip.pProgram->addDefines(mpEmissiveLightSampler->getDefines());
@@ -259,7 +260,7 @@ void RayTracedSoftShadows::renderUI(Gui::Widgets& widget)
     dirty |= widget.var("EnvMap Factor", mEnvMapFactor);
     widget.tooltip("Factor for the env map sample");
 
-    mClearDemodulationTextures |= widget.checkbox("Enable NRD demodulation", mEnableDemodulationNRD);
+    mClearDemodulationTextures |= widget.checkbox("Enable NRD", mEnableNRD);
     dirty |= mClearDemodulationTextures;
 
     if (mpScene && mpScene->useEmissiveLights())
