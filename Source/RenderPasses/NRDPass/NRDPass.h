@@ -84,6 +84,7 @@ private:
     void dispatch(RenderContext* pRenderContext, const RenderData& renderData, const nrd::DispatchDesc& dispatchDesc);
 
     nrd::Denoiser* mpDenoiser = nullptr;
+    nrd::Instance* mpInstance = nullptr;
 
     bool mEnabled = true;
     DenoisingMethod mDenoisingMethod = DenoisingMethod::RelaxDiffuseSpecular;
@@ -92,8 +93,10 @@ private:
     float mMaxIntensity = 1000.f;
     float mDisocclusionThreshold = 2.f;
     nrd::CommonSettings mCommonSettings = {};
-    nrd::RelaxDiffuseSpecularSettings mRelaxDiffuseSpecularSettings = {};
-    nrd::RelaxDiffuseSettings mRelaxDiffuseSettings = {};
+    nrd::RelaxSettings mRelaxSettings = {};
+    //nrd::RelaxDiffuseSpecularSettings mRelaxDiffuseSpecularSettings = {};
+    
+    //nrd::RelaxDiffuseSettings mRelaxDiffuseSettings = {};
     nrd::ReblurSettings mReblurSettings = {};
 
     std::vector<ref<Sampler>> mpSamplers;

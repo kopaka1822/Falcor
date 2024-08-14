@@ -113,18 +113,23 @@ NRDPass::NRDPass(ref<Device> pDevice, const Properties& props)
     mpDevice->requireD3D12();
 
     DefineList definesRelax;
-    definesRelax.add("NRD_USE_OCT_NORMAL_ENCODING", "1");
-    definesRelax.add("NRD_USE_MATERIAL_ID", "0");
+    definesRelax.add("NRD_NORMAL_ENCODING", "2");
+    definesRelax.add("NRD_ROUGHNESS_ENCODING", "1");
     definesRelax.add("NRD_METHOD", "0"); // NRD_METHOD_RELAX_DIFFUSE_SPECULAR
+    definesRelax.add("GROUP_X", "16");
+    definesRelax.add("GROUP_Y", "16"); 
     mpPackRadiancePassRelax = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesRelax);
 
     DefineList definesReblur;
-    definesReblur.add("NRD_USE_OCT_NORMAL_ENCODING", "1");
-    definesReblur.add("NRD_USE_MATERIAL_ID", "0");
+    definesReblur.add("NRD_NORMAL_ENCODING", "2");
+    definesReblur.add("NRD_ROUGHNESS_ENCODING", "1");
     definesReblur.add("NRD_METHOD", "1"); // NRD_METHOD_REBLUR_DIFFUSE_SPECULAR
+    definesReblur.add("GROUP_X", "16");
+    definesReblur.add("GROUP_Y", "16"); 
     mpPackRadiancePassReblur = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesReblur);
 
     // Override some defaults coming from the NRD SDK.
+    /*TODO
     mRelaxDiffuseSpecularSettings.diffusePrepassBlurRadius = 16.0f;
     mRelaxDiffuseSpecularSettings.specularPrepassBlurRadius = 16.0f;
     mRelaxDiffuseSpecularSettings.diffuseMaxFastAccumulatedFrameNum = 2;
@@ -148,7 +153,7 @@ NRDPass::NRDPass(ref<Device> pDevice, const Properties& props)
     mRelaxDiffuseSettings.spatialVarianceEstimationHistoryThreshold = 4;
     mRelaxDiffuseSettings.atrousIterationNum = 6;
     mRelaxDiffuseSettings.depthThreshold = 0.02f;
-
+    */
     // Deserialize pass from dictionary.
     for (const auto& [key, value] : props)
     {
@@ -166,6 +171,7 @@ NRDPass::NRDPass(ref<Device> pDevice, const Properties& props)
         // ReLAX diffuse/specular settings.
         else if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
         {
+            /*TODO
             if (key == kDiffusePrepassBlurRadius) mRelaxDiffuseSpecularSettings.diffusePrepassBlurRadius = value;
             else if (key == kSpecularPrepassBlurRadius) mRelaxDiffuseSpecularSettings.specularPrepassBlurRadius = value;
             else if (key == kDiffuseMaxAccumulatedFrameNum) mRelaxDiffuseSpecularSettings.diffuseMaxAccumulatedFrameNum = value;
@@ -201,9 +207,11 @@ NRDPass::NRDPass(ref<Device> pDevice, const Properties& props)
             {
                 logWarning("Unknown property '{}' in NRD properties.", key);
             }
+            */
         }
         else if (mDenoisingMethod == DenoisingMethod::RelaxDiffuse)
         {
+            /*TODO
             if (key == kDiffusePrepassBlurRadius) mRelaxDiffuseSettings.prepassBlurRadius = value;
             else if (key == kDiffuseMaxAccumulatedFrameNum) mRelaxDiffuseSettings.diffuseMaxAccumulatedFrameNum = value;
             else if (key == kDiffuseMaxFastAccumulatedFrameNum) mRelaxDiffuseSettings.diffuseMaxFastAccumulatedFrameNum = value;
@@ -225,6 +233,7 @@ NRDPass::NRDPass(ref<Device> pDevice, const Properties& props)
             {
                 logWarning("Unknown property '{}' in NRD properties.", key);
             }
+            */
         }
         else
         {
@@ -251,6 +260,7 @@ Properties NRDPass::getProperties() const
     // ReLAX diffuse/specular settings.
     if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
     {
+        /*
         props[kDiffusePrepassBlurRadius] = mRelaxDiffuseSpecularSettings.diffusePrepassBlurRadius;
         props[kSpecularPrepassBlurRadius] = mRelaxDiffuseSpecularSettings.specularPrepassBlurRadius;
         props[kDiffuseMaxAccumulatedFrameNum] = mRelaxDiffuseSpecularSettings.diffuseMaxAccumulatedFrameNum;
@@ -282,9 +292,11 @@ Properties NRDPass::getProperties() const
         props[kEnableRoughnessEdgeStopping] = mRelaxDiffuseSpecularSettings.enableRoughnessEdgeStopping;
         props[kEnableMaterialTestForDiffuse] = mRelaxDiffuseSpecularSettings.enableMaterialTestForDiffuse;
         props[kEnableMaterialTestForSpecular] = mRelaxDiffuseSpecularSettings.enableMaterialTestForSpecular;
+        */
     }
     else if (mDenoisingMethod == DenoisingMethod::RelaxDiffuse)
     {
+        /*
         props[kDiffusePrepassBlurRadius] = mRelaxDiffuseSettings.prepassBlurRadius;
         props[kDiffuseMaxAccumulatedFrameNum] = mRelaxDiffuseSettings.diffuseMaxAccumulatedFrameNum;
         props[kDiffuseMaxFastAccumulatedFrameNum] = mRelaxDiffuseSettings.diffuseMaxFastAccumulatedFrameNum;
@@ -302,6 +314,7 @@ Properties NRDPass::getProperties() const
         props[kEnableAntiFirefly] = mRelaxDiffuseSettings.enableAntiFirefly;
         props[kEnableReprojectionTestSkippingWithoutMotion] = mRelaxDiffuseSettings.enableReprojectionTestSkippingWithoutMotion;
         props[kEnableMaterialTestForDiffuse] = mRelaxDiffuseSettings.enableMaterialTest;
+        */
     }
 
     return props;
@@ -445,8 +458,10 @@ void NRDPass::renderUI(Gui::Widgets& widget)
         widget.var("Max intensity", mMaxIntensity, 0.f, 100000.f,1.f, false, "%.0f");
 
         // ReLAX diffuse/specular settings.
+        /*TODO
         if (auto group = widget.group("ReLAX Diffuse/Specular"))
         {
+            
             group.text("Prepass:");
             group.var("Specular blur radius", mRelaxDiffuseSpecularSettings.specularPrepassBlurRadius, 0.0f, 100.0f,1.0f, false, "%.0f");
             group.var("Diffuse blur radius", mRelaxDiffuseSpecularSettings.diffusePrepassBlurRadius, 0.0f, 100.0f, 1.0f, false, "%.0f");
@@ -510,7 +525,9 @@ void NRDPass::renderUI(Gui::Widgets& widget)
                 "Luminance relaxation", mRelaxDiffuseSpecularSettings.luminanceEdgeStoppingRelaxation, 0.0f, 1.0f, 0.01f, false, "%.2f"
             );
             group.checkbox("Roughness edge stopping", mRelaxDiffuseSpecularSettings.enableRoughnessEdgeStopping);
+           
         }
+        */
     }
     else if (mDenoisingMethod == DenoisingMethod::RelaxDiffuse)
     {
@@ -522,8 +539,10 @@ void NRDPass::renderUI(Gui::Widgets& widget)
         widget.slider("Max intensity", mMaxIntensity, 0.f, 100000.f, false, "%.0f");
 
         // ReLAX diffuse settings.
+        /*TODO
         if (auto group = widget.group("ReLAX Diffuse"))
         {
+            
             group.text("Prepass:");
             group.slider("Diffuse blur radius", mRelaxDiffuseSettings.prepassBlurRadius, 0.0f, 100.0f, false, "%.0f");
             group.text("Reprojection:");
@@ -547,7 +566,9 @@ void NRDPass::renderUI(Gui::Widgets& widget)
             group.slider("Min luminance weight", mRelaxDiffuseSettings.minLuminanceWeight, 0.0f, 1.0f, false, "%.2f");
             group.slider("Depth weight (relative fraction)", mRelaxDiffuseSettings.depthThreshold, 0.0f, 0.05f, false, "%.2f");
             group.slider("Diffuse lobe angle fraction", mRelaxDiffuseSettings.diffuseLobeAngleFraction, 0.0f, 2.0f, false, "%.1f");
+            
         }
+        */
     }
     else if (mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
     {
@@ -560,6 +581,7 @@ void NRDPass::renderUI(Gui::Widgets& widget)
 
         if (auto group = widget.group("ReBLUR Diffuse/Specular"))
         {
+            /*TODO
             const float kEpsilon = 0.0001f;
             if (auto group2 = group.group("Specular lobe trimming"))
             {
@@ -622,6 +644,7 @@ void NRDPass::renderUI(Gui::Widgets& widget)
             group.checkbox("Performance mode", mReblurSettings.enablePerformanceMode);
             group.checkbox("Material test for diffuse", mReblurSettings.enableMaterialTestForDiffuse);
             group.checkbox("Material test for specular", mReblurSettings.enableMaterialTestForSpecular);
+            */
         }
     }
     else if (mDenoisingMethod == DenoisingMethod::SpecularReflectionMv)
@@ -707,18 +730,24 @@ static ResourceFormat getFalcorFormat(nrd::Format format)
     }
 }
 
-static nrd::Method getNrdMethod(NRDPass::DenoisingMethod denoisingMethod)
+static nrd::Denoiser getNrdDenoiser(NRDPass::DenoisingMethod denoisingMethod)
 {
     switch (denoisingMethod)
     {
-    case NRDPass::DenoisingMethod::RelaxDiffuseSpecular:    return nrd::Method::RELAX_DIFFUSE_SPECULAR;
-    case NRDPass::DenoisingMethod::RelaxDiffuse:            return nrd::Method::RELAX_DIFFUSE;
-    case NRDPass::DenoisingMethod::ReblurDiffuseSpecular:   return nrd::Method::REBLUR_DIFFUSE_SPECULAR;
-    case NRDPass::DenoisingMethod::SpecularReflectionMv:    return nrd::Method::SPECULAR_REFLECTION_MV;
-    case NRDPass::DenoisingMethod::SpecularDeltaMv:         return nrd::Method::SPECULAR_DELTA_MV;
+    case NRDPass::DenoisingMethod::RelaxDiffuseSpecular:    return nrd::Denoiser::RELAX_DIFFUSE_SPECULAR;
+    case NRDPass::DenoisingMethod::RelaxDiffuse:
+        return nrd::Denoiser::RELAX_DIFFUSE;
+    case NRDPass::DenoisingMethod::ReblurDiffuseSpecular:
+        return nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR;
+    /*
+    case NRDPass::DenoisingMethod::SpecularReflectionMv:
+        return nrd::Denoiser::SPECULAR_REFLECTION_MV;
+    case NRDPass::DenoisingMethod::SpecularDeltaMv:
+        return nrd::Denoiser::SPECULAR_DELTA_MV;
+    */
     default:
         FALCOR_UNREACHABLE();
-        return nrd::Method::RELAX_DIFFUSE_SPECULAR;
+        return nrd::Denoiser::RELAX_DIFFUSE_SPECULAR;
     }
 }
 
@@ -734,10 +763,24 @@ static void copyMatrix(float* dstMatrix, const float4x4& srcMatrix)
 void NRDPass::reinit()
 {
     // Create a new denoiser instance.
-    mpDenoiser = nullptr;
+    //mpDenoiser = nullptr;
+    if (mpInstance)
+        nrd::DestroyInstance(*mpInstance); // TODO check if this works
 
     const nrd::LibraryDesc& libraryDesc = nrd::GetLibraryDesc();
 
+    const nrd::DenoiserDesc denoiserDescs[] = {
+        {nrd::Identifier(getNrdDenoiser(mDenoisingMethod)), getNrdDenoiser(mDenoisingMethod)}
+    };
+    nrd::InstanceCreationDesc instanceCreationDesc = {};
+    instanceCreationDesc.denoisers = denoiserDescs;
+    instanceCreationDesc.denoisersNum = 1; //Only 1 denoiser is used at a time
+
+    nrd::Result res = nrd::CreateInstance(instanceCreationDesc, mpInstance);
+    if (res != nrd::Result::SUCCESS)
+        throw RuntimeError("NRDPass: Failed to create NRD denoiser");
+
+    /*TODO Remove old code
     const nrd::MethodDesc methods[] =
     {
         { getNrdMethod(mDenoisingMethod), uint16_t(mScreenSize.x), uint16_t(mScreenSize.y) }
@@ -753,6 +796,7 @@ void NRDPass::reinit()
     nrd::Result res = nrd::CreateDenoiser(denoiserCreationDesc, mpDenoiser);
 
     if (res != nrd::Result::SUCCESS) throw RuntimeError("NRDPass: Failed to create NRD denoiser");
+    */
 
     createResources();
     createPipelines();
@@ -767,44 +811,45 @@ void NRDPass::createPipelines()
     mpRootSignatures.clear();
 
     // Get denoiser desc for currently initialized denoiser implementation.
-    const nrd::DenoiserDesc& denoiserDesc = nrd::GetDenoiserDesc(*mpDenoiser);
+    const nrd::InstanceDesc& instanceDesc = nrd::GetInstanceDesc(*mpInstance);
 
     // Create samplers descriptor layout and set.
     D3D12DescriptorSetLayout SamplersDescriptorSetLayout;
-
-    for (uint32_t j = 0; j < denoiserDesc.staticSamplerNum; j++)
+    
+    for (uint32_t j = 0; j < instanceDesc.samplersNum; j++)
     {
-        SamplersDescriptorSetLayout.addRange(ShaderResourceType::Sampler, denoiserDesc.staticSamplers[j].registerIndex, 1);
+        SamplersDescriptorSetLayout.addRange(ShaderResourceType::Sampler, instanceDesc.samplersBaseRegisterIndex + j, 1);
     }
     mpSamplersDescriptorSet = D3D12DescriptorSet::create(mpDevice, SamplersDescriptorSetLayout, D3D12DescriptorSetBindingUsage::ExplicitBind);
 
     // Set sampler descriptors right away.
-    for (uint32_t j = 0; j < denoiserDesc.staticSamplerNum; j++)
+    for (uint32_t j = 0; j < instanceDesc.samplersNum; j++)
     {
         mpSamplersDescriptorSet->setSampler(0, j, mpSamplers[j].get());
     }
 
     // Go over NRD passes and creating descriptor sets, root signatures and PSOs for each.
-    for (uint32_t i = 0; i < denoiserDesc.pipelineNum; i++)
+    for (uint32_t i = 0; i < instanceDesc.pipelinesNum; i++)
     {
-        const nrd::PipelineDesc& nrdPipelineDesc = denoiserDesc.pipelines[i];
-        const nrd::ComputeShader& nrdComputeShader = nrdPipelineDesc.computeShaderDXIL;
+        const nrd::PipelineDesc& nrdPipelineDesc = instanceDesc.pipelines[i];
+        const nrd::ComputeShaderDesc& nrdComputeShader = nrdPipelineDesc.computeShaderDXIL;
 
         // Initialize descriptor set.
         D3D12DescriptorSetLayout CBVSRVUAVdescriptorSetLayout;
 
         // Add constant buffer to descriptor set.
-        CBVSRVUAVdescriptorSetLayout.addRange(ShaderResourceType::Cbv, denoiserDesc.constantBufferDesc.registerIndex, 1);
+        CBVSRVUAVdescriptorSetLayout.addRange(ShaderResourceType::Cbv, instanceDesc.constantBufferRegisterIndex, 1);
 
-        for (uint32_t j = 0; j < nrdPipelineDesc.descriptorRangeNum; j++)
+        for (uint32_t j = 0; j < nrdPipelineDesc.resourceRangesNum; j++)
         {
-            const nrd::DescriptorRangeDesc& nrdDescriptorRange = nrdPipelineDesc.descriptorRanges[j];
+            const nrd::ResourceRangeDesc& nrdResourceRange = nrdPipelineDesc.resourceRanges[j];
 
-            ShaderResourceType descriptorType = nrdDescriptorRange.descriptorType == nrd::DescriptorType::TEXTURE ?
+            ShaderResourceType descriptorType = nrdResourceRange.descriptorType == nrd::DescriptorType::TEXTURE
+                                                    ?
                 ShaderResourceType::TextureSrv :
                 ShaderResourceType::TextureUav;
 
-            CBVSRVUAVdescriptorSetLayout.addRange(descriptorType, nrdDescriptorRange.baseRegisterIndex, nrdDescriptorRange.descriptorNum);
+            CBVSRVUAVdescriptorSetLayout.addRange(descriptorType, nrdResourceRange.baseRegisterIndex, nrdResourceRange.descriptorsNum);
         }
 
         mCBVSRVUAVdescriptorSetLayouts.push_back(CBVSRVUAVdescriptorSetLayout);
@@ -829,8 +874,11 @@ void NRDPass::createPipelines()
             programDesc.setCompilerFlags(Program::CompilerFlags::MatrixLayoutColumnMajor);
             DefineList defines;
             defines.add("NRD_COMPILER_DXC");
-            defines.add("NRD_USE_OCT_NORMAL_ENCODING", "1");
-            defines.add("NRD_USE_MATERIAL_ID", "0");
+            defines.add("NRD_NORMAL_ENCODING", "2");
+            defines.add("NRD_ROUGHNESS_ENCODING", "1");
+            defines.add("GROUP_X", "16");
+            defines.add("GROUP_Y", "16");
+
             ref<ComputePass> pPass = ComputePass::create(mpDevice, programDesc, defines);
 
             ref<ComputeProgram> pProgram = pPass->getProgram();
@@ -849,6 +897,11 @@ void NRDPass::createPipelines()
     }
 }
 
+static inline uint16_t NRD_DivideUp(uint32_t x, uint16_t y)
+{
+    return uint16_t((x + y - 1) / y);
+}
+
 void NRDPass::createResources()
 {
     // Destroy previously created resources.
@@ -857,17 +910,17 @@ void NRDPass::createResources()
     mpTransientTextures.clear();
     mpConstantBuffer = nullptr;
 
-    const nrd::DenoiserDesc& denoiserDesc = nrd::GetDenoiserDesc(*mpDenoiser);
-    const uint32_t poolSize = denoiserDesc.permanentPoolSize + denoiserDesc.transientPoolSize;
+    const nrd::InstanceDesc& instanceDesc = nrd::GetInstanceDesc(*mpInstance);
+    const uint32_t poolSize = instanceDesc.permanentPoolSize + instanceDesc.transientPoolSize;
 
     // Create samplers.
-    for (uint32_t i = 0; i < denoiserDesc.staticSamplerNum; i++)
+    for (uint32_t i = 0; i < instanceDesc.samplersNum; i++)
     {
-        const nrd::StaticSamplerDesc& nrdStaticsampler = denoiserDesc.staticSamplers[i];
+        const nrd::Sampler& nrdStaticsampler = instanceDesc.samplers[i];
         Sampler::Desc samplerDesc;
         samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Point);
 
-        if (nrdStaticsampler.sampler == nrd::Sampler::NEAREST_CLAMP || nrdStaticsampler.sampler == nrd::Sampler::LINEAR_CLAMP)
+        if (nrdStaticsampler == nrd::Sampler::NEAREST_CLAMP || nrdStaticsampler == nrd::Sampler::LINEAR_CLAMP)
         {
             samplerDesc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
         }
@@ -876,7 +929,7 @@ void NRDPass::createResources()
             samplerDesc.setAddressingMode(Sampler::AddressMode::Mirror, Sampler::AddressMode::Mirror, Sampler::AddressMode::Mirror);
         }
 
-        if (nrdStaticsampler.sampler == nrd::Sampler::NEAREST_CLAMP || nrdStaticsampler.sampler == nrd::Sampler::NEAREST_MIRRORED_REPEAT)
+        if (nrdStaticsampler == nrd::Sampler::NEAREST_CLAMP)
         {
             samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
         }
@@ -891,19 +944,19 @@ void NRDPass::createResources()
     // Texture pool.
     for (uint32_t i = 0; i < poolSize; i++)
     {
-        const bool isPermanent = (i < denoiserDesc.permanentPoolSize);
+        const bool isPermanent = (i < instanceDesc.permanentPoolSize);
 
         // Get texture desc.
-        const nrd::TextureDesc& nrdTextureDesc = isPermanent
-            ? denoiserDesc.permanentPool[i]
-            : denoiserDesc.transientPool[i - denoiserDesc.permanentPoolSize];
+        const nrd::TextureDesc& nrdTextureDesc =
+            isPermanent ? instanceDesc.permanentPool[i] : instanceDesc.transientPool[i - instanceDesc.permanentPoolSize];
 
         // Create texture.
         ResourceFormat textureFormat = getFalcorFormat(nrdTextureDesc.format);
+        uint w = NRD_DivideUp(mScreenSize.x, nrdTextureDesc.downsampleFactor);
+        uint h = NRD_DivideUp(mScreenSize.y, nrdTextureDesc.downsampleFactor);
         ref<Texture> pTexture = Texture::create2D(
-            mpDevice,
-            nrdTextureDesc.width, nrdTextureDesc.height,
-            textureFormat, 1u, nrdTextureDesc.mipNum,
+            mpDevice, w, h,
+            textureFormat, 1u, 1,
             nullptr,
             ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
 
@@ -916,7 +969,7 @@ void NRDPass::createResources()
     // Constant buffer.
     mpConstantBuffer = Buffer::create(
         mpDevice,
-        denoiserDesc.constantBufferDesc.maxDataSize,
+        instanceDesc.constantBufferMaxDataSize,
         ResourceBindFlags::Constant,
         Buffer::CpuAccess::Write,
         nullptr);
@@ -944,7 +997,7 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
             mpPackRadiancePassRelax->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
         }
 
-        nrd::SetMethodSettings(*mpDenoiser, nrd::Method::RELAX_DIFFUSE_SPECULAR, static_cast<void*>(&mRelaxDiffuseSpecularSettings));
+        nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(nrd::Denoiser::RELAX_DIFFUSE_SPECULAR), static_cast<void*>(&mRelaxSettings));
     }
     else if (mDenoisingMethod == DenoisingMethod::RelaxDiffuse)
     {
@@ -958,7 +1011,7 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
             mpPackRadiancePassRelax->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
         }
 
-        nrd::SetMethodSettings(*mpDenoiser, nrd::Method::RELAX_DIFFUSE, static_cast<void*>(&mRelaxDiffuseSettings));
+        nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(nrd::Denoiser::RELAX_DIFFUSE), static_cast<void*>(&mRelaxSettings));
     }
     else if (mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
     {
@@ -976,8 +1029,9 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
             mpPackRadiancePassReblur->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
         }
 
-        nrd::SetMethodSettings(*mpDenoiser, nrd::Method::REBLUR_DIFFUSE_SPECULAR, static_cast<void*>(&mReblurSettings));
+        nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR), static_cast<void*>(&mReblurSettings));
     }
+    /*
     else if (mDenoisingMethod == DenoisingMethod::SpecularReflectionMv)
     {
         nrd::SpecularReflectionMvSettings specularReflectionMvSettings;
@@ -988,6 +1042,7 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
         nrd::SpecularDeltaMvSettings specularDeltaMvSettings;
         nrd::SetMethodSettings(*mpDenoiser, nrd::Method::SPECULAR_DELTA_MV, static_cast<void*>(&specularDeltaMvSettings));
     }
+    */
     else
     {
         FALCOR_UNREACHABLE();
@@ -1010,19 +1065,33 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
     // NRD's convention for the jitter is: [-0.5; 0.5] sampleUv = pixelUv + cameraJitter
     mCommonSettings.cameraJitter[0] = -mpScene->getCamera()->getJitterX();
     mCommonSettings.cameraJitter[1] = mpScene->getCamera()->getJitterY();
+    mCommonSettings.cameraJitterPrev[0] = -mpScene->getCamera()->getJitterX();
+    mCommonSettings.cameraJitterPrev[1] = mpScene->getCamera()->getJitterY();
     mCommonSettings.denoisingRange = kNRDDepthRange;
     mCommonSettings.disocclusionThreshold = mDisocclusionThreshold * 0.01f;
     mCommonSettings.frameIndex = mFrameIndex;
     mCommonSettings.isMotionVectorInWorldSpace = mWorldSpaceMotion;
+    mCommonSettings.resourceSize[0] = mScreenSize.x;
+    mCommonSettings.resourceSize[1] = mScreenSize.y;
+    mCommonSettings.resourceSizePrev[0] = mScreenSize.x;
+    mCommonSettings.resourceSizePrev[1] = mScreenSize.y;
+    mCommonSettings.rectSize[0] = mScreenSize.x;
+    mCommonSettings.rectSize[1] = mScreenSize.y;
+    mCommonSettings.rectSizePrev[0] = mScreenSize.x;
+    mCommonSettings.rectSizePrev[1] = mScreenSize.y;
 
     mPrevViewMatrix = viewMatrix;
     mPrevProjMatrix = projMatrix;
     mFrameIndex++;
 
+    nrd::Result result = nrd::SetCommonSettings(*mpInstance, mCommonSettings);
+    FALCOR_ASSERT(result == nrd::Result::SUCCESS)
+
     // Run NRD dispatches.
     const nrd::DispatchDesc* dispatchDescs = nullptr;
     uint32_t dispatchDescNum = 0;
-    nrd::Result result = nrd::GetComputeDispatches(*mpDenoiser, mCommonSettings, dispatchDescs, dispatchDescNum);
+    nrd::Identifier denoiser = nrd::Identifier(getNrdDenoiser(mDenoisingMethod));
+    result = nrd::GetComputeDispatches(*mpInstance, &denoiser, 1, dispatchDescs, dispatchDescNum);
     FALCOR_ASSERT(result == nrd::Result::SUCCESS);
 
     for (uint32_t i = 0; i < dispatchDescNum; i++)
@@ -1038,8 +1107,8 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
 
 void NRDPass::dispatch(RenderContext* pRenderContext, const RenderData& renderData, const nrd::DispatchDesc& dispatchDesc)
 {
-    const nrd::DenoiserDesc& denoiserDesc = nrd::GetDenoiserDesc(*mpDenoiser);
-    const nrd::PipelineDesc& pipelineDesc = denoiserDesc.pipelines[dispatchDesc.pipelineIndex];
+    const nrd::InstanceDesc& instanceDesc = nrd::GetInstanceDesc(*mpInstance);
+    const nrd::PipelineDesc& pipelineDesc = instanceDesc.pipelines[dispatchDesc.pipelineIndex];
 
     // Set root signature.
     mpRootSignatures[dispatchDesc.pipelineIndex]->bindForCompute(pRenderContext);
@@ -1052,23 +1121,23 @@ void NRDPass::dispatch(RenderContext* pRenderContext, const RenderData& renderDa
 
     // Set CBV.
     mpCBV = D3D12ConstantBufferView::create(mpDevice, mpConstantBuffer);
-    CBVSRVUAVDescriptorSet->setCbv(0 /* NB: range #0 is CBV range */, denoiserDesc.constantBufferDesc.registerIndex, mpCBV.get());
+    CBVSRVUAVDescriptorSet->setCbv(0 /* NB: range #0 is CBV range */, instanceDesc.constantBufferRegisterIndex, mpCBV.get());
 
     uint32_t resourceIndex = 0;
-    for (uint32_t descriptorRangeIndex = 0; descriptorRangeIndex < pipelineDesc.descriptorRangeNum; descriptorRangeIndex++)
+    for (uint32_t resourceRangeIndex = 0; resourceRangeIndex < pipelineDesc.resourceRangesNum; resourceRangeIndex++)
     {
-        const nrd::DescriptorRangeDesc& nrdDescriptorRange = pipelineDesc.descriptorRanges[descriptorRangeIndex];
+        const nrd::ResourceRangeDesc& nrdResourceRange = pipelineDesc.resourceRanges[resourceRangeIndex];
 
-        for (uint32_t descriptorOffset = 0; descriptorOffset < nrdDescriptorRange.descriptorNum; descriptorOffset++)
+        for (uint32_t resourceOffset = 0; resourceOffset < nrdResourceRange.descriptorsNum; resourceOffset++)
         {
-            FALCOR_ASSERT(resourceIndex < dispatchDesc.resourceNum);
-            const nrd::Resource& resource = dispatchDesc.resources[resourceIndex];
-
-            FALCOR_ASSERT(resource.stateNeeded == nrdDescriptorRange.descriptorType);
+            FALCOR_ASSERT(resourceIndex < dispatchDesc.resourcesNum);
+            const nrd::ResourceDesc& resourceDesc = dispatchDesc.resources[resourceIndex];
+            
+            FALCOR_ASSERT(resourceDesc.descriptorType == nrdResourceRange.descriptorType);
 
             ref<Texture> texture;
 
-            switch (resource.type)
+            switch (resourceDesc.type)
             {
             case nrd::ResourceType::IN_MV:
                 texture = renderData.getTexture(kInputMotionVectors);
@@ -1100,17 +1169,19 @@ void NRDPass::dispatch(RenderContext* pRenderContext, const RenderData& renderDa
             case nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST:
                 texture = renderData.getTexture(kOutputFilteredSpecularRadianceHitDist);
                 break;
+            /*
             case nrd::ResourceType::OUT_REFLECTION_MV:
                 texture = renderData.getTexture(kOutputReflectionMotionVectors);
                 break;
             case nrd::ResourceType::OUT_DELTA_MV:
                 texture = renderData.getTexture(kOutputDeltaMotionVectors);
                 break;
+            */
             case nrd::ResourceType::TRANSIENT_POOL:
-                texture = mpTransientTextures[resource.indexInPool];
+                texture = mpTransientTextures[resourceDesc.indexInPool];
                 break;
             case nrd::ResourceType::PERMANENT_POOL:
-                texture = mpPermanentTextures[resource.indexInPool];
+                texture = mpPermanentTextures[resourceDesc.indexInPool];
                 break;
             default:
                 FALCOR_ASSERT(!"Unavailable resource type");
@@ -1120,30 +1191,34 @@ void NRDPass::dispatch(RenderContext* pRenderContext, const RenderData& renderDa
             FALCOR_ASSERT(texture);
 
             // Set up resource barriers.
-            Resource::State newState = resource.stateNeeded == nrd::DescriptorType::TEXTURE ? Resource::State::ShaderResource : Resource::State::UnorderedAccess;
-            for (uint16_t mip = 0; mip < resource.mipNum; mip++)
+            Resource::State newState = resourceDesc.descriptorType == nrd::DescriptorType::TEXTURE ? Resource::State::ShaderResource
+                                                                                                   : Resource::State::UnorderedAccess;
             {
-                const ResourceViewInfo viewInfo = ResourceViewInfo(resource.mipOffset + mip, 1, 0, 1);
+                const ResourceViewInfo viewInfo = ResourceViewInfo(0, 1, 0, 1);
                 pRenderContext->resourceBarrier(texture.get(), newState, &viewInfo);
             }
 
             // Set the SRV and UAV descriptors.
-            if (nrdDescriptorRange.descriptorType == nrd::DescriptorType::TEXTURE)
+            if (nrdResourceRange.descriptorType == nrd::DescriptorType::TEXTURE)
             {
-                ref<ShaderResourceView> pSRV = texture->getSRV(resource.mipOffset, resource.mipNum, 0, 1);
-                CBVSRVUAVDescriptorSet->setSrv(descriptorRangeIndex + 1 /* NB: range #0 is CBV range */, nrdDescriptorRange.baseRegisterIndex + descriptorOffset, pSRV.get());
+                ref<ShaderResourceView> pSRV = texture->getSRV(0, 1, 0, 1);
+                CBVSRVUAVDescriptorSet->setSrv(
+                    resourceRangeIndex + 1 /* NB: range #0 is CBV range */, nrdResourceRange.baseRegisterIndex + resourceOffset, pSRV.get()
+                );
             }
             else
             {
-                ref<UnorderedAccessView> pUAV = texture->getUAV(resource.mipOffset, 0, 1);
-                CBVSRVUAVDescriptorSet->setUav(descriptorRangeIndex + 1 /* NB: range #0 is CBV range */, nrdDescriptorRange.baseRegisterIndex + descriptorOffset, pUAV.get());
+                ref<UnorderedAccessView> pUAV = texture->getUAV(0, 0, 1);
+                CBVSRVUAVDescriptorSet->setUav(
+                    resourceRangeIndex + 1 /* NB: range #0 is CBV range */, nrdResourceRange.baseRegisterIndex + resourceOffset, pUAV.get()
+                );
             }
 
             resourceIndex++;
         }
     }
 
-    FALCOR_ASSERT(resourceIndex == dispatchDesc.resourceNum);
+    FALCOR_ASSERT(resourceIndex == dispatchDesc.resourcesNum);
 
     // Set descriptor sets.
     mpSamplersDescriptorSet->bindForCompute(pRenderContext, mpRootSignatures[dispatchDesc.pipelineIndex].get(), 0);
