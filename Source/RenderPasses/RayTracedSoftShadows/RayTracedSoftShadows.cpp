@@ -130,8 +130,11 @@ void RayTracedSoftShadows::execute(RenderContext* pRenderContext, const RenderDa
         return;
     }
 
-    if (mClearDemodulationTextures)
-        clearOutputs(); //lazily clear all textures
+    if (mClearDemodulationTextures) {
+        clearOutputs(); // lazily clear all textures
+        mClearDemodulationTextures = false;
+    }
+        
 
     prepareLighting(pRenderContext);
 
