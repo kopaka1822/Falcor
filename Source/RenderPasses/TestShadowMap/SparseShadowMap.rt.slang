@@ -38,11 +38,6 @@ import Utils.Color.ColorHelpers;
 import Rendering.Lights.LightHelpers;
 import Rendering.Utils.PixelStats;
 
-
-#ifndef SM_FORMAT
-#define SM_FORMAT float2
-#endif
-
 /** Payload for shadow ray.
 */
 struct RayData
@@ -61,7 +56,6 @@ cbuffer CB
 }
 
 RWTexture2D<uint> gReverseSM;
-Texture2D<SM_FORMAT> gShadowMap;
 
 Texture2D<float> gUseRayMask;
 Texture2D<PackedHitInfo> gVBuffer;
@@ -93,12 +87,12 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
 }
 
 //Return UV in shadow map space
-float2 toLightSpace(float3 pos){
+float2 toLightSpace(float3 pos, out float lightDist){
     float4 shadowPos = mul(gViewProj, float4(pos, 1));
     shadowPos.xyz /= shadowPos.w;
     shadowPos.y *= -1;  //Flip
     shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
-    
+    lightDist = (shadowPos.w - gNear) / (gFar - gNear);
     return shadowPos.xy;
 }
 
@@ -146,7 +140,7 @@ void rayGen()
     uint2 frameDim = DispatchRaysDimensions().xy;
 
     HitInfo hit = HitInfo(gVBuffer[pixel]);
-    const float3 primaryRayDir = -gViewW[pixel].xyz;
+    const float3 primaryRayDir = gViewW[pixel].xyz;
 
     if(hit.isValid()){
         // Pixel represents a valid primary hit. Compute its contribution.
@@ -155,26 +149,16 @@ void rayGen()
         ShadingData sd = loadShadingData(hit, primaryRayDir, lod);
 
         // Compute ray origin for new rays spawned from the G-buffer.
+        float lightDist;
         float3 rayOrigin = sd.computeNewRayOrigin();
         //Check if ray is needed
-        float2 originUV = toLightSpace(rayOrigin);
-       
-        if(any(originUV.xy < 0.0) || any(originUV.xy > 1.0))
-            return;  
-
+        float2 originUV = toLightSpace(rayOrigin, lightDist);
         uint2 originPixel = uint2(gSMSize * originUV);
-
-        float smDepth = gShadowMap[originPixel].x;
         float mask = gUseRayMask[originPixel];
         if(mask < 0.5)
             return;
 
-        float2 depthUV = originUV * 2.0 - 1.0; //From [0,1] to [-1,1]
-        depthUV.y *= -1.0;  //Flip Y
-        float4 reprojectedSMPos = mul(gInvViewProj, float4(depthUV.x, depthUV.y, smDepth, 1));
-        reprojectedSMPos.xyz /= reprojectedSMPos.w;
-        float3 toLight = reprojectedSMPos.xyz - rayOrigin;
-        //float3 toLight = gLightPos - rayOrigin;
+        float3 toLight = gLightPos - rayOrigin;
         float distToLight = length(toLight);
         toLight /= distToLight;
 
@@ -182,23 +166,25 @@ void rayGen()
         ray.Origin = rayOrigin;
         ray.Direction = toLight;
         ray.TMin = 0.001f;
-        ray.TMax = distToLight * 0.99;
+        ray.TMax = distToLight;
 
         RayData rayData;
         rayData.distance = 0.0;
-        uint flags = RAY_FLAG_CULL_FRONT_FACING_TRIANGLES;
-        TraceRay(gScene.rtAccel, flags, 0xff, 0 , rayTypeCount, 0 , ray, rayData);
+        TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff, 0 , rayTypeCount, 0 , ray, rayData);
 
         if(rayData.distance < 0)
             return;
 
         float3 hitPos = rayOrigin + toLight * rayData.distance;
-        float lightDist = distance(gLightPos,hitPos);
-        lightDist = (lightDist - gNear) / (gFar - gNear);
+        float2 shadowPos = toLightSpace(hitPos, lightDist);
 
+        if(any(shadowPos.xy < 0.0) || any(shadowPos.xy > 1.0))
+            return;    
+
+        uint2 smPixel = uint2(gSMSize * shadowPos.xy);
         uint uLightDist = asuint(lightDist);
         uint origMin;
-        InterlockedMin(gReverseSM[originPixel], uLightDist, origMin);
+        InterlockedMin(gReverseSM[smPixel], uLightDist, origMin);
     }
     
 }

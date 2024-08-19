@@ -393,8 +393,15 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
         float2 gatherUV;
         float4 w = getGatherWeights(shadowPos.xy, gRayShadowMapRes, gatherUV);
         float4 reverseValues = gReverseShadowMap.GatherRed(gShadowSamplerPoint, gatherUV);
-        SM_FORMAT shadowValue = gRayShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0);
+        float reverseValue = gReverseShadowMap.SampleLevel(gShadowSamplerPoint, shadowPos.xy,0);
+        float4 shadowValueM1 = gRayShadowMap[lightIdx].GatherRed(gShadowSamplerLinear,gatherUV);
         #if FILTER_SM_VARIANCE
+            float4 shadowValueM2 = gRayShadowMap[lightIdx].GatherGreen(gShadowSamplerLinear,gatherUV);
+            float2 shadowValue = float2(0.0);
+            [unroll]
+            for (uint i = 0; i < 4; i++) {
+                shadowValue += float2(shadowValueM1[i], shadowValueM2[i]) * w[i];
+            }
             shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-7f);
         #elif FILTER_SM_ESVM
             float2 shadowEvsm =  exponentialVarianceShadowTest(shadowValue, lightDist);
@@ -404,15 +411,18 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
         #endif
 
         #if FILTER_SM_VARIANCE
-        if(shadow < 1.0)
+        if(shadow < 0.99)
+            shadow = reverseValue < lightDist ? 0.0 : shadow;
+            /*
             float2 revShadowValue = float2(0.0);
             //Interpolate
             [unroll]
             for (uint i = 0; i < 4; i++) {
-                reverseValues[i] = min(reverseValues[i],shadowValue.x);
+                reverseValues[i] = min(reverseValues[i],shadowValueM1[i]);
                 revShadowValue += float2(reverseValues[i], reverseValues[i] * reverseValues[i]) * w[i];
             }
-            shadow = min(shadow, ChebyshevUpperBound(revShadowValue, lightDist, 1e-7f));
+            shadow = ChebyshevUpperBound(revShadowValue, lightDist, 1e-7f);
+            */
         #endif
         
 

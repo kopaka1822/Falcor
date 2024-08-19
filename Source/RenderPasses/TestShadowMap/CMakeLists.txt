@@ -6,6 +6,7 @@ target_sources(TestShadowMap PRIVATE
     TestShadowMap.rt.slang
     GenerateShadowMap.rt.slang
     ReverseSMGen.rt.slang
+    SparseShadowMap.rt.slang
     SMStructs.slang
     DebugShadowMap.cs.slang
     GenMinMaxMips.cs.slang

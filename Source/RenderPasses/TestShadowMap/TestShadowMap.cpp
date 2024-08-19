@@ -39,6 +39,7 @@ namespace
 const char kShaderFile[] = "RenderPasses/TestShadowMap/TestShadowMap.rt.slang";
 const char kShaderSMGeneration[] = "RenderPasses/TestShadowMap/GenerateShadowMap.rt.slang";
 const char kShaderReverseSMGen[] = "RenderPasses/TestShadowMap/ReverseSMGen.rt.slang";
+const char kShaderSparseSMGen[] = "RenderPasses/TestShadowMap/SparseShadowMap.rt.slang";
 const char kShaderDebugSM[] = "RenderPasses/TestShadowMap/DebugShadowMap.cs.slang";
 const char kShaderMinMaxMips[] = "RenderPasses/TestShadowMap/GenMinMaxMips.cs.slang";
 const char kShaderRayNeeded[] = "RenderPasses/TestShadowMap/CreateRayNeededMask.cs.slang";
@@ -420,6 +421,26 @@ void TestShadowMap::setScene(RenderContext* pRenderContext, const ref<Scene>& pS
             mReverseSM.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
         }
 
+        {
+            // Create SM gen program
+            RtProgram::Desc desc;
+            desc.addShaderModules(mpScene->getShaderModules());
+            desc.addShaderLibrary(kShaderSparseSMGen);
+            desc.setShaderModel("6_6");
+            desc.setMaxPayloadSize(kMaxPayloadSizeBytes);
+            desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+            desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
+
+            mSparseDepthSM.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+            auto& sbt = mSparseDepthSM.pBindingTable;
+            sbt->setRayGen(desc.addRayGen("rayGen", globalTypeConformances));
+            sbt->setMiss(0, desc.addMiss("miss"));
+
+            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+
+            mSparseDepthSM.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
+        }
+
         // Check if the scene has more than 1 light
         if (mpScene->getLightCount() <= 1)
             mPathLightSampleMode = SMLightSampleMode::Uniform;
@@ -656,6 +677,7 @@ void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData&
     var["CB"]["gInvViewProj"] = mShadowMapMVP[0].invViewProjection;
     var["CB"]["gSMSize"] = mShadowMapSize;
 
+    var["gShadowMap"] = mpRayShadowMaps[0];
     var["gUseRayMask"] = mpRayShadowNeededMask;
     var["gReverseSM"] = mpReverseSMTex;
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
@@ -672,6 +694,46 @@ void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData&
     // Spawn the rays.
     mpScene->raytrace(pRenderContext, mReverseSM.pProgram.get(), mReverseSM.pVars, uint3(targetDim, 1));
 
+}
+
+void TestShadowMap::genSparseShadowMap(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    FALCOR_PROFILE(pRenderContext, "ReverserSM");
+
+    pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(1, 1, 1, 1));
+
+    computeRayNeededMask(pRenderContext, renderData);
+
+    mSparseDepthSM.pProgram->addDefines(filterSMModesDefines());
+    if (!mSparseDepthSM.pVars)
+    {
+        // Configure program.
+        mSparseDepthSM.pProgram->setTypeConformances(mpScene->getTypeConformances());
+        // Create program variables for the current program.
+        // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
+        mSparseDepthSM.pVars = RtProgramVars::create(mpDevice, mSparseDepthSM.pProgram, mSparseDepthSM.pBindingTable);
+        // pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(1, 1, 1, 1));
+    }
+
+    // Bind utility classes into shared data.
+    auto var = mSparseDepthSM.pVars->getRootVar();
+    // Get Analytic light data
+    auto lights = mpScene->getLights();
+    const uint2 targetDim = renderData.getDefaultTextureDims();
+
+    var["CB"]["gLightPos"] = lights[0]->getData().posW;
+    var["CB"]["gNear"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0].x : mNearFar.x;
+    var["CB"]["gFar"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0].y : mNearFar.y;
+    var["CB"]["gViewProj"] = mShadowMapMVP[0].viewProjection;
+    var["CB"]["gInvViewProj"] = mShadowMapMVP[0].invViewProjection;
+    var["CB"]["gSMSize"] = mShadowMapSize;
+
+    var["gUseRayMask"] = mpRayShadowNeededMask;
+    var["gReverseSM"] = mpReverseSMTex;
+    var["gShadowMap"] = mpRayShadowMaps[0];
+
+    // Spawn the rays.
+    mpScene->raytrace(pRenderContext, mSparseDepthSM.pProgram.get(), mSparseDepthSM.pVars, uint3(targetDim, 1));
 }
 
 void TestShadowMap::traceScene(RenderContext* pRenderContext, const RenderData& renderData)

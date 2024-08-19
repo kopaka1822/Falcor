@@ -111,6 +111,7 @@ private:
     void generateShadowMap(RenderContext* pRenderContext, const RenderData& renderData);
     void computeRayNeededMask(RenderContext* pRenderContext, const RenderData& renderData);
     void genReverseSM(RenderContext* pRenderContext, const RenderData& renderData);
+    void genSparseShadowMap(RenderContext* pRenderContext, const RenderData& renderData);
     void calculateShadowMapNearFar(RenderContext* pRenderContext, const RenderData& renderData, ShaderVar& var);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void debugShadowMapPass(RenderContext* pRenderContext, const RenderData& renderData);
@@ -191,6 +192,7 @@ private:
     RayTracingProgram mTracer;
     RayTracingProgram mGenerateSM;
     RayTracingProgram mReverseSM;
+    RayTracingProgram mSparseDepthSM;
    
 };
 
