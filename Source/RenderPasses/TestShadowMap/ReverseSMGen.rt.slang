@@ -57,6 +57,7 @@ cbuffer CB
 
 RWTexture2D<uint> gReverseSM;
 
+Texture2D<float> gUseRayMask;
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
 
@@ -83,6 +84,16 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -rayDir, lod);
 
     return sd;
+}
+
+//Return UV in shadow map space
+float2 toLightSpace(float3 pos, out float lightDist){
+    float4 shadowPos = mul(gViewProj, float4(pos, 1));
+    shadowPos.xyz /= shadowPos.w;
+    shadowPos.y *= -1;  //Flip
+    shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+    lightDist = (shadowPos.w - gNear) / (gFar - gNear);
+    return shadowPos.xy;
 }
 
 //Shaders
@@ -138,7 +149,15 @@ void rayGen()
         ShadingData sd = loadShadingData(hit, primaryRayDir, lod);
 
         // Compute ray origin for new rays spawned from the G-buffer.
+        float lightDist;
         float3 rayOrigin = sd.computeNewRayOrigin();
+        //Check if ray is needed
+        float2 originUV = toLightSpace(rayOrigin, lightDist);
+        uint2 originPixel = uint2(gSMSize * originUV);
+        float mask = gUseRayMask[originPixel];
+        if(mask < 0.5)
+            return;
+
         float3 toLight = gLightPos - rayOrigin;
         float distToLight = length(toLight);
         toLight /= distToLight;
@@ -157,20 +176,15 @@ void rayGen()
             return;
 
         float3 hitPos = rayOrigin + toLight * rayData.distance;
-        float4 shadowPos = mul(gViewProj, float4(hitPos, 1));
-        shadowPos.xyz /= shadowPos.w;
-        shadowPos.y *= -1;  //Flip
-        shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
-        float lightDist = (shadowPos.w - gNear) / (gFar - gNear);
+        float2 shadowPos = toLightSpace(hitPos, lightDist);
 
-        if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
+        if(any(shadowPos.xy < 0.0) || any(shadowPos.xy > 1.0))
             return;    
 
         uint2 smPixel = uint2(gSMSize * shadowPos.xy);
         uint uLightDist = asuint(lightDist);
         uint origMin;
         InterlockedMin(gReverseSM[smPixel], uLightDist, origMin);
-        //InterlockedAdd(gReverseSM[smPixel], 1u, origMin);
     }
     
 }

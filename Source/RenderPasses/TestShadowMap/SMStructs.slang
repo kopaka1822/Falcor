@@ -14,6 +14,7 @@ enum class PathSMDebugModes : uint32_t
     ShadowMapAccess = 10,   //Shows Shadow Map with Access heat map
     ShadowMapRayDiff = 11,  //Shows Shadow Map with Ray diff heat map
     ReverseSM = 12,         //Shows Reverse SM
+    RayNeededMask = 13,
 };
 FALCOR_ENUM_INFO(PathSMDebugModes, {
     { PathSMDebugModes::LeakTracingMask, "LeakTracingMask" },
@@ -22,6 +23,7 @@ FALCOR_ENUM_INFO(PathSMDebugModes, {
     {PathSMDebugModes::ShadowMapAccess, "ShadowMapAccess"},
     {PathSMDebugModes::ShadowMapRayDiff, "ShadowMapRayDiff"},
     {PathSMDebugModes::ReverseSM, "ReverseSM"},
+     {PathSMDebugModes::RayNeededMask, "RayNeededMask"},
 });
 FALCOR_ENUM_REGISTER(PathSMDebugModes);
 

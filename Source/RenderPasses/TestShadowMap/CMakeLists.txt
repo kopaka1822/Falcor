@@ -9,6 +9,7 @@ target_sources(TestShadowMap PRIVATE
     SMStructs.slang
     DebugShadowMap.cs.slang
     GenMinMaxMips.cs.slang
+    CreateRayNeededMask.cs.slang
 )
 
 

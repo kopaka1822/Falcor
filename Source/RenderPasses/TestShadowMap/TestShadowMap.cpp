@@ -41,6 +41,7 @@ const char kShaderSMGeneration[] = "RenderPasses/TestShadowMap/GenerateShadowMap
 const char kShaderReverseSMGen[] = "RenderPasses/TestShadowMap/ReverseSMGen.rt.slang";
 const char kShaderDebugSM[] = "RenderPasses/TestShadowMap/DebugShadowMap.cs.slang";
 const char kShaderMinMaxMips[] = "RenderPasses/TestShadowMap/GenMinMaxMips.cs.slang";
+const char kShaderRayNeeded[] = "RenderPasses/TestShadowMap/CreateRayNeededMask.cs.slang";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -481,6 +482,7 @@ void TestShadowMap::calculateShadowMapNearFar(RenderContext* pRenderContext, con
 
 void TestShadowMap::generateMinMaxMips(RenderContext* pRenderContext, ref<Texture> pTexture)
 {
+    FALCOR_PROFILE(pRenderContext, "GenMinMaxMips");
     // Create Pass
     if (!mpGenMinMaxMipsPass)
     {
@@ -592,13 +594,43 @@ void TestShadowMap::generateShadowMap(RenderContext* pRenderContext, const Rende
     mRerenderSM = false;
 }
 
+void TestShadowMap::computeRayNeededMask(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "RayNeededMask");
+    // Create Pass
+    if (!mpComputeRayNeededMask)
+    {
+        Program::Desc desc;
+        desc.addShaderLibrary(kShaderRayNeeded).csEntry("main").setShaderModel("6_5");
 
+        DefineList defines;
+        defines.add(filterSMModesDefines());
+
+        mpComputeRayNeededMask = ComputePass::create(mpDevice, desc, defines, true);
+    }
+
+    FALCOR_ASSERT(mpComputeRayNeededMask);
+    mpComputeRayNeededMask->getProgram()->addDefines(filterSMModesDefines());
+
+    auto var = mpComputeRayNeededMask->getRootVar();
+    var["CB"]["gSMSize"] = mShadowMapSize;
+
+    var["gShadowMap"] = mpRayShadowMaps[0];
+    var["gRayNeededMask"] = mpRayShadowNeededMask;
+
+    var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
+
+    uint2 dispatchSize = uint2(mShadowMapSize);
+
+    mpComputeRayNeededMask->execute(pRenderContext, uint3(dispatchSize, 1));
+}
 
 void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "ReverserSM");
 
-    pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), uint4(UINT_MAX,1,1,1));
+    pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(1,1,1,1));
+
+    computeRayNeededMask(pRenderContext, renderData);
 
     mReverseSM.pProgram->addDefines(filterSMModesDefines());
     if (!mReverseSM.pVars)
@@ -608,6 +640,7 @@ void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData&
         // Create program variables for the current program.
         // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
         mReverseSM.pVars = RtProgramVars::create(mpDevice, mReverseSM.pProgram, mReverseSM.pBindingTable);
+        //pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(1, 1, 1, 1));
     }
 
     // Bind utility classes into shared data.
@@ -623,6 +656,7 @@ void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData&
     var["CB"]["gInvViewProj"] = mShadowMapMVP[0].invViewProjection;
     var["CB"]["gSMSize"] = mShadowMapSize;
 
+    var["gUseRayMask"] = mpRayShadowNeededMask;
     var["gReverseSM"] = mpReverseSMTex;
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)
@@ -769,16 +803,30 @@ void TestShadowMap::prepareBuffers()
         mpShadowMapAccessTex.clear();
         mpShadowMapMinMaxOpti.reset();
 
+        //Temporary TODO implement properly
+        mpReverseSMTex.reset();
+        mpRayShadowNeededMask.reset();
+
         mRerenderSM = true;
     }
-    //TEMP test texture
+
+    //TEMP test texture TODO
     if (!mpReverseSMTex)
     {
         mpReverseSMTex = Texture::create2D(
-            mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::R32Uint, 1u, 1u, nullptr,
+            mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::R32Float, 1u, 1u, nullptr,
             ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
         );
         mpReverseSMTex->setName("TestShadowMap::ReverseShadowMap");
+    }
+    // TEMP test texture TODO
+    if (!mpRayShadowNeededMask)
+    {
+        mpRayShadowNeededMask = Texture::create2D(
+            mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::R8Unorm, 1u, 1u, nullptr,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+        );
+        mpRayShadowNeededMask->setName("TestShadowMap::RayNeededMask");
     }
 
 
@@ -943,6 +991,7 @@ void TestShadowMap::debugShadowMapPass(RenderContext* pRenderContext, const Rend
 
     var["gRayShadowMap"] = mpRayShadowMaps[mUISelectedLight];
     var["gRayReverseSM"] = mpReverseSMTex;
+    var["gRayNeededMask"] = mpRayShadowNeededMask;
 
     if (mpShadowMapAccessTex.size() > mUISelectedLight)
         var["gShadowAccessTex"] = mpShadowMapAccessTex[mUISelectedLight];

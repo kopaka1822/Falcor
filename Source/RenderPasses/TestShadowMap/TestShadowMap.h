@@ -109,6 +109,7 @@ private:
     DefineList filterSMModesDefines();
 
     void generateShadowMap(RenderContext* pRenderContext, const RenderData& renderData);
+    void computeRayNeededMask(RenderContext* pRenderContext, const RenderData& renderData);
     void genReverseSM(RenderContext* pRenderContext, const RenderData& renderData);
     void calculateShadowMapNearFar(RenderContext* pRenderContext, const RenderData& renderData, ShaderVar& var);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
@@ -130,6 +131,7 @@ private:
     ref<Sampler> mpShadowSamplerPoint;
     ref<Sampler> mpShadowSamplerLinear;
     ref<Texture> mpReverseSMTex;
+    ref<Texture> mpRayShadowNeededMask;
 
     // Configuration Path Tracer
     bool mCheckForNaN = true; ///< Checks for NaN before writing to texture
@@ -172,6 +174,7 @@ private:
     ref<Texture> mpShadowMapBlit;
     ref<ComputePass> mpDebugShadowMapPass;
     ref<ComputePass> mpGenMinMaxMipsPass;
+    ref<ComputePass> mpComputeRayNeededMask;
 
     // Runtime data
     uint mFrameCount = 0; ///< Frame count since scene was loaded.
@@ -188,6 +191,7 @@ private:
     RayTracingProgram mTracer;
     RayTracingProgram mGenerateSM;
     RayTracingProgram mReverseSM;
+   
 };
 
 FALCOR_ENUM_REGISTER(TestShadowMap::ShadowMode);

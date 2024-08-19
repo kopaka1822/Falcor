@@ -6,6 +6,7 @@ import SMStructs;
 
 Texture2D<SM_FORMAT> gRayShadowMap;
 Texture2D<uint> gRayReverseSM;
+Texture2D<float> gRayNeededMask;
 
 Texture2D<uint> gShadowAccessTex;
 
@@ -76,11 +77,17 @@ void main(uint2 pixel: SV_DispatchThreadID)
     output = float4(gRayShadowMap[pixel]);
     #endif
 
+    if(gDebugMode == (uint)PathSMDebugModes::RayNeededMask){
+        float mask = gRayNeededMask[pixel];
+        float3 maskF3 = float3(mask,0,0);
+        output.xyz = lerp(maskF3 * gBrightnessIncrease.x, output.xyz * gBrightnessIncrease.y, gBlendVal);
+        gOut[pixel] = float4(output.xyz,1);
+        return;
+    }
+
     if(gDebugMode != (uint)PathSMDebugModes::ShadowMap){
         output = shadowMapAccessOverlay(pixel, output);
     }
-
-    
 
     gOut[pixel] = float4(output.xyz,1);
 }
