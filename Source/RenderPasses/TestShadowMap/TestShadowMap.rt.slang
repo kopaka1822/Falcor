@@ -85,6 +85,7 @@ cbuffer ShadowVPs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
 Texture2D<SM_FORMAT> gRayShadowMap[COUNT_SM];
+Texture2D<float> gReverseShadowMap;
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -385,10 +386,16 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
         if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
             return kDistributeRayOutsideOfShadowMap;    //TODO set per define
 
-
+        /*
+        uint2 shadowCoordU = uint2(gRayShadowMapRes * shadowPos.xy);
+        float reverseSMDepth = gReverseShadowMap[shadowCoordU];
+        */
+        float2 gatherUV;
+        float4 w = getGatherWeights(shadowPos.xy, gRayShadowMapRes, gatherUV);
+        float4 reverseValues = gReverseShadowMap.GatherRed(gShadowSamplerPoint, gatherUV);
         SM_FORMAT shadowValue = gRayShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0);
         #if FILTER_SM_VARIANCE
-            shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-9f);
+            shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-7f);
         #elif FILTER_SM_ESVM
             float2 shadowEvsm =  exponentialVarianceShadowTest(shadowValue, lightDist);
             shadow = min(shadowEvsm.x, shadowEvsm.y);
@@ -396,47 +403,19 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
             shadow = msmHamburger(shadowValue, lightDist);
         #endif
 
-        /*
-        {
-            float2 gatherUV;
-            float4 w = getGatherWeights(shadowPos.xy, gRayShadowMapRes, gatherUV);
-            float4 shadowValues = gRayShadowMap[lightIdx].GatherRed(gShadowSamplerPoint, gatherUV);
-            #if FILTER_SM_VARIANCE
-                float2 shadowValue = float2(0.0);
-                //Interpolate
-                [unroll]
-                for (uint i = 0; i < 4; i++) {
-                    shadowValue += float2(shadowValues[i], shadowValues[i] * shadowValues[i]) * w[i];
-                }
-                shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-9f);
-            #elif FILTER_SM_ESVM
-                float4 shadowValueEvsm = float4(0);
-                [unroll]
-                for (uint i = 0; i < 4; i++) {
-                    float rescaledDepth = (2.f * shadowValues[i]) - 1.f;
-                    float4 evsm = recreateEVSMFromSingleDepth(rescaledDepth);
-                    shadowValueEvsm += w[i] * evsm;
-                }
-                float2 shadowEvsm =  exponentialVarianceShadowTest(shadowValueEvsm, lightDist);
-                shadow = min(shadowEvsm.x, shadowEvsm.y);
-            #else // FILTER_SM_MSM
-                float4 shadowValueMsm = float4(0);
-                [unroll]
-                for (uint i = 0; i < 4; i++) {
-                    shadowValueMsm += float4(shadowValues[i], shadowValues[i] * shadowValues[i], shadowValues[i] * shadowValues[i] * shadowValues[i],shadowValues[i] * shadowValues[i] * shadowValues[i] * shadowValues[i]) * w[i];
-                }
-                shadow = msmHamburger(shadowValueMsm, lightDist);
-            #endif
-            //Leak Tracing Test
-            if (shadow <= 0.01)
-                shadow = 0.0;
-            else if (shadow >= 0.99)
-                shadow = 1.0;
-            else
-                return true;
-        }
-        */
-    
+        #if FILTER_SM_VARIANCE
+        if(shadow < 1.0)
+            float2 revShadowValue = float2(0.0);
+            //Interpolate
+            [unroll]
+            for (uint i = 0; i < 4; i++) {
+                reverseValues[i] = min(reverseValues[i],shadowValue.x);
+                revShadowValue += float2(reverseValues[i], reverseValues[i] * reverseValues[i]) * w[i];
+            }
+            shadow = min(shadow, ChebyshevUpperBound(revShadowValue, lightDist, 1e-7f));
+        #endif
+        
+
         return false;       //No Ray
     }
 #endif
@@ -496,6 +475,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     #endif    
 
     float shadow = 0.0;
+
     if(!useRay){
         #if SM_GENERATION_RAYTRACING
             useRay = evalShadowMap(lightIndex, sd.posW, pathData.leakTracingBounds,shadow);
@@ -521,15 +501,16 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
             // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
             const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
             // Test visibility by tracing a shadow ray.
-            bool RayV = traceShadowRay(origin, ls.dir, ls.distance);
-            bool shadowV = shadow > 0.5;
+            bool rayV = traceShadowRay(origin, ls.dir, ls.distance);
+            float raySVal = rayV ? 1.0 : 0.0;
+            float diff = abs(raySVal - shadow);
             float3 brdf = mi.eval(sd, ls.dir, pathData.sg);
-            if(RayV != shadowV && all(brdf > 0)){
+            if(diff > 0.1 && all(brdf > 0)){
                 debug.x += 10000.0;
                 if(kDebugMode == (uint)PathSMDebugModes::ShadowMapRayDiff)
                     addShadowMapAccessEntry(lightIndex, sd.posW);
             }
-            else if(RayV)
+            else if(rayV)
                 debug += (brdf * shadow);
         }else if(kDebugMode == (uint)PathSMDebugModes::ShadowMapAccess){ // Add an entry for every access
             addShadowMapAccessEntry(lightIndex, sd.posW);

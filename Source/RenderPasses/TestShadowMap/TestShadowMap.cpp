@@ -38,6 +38,7 @@ namespace
 {
 const char kShaderFile[] = "RenderPasses/TestShadowMap/TestShadowMap.rt.slang";
 const char kShaderSMGeneration[] = "RenderPasses/TestShadowMap/GenerateShadowMap.rt.slang";
+const char kShaderReverseSMGen[] = "RenderPasses/TestShadowMap/ReverseSMGen.rt.slang";
 const char kShaderDebugSM[] = "RenderPasses/TestShadowMap/DebugShadowMap.cs.slang";
 const char kShaderMinMaxMips[] = "RenderPasses/TestShadowMap/GenMinMaxMips.cs.slang";
 
@@ -205,6 +206,7 @@ void TestShadowMap::execute(RenderContext* pRenderContext, const RenderData& ren
     {
         generateShadowMap(pRenderContext, renderData);
 
+        genReverseSM(pRenderContext, renderData);
         if (mpRasterShadowMap)
         {
             mpRasterShadowMap.reset();
@@ -353,7 +355,7 @@ void TestShadowMap::setScene(RenderContext* pRenderContext, const ref<Scene>& pS
         {
             logWarning("TestShadowMap: This render pass does not support custom primitives.");
         }
-
+        auto globalTypeConformances = mpScene->getMaterialSystem().getTypeConformances();
         // Create ray tracing program.
         {
             RtProgram::Desc desc;
@@ -365,7 +367,7 @@ void TestShadowMap::setScene(RenderContext* pRenderContext, const ref<Scene>& pS
 
             mTracer.pBindingTable = RtBindingTable::create(1,1, mpScene->getGeometryCount());
             auto& sbt = mTracer.pBindingTable;
-            sbt->setRayGen(desc.addRayGen("rayGen"));
+            sbt->setRayGen(desc.addRayGen("rayGen", globalTypeConformances));
             sbt->setMiss(0, desc.addMiss("shadowMiss"));
 
             if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
@@ -395,6 +397,26 @@ void TestShadowMap::setScene(RenderContext* pRenderContext, const ref<Scene>& pS
             sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
 
             mGenerateSM.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
+        }
+
+        {
+            // Create SM gen program
+            RtProgram::Desc desc;
+            desc.addShaderModules(mpScene->getShaderModules());
+            desc.addShaderLibrary(kShaderReverseSMGen);
+            desc.setShaderModel("6_6");
+            desc.setMaxPayloadSize(kMaxPayloadSizeBytes);
+            desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+            desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
+
+            mReverseSM.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+            auto& sbt = mReverseSM.pBindingTable;
+            sbt->setRayGen(desc.addRayGen("rayGen", globalTypeConformances));
+            sbt->setMiss(0, desc.addMiss("miss"));
+
+            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+
+            mReverseSM.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
         }
 
         // Check if the scene has more than 1 light
@@ -570,6 +592,54 @@ void TestShadowMap::generateShadowMap(RenderContext* pRenderContext, const Rende
     mRerenderSM = false;
 }
 
+
+
+void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData& renderData)
+{
+    FALCOR_PROFILE(pRenderContext, "ReverserSM");
+
+    pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), uint4(UINT_MAX,1,1,1));
+
+    mReverseSM.pProgram->addDefines(filterSMModesDefines());
+    if (!mReverseSM.pVars)
+    {
+        // Configure program.
+        mReverseSM.pProgram->setTypeConformances(mpScene->getTypeConformances());
+        // Create program variables for the current program.
+        // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
+        mReverseSM.pVars = RtProgramVars::create(mpDevice, mReverseSM.pProgram, mReverseSM.pBindingTable);
+    }
+
+    // Bind utility classes into shared data.
+    auto var = mReverseSM.pVars->getRootVar();
+    // Get Analytic light data
+    auto lights = mpScene->getLights();
+    const uint2 targetDim = renderData.getDefaultTextureDims();
+
+    var["CB"]["gLightPos"] = lights[0]->getData().posW;
+    var["CB"]["gNear"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0].x : mNearFar.x;
+    var["CB"]["gFar"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0].y : mNearFar.y;
+    var["CB"]["gViewProj"] = mShadowMapMVP[0].viewProjection;
+    var["CB"]["gInvViewProj"] = mShadowMapMVP[0].invViewProjection;
+    var["CB"]["gSMSize"] = mShadowMapSize;
+
+    var["gReverseSM"] = mpReverseSMTex;
+    // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
+    auto bind = [&](const ChannelDesc& desc)
+    {
+        if (!desc.texname.empty())
+        {
+            var[desc.texname] = renderData.getTexture(desc.name);
+        }
+    };
+    for (auto channel : kInputChannels)
+        bind(channel);
+
+    // Spawn the rays.
+    mpScene->raytrace(pRenderContext, mReverseSM.pProgram.get(), mReverseSM.pVars, uint3(targetDim, 1));
+
+}
+
 void TestShadowMap::traceScene(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "Path Tracer");
@@ -632,10 +702,12 @@ void TestShadowMap::traceScene(RenderContext* pRenderContext, const RenderData& 
         if (validAccessTex)
             var["gShadowAccessDebugTex"][i] = mpShadowMapAccessTex[i];
     }
+    var["gReverseShadowMap"] = mpReverseSMTex;
 
     // Bind Samplers
     var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
     var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
+    
 
     // RasterSM
     if (mpRasterShadowMap)
@@ -699,6 +771,16 @@ void TestShadowMap::prepareBuffers()
 
         mRerenderSM = true;
     }
+    //TEMP test texture
+    if (!mpReverseSMTex)
+    {
+        mpReverseSMTex = Texture::create2D(
+            mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::R32Uint, 1u, 1u, nullptr,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+        );
+        mpReverseSMTex->setName("TestShadowMap::ReverseShadowMap");
+    }
+
 
     // Get Analytic light data
     auto lights = mpScene->getLights();
@@ -717,7 +799,7 @@ void TestShadowMap::prepareBuffers()
                 mpDevice, mShadowMapSize, mShadowMapSize, format, 1u, 1u, nullptr,
                 ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
             );
-            tex->setName("TestShadowMap::ShadowMap" + i);
+            tex->setName("TestShadowMap::ShadowMap" + std::to_string(i));
             mpRayShadowMaps.push_back(tex);
         }
     }
@@ -860,6 +942,7 @@ void TestShadowMap::debugShadowMapPass(RenderContext* pRenderContext, const Rend
     var["CB"]["gBrightnessIncrease"] = mDebugBrighnessMod;
 
     var["gRayShadowMap"] = mpRayShadowMaps[mUISelectedLight];
+    var["gRayReverseSM"] = mpReverseSMTex;
 
     if (mpShadowMapAccessTex.size() > mUISelectedLight)
         var["gShadowAccessTex"] = mpShadowMapAccessTex[mUISelectedLight];

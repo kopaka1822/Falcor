@@ -5,6 +5,7 @@ import SMStructs;
 #endif
 
 Texture2D<SM_FORMAT> gRayShadowMap;
+Texture2D<uint> gRayReverseSM;
 
 Texture2D<uint> gShadowAccessTex;
 
@@ -58,6 +59,16 @@ void main(uint2 pixel: SV_DispatchThreadID)
 {
     float4 output = float4(0,0,0,1);
 
+    if(gDebugMode == (uint)PathSMDebugModes::ReverseSM){
+        uint val = gRayReverseSM[pixel];
+        float revDepth = asfloat(gRayReverseSM[pixel]);
+
+        float valF = val/10.0;
+
+        gOut[pixel] = float4(revDepth,revDepth,revDepth,1);
+        return;
+    }
+
     //Copy SM
     #if FILTER_SM_VARIANCE
     output = float4(gRayShadowMap[pixel],0,1);
@@ -68,6 +79,8 @@ void main(uint2 pixel: SV_DispatchThreadID)
     if(gDebugMode != (uint)PathSMDebugModes::ShadowMap){
         output = shadowMapAccessOverlay(pixel, output);
     }
+
+    
 
     gOut[pixel] = float4(output.xyz,1);
 }
