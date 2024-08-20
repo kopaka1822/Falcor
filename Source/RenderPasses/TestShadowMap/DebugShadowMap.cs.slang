@@ -78,7 +78,9 @@ void main(uint2 pixel: SV_DispatchThreadID)
 
     if(gDebugMode == (uint)PathSMDebugModes::RayNeededMask){
         float mask = gRayNeededMask[pixel];
-        float3 maskF3 = float3(mask,0,0);
+        float3 maskF3 = float3(mask, 0, 0);
+        output.yz = output.xy;
+        output.x = 0;
         output.xyz = lerp(maskF3 * gBrightnessIncrease.x, output.xyz * gBrightnessIncrease.y, gBlendVal);
         gOut[pixel] = float4(output.xyz,1);
         return;

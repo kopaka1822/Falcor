@@ -414,34 +414,34 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
             shadow = msmHamburger(shadowValue, lightDist);
         #endif
 
-            #if FILTER_SM_VARIANCE
-            if (rayMask > 0) {
-                bool anySmaller = false;
+        #if FILTER_SM_VARIANCE
+        if (rayMask > 0) {
+            bool anySmaller = false;
+            for (uint i = 0; i < 4; i++) {
+                anySmaller |= reverseValues[i] > 0 && ((reverseValues[i]) > minDepth);
+            }
+            shadow = anySmaller ? 0.0 : shadow;
+            if (false) {
+                float2 revShadowValue = float2(0.0);
+                float2 revShadowValueLoop = float2(0);
+                // Interpolate
+                float wSum = 0;
                 for (uint i = 0; i < 4; i++) {
-                    anySmaller |= reverseValues[i] > 0 && ((reverseValues[i]) > minDepth);
-                }
-                shadow = anySmaller ? 0.0 : shadow;
-                if (false) {
-                    float2 revShadowValue = float2(0.0);
-                    float2 revShadowValueLoop = float2(0);
-                    // Interpolate
-                    float wSum = 0;
-                    for (uint i = 0; i < 4; i++) {
-                        // reverseValues[i] = min(reverseValues[i],shadowValueM1[i]);
-                        if (reverseValues[i] > 0) {
-                            revShadowValueLoop += float2(reverseValues[i], reverseValues[i] * reverseValues[i]) * w[i];
-                            wSum += w[i];
-                        }
-
-                        revShadowValue = revShadowValueLoop / wSum;
+                    // reverseValues[i] = min(reverseValues[i],shadowValueM1[i]);
+                    if (reverseValues[i] > 0) {
+                        revShadowValueLoop += float2(reverseValues[i], reverseValues[i] * reverseValues[i]) * w[i];
+                        wSum += w[i];
                     }
-                    shadow = ChebyshevUpperBound(revShadowValue, lightDist, 1e-7f);
+
+                    revShadowValue = revShadowValueLoop / wSum;
                 }
-                if (kDebugMode == (uint)PathSMDebugModes::SparseShadowDepths) {
-                    uint2 pixel = uint2(1024, 1024) * shadowPos.xy;
-                    gDebug[pixel] = float4(reverseValue, shadowValue.x, shadowValue.y, lightDist);
-                }
-            }                
+                shadow = ChebyshevUpperBound(revShadowValue, lightDist, 1e-7f);
+            }
+            if (kDebugMode == (uint)PathSMDebugModes::SparseShadowDepths) {
+                uint2 pixel = uint2(1024, 1024) * shadowPos.xy;
+                gDebug[pixel] = float4(reverseValue, shadowValue.x, shadowValue.y, lightDist);
+            }
+        }                
         #endif
         
         return false;       //No Ray
