@@ -60,22 +60,21 @@ void main(uint2 pixel: SV_DispatchThreadID)
 {
     float4 output = float4(0,0,0,1);
 
-    if(gDebugMode == (uint)PathSMDebugModes::ReverseSM){
-        uint val = gRayReverseSM[pixel];
-        float revDepth = asfloat(gRayReverseSM[pixel]);
-
-        float valF = val/10.0;
-
-        gOut[pixel] = float4(revDepth,revDepth,revDepth,1);
-        return;
-    }
-
     //Copy SM
     #if FILTER_SM_VARIANCE
     output = float4(gRayShadowMap[pixel],0,1);
     #else //FILTER_SM_EVSM || FILTER_SM_MSM
     output = float4(gRayShadowMap[pixel]);
     #endif
+
+    if (gDebugMode == (uint)PathSMDebugModes::ReverseSM) {
+        float val = gRayReverseSM[pixel];
+        output.yz = output.xy;
+        output.x = 0;
+        output.xyz = lerp(float3(val, 0, 0) * gBrightnessIncrease.x, output.xyz * gBrightnessIncrease.y, gBlendVal);
+        gOut[pixel] = float4(output.xyz, 1);
+        return;
+    }
 
     if(gDebugMode == (uint)PathSMDebugModes::RayNeededMask){
         float mask = gRayNeededMask[pixel];

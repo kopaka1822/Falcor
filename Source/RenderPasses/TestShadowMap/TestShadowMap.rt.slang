@@ -86,6 +86,7 @@ Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
 Texture2D<SM_FORMAT> gRayShadowMap[COUNT_SM];
 Texture2D<float> gReverseShadowMap;
+Texture2D<float> gUseRayMask;
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -393,13 +394,16 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
         float2 gatherUV;
         float4 w = getGatherWeights(shadowPos.xy, gRayShadowMapRes, gatherUV);
         float4 reverseValues = gReverseShadowMap.GatherRed(gShadowSamplerPoint, gatherUV);
-        float reverseValue = gReverseShadowMap.SampleLevel(gShadowSamplerPoint, shadowPos.xy,0);
-        float4 shadowValueM1 = gRayShadowMap[lightIdx].GatherRed(gShadowSamplerLinear,gatherUV);
+        float reverseValue = gReverseShadowMap.SampleLevel(gShadowSamplerPoint, shadowPos.xy, 0);
+        float rayMask = gUseRayMask.SampleLevel(gShadowSamplerPoint, shadowPos.xy, 0);
+        float4 shadowValueM1 = gRayShadowMap[lightIdx].GatherRed(gShadowSamplerLinear, gatherUV);
+        float minDepth = 1.0;
         #if FILTER_SM_VARIANCE
             float4 shadowValueM2 = gRayShadowMap[lightIdx].GatherGreen(gShadowSamplerLinear,gatherUV);
             float2 shadowValue = float2(0.0);
             [unroll]
             for (uint i = 0; i < 4; i++) {
+                minDepth = min(minDepth, shadowValueM1[i]);
                 shadowValue += float2(shadowValueM1[i], shadowValueM2[i]) * w[i];
             }
             shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-7f);
@@ -410,22 +414,36 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
             shadow = msmHamburger(shadowValue, lightDist);
         #endif
 
-        #if FILTER_SM_VARIANCE
-        if(shadow < 0.99)
-            shadow = reverseValue < lightDist ? 0.0 : shadow;
-            /*
-            float2 revShadowValue = float2(0.0);
-            //Interpolate
-            [unroll]
-            for (uint i = 0; i < 4; i++) {
-                reverseValues[i] = min(reverseValues[i],shadowValueM1[i]);
-                revShadowValue += float2(reverseValues[i], reverseValues[i] * reverseValues[i]) * w[i];
-            }
-            shadow = ChebyshevUpperBound(revShadowValue, lightDist, 1e-7f);
-            */
+            #if FILTER_SM_VARIANCE
+            if (rayMask > 0) {
+                bool anySmaller = false;
+                for (uint i = 0; i < 4; i++) {
+                    anySmaller |= reverseValues[i] > 0 && ((reverseValues[i]) > minDepth);
+                }
+                shadow = anySmaller ? 0.0 : shadow;
+                if (false) {
+                    float2 revShadowValue = float2(0.0);
+                    float2 revShadowValueLoop = float2(0);
+                    // Interpolate
+                    float wSum = 0;
+                    for (uint i = 0; i < 4; i++) {
+                        // reverseValues[i] = min(reverseValues[i],shadowValueM1[i]);
+                        if (reverseValues[i] > 0) {
+                            revShadowValueLoop += float2(reverseValues[i], reverseValues[i] * reverseValues[i]) * w[i];
+                            wSum += w[i];
+                        }
+
+                        revShadowValue = revShadowValueLoop / wSum;
+                    }
+                    shadow = ChebyshevUpperBound(revShadowValue, lightDist, 1e-7f);
+                }
+                if (kDebugMode == (uint)PathSMDebugModes::SparseShadowDepths) {
+                    uint2 pixel = uint2(1024, 1024) * shadowPos.xy;
+                    gDebug[pixel] = float4(reverseValue, shadowValue.x, shadowValue.y, lightDist);
+                }
+            }                
         #endif
         
-
         return false;       //No Ray
     }
 #endif

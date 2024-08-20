@@ -649,7 +649,7 @@ void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData&
 {
     FALCOR_PROFILE(pRenderContext, "ReverserSM");
 
-    pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(1,1,1,1));
+    pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(0));
 
     computeRayNeededMask(pRenderContext, renderData);
 
@@ -680,6 +680,10 @@ void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData&
     var["gShadowMap"] = mpRayShadowMaps[0];
     var["gUseRayMask"] = mpRayShadowNeededMask;
     var["gReverseSM"] = mpReverseSMTex;
+
+    // Bind Samplers
+    var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
+    var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)
     {
@@ -700,7 +704,7 @@ void TestShadowMap::genSparseShadowMap(RenderContext* pRenderContext, const Rend
 {
     FALCOR_PROFILE(pRenderContext, "ReverserSM");
 
-    pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(1, 1, 1, 1));
+    pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(0, 0, 0, 0));
 
     computeRayNeededMask(pRenderContext, renderData);
 
@@ -799,6 +803,7 @@ void TestShadowMap::traceScene(RenderContext* pRenderContext, const RenderData& 
             var["gShadowAccessDebugTex"][i] = mpShadowMapAccessTex[i];
     }
     var["gReverseShadowMap"] = mpReverseSMTex;
+    var["gUseRayMask"] = mpRayShadowNeededMask;
 
     // Bind Samplers
     var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
@@ -1037,6 +1042,10 @@ void TestShadowMap::debugShadowMapPass(RenderContext* pRenderContext, const Rend
     }
 
     FALCOR_ASSERT(mpDebugShadowMapPass);
+
+    //Return early if encoutering this pass
+    if (mDebugMode == PathSMDebugModes::SparseShadowDepths)
+        return;
 
     // Runtime defines
     mpDebugShadowMapPass->getProgram()->addDefines(filterSMModesDefines());

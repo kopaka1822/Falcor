@@ -67,6 +67,10 @@ Texture2D<float> gUseRayMask;
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
 
+// Texture Sampler
+SamplerState gShadowSamplerPoint;
+SamplerState gShadowSamplerLinear;
+
 /** Setup ShadingData based on loaded vertex/material attributes for a hit point.
     \param[in] hit Hit information.
     \param[in] rayOrigin Ray origin.
@@ -164,24 +168,24 @@ void rayGen()
 
         uint2 originPixel = uint2(gSMSize * originUV);
 
-        float smDepth = gShadowMap[originPixel].x;
-        float mask = gUseRayMask[originPixel];
-        if(mask < 0.5)
+        float smDepth = gShadowMap.SampleLevel(gShadowSamplerPoint, originUV,0).x; //Linear Depth
+        float mask = gUseRayMask.SampleLevel(gShadowSamplerLinear, originUV, 0).x;
+        if(mask <= 0)
             return;
 
-        float2 depthUV = originUV * 2.0 - 1.0; //From [0,1] to [-1,1]
-        depthUV.y *= -1.0;  //Flip Y
-        float4 reprojectedSMPos = mul(gInvViewProj, float4(depthUV.x, depthUV.y, smDepth, 1));
-        reprojectedSMPos.xyz /= reprojectedSMPos.w;
-        float3 toLight = reprojectedSMPos.xyz - rayOrigin;
-        //float3 toLight = gLightPos - rayOrigin;
+        float smWorldDist = (smDepth * (gFar - gNear)) + gNear; //Linear Depth to distance
+        float3 toLight = gLightPos - rayOrigin;
         float distToLight = length(toLight);
         toLight /= distToLight;
+        distToLight -= smWorldDist * 1.05; //Shorten distance by the distance from the light to the first hit point
+
+        if (distToLight <= 0)
+            return;
 
         RayDesc ray;
         ray.Origin = rayOrigin;
         ray.Direction = toLight;
-        ray.TMin = 0.001f;
+        ray.TMin = distToLight * 0.01;
         ray.TMax = distToLight * 0.99;
 
         RayData rayData;
@@ -198,7 +202,7 @@ void rayGen()
 
         uint uLightDist = asuint(lightDist);
         uint origMin;
-        InterlockedMin(gReverseSM[originPixel], uLightDist, origMin);
+        InterlockedMax(gReverseSM[originPixel], uLightDist, origMin);
     }
     
 }

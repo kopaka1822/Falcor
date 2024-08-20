@@ -148,7 +148,7 @@ private:
     bool mAlwaysRenderSM = true;
     bool mShadowMapFlag = false;
     bool mUseShadowMap = true;
-    uint mShadowMapSize = 2048;
+    uint mShadowMapSize = 1024;
     std::vector<LightMVP> mShadowMapMVP;
     float2 mNearFar = float2(0.1, 60);
     std::vector<float2> mNearFarPerLight;
