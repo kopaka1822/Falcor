@@ -53,7 +53,7 @@ struct RayData
 
 struct SphereAttribs
 {
-    float2 pad;
+    float radius;
 };
 
 //Load in shading data from hit and direction
@@ -105,7 +105,8 @@ void anyHit(inout RayData rayData : SV_RayPayload, SphereAttribs attribs : SV_In
     float3 f_r = bsdf.eval(sd, pd.dir, rayData.sg); //right sign?
     float NdotL = saturate(dot(bsdfProperties.guideNormal, pd.dir));
     if (NdotL > 0)
-        rayData.radiance += max(0.f, (f_r * pd.flux) / NdotL);  //Take out the NdotL that is included in the eval function
+        rayData.radiance += max(0.f, (f_r * pd.flux) / (NdotL * attribs.radius * attribs.radius));  //Take out the NdotL that is included in the eval function
+    IgnoreHit();
 }
 
 //Checks if the ray start point is inside the sphere.
@@ -128,14 +129,17 @@ void intersection()
     
     //Get Photon AABB. Instance Index 0 is caustic; 1 is global
     AABB photonAABB = gPhotonAABB[InstanceIndex()][primIndex];
-    float radius = InstanceIndex() == 0 ? gPhotonRadius.x : gPhotonRadius.y;
+    //float radius = InstanceIndex() == 0 ? gPhotonRadius.x : gPhotonRadius.y;
+    //float radius = photonAABB.radius(); //Wrong, this is the sphere that encloses the whole AABB
+    float radius = (photonAABB.maxPoint.x - photonAABB.minPoint.x)/2;
     
+
     //Check for Sphere intersection
     bool tHit = hitSphere(photonAABB.center(), radius, origin);
 
     //Attribs are needed by the api. Because we have no need for additional attributes it is empty
     SphereAttribs attribs;
-    attribs.pad = float2(0);
+    attribs.radius = radius;
 
     //Report the hit if the point is in the sphere
     if (tHit)
@@ -179,14 +183,9 @@ void rayGen()
     //Collect Caustic Photon
     if (valid)
     {
-        TraceRay(gPhotonAS, rayFlags, 1 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
-        float w = 1 / (M_PI * gPhotonRadius.x * gPhotonRadius.x);
-        radiance += w * rayData.radiance;
-        
-        rayData.radiance = float3(0);   //Clear Radiance
-        TraceRay(gPhotonAS, rayFlags, 2 /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
-        w = 1 / (M_PI * gPhotonRadius.y * gPhotonRadius.y);
-        radiance += rayData.radiance * w;
+        TraceRay(gPhotonAS, rayFlags, 0xFF /* instanceInclusionMask */, 0 /* hitIdx */, 0 /* rayType count */, 0 /* missIdx */, ray, rayData);
+        float w = 1.0 / M_PI;
+        radiance += w * rayData.radiance;        
     }
 
     float3 thp = gThp[launchIndex].xyz;

@@ -32,9 +32,13 @@ cbuffer CB
     float gRejection; //Probability that a photon is stored as a light
     uint gFlags; //Flags for the pass. See GenerationFlags enum
     uint gHashSize; //Size is always 2^x
-    int gCausticsBounces; //Number of diffuse bounces allowed for caustic photons
+
     float gGenerationLampIntersectGuard;    //Guard for the first hit of photons
     float gGenerationLampIntersectGuardStoreProbability; //Percentage a photon is stored
+    float2 gRandomRadiusOffset; //Random offset
+
+    int gCausticsBounces; //Number of diffuse bounces allowed for caustic photons
+    uint3 _pad;
 };
 
 
@@ -58,6 +62,7 @@ enum class GenerationFlags // : uint32_t
     DeltaRejection      = 0x08,     //Accept every non delta material as diffuse
     DeltaRejReqDiff     = 0x10,     //Reqire diffuse part for delta rejection
     AnalyticLight       = 0x20,     //Use analytic light photons
+    UseRandomOffset     = 0x40,     //Enable a random offset
 };
 
 static const uint2 kPhotonBufferSize = uint2(PHOTON_BUFFER_SIZE_GLOBAL, PHOTON_BUFFER_SIZE_CAUSTIC);
@@ -285,6 +290,7 @@ void closestHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersecti
     rayData.direction = bsdfSample.wo;
     rayData.isEmissive = luminance(bsdfProperties.emission) > 0;
     rayData.distance += RayTCurrent();
+    
     if (gFlags & (uint) GenerationFlags::DeltaRejection)
         rayData.diffuseHit = bsdfSample.isLobe(LobeType::NonDeltaReflection) && hasDiffuseParts;
     else
@@ -417,7 +423,13 @@ void rayGen()
                 //Only store photon if the buffer space allows it
                 if (photonIndex <= kPhotonBufferSize[photonType])
                 {
-                    AABB photonAABB = AABB(photonPos - gPhotonRadius[photonType], photonPos + gPhotonRadius[photonType]);
+                    float radius = gPhotonRadius[photonType];
+                    if(gFlags & (uint) GenerationFlags::UseRandomOffset){
+                        float rndOffset = sampleNext1D(rayData.sg);
+                        rndOffset = (rndOffset * 2.0) - 1.0; //From [0,1] to [-1,1]
+                        radius += gRandomRadiusOffset[photonType] * rndOffset;
+                    }
+                    AABB photonAABB = AABB(photonPos - radius, photonPos + radius);
                     gPhotonAABB[photonType][photonIndex] = photonAABB;
                     PhotonData pd = PhotonData();
                     pd.flux = photon.flux;

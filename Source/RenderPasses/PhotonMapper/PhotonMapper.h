@@ -153,6 +153,10 @@ private:
     float2 mSPPMAlpha = float2(2.f / 3.f);
     uint mSPPMFramesCameraStill = 0;
 
+    //Changing Photon Size
+    bool mEnableRandomSize = false;
+    float2 mRandomSizeRadiusRange = float2(0.005f, 0.001f);
+
     //
     // Buffer and Textures
     //

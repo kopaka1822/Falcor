@@ -249,7 +249,10 @@ void PhotonMapper::renderUI(Gui::Widgets& widget)
 
         mChangePhotonLightBufferSize |= widget.checkbox("Use Reduce Photon Data format", mUseReducePhotonDataFormat);
         widget.tooltip("When reduced format is used, the photons position and direction is stored at half precision (float16)");
-        
+
+        changed |= widget.checkbox("Enable random radius", mEnableRandomSize);
+        if (mEnableRandomSize)
+            changed |= widget.var("Random offset (Global/Caustic)", mRandomSizeRadiusRange,0.f);
     }
 
     mOptionsChanged |= changed;
@@ -448,8 +451,10 @@ void PhotonMapper::traceTransmissiveDelta(RenderContext* pRenderContext, const R
 
     auto var = mTraceTransmissionDelta.pVars->getRootVar();
 
-    float hashRad = mCullingUseFixedRadius ? std::max(mPhotonCollectRadius.x, mCullingCellRadius) : mPhotonCollectRadius.x;
+    float globalCollectionRadius = mEnableRandomSize ? mPhotonCollectRadius.x + mRandomSizeRadiusRange.x : mPhotonCollectRadius.x;
 
+    float hashRad = mCullingUseFixedRadius ? std::max(globalCollectionRadius, mCullingCellRadius) : globalCollectionRadius;
+    
     std::string nameBuf = "PerFrame";
     var[nameBuf]["gFrameCount"] = mFrameCount;
     var[nameBuf]["gMaxBounces"] = mTraceMaxBounces;
@@ -528,6 +533,8 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
         flags |= 0x10;
     if (!mpScene->useEmissiveLights())
         flags |= 0x20; // Analytic lights collect flag
+    if (mEnableRandomSize)
+        flags |= 0x40;
 
     nameBuf = "CB";
     var[nameBuf]["gMaxRecursion"] = mPhotonMaxBounces;
@@ -537,6 +544,7 @@ void PhotonMapper::generatePhotonsPass(RenderContext* pRenderContext, const Rend
     var[nameBuf]["gCausticsBounces"] = mMaxCausticBounces;
     var[nameBuf]["gGenerationLampIntersectGuard"] = mPhotonFirstHitGuard;
     var[nameBuf]["gGenerationLampIntersectGuardStoreProbability"] = mPhotonFirstHitGuardStoreProb;
+    var[nameBuf]["gRandomRadiusOffset"] = mRandomSizeRadiusRange;
     
     if (mpEmissiveLightSampler)
         mpEmissiveLightSampler->setShaderData(var["Light"]["gEmissiveSampler"]);
