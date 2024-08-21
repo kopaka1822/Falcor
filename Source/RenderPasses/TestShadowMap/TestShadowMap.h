@@ -155,6 +155,7 @@ private:
     bool mUseOptimizedNearFarForShadowMap = false;
     uint mUISelectedLight = 0;
     bool mDistributeRayOutsideOfSM = false;
+    bool mNearFarChanged = false;
 
     // Debug
     bool mEnableDebug = false;
@@ -170,6 +171,7 @@ private:
     float mDebugAccessBlendVal = 0.3f;
     float2 mDebugBrighnessMod = float2(5.f, 1.f);
     bool mDebugUseSMAspect = true;
+    bool mUseReverseSM = false;
 
     std::vector<ref<Texture>> mpShadowMapAccessTex;
     ref<Texture> mpShadowMapBlit;

@@ -208,7 +208,11 @@ void TestShadowMap::execute(RenderContext* pRenderContext, const RenderData& ren
     {
         generateShadowMap(pRenderContext, renderData);
 
-        genReverseSM(pRenderContext, renderData);
+        if (mUseReverseSM)
+        {
+            genReverseSM(pRenderContext, renderData);
+        }
+        
         if (mpRasterShadowMap)
         {
             mpRasterShadowMap.reset();
@@ -232,6 +236,7 @@ void TestShadowMap::execute(RenderContext* pRenderContext, const RenderData& ren
         debugShadowMapPass(pRenderContext, renderData);
 
     mpPixelStats->endFrame(pRenderContext);
+    mNearFarChanged = false;
     mFrameCount++;
     mIterationCount++;
 }
@@ -262,6 +267,14 @@ void TestShadowMap::renderUI(Gui::Widgets& widget)
 
             dirty |= group.checkbox("Use SM for direct light", mUseSMForDirect);
 
+            //Special Modes. Only one should be toggled on
+            if (auto specGroup = group.group("SpecialModes"))
+            {
+                dirty |= specGroup.checkbox("Use Reverse SM", mUseReverseSM);
+                specGroup.tooltip("Enables the reverse shadow map");
+            }
+            
+
             mRerenderSM |= group.checkbox("Use optimized near far", mUseOptimizedNearFarForShadowMap);
             group.tooltip("Optimized near far is calculated using an additional ray tracing depth pass");
 
@@ -275,7 +288,7 @@ void TestShadowMap::renderUI(Gui::Widgets& widget)
             }
             else
             {
-                group.var("SM Near/Far", mNearFar, 0.f, FLT_MAX, 0.001f);
+                mNearFarChanged |= group.var("SM Near/Far", mNearFar, 0.f, FLT_MAX, 0.001f);
                 group.tooltip("Sets the near and far for the shadow map");
             }
            
@@ -562,6 +575,7 @@ void TestShadowMap::generateShadowMap(RenderContext* pRenderContext, const Rende
         auto changes = lights[i]->getChanges();
         bool rebuild = is_set(changes, Light::Changes::Position) || is_set(changes, Light::Changes::Direction) ||
                        is_set(changes, Light::Changes::SurfaceArea);
+        rebuild |= mNearFarChanged;
         rebuild |= rebuildAll;
         if (rebuild)
         {
@@ -747,9 +761,6 @@ void TestShadowMap::traceScene(RenderContext* pRenderContext, const RenderData& 
     auto& dict = renderData.getDictionary();
     // Specialize program.
     // These defines should not modify the program vars. Do not trigger program vars re-creation.
-    mTracer.pProgram->addDefine("USE_ANALYTIC_LIGHTS", mpScene->useAnalyticLights() ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_ENV_LIGHT", mpScene->useEnvLight() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
     mTracer.pProgram->addDefine("COUNT_SM", std::to_string(mpRayShadowMaps.size()));
     mTracer.pProgram->addDefine("PATHSM_LIGHT_SAMPLE_MODE", std::to_string((uint32_t)mPathLightSampleMode));
@@ -761,6 +772,7 @@ void TestShadowMap::traceScene(RenderContext* pRenderContext, const RenderData& 
     mTracer.pProgram->addDefine("SM_GENERATION_RAYTRACING", std::to_string(mSMGenerationUseRay));
     mTracer.pProgram->addDefine("DISTRIBUTE_RAY_OUTSIDE_SM", mDistributeRayOutsideOfSM ? "1" : "0");
     mTracer.pProgram->addDefine("CHECK_FOR_NAN", mCheckForNaN ? "1" : "0");
+    mTracer.pProgram->addDefine("USE_REVERSE_SM", mUseReverseSM ? "1" : "0");
     mTracer.pProgram->addDefines(filterSMModesDefines());
 
     if (mpRasterShadowMap)
@@ -780,11 +792,9 @@ void TestShadowMap::traceScene(RenderContext* pRenderContext, const RenderData& 
     auto var = mTracer.pVars->getRootVar();
     // Set constants.
     var["CB"]["gFrameCount"] = mFrameCount;
-    var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
     var["CB"]["gUseShadowMap"] = mShadowMode != ShadowMode::RayShadows;
     var["CB"]["gRayShadowMapRes"] = mShadowMapSize;
     var["CB"]["gIterationCount"] = mIterationCount;
-    var["CB"]["gSelectedBounce"] = mDebugShowBounce;
     var["CB"]["gDebugFactor"] = mDebugMult;
     var["CB"]["gUseRayForDirect"] = !mUseSMForDirect;
 

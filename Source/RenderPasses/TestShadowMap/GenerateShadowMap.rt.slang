@@ -142,7 +142,7 @@ void rayGen()
          gRayShadowMapMinMax[pixel] = float2(rayData.depth);
          return;
     }
-
+    rayData.depth = saturate(rayData.depth);
     SM_FORMAT shadowValue = {};
     #if FILTER_SM_VARIANCE
         shadowValue = float2(rayData.depth,rayData.depth * rayData.depth);

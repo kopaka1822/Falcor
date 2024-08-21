@@ -63,12 +63,10 @@ import SMStructs;
 
 cbuffer CB
 {
-    uint        gFrameCount;        // Frame count since scene was loaded.
-    uint        gPRNGDimension;     // First available PRNG dimension.
+    uint        gFrameCount;        // Frame count since scene was loaded..
     bool        gUseShadowMap;
     uint        gRayShadowMapRes;
     uint        gIterationCount;        //Current number of still iterations
-    uint        gSelectedBounce;               // Debug show selected bounce
     float       gDebugFactor;           //Factor for the debug value
     bool        gUseRayForDirect;       //Always uses Ray for direct light
 }
@@ -99,12 +97,8 @@ SamplerState gShadowSamplerLinear;
 
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
-static const bool kUseAnalyticLights = USE_ANALYTIC_LIGHTS;
-static const bool kUseEmissiveLights = USE_EMISSIVE_LIGHTS;
-static const bool kUseEnvLight = USE_ENV_LIGHT;
 static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
 static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
-static const float kRayTMax = FLT_MAX;
 static const bool kEnableShadowRay = USE_SHADOW_RAY;
 static const bool kEnableDebug = USE_DEBUG;
 static const bool kWriteDebug = WRITE_TO_DEBUG;
@@ -135,47 +129,13 @@ struct RayHitData{
 */
 struct PathData
 {
-    float3  radiance;       ///< Accumulated outgoing radiance from path.
-    bool    terminated;     ///< Set to true when path is terminated.
-    float3  thp;            ///< Current path throughput. This is updated at each path vertex.
-    uint    pathLengthData; ///< Path length data. Structure: transmissive | specular | diffuse | total
-    float3  origin;         ///< Next path segment origin.
-    float   leakTracingBounds; ///<Bounds for leakTracing
-    float3  direction;      ///< Next path segment direction.
     SampleGenerator sg;     ///< Per-ray state for the sample generator (up to 16B).
 
     /** Initializes ray payload with default parameters.
     */
     __init(SampleGenerator sg)
     {
-        this.terminated = false;
-        this.pathLengthData = 0;
-        this.radiance = float3(0, 0, 0);
-        this.thp = float3(1, 1, 1);
-        this.origin = float3(0, 0, 0);
-        this.direction = float3(0, 0, 0);
-        this.leakTracingBounds = 0.0;
         this.sg = sg;
-    }
-
-    property uint pathLength{
-        get { return pathLengthData & 0xFF; }
-        set { pathLengthData = (pathLengthData & ~0xFF) | (newValue & 0xFF); }
-    }
-
-    property uint diffuseBounce{
-        get { return (pathLengthData>>8) & 0xFF; }
-        set { pathLengthData = (pathLengthData & ~0xFF00) | ((newValue & 0xFF)<<8); }
-    }
-
-    property uint specularBounce{
-        get { return (pathLengthData>>16) & 0xFF; }
-        set { pathLengthData = (pathLengthData & ~0xFF0000) | ((newValue & 0xFF)<<16); }
-    }
-
-    property uint transmissiveBounce{
-        get { return (pathLengthData>>24) & 0xFF; }
-        set { pathLengthData = (pathLengthData & ~0xFF000000) | ((newValue & 0xFF)<<24); }
     }
 };
 
@@ -309,31 +269,12 @@ bool traceShadowRay(float3 origin, float3 dir, float distance)
     return rayData.visible;
 }
 
-/** Traces a scatter ray based on ray parameters stored in the ray payload.
-    \param[in] rayData Describes the ray parameters. The struct is modified based on the result.
-*/
-void traceScatterRay(inout PathData rayData, inout RayHitData hitData)
-{
-    RayDesc ray;
-    ray.Origin = rayData.origin;
-    ray.Direction = rayData.direction;
-    ray.TMin = 0.f;
-    ray.TMax = kRayTMax;
-
-    uint rayFlags = 0;      // TODO: Set cull mode from the app
-    TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, hitData);
-}
-
 AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathData pathData, out uint lightIndex, out float invPdf, out uint lightType) {
     AnalyticLightSample ls = {};
 
     if (kLightSampleMode == (uint)SMLightSampleMode::Uniform) {
         float lightSelect = 0.0;
-        #if USE_SEPERATE_LIGHT_SAMPLER
-                lightSelect = sampleNext1D(pathData.lightSg);
-        #else
-                lightSelect = sampleNext1D(pathData.sg);
-        #endif
+        lightSelect = sampleNext1D(pathData.sg);
 
         // Pick one of the analytic light sources randomly with equal probability.
         lightIndex = min(uint(lightSelect * lightCount), lightCount - 1);
@@ -374,7 +315,7 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
 }
 
 #if SM_GENERATION_RAYTRACING
-    bool evalShadowMap(uint lightIdx, float3 posW, float leakTracingBound ,out float shadow){
+    bool evalShadowMap(uint lightIdx, float3 posW ,out float shadow){
         shadow = 0.0;
         float2 nearFar = gSMNearFar[lightIdx];
         float4 shadowPos = mul(gRayShadowMapVP[lightIdx], float4(posW, 1));
@@ -387,25 +328,9 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
         if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
             return kDistributeRayOutsideOfShadowMap;    //TODO set per define
 
-        /*
-        uint2 shadowCoordU = uint2(gRayShadowMapRes * shadowPos.xy);
-        float reverseSMDepth = gReverseShadowMap[shadowCoordU];
-        */
-        float2 gatherUV;
-        float4 w = getGatherWeights(shadowPos.xy, gRayShadowMapRes, gatherUV);
-        float4 reverseValues = gReverseShadowMap.GatherRed(gShadowSamplerPoint, gatherUV);
-        float reverseValue = gReverseShadowMap.SampleLevel(gShadowSamplerPoint, shadowPos.xy, 0);
-        float rayMask = gUseRayMask.SampleLevel(gShadowSamplerPoint, shadowPos.xy, 0);
-        float4 shadowValueM1 = gRayShadowMap[lightIdx].GatherRed(gShadowSamplerLinear, gatherUV);
+        SM_FORMAT shadowValue = gRayShadowMap[lightIdx].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0);
         float minDepth = 1.0;
         #if FILTER_SM_VARIANCE
-            float4 shadowValueM2 = gRayShadowMap[lightIdx].GatherGreen(gShadowSamplerLinear,gatherUV);
-            float2 shadowValue = float2(0.0);
-            [unroll]
-            for (uint i = 0; i < 4; i++) {
-                minDepth = min(minDepth, shadowValueM1[i]);
-                shadowValue += float2(shadowValueM1[i], shadowValueM2[i]) * w[i];
-            }
             shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-7f);
         #elif FILTER_SM_ESVM
             float2 shadowEvsm =  exponentialVarianceShadowTest(shadowValue, lightDist);
@@ -413,8 +338,48 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
         #elif FILTER_SM_MSM
             shadow = msmHamburger(shadowValue, lightDist);
         #endif
+        
+        return false;       //No Ray
+    }
+#endif
 
-        #if FILTER_SM_VARIANCE
+//Reverse shadow map test pass
+#if SM_GENERATION_RAYTRACING
+    bool evalShadowMapReverse(uint lightIdx, float3 posW ,out float shadow){
+        shadow = 0.0;
+        //Only supports variance
+        #if !FILTER_SM_VARIANCE
+        return false;
+        #endif
+
+        float2 nearFar = gSMNearFar[lightIdx];
+        float4 shadowPos = mul(gRayShadowMapVP[lightIdx], float4(posW, 1));
+        shadowPos.xyz /= shadowPos.w;
+
+        shadowPos.y *= -1;  //Flip
+        shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
+        float lightDist = (shadowPos.w - nearFar.x) / (nearFar.y - nearFar.x);
+
+        if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
+            return kDistributeRayOutsideOfShadowMap;    //TODO set per define
+
+        float2 gatherUV;
+        float4 w = getGatherWeights(shadowPos.xy, gRayShadowMapRes, gatherUV);
+        float4 reverseValues = gReverseShadowMap.GatherRed(gShadowSamplerPoint, gatherUV);
+        float reverseValue = gReverseShadowMap.SampleLevel(gShadowSamplerPoint, shadowPos.xy, 0);
+        float rayMask = gUseRayMask.SampleLevel(gShadowSamplerPoint, shadowPos.xy, 0);
+        float4 shadowValueM1 = gRayShadowMap[lightIdx].GatherRed(gShadowSamplerLinear, gatherUV);
+        float minDepth = 1.0;
+
+        float4 shadowValueM2 = gRayShadowMap[lightIdx].GatherGreen(gShadowSamplerLinear,gatherUV);
+        float2 shadowValue = float2(0.0);
+        [unroll]
+        for (uint i = 0; i < 4; i++) {
+            minDepth = min(minDepth, shadowValueM1[i]);
+            shadowValue += float2(shadowValueM1[i], shadowValueM2[i]) * w[i];
+        }
+        shadow = ChebyshevUpperBound(shadowValue, lightDist, 1e-7f);
+
         if (rayMask > 0) {
             bool anySmaller = false;
             for (uint i = 0; i < 4; i++) {
@@ -427,7 +392,6 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
                 // Interpolate
                 float wSum = 0;
                 for (uint i = 0; i < 4; i++) {
-                    // reverseValues[i] = min(reverseValues[i],shadowValueM1[i]);
                     if (reverseValues[i] > 0) {
                         revShadowValueLoop += float2(reverseValues[i], reverseValues[i] * reverseValues[i]) * w[i];
                         wSum += w[i];
@@ -441,12 +405,12 @@ AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout PathDat
                 uint2 pixel = uint2(1024, 1024) * shadowPos.xy;
                 gDebug[pixel] = float4(reverseValue, shadowValue.x, shadowValue.y, lightDist);
             }
-        }                
-        #endif
+        }       
         
         return false;       //No Ray
     }
 #endif
+
 /* Makes an entry in the shadow map access texture for the specified light if called
 */
 void addShadowMapAccessEntry(uint lightIdx, float3 posW){
@@ -491,7 +455,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     if ((NdotL <= kMinCosTheta && !hasTransmission) || (NdotL >= -kMinCosTheta && !hasReflection)  || all(ls.Li <= 0)) // 
         return float3(0.f);
 
-    bool useRay = !gUseShadowMap || (gUseRayForDirect && pathData.pathLength == 0);
+    bool useRay = !gUseShadowMap || (gUseRayForDirect);
 
     #if !SM_GENERATION_RAYTRACING
         //Create SM Data struct
@@ -506,7 +470,11 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 
     if(!useRay){
         #if SM_GENERATION_RAYTRACING
-            useRay = evalShadowMap(lightIndex, sd.posW, pathData.leakTracingBounds,shadow);
+            #if USE_REVERSE_SM
+                useRay = evalShadowMapReverse(lightIndex, sd.posW,shadow);
+            #else
+                useRay = evalShadowMap(lightIndex, sd.posW,shadow);
+            #endif 
         #else //SM_GENERATION_RAYTRACING
             bool isDynamic;
             useRay = !gShadowMap.evalShadowMap(sd.posW, smLightData, 0.5f /*random (unused)*/, 1.0 /*MipLevel*/, shadow, isDynamic, true);
@@ -590,7 +558,6 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim ,out float3 debug)
 
         // Prepare ray payload.
         PathData pathData = PathData(sg);
-        pathData.leakTracingBounds = 0;
         
         // Always output directly emitted light, independent of whether emissive materials are treated as light sources or not.
         outColor += mi.getProperties(sd).emission;
@@ -598,10 +565,6 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim ,out float3 debug)
         // Add contribution of direct light from analytic lights.
         // Light probe and mesh lights are handled by the scatter ray hit/miss shaders.
         outColor += evalDirectAnalytic(sd, mi,pathData, debug);
-       
-
-        // Store contribution from scatter ray.
-        outColor += pathData.radiance;
     }
     else
     {
