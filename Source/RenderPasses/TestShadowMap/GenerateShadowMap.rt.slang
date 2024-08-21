@@ -144,7 +144,7 @@ void rayGen()
     }
     rayData.depth = saturate(rayData.depth);
     SM_FORMAT shadowValue = {};
-    #if FILTER_SM_VARIANCE
+    #if FILTER_SM_VARIANCE || FILTER_SM_LAYERED_VARIANCE
         shadowValue = float2(rayData.depth,rayData.depth * rayData.depth);
     #elif FILTER_SM_ESVM
         float rescaledDepth = (2.f * rayData.depth) - 1.f;

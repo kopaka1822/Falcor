@@ -82,6 +82,7 @@ public:
         Variance = 0,
         ESVM = 1,
         MSM = 2,
+        LayeredVariance = 3,
     };
     FALCOR_ENUM_INFO(
         TestShadowMap::FilterSMMode,
@@ -89,6 +90,7 @@ public:
             {FilterSMMode::Variance, "Variance"},
             {FilterSMMode::ESVM, "ESVM"},
             {FilterSMMode::MSM, "MSM"},
+            {FilterSMMode::LayeredVariance, "LayeredVariance"},
         }
     );
 
@@ -115,6 +117,11 @@ private:
     void calculateShadowMapNearFar(RenderContext* pRenderContext, const RenderData& renderData, ShaderVar& var);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void debugShadowMapPass(RenderContext* pRenderContext, const RenderData& renderData);
+
+
+    void layeredVarianceSMPass(RenderContext* pRenderContext, const RenderData& renderData);
+    void layeredVarianceSMGenerate(RenderContext* pRenderContext, const RenderData& renderData);
+    void layeredVarianceSMEvaluate(RenderContext* pRenderContext, const RenderData& renderData);
 
     // Takes a float2 input tex and writes the min max to the mip maps of the texture
     void generateMinMaxMips(RenderContext* pRenderContext, ref<Texture> texture);
@@ -173,11 +180,23 @@ private:
     bool mDebugUseSMAspect = true;
     bool mUseReverseSM = false;
 
+    //Layered Variance
+    struct LayeredVarianceData
+    {
+        uint layers = 2;
+        float overlap = 0.02f;
+
+        std::vector<ref<Texture>> pVarianceLayers;
+    }mLayeredVarianceData;
+    ref<ComputePass> mpLayeredVarianceGenerate;
+    ref<ComputePass> mpLayeredVarianceEvaluate;
+
     std::vector<ref<Texture>> mpShadowMapAccessTex;
     ref<Texture> mpShadowMapBlit;
     ref<ComputePass> mpDebugShadowMapPass;
     ref<ComputePass> mpGenMinMaxMipsPass;
     ref<ComputePass> mpComputeRayNeededMask;
+
 
     // Runtime data
     uint mFrameCount = 0; ///< Frame count since scene was loaded.

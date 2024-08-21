@@ -43,6 +43,7 @@ const char kShaderSparseSMGen[] = "RenderPasses/TestShadowMap/SparseShadowMap.rt
 const char kShaderDebugSM[] = "RenderPasses/TestShadowMap/DebugShadowMap.cs.slang";
 const char kShaderMinMaxMips[] = "RenderPasses/TestShadowMap/GenMinMaxMips.cs.slang";
 const char kShaderRayNeeded[] = "RenderPasses/TestShadowMap/CreateRayNeededMask.cs.slang";
+const char kShaderLayeredVariance[] = "RenderPasses/TestShadowMap/LayeredVariance.cs.slang";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -862,6 +863,9 @@ static ResourceFormat getSMFormat(TestShadowMap::FilterSMMode filterMode) {
     case TestShadowMap::FilterSMMode::MSM:
         return ResourceFormat::RGBA32Float;
         break;
+    case TestShadowMap::FilterSMMode::LayeredVariance:
+        return ResourceFormat::RG32Float;
+        break;
     default:
         break;
     }
@@ -1028,8 +1032,10 @@ DefineList TestShadowMap::filterSMModesDefines()
     defines.add("FILTER_SM_VARIANCE", mFilterSMMode == FilterSMMode::Variance ? "1" : "0");
     defines.add("FILTER_SM_ESVM", mFilterSMMode == FilterSMMode::ESVM ? "1" : "0");
     defines.add("FILTER_SM_MSM", mFilterSMMode == FilterSMMode::MSM ? "1" : "0");
+    defines.add("FILTER_SM_LAYERED_VARIANCE", mFilterSMMode == FilterSMMode::LayeredVariance ? "1" : "0");
     //Format
-    std::string sFormat = mFilterSMMode == FilterSMMode::Variance ? "float2" : "float4";
+    bool Channel2 = mFilterSMMode == FilterSMMode::Variance || mFilterSMMode == FilterSMMode::LayeredVariance;
+    std::string sFormat = Channel2 ? "float2" : "float4";
     defines.add("SM_FORMAT", sFormat);
 
     return defines;
@@ -1091,4 +1097,98 @@ void TestShadowMap::debugShadowMapPass(RenderContext* pRenderContext, const Rend
 
     ref<Texture> outTex = renderData.getTexture("debug");
     pRenderContext->blit(mpShadowMapBlit->getSRV(), outTex->getRTV(), uint4(0, 0, mShadowMapSize, mShadowMapSize), outRect);
+}
+
+void TestShadowMap::layeredVarianceSMPass(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "Layered Variance");
+
+    //Handle Buffers
+    auto& data = mLayeredVarianceData;
+    bool rebuild = data.pVarianceLayers.size() != data.layers;
+    if (!data.pVarianceLayers.empty())
+        rebuild |= data.pVarianceLayers[0]->getWidth() != mShadowMapSize;
+
+    if (rebuild)
+    {
+        data.pVarianceLayers.clear();
+        data.pVarianceLayers.resize(data.layers);
+        for (uint i = 0; i < data.layers; i++)
+        {
+            data.pVarianceLayers[i] = Texture::create2D(
+                mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::RG32Float, 1u, 1u, nullptr,
+                ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+            );
+            data.pVarianceLayers[i]->setName("LayeredVariance_Layer" + std::to_string(i));
+        }
+    }
+
+    //Dispatch Shaders
+    layeredVarianceSMGenerate(pRenderContext, renderData);
+    layeredVarianceSMEvaluate(pRenderContext, renderData);
+}
+
+void TestShadowMap::layeredVarianceSMGenerate(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "Generate Layered Variance");
+    auto& data = mLayeredVarianceData;
+    // Create Pass
+    if (!mpLayeredVarianceGenerate)
+    {
+        Program::Desc desc;
+        desc.addShaderLibrary(kShaderLayeredVariance).csEntry("generate").setShaderModel("6_5");
+
+        DefineList defines;
+        defines.add(filterSMModesDefines());
+        defines.add("LVSM_LAYERS",std::to_string(data.layers));
+
+        mpLayeredVarianceGenerate = ComputePass::create(mpDevice, desc, defines, true);
+    }
+
+    FALCOR_ASSERT(mpLayeredVarianceGenerate);
+    mpLayeredVarianceGenerate->getProgram()->addDefines(filterSMModesDefines());
+    mpLayeredVarianceGenerate->getProgram()->addDefine("LVSM_LAYERS", std::to_string(data.layers));
+    
+    auto var = mpLayeredVarianceGenerate->getRootVar();
+    var["CB"]["gSMSize"] = mShadowMapSize;
+    var["CB"]["gSMNearFar"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0] : mNearFar;
+    var["CB"]["gOverlap"] = data.overlap;
+    var["CB"]["gViewProj"] = mShadowMapMVP[0].viewProjection;
+
+    var["gShadowMap"] = mpRayShadowMaps[0];
+    for (uint i = 0; i < data.layers; i++)
+    {
+        var["gLayeredVarianceOut"][i] = data.pVarianceLayers[i];
+    }
+
+    uint2 dispatchSize = uint2(mShadowMapSize);
+
+    mpLayeredVarianceGenerate->execute(pRenderContext, uint3(dispatchSize, 1));
+}
+void TestShadowMap::layeredVarianceSMEvaluate(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "Evaluate Layered Variance");
+    // Create Pass
+    if (!mpLayeredVarianceEvaluate)
+    {
+        Program::Desc desc;
+        desc.addShaderLibrary(kShaderLayeredVariance).csEntry("evaluate").setShaderModel("6_5");
+
+        DefineList defines;
+        defines.add(filterSMModesDefines());
+
+        mpLayeredVarianceEvaluate = ComputePass::create(mpDevice, desc, defines, true);
+    }
+
+    FALCOR_ASSERT(mpLayeredVarianceEvaluate);
+    mpLayeredVarianceEvaluate->getProgram()->addDefines(filterSMModesDefines());
+
+    auto var = mpLayeredVarianceEvaluate->getRootVar();
+    var["CB"]["gSMSize"] = mShadowMapSize;
+
+    var["gShadowMap"] = mpRayShadowMaps[0];
+    var["gRayNeededMask"] = mpRayShadowNeededMask;
+
+    var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
+
+    uint2 dispatchSize = uint2(mShadowMapSize);
+
+    mpLayeredVarianceEvaluate->execute(pRenderContext, uint3(dispatchSize, 1));
 }

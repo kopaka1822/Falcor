@@ -11,6 +11,7 @@ target_sources(TestShadowMap PRIVATE
     DebugShadowMap.cs.slang
     GenMinMaxMips.cs.slang
     CreateRayNeededMask.cs.slang
+    LayeredVariance.cs.slang
 )
 
 
