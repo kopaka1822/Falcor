@@ -179,6 +179,7 @@ private:
     float2 mDebugBrighnessMod = float2(5.f, 1.f);
     bool mDebugUseSMAspect = true;
     bool mUseReverseSM = false;
+    uint mUISelectedVarianceLayer = 0;
 
     //Layered Variance
     struct LayeredVarianceData

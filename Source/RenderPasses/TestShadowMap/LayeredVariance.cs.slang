@@ -22,6 +22,10 @@ import Rendering.ShadowMaps.ShadowMapHelpers;
 #define LVSM_LAYERS 2
 #endif
 
+#ifndef DEBUG_WRITE
+#define DEBUG_WRITE 0
+#endif
+
 Texture2D<SM_FORMAT> gShadowMap;
 RWTexture2D<float2> gLayeredVarianceOut[LVSM_LAYERS];
 
@@ -47,8 +51,21 @@ cbuffer CB
 SamplerState gShadowSamplerPoint;
 SamplerState gShadowSamplerLinear;
 
-/* Warp function. p,q,depth all in [0,1]
+#if DEBUG_WRITE
+//Colormap for debug (matplotlib default https://matplotlib.org/stable/users/prev_whats_new/dflt_style_changes.html)
+static const float3 kDebugColorMap[8] = {
+    float3(0.12156, 0.46666, 0.70588),
+    float3(1.00000, 0.49803, 0.05490),
+    float3(0.17254, 0.62745, 0.17254),
+    float3(0.83921, 0.15294, 0.15686),
+    float3(0.58039, 0.40392, 0.74117),
+    float3(0.54901, 0.33725, 0.29411),
+    float3(0.89019, 0.46666, 0.76078),
+    float3(0.73725, 0.74117, 0.13333)
+};
+#endif
 
+/* Warp function. p,q,depth all in [0,1]
 */
 float warp(float p, float q, float depth){
     float low = max(0.0,p-gOverlap);
@@ -87,7 +104,7 @@ ShadingData loadShadingData(const HitInfo hit, const float3 view, const ITexture
     return sd;
 }
 
-float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg)
+float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout float4 debug)
 {
     LightData lightData = gScene.getLight(0); // Get light at index 0
     AnalyticLightSample ls = {};
@@ -116,6 +133,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     //Get layered shadow value
     const float step = 1.0/LVSM_LAYERS;
     const uint selectedLayer = uint(floor(lightDist / step));
+    debug.w = selectedLayer;
     float2 shadowValue = gLayeredVariance[selectedLayer].SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0);
     float p = selectedLayer * step;
     lightDist = warp(p,p+step, lightDist);
@@ -129,6 +147,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 void evaluate(uint2 pixel: SV_DispatchThreadID)
 {
     float3 outColor = float3(0.00);
+    float4 outDebug = float4(0);
     const float3 view = -gViewW[pixel].xyz;
     HitInfo hit = HitInfo(gVBuffer[pixel]);
     if (hit.isValid())
@@ -145,10 +164,16 @@ void evaluate(uint2 pixel: SV_DispatchThreadID)
          // Always output directly emitted light, independent of whether emissive materials are treated as light sources or not.
         outColor += mi.getProperties(sd).emission;
 
-        outColor += evalDirectAnalytic(sd, mi, sg);
+        outColor += evalDirectAnalytic(sd, mi, sg, outDebug);
 
     }else{
         outColor = float3(0.01); //BG color
     }
     gOutputColor[pixel] = float4(outColor, 1);
+
+    #if DEBUG_WRITE
+    uint layer = uint(outDebug.w);
+    outDebug.xyz = kDebugColorMap[layer%8];
+    gDebug[pixel] = outDebug;
+    #endif
 }

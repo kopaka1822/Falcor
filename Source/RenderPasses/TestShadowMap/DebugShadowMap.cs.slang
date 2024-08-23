@@ -4,6 +4,7 @@ import SMStructs;
 #define SM_FORMAT float2
 #endif
 
+Texture2D<float2> gLayeredShadowMap;
 Texture2D<SM_FORMAT> gRayShadowMap;
 Texture2D<uint> gRayReverseSM;
 Texture2D<float> gRayNeededMask;
@@ -63,6 +64,8 @@ void main(uint2 pixel: SV_DispatchThreadID)
     //Copy SM
     #if FILTER_SM_VARIANCE
     output = float4(gRayShadowMap[pixel],0,1);
+    #elif FILTER_SM_LAYERED_VARIANCE
+    output = float4(gLayeredShadowMap[pixel],0,1);
     #else //FILTER_SM_EVSM || FILTER_SM_MSM
     output = float4(gRayShadowMap[pixel]);
     #endif

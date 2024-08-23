@@ -7,6 +7,7 @@ BEGIN_NAMESPACE_FALCOR
 enum class PathSMDebugModes : uint32_t
 {
     LeakTracingMask = 0,
+    LayeredVarianceLayers = 1,
     RaySMDiff = 2,
     // Shadow Map Modes
     ShadowMapFlag = 16,      //Bit for when the shadow map is set | 0b10000
@@ -19,6 +20,7 @@ enum class PathSMDebugModes : uint32_t
 };
 FALCOR_ENUM_INFO(PathSMDebugModes, {
     { PathSMDebugModes::LeakTracingMask, "LeakTracingMask" },
+    { PathSMDebugModes::LayeredVarianceLayers, "LayeredVarianceLayers" },
     { PathSMDebugModes::RaySMDiff, "RaySMDifference" },
     { PathSMDebugModes::ShadowMap, "ShadowMap" },
     { PathSMDebugModes::ShadowMapAccess, "ShadowMapAccess" },

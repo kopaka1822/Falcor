@@ -344,6 +344,10 @@ void TestShadowMap::renderUI(Gui::Widgets& widget)
             if (is_set(mDebugMode, PathSMDebugModes::ShadowMapFlag) && mpScene)
             {
                 group.slider("Select Light", mUISelectedLight, 0u, mpScene->getLightCount() - 1);
+                if (mFilterSMMode == FilterSMMode::LayeredVariance)
+                {
+                    group.slider("Selected Layer", mUISelectedVarianceLayer, 0u, mLayeredVarianceData.layers - 1);
+                }
             }
             if (mDebugMode == PathSMDebugModes::ShadowMapAccess || mDebugMode == PathSMDebugModes::ShadowMapRayDiff)
             {
@@ -1115,6 +1119,8 @@ void TestShadowMap::debugShadowMapPass(RenderContext* pRenderContext, const Rend
     var["CB"]["gMaxValue"] = debugHeatMapMaxCount * (mIterationCount + 1);
     var["CB"]["gBrightnessIncrease"] = mDebugBrighnessMod;
 
+    if (!mLayeredVarianceData.pVarianceLayers.empty())
+        var["gLayeredShadowMap"] = mLayeredVarianceData.pVarianceLayers[mUISelectedVarianceLayer];
     var["gRayShadowMap"] = mpRayShadowMaps[mUISelectedLight];
     var["gRayReverseSM"] = mpReverseSMTex;
     var["gRayNeededMask"] = mpRayShadowNeededMask;
@@ -1229,6 +1235,7 @@ void TestShadowMap::layeredVarianceSMEvaluate(RenderContext* pRenderContext, con
         DefineList defines;
         defines.add(filterSMModesDefines());
         defines.add("LVSM_LAYERS", std::to_string(data.layers));
+        defines.add("DEBUG_WRITE", mDebugMode == PathSMDebugModes::LayeredVarianceLayers ? "1" : "0");
         defines.add(mpScene->getSceneDefines());
         defines.add(mpSampleGenerator->getDefines());
 
@@ -1237,6 +1244,7 @@ void TestShadowMap::layeredVarianceSMEvaluate(RenderContext* pRenderContext, con
 
     FALCOR_ASSERT(mpLayeredVarianceEvaluate);
     mpLayeredVarianceEvaluate->getProgram()->addDefines(filterSMModesDefines());
+    mpLayeredVarianceEvaluate->getProgram()->addDefine("DEBUG_WRITE", mDebugMode == PathSMDebugModes::LayeredVarianceLayers ? "1" : "0");
 
     auto var = mpLayeredVarianceEvaluate->getRootVar();
 
