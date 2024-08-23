@@ -222,6 +222,11 @@ void TestShadowMap::execute(RenderContext* pRenderContext, const RenderData& ren
         {
             genReverseSM(pRenderContext, renderData);
         }
+
+        if (mUseSparseSM)
+        {
+            genSparseShadowMap(pRenderContext, renderData);
+        }
         
         if (mpRasterShadowMap)
         {
@@ -288,8 +293,18 @@ void TestShadowMap::renderUI(Gui::Widgets& widget)
             //Special Modes. Only one should be toggled on
             if (auto specGroup = group.group("SpecialModes"))
             {
-                dirty |= specGroup.checkbox("Use Reverse SM", mUseReverseSM);
-                specGroup.tooltip("Enables the reverse shadow map");
+                //Only one is allowed to be active
+                bool oneActive = mUseReverseSM || mUseSparseSM;
+
+                if (!oneActive || mUseReverseSM)
+                    dirty |= specGroup.checkbox("Use Reverse SM", mUseReverseSM);
+                if (!oneActive || mUseSparseSM)
+                    dirty |= specGroup.checkbox("Use Sparse SM", mUseSparseSM);
+
+                if (mUseSparseSM)
+                {
+                    specGroup.var("Sparse Offset", mSparseOffset, 0.f, 1.f, 0.0001f);
+                }
             }
 
             if (mFilterSMMode == FilterSMMode::LayeredVariance)
@@ -344,7 +359,8 @@ void TestShadowMap::renderUI(Gui::Widgets& widget)
         mResetDebugAccumulate |= group.checkbox("Enable", mEnableDebug);
         if (mEnableDebug)
         {
-            mResetDebugAccumulate |= group.dropdown("Debug Mode", mDebugMode);
+            bool debugModeChanged = group.dropdown("Debug Mode", mDebugMode);
+            mResetDebugAccumulate |= debugModeChanged;
 
             if (mDebugMode != PathSMDebugModes::ShadowMap)
             {
@@ -360,9 +376,18 @@ void TestShadowMap::renderUI(Gui::Widgets& widget)
                     group.slider("Selected Layer", mUISelectedVarianceLayer, 0u, mLayeredVarianceData.layers - 1);
                 }
             }
-            if (mDebugMode == PathSMDebugModes::ShadowMapAccess || mDebugMode == PathSMDebugModes::ShadowMapRayDiff)
+
+            if (mDebugMode == PathSMDebugModes::ShadowMapAccess || mDebugMode == PathSMDebugModes::ShadowMapRayDiff ||
+                mDebugMode == PathSMDebugModes::ReverseSM || mDebugMode == PathSMDebugModes::RayNeededMask)
             {
-                group.var("Blend with SM", mDebugAccessBlendVal, 0.f, 1.f, 0.001f);
+                if (debugModeChanged)
+                {
+                    if (mDebugMode == PathSMDebugModes::ReverseSM)
+                        mDebugBrighnessMod = float2(1.0);
+                    else
+                        mDebugBrighnessMod = float2(5.f, 1.f);
+                }
+                group.var("Blend Val", mDebugAccessBlendVal, 0.f, 1.f, 0.001f);
                 group.var("HeatMap/SM Brightness", mDebugBrighnessMod, 0.f, FLT_MAX, 0.001f);
                 group.var(
                     "HeatMap max val",
@@ -372,6 +397,7 @@ void TestShadowMap::renderUI(Gui::Widgets& widget)
                 group.checkbox("Use correct aspect", mDebugUseSMAspect);
             }
 
+            
             mResetDebugAccumulate |= group.var("Debug Factor", mDebugMult, 0.f, FLT_MAX, 0.1f);
             group.tooltip("Multiplicator for the debug value");
         }
@@ -707,7 +733,7 @@ void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData&
 {
     FALCOR_PROFILE(pRenderContext, "ReverserSM");
 
-    pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(0));
+    pRenderContext->clearUAV(mpSpecialModeSMTex ->getUAV().get(), float4(0));
 
     computeRayNeededMask(pRenderContext, renderData);
 
@@ -719,7 +745,7 @@ void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData&
         // Create program variables for the current program.
         // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
         mReverseSM.pVars = RtProgramVars::create(mpDevice, mReverseSM.pProgram, mReverseSM.pBindingTable);
-        //pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(1, 1, 1, 1));
+        //pRenderContext->clearUAV(mpSpecialModeSMTex ->getUAV().get(), float4(1, 1, 1, 1));
     }
 
     // Bind utility classes into shared data.
@@ -737,7 +763,7 @@ void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData&
 
     var["gShadowMap"] = mpRayShadowMaps[0];
     var["gUseRayMask"] = mpRayShadowNeededMask;
-    var["gReverseSM"] = mpReverseSMTex;
+    var["gReverseSM"] = mpSpecialModeSMTex ;
 
     // Bind Samplers
     var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
@@ -760,11 +786,9 @@ void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData&
 
 void TestShadowMap::genSparseShadowMap(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    FALCOR_PROFILE(pRenderContext, "ReverserSM");
+    FALCOR_PROFILE(pRenderContext, "SparseSM");
 
-    pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(0, 0, 0, 0));
-
-    computeRayNeededMask(pRenderContext, renderData);
+    //computeRayNeededMask(pRenderContext, renderData);
 
     mSparseDepthSM.pProgram->addDefines(filterSMModesDefines());
     if (!mSparseDepthSM.pVars)
@@ -774,14 +798,13 @@ void TestShadowMap::genSparseShadowMap(RenderContext* pRenderContext, const Rend
         // Create program variables for the current program.
         // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
         mSparseDepthSM.pVars = RtProgramVars::create(mpDevice, mSparseDepthSM.pProgram, mSparseDepthSM.pBindingTable);
-        // pRenderContext->clearUAV(mpReverseSMTex->getUAV().get(), float4(1, 1, 1, 1));
     }
 
     // Bind utility classes into shared data.
     auto var = mSparseDepthSM.pVars->getRootVar();
     // Get Analytic light data
     auto lights = mpScene->getLights();
-    const uint2 targetDim = renderData.getDefaultTextureDims();
+    const uint2 targetDim = uint2(mShadowMapSize);
 
     var["CB"]["gLightPos"] = lights[0]->getData().posW;
     var["CB"]["gNear"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0].x : mNearFar.x;
@@ -789,10 +812,15 @@ void TestShadowMap::genSparseShadowMap(RenderContext* pRenderContext, const Rend
     var["CB"]["gViewProj"] = mShadowMapMVP[0].viewProjection;
     var["CB"]["gInvViewProj"] = mShadowMapMVP[0].invViewProjection;
     var["CB"]["gSMSize"] = mShadowMapSize;
+    var["CB"]["gOffset"] = mSparseOffset;
 
     var["gUseRayMask"] = mpRayShadowNeededMask;
-    var["gReverseSM"] = mpReverseSMTex;
+    var["gReverseSM"] = mpSpecialModeSMTex ;
     var["gShadowMap"] = mpRayShadowMaps[0];
+
+    // Bind Samplers
+    var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
+    var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
 
     // Spawn the rays.
     mpScene->raytrace(pRenderContext, mSparseDepthSM.pProgram.get(), mSparseDepthSM.pVars, uint3(targetDim, 1));
@@ -856,7 +884,7 @@ void TestShadowMap::traceScene(RenderContext* pRenderContext, const RenderData& 
         if (validAccessTex)
             var["gShadowAccessDebugTex"][i] = mpShadowMapAccessTex[i];
     }
-    var["gReverseShadowMap"] = mpReverseSMTex;
+    var["gReverseShadowMap"] = mpSpecialModeSMTex ;
     var["gUseRayMask"] = mpRayShadowNeededMask;
 
     // Bind Samplers
@@ -928,20 +956,20 @@ void TestShadowMap::prepareBuffers()
         mpShadowMapMinMaxOpti.reset();
 
         //Temporary TODO implement properly
-        mpReverseSMTex.reset();
+        mpSpecialModeSMTex .reset();
         mpRayShadowNeededMask.reset();
 
         mRerenderSM = true;
     }
 
     //TEMP test texture TODO
-    if (!mpReverseSMTex)
+    if (!mpSpecialModeSMTex )
     {
-        mpReverseSMTex = Texture::create2D(
+        mpSpecialModeSMTex  = Texture::create2D(
             mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::R32Float, 1u, 1u, nullptr,
             ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
         );
-        mpReverseSMTex->setName("TestShadowMap::ReverseShadowMap");
+        mpSpecialModeSMTex ->setName("TestShadowMap::SpecialModeShadowMap");
     }
     // TEMP test texture TODO
     if (!mpRayShadowNeededMask)
@@ -1138,7 +1166,7 @@ void TestShadowMap::debugShadowMapPass(RenderContext* pRenderContext, const Rend
     if (!mLayeredVarianceData.pVarianceLayers.empty())
         var["gLayeredShadowMap"] = mLayeredVarianceData.pVarianceLayers[mUISelectedVarianceLayer];
     var["gRayShadowMap"] = mpRayShadowMaps[mUISelectedLight];
-    var["gRayReverseSM"] = mpReverseSMTex;
+    var["gRayReverseSM"] = mpSpecialModeSMTex ;
     var["gRayNeededMask"] = mpRayShadowNeededMask;
 
     if (mpShadowMapAccessTex.size() > mUISelectedLight)

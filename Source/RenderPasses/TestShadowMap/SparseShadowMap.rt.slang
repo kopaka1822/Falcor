@@ -24,9 +24,7 @@
  # OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- **************************************************************************/
-
- 
+ **************************************************************************/ 
 #include "Scene/SceneDefines.slangh"
 #include "Utils/Math/MathConstants.slangh"
 
@@ -38,11 +36,15 @@ import Utils.Color.ColorHelpers;
 import Rendering.Lights.LightHelpers;
 import Rendering.Utils.PixelStats;
 
+#ifndef SM_FORMAT
+#define SM_FORMAT float2
+#endif
+
 /** Payload for shadow ray.
 */
 struct RayData
 {
-    float distance;
+    float depth;
 };
 
 cbuffer CB
@@ -50,58 +52,26 @@ cbuffer CB
     float3      gLightPos;     // Current Light Position
     float       gNear;
     float       gFar;
+    uint        gSMSize;
+    float       gOffset;
     float4x4    gViewProj;     // View Projection for current light
     float4x4    gInvViewProj;     // View Projection for current light
-    uint        gSMSize;
+   
 }
 
-RWTexture2D<uint> gReverseSM;
+Texture2D<SM_FORMAT> gShadowMap;
+RWTexture2D<float> gReverseSM;
 
 Texture2D<float> gUseRayMask;
-Texture2D<PackedHitInfo> gVBuffer;
-Texture2D<float4> gViewW; // Optional
 
-/** Setup ShadingData based on loaded vertex/material attributes for a hit point.
-    \param[in] hit Hit information.
-    \param[in] rayOrigin Ray origin.
-    \param[in] rayDir Normalized ray direction.
-    \param[in] lod Method for computing texture level-of-detail.
-    \return ShadingData struct.
-*/
-
-ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextureSampler lod)
-{
-    VertexData v = {};
-    uint materialID = {};
-
-    if (hit.getType() == HitType::Triangle)
-    {
-        const TriangleHit triangleHit = hit.getTriangleHit();
-        v = gScene.getVertexData(triangleHit);
-        materialID = gScene.getMaterialID(triangleHit.instanceID);
-    }
-
-    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -rayDir, lod);
-
-    return sd;
-}
-
-//Return UV in shadow map space
-float2 toLightSpace(float3 pos, out float lightDist){
-    float4 shadowPos = mul(gViewProj, float4(pos, 1));
-    shadowPos.xyz /= shadowPos.w;
-    shadowPos.y *= -1;  //Flip
-    shadowPos.xy = shadowPos.xy * 0.5 + 0.5; //UV from [-1,1] to [0,1]
-    lightDist = (shadowPos.w - gNear) / (gFar - gNear);
-    return shadowPos.xy;
-}
-
-//Shaders
+//Texture Sampler
+SamplerState gShadowSamplerPoint;
+SamplerState gShadowSamplerLinear;
 
 [shader("miss")]
 void miss(inout RayData rayData)
 {
-    rayData.distance = -1;
+    rayData.depth = 1;
 }
 
 //
@@ -127,7 +97,9 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
 [shader("closesthit")]
 void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
-    rayData.distance = RayTCurrent();
+    float3 posW = WorldRayOrigin() + WorldRayDirection() * RayTCurrent(); //Get the current world positon
+    float4 posH = mul(gViewProj, float4(posW, 1.f));
+    rayData.depth = (posH.w - gNear) / (gFar - gNear);   //Linear depth in [0,1]
 }
 
 //
@@ -139,52 +111,34 @@ void rayGen()
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
 
-    HitInfo hit = HitInfo(gVBuffer[pixel]);
-    const float3 primaryRayDir = gViewW[pixel].xyz;
+    float2 pixelSample = pixel + 0.5;
 
-    if(hit.isValid()){
-        // Pixel represents a valid primary hit. Compute its contribution.
-        let lod = ExplicitLodTextureSampler(0.f);
-        // Load shading data.
-        ShadingData sd = loadShadingData(hit, primaryRayDir, lod);
+    float2 relFramePos = pixelSample / frameDim;
+    relFramePos = relFramePos * 2.0 - 1.0; // From [0,1] to [-1,1]
+    relFramePos.y *= -1.f;
 
-        // Compute ray origin for new rays spawned from the G-buffer.
-        float lightDist;
-        float3 rayOrigin = sd.computeNewRayOrigin();
-        //Check if ray is needed
-        float2 originUV = toLightSpace(rayOrigin, lightDist);
-        uint2 originPixel = uint2(gSMSize * originUV);
-        float mask = gUseRayMask[originPixel];
-        if(mask < 0.5)
-            return;
+    RayDesc ray;
 
-        float3 toLight = gLightPos - rayOrigin;
-        float distToLight = length(toLight);
-        toLight /= distToLight;
+    float4 posWPixelNear = mul(gInvViewProj, float4(relFramePos, 0.f, 1.f));
+    float4 posWPixelFar = mul(gInvViewProj, float4(relFramePos, 1.f, 1.f));
 
-        RayDesc ray;
-        ray.Origin = rayOrigin;
-        ray.Direction = toLight;
-        ray.TMin = 0.001f;
-        ray.TMax = distToLight;
+    float smDepth = gShadowMap[pixel].x;
+    smDepth = (smDepth * (gFar - gNear)) + gNear; //Linear Depth to distance
 
-        RayData rayData;
-        rayData.distance = 0.0;
-        TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff, 0 , rayTypeCount, 0 , ray, rayData);
+    posWPixelNear.xyz /= posWPixelNear.w;
+    float3 toPoint = posWPixelNear.xyz - gLightPos;
 
-        if(rayData.distance < 0)
-            return;
+    ray.TMin = smDepth + (gFar - gNear) * gOffset; 
+    ray.TMax = gFar;
+    ray.Origin = gLightPos;
+    ray.Direction = normalize(toPoint); // World direction
 
-        float3 hitPos = rayOrigin + toLight * rayData.distance;
-        float2 shadowPos = toLightSpace(hitPos, lightDist);
+    RayData rayData;
+    rayData.depth = 1.0;
 
-        if(any(shadowPos.xy < 0.0) || any(shadowPos.xy > 1.0))
-            return;    
+    TraceRay(gScene.rtAccel, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
-        uint2 smPixel = uint2(gSMSize * shadowPos.xy);
-        uint uLightDist = asuint(lightDist);
-        uint origMin;
-        InterlockedMin(gReverseSM[smPixel], uLightDist, origMin);
-    }
-    
+    rayData.depth = saturate(rayData.depth);   
+
+    gReverseSM[pixel] = rayData.depth;  
 }

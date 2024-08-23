@@ -6,7 +6,7 @@ import SMStructs;
 
 Texture2D<float2> gLayeredShadowMap;
 Texture2D<SM_FORMAT> gRayShadowMap;
-Texture2D<uint> gRayReverseSM;
+Texture2D<float> gRayReverseSM;
 Texture2D<float> gRayNeededMask;
 
 Texture2D<uint> gShadowAccessTex;

@@ -140,7 +140,7 @@ private:
     ref<Texture> mpShadowMapMinMaxOpti;
     ref<Sampler> mpShadowSamplerPoint;
     ref<Sampler> mpShadowSamplerLinear;
-    ref<Texture> mpReverseSMTex;
+    ref<Texture> mpSpecialModeSMTex ;
     ref<Texture> mpRayShadowNeededMask;
 
     // Configuration Path Tracer
@@ -149,7 +149,7 @@ private:
 
     // Config Shadow Map
     ShadowMode mShadowMode = ShadowMode::ShadowMap;
-    FilterSMMode mFilterSMMode = FilterSMMode::LayeredVariance;
+    FilterSMMode mFilterSMMode = FilterSMMode::Variance;
     uint mSMGenerationUseRay = 1; // Shadow Map Generation: 0-> Raster; 1-> Ray
     bool mUseSMForDirect = true;
     bool mRebuildSMBuffers = true;
@@ -167,6 +167,10 @@ private:
     bool mNearFarChanged = false;
     bool mEnableBlur = false;
 
+    //Reverse and Sparse
+    bool mUseReverseSM = false;
+    bool mUseSparseSM = true;
+    float mSparseOffset = 0.02f;
     // Debug
     bool mEnableDebug = false;
     PathSMDebugModes mDebugMode = PathSMDebugModes::LeakTracingMask;
@@ -181,7 +185,6 @@ private:
     float mDebugAccessBlendVal = 0.3f;
     float2 mDebugBrighnessMod = float2(5.f, 1.f);
     bool mDebugUseSMAspect = true;
-    bool mUseReverseSM = false;
     uint mUISelectedVarianceLayer = 0;
 
     //Layered Variance
