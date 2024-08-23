@@ -33,6 +33,7 @@
 #include "SMStructs.slang"
 #include "Rendering/ShadowMaps/ShadowMap.h"
 #include "Rendering/ShadowMaps/Oracle/ShadowMapOracle.h"
+#include "Rendering/ShadowMaps/Blur/SMGaussianBlur.h"
 
 using namespace Falcor;
 
@@ -131,6 +132,7 @@ private:
     ref<SampleGenerator> mpSampleGenerator;             ///< GPU sample generator.
     std::unique_ptr<PixelStats> mpPixelStats;           ///< Stats for the current path
     std::unique_ptr<ShadowMap> mpRasterShadowMap;       //< Raster Shadow Map
+    std::unique_ptr<SMGaussianBlur> mpGaussianBlur;     //<Blur pass
 
     // Buffer and Samplers
     std::vector<ref<Texture>> mpRayShadowMaps;
@@ -163,6 +165,7 @@ private:
     uint mUISelectedLight = 0;
     bool mDistributeRayOutsideOfSM = false;
     bool mNearFarChanged = false;
+    bool mEnableBlur = false;
 
     // Debug
     bool mEnableDebug = false;

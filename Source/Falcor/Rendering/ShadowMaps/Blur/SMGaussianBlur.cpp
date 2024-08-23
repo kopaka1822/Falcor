@@ -135,11 +135,11 @@ void SMGaussianBlur::blur(RenderContext* pRenderContext, ref<Texture>& pTexture,
 
 bool SMGaussianBlur::renderUI(Gui::Widgets& widget) {
     bool changed = false;
-    if (widget.var("Kernel Width", (int&)mKernelWidth, 1, 15, 2))
-        changed = true;
-    if (widget.slider("Sigma", mSigma, 0.001f, mKernelWidth / 2.f))
-        changed = true;
-
+    changed |= widget.var("Kernel Width", (int&)mKernelWidth, 1, 15, 2);
+    changed |= widget.checkbox("UseBoxFilter", mUseBoxFilter);
+    if (!mUseBoxFilter)
+        changed |= widget.slider("Sigma", mSigma, 0.001f, mKernelWidth / 2.f);
+    
     mKernelChanged |= changed;
     return changed;
 }
@@ -211,7 +211,7 @@ void SMGaussianBlur::updateKernel()
     std::vector<float> weights(center + 1);
     for (uint32_t i = 0; i <= center; i++)
     {
-        weights[i] = getCoefficient(mSigma, (float)mKernelWidth, (float)i);
+        weights[i] = mUseBoxFilter ? 1.0f / mKernelWidth : getCoefficient(mSigma, (float)mKernelWidth, (float)i);
         sum += (i == 0) ? weights[i] : 2 * weights[i];
     }
 

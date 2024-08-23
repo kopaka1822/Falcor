@@ -95,6 +95,8 @@ TestShadowMap::TestShadowMap(ref<Device> pDevice, const Properties& props) : Ren
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
     FALCOR_ASSERT(mpSampleGenerator);
 
+    mpGaussianBlur = std::make_unique<SMGaussianBlur>(mpDevice);
+
     // Create Pixel Stats
     mpPixelStats = std::make_unique<PixelStats>(mpDevice);
 
@@ -317,6 +319,15 @@ void TestShadowMap::renderUI(Gui::Widgets& widget)
             }
            
             group.checkbox("Use Ray outside of SM", mDistributeRayOutsideOfSM);
+
+            if (auto blurGroup = group.group("Pre-Blur Options"))
+            {
+                blurGroup.checkbox("Enable", mEnableBlur);
+                if (mEnableBlur)
+                {
+                    mpGaussianBlur->renderUI(blurGroup);
+                }
+            }
 
             mRerenderSM |= group.button("Reset Shadow Map");
 
@@ -651,6 +662,11 @@ void TestShadowMap::generateShadowMap(RenderContext* pRenderContext, const Rende
 
         // Spawn the rays.
         mpScene->raytrace(pRenderContext, mGenerateSM.pProgram.get(), mGenerateSM.pVars, uint3(targetDim, 1));
+
+        if (mEnableBlur && mFilterSMMode != FilterSMMode::LayeredVariance)
+        {
+            mpGaussianBlur->execute(pRenderContext, mpRayShadowMaps[i]);
+        }
     }
 
     mRebuildSMBuffers = false;
@@ -1220,6 +1236,12 @@ void TestShadowMap::layeredVarianceSMGenerate(RenderContext* pRenderContext, con
     uint2 dispatchSize = uint2(mShadowMapSize);
 
     mpLayeredVarianceGenerate->execute(pRenderContext, uint3(dispatchSize, 1));
+
+    if (mEnableBlur)
+    {
+        for (uint i = 0; i < data.layers; i++)
+            mpGaussianBlur->execute(pRenderContext, data.pVarianceLayers[i]);
+    }
 }
 void TestShadowMap::layeredVarianceSMEvaluate(RenderContext* pRenderContext, const RenderData& renderData) {
     FALCOR_PROFILE(pRenderContext, "Evaluate Layered Variance");

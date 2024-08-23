@@ -74,6 +74,7 @@ private:
     std::string mDimMaxDefineString = "int2(0,0)";
     ResourceFormat mTextureFormat = ResourceFormat::Unknown;
     uint mArraySize = 0;
+    bool mUseBoxFilter = false;
 
     bool mIsCube = false;   //Cube is treated specially.
     bool mKernelChanged = true;
