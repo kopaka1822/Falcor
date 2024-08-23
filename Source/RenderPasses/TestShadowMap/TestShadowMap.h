@@ -147,7 +147,7 @@ private:
 
     // Config Shadow Map
     ShadowMode mShadowMode = ShadowMode::ShadowMap;
-    FilterSMMode mFilterSMMode = FilterSMMode::Variance;
+    FilterSMMode mFilterSMMode = FilterSMMode::LayeredVariance;
     uint mSMGenerationUseRay = 1; // Shadow Map Generation: 0-> Raster; 1-> Ray
     bool mUseSMForDirect = true;
     bool mRebuildSMBuffers = true;
@@ -183,7 +183,7 @@ private:
     //Layered Variance
     struct LayeredVarianceData
     {
-        uint layers = 2;
+        uint layers = 16;
         float overlap = 0.02f;
 
         std::vector<ref<Texture>> pVarianceLayers;

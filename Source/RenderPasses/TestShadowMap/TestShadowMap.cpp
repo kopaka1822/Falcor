@@ -78,6 +78,13 @@ const Gui::DropdownList kSMGenerationRenderer{
     {1, "RayTracing"},
 };
 
+const Gui::DropdownList kLayeredVSMLayers{
+    {2, "2"},
+    {4, "4"},
+    {8, "8"},
+    {16, "16"},
+};
+
 } // namespace
 
 TestShadowMap::TestShadowMap(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
@@ -230,7 +237,15 @@ void TestShadowMap::execute(RenderContext* pRenderContext, const RenderData& ren
         mpRasterShadowMap->update(pRenderContext);
     }
 
-    traceScene(pRenderContext, renderData);
+    if (mFilterSMMode == FilterSMMode::LayeredVariance)
+    {
+        layeredVarianceSMPass(pRenderContext, renderData);
+    }
+    else
+    {
+        traceScene(pRenderContext, renderData);
+    }
+        
 
     // Debug pass
     if (is_set(mDebugMode, PathSMDebugModes::ShadowMapFlag))
@@ -274,7 +289,15 @@ void TestShadowMap::renderUI(Gui::Widgets& widget)
                 dirty |= specGroup.checkbox("Use Reverse SM", mUseReverseSM);
                 specGroup.tooltip("Enables the reverse shadow map");
             }
-            
+
+            if (mFilterSMMode == FilterSMMode::LayeredVariance)
+            {
+                if (auto layerGroup = group.group("Layered Variance Options"))
+                {
+                    dirty |= layerGroup.dropdown("Layers", kLayeredVSMLayers ,mLayeredVarianceData.layers);
+                    dirty |= layerGroup.var("Layer Overlap", mLayeredVarianceData.overlap, 0.0f, 1.0f, 0.00001f);
+                }
+            }
 
             mRerenderSM |= group.checkbox("Use optimized near far", mUseOptimizedNearFarForShadowMap);
             group.tooltip("Optimized near far is calculated using an additional ray tracing depth pass");
@@ -864,7 +887,7 @@ static ResourceFormat getSMFormat(TestShadowMap::FilterSMMode filterMode) {
         return ResourceFormat::RGBA32Float;
         break;
     case TestShadowMap::FilterSMMode::LayeredVariance:
-        return ResourceFormat::RG32Float;
+        return ResourceFormat::R32Float;
         break;
     default:
         break;
@@ -1035,7 +1058,23 @@ DefineList TestShadowMap::filterSMModesDefines()
     defines.add("FILTER_SM_LAYERED_VARIANCE", mFilterSMMode == FilterSMMode::LayeredVariance ? "1" : "0");
     //Format
     bool Channel2 = mFilterSMMode == FilterSMMode::Variance || mFilterSMMode == FilterSMMode::LayeredVariance;
-    std::string sFormat = Channel2 ? "float2" : "float4";
+    std::string sFormat;
+    switch (mFilterSMMode)
+    {
+    case TestShadowMap::FilterSMMode::Variance:
+        sFormat = "float2";
+        break;
+    case TestShadowMap::FilterSMMode::ESVM:
+    case TestShadowMap::FilterSMMode::MSM:
+        sFormat = "float4";
+        break;
+    case TestShadowMap::FilterSMMode::LayeredVariance:
+        sFormat = "float";
+        break;
+    default:
+        sFormat = "float";
+        break;
+    }
     defines.add("SM_FORMAT", sFormat);
 
     return defines;
@@ -1104,11 +1143,12 @@ void TestShadowMap::layeredVarianceSMPass(RenderContext* pRenderContext, const R
 
     //Handle Buffers
     auto& data = mLayeredVarianceData;
-    bool rebuild = data.pVarianceLayers.size() != data.layers;
+    bool layerChanged = data.pVarianceLayers.size() != data.layers;
+    bool sizeChanged = false;
     if (!data.pVarianceLayers.empty())
-        rebuild |= data.pVarianceLayers[0]->getWidth() != mShadowMapSize;
+        sizeChanged |= data.pVarianceLayers[0]->getWidth() != mShadowMapSize;
 
-    if (rebuild)
+    if (sizeChanged || layerChanged)
     {
         data.pVarianceLayers.clear();
         data.pVarianceLayers.resize(data.layers);
@@ -1119,6 +1159,13 @@ void TestShadowMap::layeredVarianceSMPass(RenderContext* pRenderContext, const R
                 ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
             );
             data.pVarianceLayers[i]->setName("LayeredVariance_Layer" + std::to_string(i));
+        }
+
+        //Reset both compute passes
+        if (layerChanged)
+        {
+            mpLayeredVarianceEvaluate.reset();
+            mpLayeredVarianceGenerate.reset();
         }
     }
 
@@ -1134,23 +1181,28 @@ void TestShadowMap::layeredVarianceSMGenerate(RenderContext* pRenderContext, con
     if (!mpLayeredVarianceGenerate)
     {
         Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kShaderLayeredVariance).csEntry("generate").setShaderModel("6_5");
+        desc.addTypeConformances(mpScene->getTypeConformances());
 
         DefineList defines;
         defines.add(filterSMModesDefines());
         defines.add("LVSM_LAYERS",std::to_string(data.layers));
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
+
 
         mpLayeredVarianceGenerate = ComputePass::create(mpDevice, desc, defines, true);
     }
 
     FALCOR_ASSERT(mpLayeredVarianceGenerate);
     mpLayeredVarianceGenerate->getProgram()->addDefines(filterSMModesDefines());
-    mpLayeredVarianceGenerate->getProgram()->addDefine("LVSM_LAYERS", std::to_string(data.layers));
     
     auto var = mpLayeredVarianceGenerate->getRootVar();
     var["CB"]["gSMSize"] = mShadowMapSize;
     var["CB"]["gSMNearFar"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0] : mNearFar;
     var["CB"]["gOverlap"] = data.overlap;
+    var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gViewProj"] = mShadowMapMVP[0].viewProjection;
 
     var["gShadowMap"] = mpRayShadowMaps[0];
@@ -1165,14 +1217,20 @@ void TestShadowMap::layeredVarianceSMGenerate(RenderContext* pRenderContext, con
 }
 void TestShadowMap::layeredVarianceSMEvaluate(RenderContext* pRenderContext, const RenderData& renderData) {
     FALCOR_PROFILE(pRenderContext, "Evaluate Layered Variance");
+    auto& data = mLayeredVarianceData;
     // Create Pass
     if (!mpLayeredVarianceEvaluate)
     {
         Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kShaderLayeredVariance).csEntry("evaluate").setShaderModel("6_5");
+        desc.addTypeConformances(mpScene->getTypeConformances());
 
         DefineList defines;
         defines.add(filterSMModesDefines());
+        defines.add("LVSM_LAYERS", std::to_string(data.layers));
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
 
         mpLayeredVarianceEvaluate = ComputePass::create(mpDevice, desc, defines, true);
     }
@@ -1181,14 +1239,38 @@ void TestShadowMap::layeredVarianceSMEvaluate(RenderContext* pRenderContext, con
     mpLayeredVarianceEvaluate->getProgram()->addDefines(filterSMModesDefines());
 
     auto var = mpLayeredVarianceEvaluate->getRootVar();
+
+    mpScene->setRaytracingShaderData(pRenderContext, var, 1); // Set scene data
+    mpSampleGenerator->setShaderData(var);                    // Sample generator
+
     var["CB"]["gSMSize"] = mShadowMapSize;
+    var["CB"]["gSMNearFar"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0] : mNearFar;
+    var["CB"]["gOverlap"] = data.overlap;
+    var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gViewProj"] = mShadowMapMVP[0].viewProjection;
 
-    var["gShadowMap"] = mpRayShadowMaps[0];
-    var["gRayNeededMask"] = mpRayShadowNeededMask;
+    for (uint i = 0; i < data.layers; i++)
+    {
+        var["gLayeredVariance"][i] = data.pVarianceLayers[i];
+    }
 
-    var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
+    var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
 
-    uint2 dispatchSize = uint2(mShadowMapSize);
+    // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
+    auto bind = [&](const ChannelDesc& desc)
+    {
+        if (!desc.texname.empty())
+        {
+            var[desc.texname] = renderData.getTexture(desc.name);
+        }
+    };
+    for (auto channel : kInputChannels)
+        bind(channel);
+    for (auto channel : kOutputChannels)
+        bind(channel);
+
+
+    uint2 dispatchSize = renderData.getDefaultTextureDims();
 
     mpLayeredVarianceEvaluate->execute(pRenderContext, uint3(dispatchSize, 1));
 }
