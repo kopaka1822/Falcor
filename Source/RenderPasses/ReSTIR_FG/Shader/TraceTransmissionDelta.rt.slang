@@ -150,6 +150,7 @@ void rayGen()
         SampleGenerator sg = SampleGenerator(launchIndex, gFrameCount + 2 * 32);
     #endif
     let lod = ExplicitLodTextureSampler(0.f);
+    float hitT = 0.f;
     uint wasTracedMask = 0;
     #if CAUSTIC_TEMPORAL_FILTER_ENABLED
         CausticSurface causticSurface;
@@ -236,6 +237,7 @@ void rayGen()
         hitInfo = HitInfo(traceData.packedHitInfo);
         viewDir = -bsdfSample.wo;
         rayDist += traceData.distance;
+        hitT += traceData.distance;
         wasTracedMask = 1;
         
         //Write DirectHit surfaces hits only for transmission or delta reflection hits
@@ -293,7 +295,7 @@ void rayGen()
     gOutVBuffer[launchIndex] = hitInfo.getData();
     gOutViewDir[launchIndex] = float4(viewDir, validSurfaceForDI ? 0 : bouncesAfterValid + 1);  //Store a flag if this surface has direct light
     gOutRayDist[launchIndex] = rayDist;
-    gOutThp[launchIndex] = float4(thp, wasTracedMask);
+    gOutThp[launchIndex] = float4(thp, hitT);
     if (is_valid(gOutDiffuseReflectance)) gOutDiffuseReflectance[launchIndex] = float4(diffuseReflectance, 1.f);
     if (is_valid(gOutSpecularReflectance)) gOutSpecularReflectance[launchIndex] = float4(specularReflectance, 1.f);
 
@@ -302,7 +304,7 @@ void rayGen()
         if(invalidSample && !isDiffuse)
             debugOut = float3(1);
         //Enable Red channel if it is not a direct hit
-        if(wasTracedMask > 0){
+        if(hitT > 0){
             debugOut = float3(0.8,0,0);
             
             if(!validSurfaceForDI)

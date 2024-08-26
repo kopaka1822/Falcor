@@ -128,8 +128,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     float3 emission = { };
     float3 diffuseIllumination = { };
     float3 specularIllumination = { };
-    float hitT = 1.f;
-    uint hitTSamples = 0;
+    float hitT = 0.f;
 
     // Variables for RTXDI and ReSTIRFG
     float3 diffuse = { };
@@ -189,7 +188,6 @@ void main(uint2 pixel : SV_DispatchThreadID)
             sd.mtl.setActiveLobes((uint) LobeType::SpecularReflection);
             specular += bsdf.eval(sd, dir, sg) * Li * thp;
 
-            hitTSamples++;
             hitT = distance;
         }
     }
@@ -212,7 +210,8 @@ void main(uint2 pixel : SV_DispatchThreadID)
         validSample |= true;
         float4 thpTex = gThp[pixel];
         float3 thp = thpTex.xyz;
-        wasTraced = thpTex.w > 0.5;
+        float tracedHitT = thpTex.w;
+        wasTraced = tracedHitT > 0.0;
 
         //Get Material properties
         uint hints = (uint) MaterialInstanceHints::AdjustShadingNormal;
@@ -256,14 +255,26 @@ void main(uint2 pixel : SV_DispatchThreadID)
         if (validIndirectReservoir)
         {
             sd.mtl.setActiveLobes((uint) LobeType::Diffuse);
-            diffuse += bsdf.eval(sd, dir, sg) * Li * thp;
+            float3 giDiff = bsdf.eval(sd, dir, sg) * Li * thp;
             
             sd.mtl.setActiveLobes((uint) LobeType::SpecularReflection);
             specular += bsdf.eval(sd, dir, sg) * Li * thp;
 
-            hitTSamples++;
-            hitT += distance;
-            hitT *= 1.f / hitTSamples;
+            //HitT handling
+            if(!wasTraced){
+                float directDiffuseLuminance = luminance(diffuse);
+                float directHitT = hitT;
+                float indirectDiffuseLuminance = luminance(giDiff);
+                float hitDistContribution = directDiffuseLuminance / ( directDiffuseLuminance + indirectDiffuseLuminance + 1e-6);
+                float maxContribution = 0.5; // 0.65 works good as well
+                float directHitDistContribution = min(hitDistContribution, maxContribution); // avoid over-sharpening
+
+                hitT = lerp(distance, hitT, directHitDistContribution);
+            }else{
+                hitT = tracedHitT;
+            }
+            
+            diffuse += giDiff;
         }
        
         //Add Emissive to additionally traced materials
