@@ -66,4 +66,5 @@ private:
     bool                    mUseDeltaTransmissionRadiance = true;
     bool                    mUseResidualRadiance = true;
     bool                    mUseDebug = true;
+    bool                    mInputInYCoCg = false;
 };

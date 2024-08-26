@@ -90,12 +90,15 @@ private:
     nrd::Instance* mpInstance = nullptr;
 
     bool mEnabled = true;
+    bool mOptionsChanged = true;       //Falcor specific options changed. Sets dict flags for other passes
     DenoisingMethod mDenoisingMethod = DenoisingMethod::RelaxDiffuseSpecular;
     bool mRecreateDenoiser = false;
     bool mWorldSpaceMotion = true;
     bool mEnableValidationLayer = true;
     float mMaxIntensity = 1000.f;
     float mDisocclusionThreshold = 2.f;
+    bool mEnableSplitScreen = false;
+    float mSplitScreenValue = 0.5f;
     nrd::CommonSettings mCommonSettings = {};
     nrd::RelaxSettings mRelaxSettings = {};
     //nrd::RelaxDiffuseSpecularSettings mRelaxDiffuseSpecularSettings = {};

@@ -60,7 +60,11 @@ static const char kRenderPassRefreshFlags[] = "_refreshFlags";
 static const char kRenderPassTime[] = "_time";
 static const char kRenderGraph[] = "_renderGraph";
 static const char kRenderGlobalClock[] = "_renderGlobalClock";
+
+//NRD Flags
 static const char kRenderPassEnableNRD[] = "_enableNRD";
+static const char kRenderPassUseNRDDebugLayer[] = "_useNRDDebugLayer";
+static const char kRenderPassNRDOutputInYCoCg[] = "_useNRDOutputInYCoCg";
 
 /**
  * First available preudorandom number generator dimension.

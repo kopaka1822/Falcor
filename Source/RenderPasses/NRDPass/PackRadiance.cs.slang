@@ -88,10 +88,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float linearRoughness = gNormalRoughness[ipos].z;
 
     diffuseRadianceHitDist.a = REBLUR_FrontEnd_GetNormHitDist(diffuseRadianceHitDist.a, viewZ, gHitDistParams, linearRoughness);
-    REBLUR_FrontEnd_PackRadianceAndNormHitDist(diffuseRadianceHitDist.rgb, diffuseRadianceHitDist.a,true);
+    diffuseRadianceHitDist = REBLUR_FrontEnd_PackRadianceAndNormHitDist(diffuseRadianceHitDist.rgb, diffuseRadianceHitDist.a,true);
 
     specularRadianceHitDist.a = REBLUR_FrontEnd_GetNormHitDist(specularRadianceHitDist.a, viewZ, gHitDistParams, linearRoughness);
-    REBLUR_FrontEnd_PackRadianceAndNormHitDist(specularRadianceHitDist.rgb, specularRadianceHitDist.a,true);
+    specularRadianceHitDist = REBLUR_FrontEnd_PackRadianceAndNormHitDist(specularRadianceHitDist.rgb, specularRadianceHitDist.a,true);
 
 #endif
 

@@ -104,6 +104,10 @@ void RayTracedSoftShadows::execute(RenderContext* pRenderContext, const RenderDa
         dict[Falcor::kRenderPassEnableNRD] = mEnableNRD ? NRDEnableFlags::NRDEnabled : NRDEnableFlags::NRDDisabled;
         mOptionsChanged = false;
     }
+    else
+    {
+        dict[Falcor::kRenderPassEnableNRD] = NRDEnableFlags::None; //Empty flags
+    }
 
     // Clear Outputs Lamda
     auto clearOutputs = [&]()

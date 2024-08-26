@@ -395,9 +395,7 @@ void NRDPass::execute(RenderContext* pRenderContext, const RenderData& renderDat
     else if (!mEnabled && (nrdEnableFlag == NRDEnableFlags::NRDEnabled))
         mEnabled = true;
 
-    bool enabled = false;
-    enabled = mEnabled;
-    if (enabled)
+    if (mEnabled)
     {
         executeInternal(pRenderContext, renderData);
     }
@@ -435,6 +433,19 @@ void NRDPass::execute(RenderContext* pRenderContext, const RenderData& renderDat
             }
         }
     }
+
+    //Update dict flag if options changed
+    if (mOptionsChanged)
+    {
+        dict[Falcor::kRenderPassNRDOutputInYCoCg] = mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular ? NRDEnableFlags::NRDEnabled : NRDEnableFlags::NRDDisabled;
+        dict[Falcor::kRenderPassUseNRDDebugLayer] = mEnableValidationLayer ? NRDEnableFlags::NRDEnabled : NRDEnableFlags::NRDDisabled;
+        mOptionsChanged = false;
+    }
+    else
+    {
+        dict[Falcor::kRenderPassNRDOutputInYCoCg] = NRDEnableFlags::None;
+        dict[Falcor::kRenderPassUseNRDDebugLayer] = NRDEnableFlags::None;
+    }
 }
 
 void NRDPass::renderUI(Gui::Widgets& widget)
@@ -446,8 +457,17 @@ void NRDPass::renderUI(Gui::Widgets& widget)
 
     widget.checkbox("Enabled", mEnabled);
 
-    if (mEnabled)
-        widget.checkbox("Enable Debug Layer", mEnableValidationLayer);
+    widget.text("Common:");
+    widget.text(mWorldSpaceMotion ? "Motion: world space" : "Motion: screen space");
+    widget.var("Disocclusion threshold (%)", mDisocclusionThreshold, 0.0f, 5.0f, 0.01f, false, "%.2f");
+    mOptionsChanged |= widget.checkbox("Enable Debug Layer", mEnableValidationLayer);
+    widget.checkbox("Enable Debug Split Screen", mEnableSplitScreen);
+    widget.tooltip("Enables \" noisy input / denoised output \" comparison [0; 1]");
+    if (mEnableSplitScreen)
+        widget.var("Split Screen Value", mSplitScreenValue, 0.0f, 1.0f, 0.01f, false, "%.2f");
+
+    widget.text("Pack radiance:");
+    widget.var("Max intensity", mMaxIntensity, 0.f, 100000.f, 1.f, false, "%.0f");
 
     if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
     {
@@ -456,13 +476,7 @@ void NRDPass::renderUI(Gui::Widgets& widget)
 
     if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular)
     {
-        widget.text("Common:");
-        widget.text(mWorldSpaceMotion ? "Motion: world space" : "Motion: screen space");
-        widget.slider("Disocclusion threshold (%)", mDisocclusionThreshold, 0.0f, 5.0f, false, "%.2f");
-
-        widget.text("Pack radiance:");
-        widget.var("Max intensity", mMaxIntensity, 0.f, 100000.f,1.f, false, "%.0f");
-
+        
         // ReLAX diffuse/specular settings.
         /*TODO
         if (auto group = widget.group("ReLAX Diffuse/Specular"))
@@ -537,13 +551,7 @@ void NRDPass::renderUI(Gui::Widgets& widget)
     }
     else if (mDenoisingMethod == DenoisingMethod::RelaxDiffuse)
     {
-        widget.text("Common:");
-        widget.text(mWorldSpaceMotion ? "Motion: world space" : "Motion: screen space");
-        widget.slider("Disocclusion threshold (%)", mDisocclusionThreshold, 0.0f, 5.0f, false, "%.2f");
-
-        widget.text("Pack radiance:");
-        widget.slider("Max intensity", mMaxIntensity, 0.f, 100000.f, false, "%.0f");
-
+        
         // ReLAX diffuse settings.
         /*TODO
         if (auto group = widget.group("ReLAX Diffuse"))
@@ -578,79 +586,89 @@ void NRDPass::renderUI(Gui::Widgets& widget)
     }
     else if (mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
     {
-        widget.text("Common:");
-        widget.text(mWorldSpaceMotion ? "Motion: world space" : "Motion: screen space");
-        widget.var("Disocclusion threshold (%)", mDisocclusionThreshold, 0.0f, 5.0f, 0.01f, false, "%.2f");
-
-        widget.text("Pack radiance:");
-        widget.var("Max intensity", mMaxIntensity, 0.f, 100000.f, 1.f, false, "%.0f");
-
         if (auto group = widget.group("ReBLUR Diffuse/Specular"))
         {
-            /*TODO
+            
             const float kEpsilon = 0.0001f;
-            if (auto group2 = group.group("Specular lobe trimming"))
-            {
-                group2.var("A", mReblurSettings.specularLobeTrimmingParameters.A, -256.0f, 256.0f, 0.01f, false, "%.2f");
-                group2.var("B", mReblurSettings.specularLobeTrimmingParameters.B, kEpsilon, 256.0f, 0.01f, false, "%.2f");
-                group2.var("C", mReblurSettings.specularLobeTrimmingParameters.C, 1.0f, 256.0f, 0.01f, false, "%.2f");
-            }
-
             if (auto group2 = group.group("Hit distance"))
             {
-                group2.var("A", mReblurSettings.hitDistanceParameters.A, -256.0f, 256.0f, 0.01f, false, "%.2f");
+                group2.text(
+                    "Normalized hit distance = saturate( \"hit distance\" / f ), where: \n f = ( A + viewZ * B ) * lerp( 1.0, C, exp2( D * "
+                    "roughness ^ 2 ) ), see \"NRD.hlsl/REBLUR_FrontEnd_GetNormHitDist\""
+                );
+                group2.var("A", mReblurSettings.hitDistanceParameters.A, 0.01f, 256.0f, 0.01f, false, "%.2f");
+                group2.tooltip("(units > 0) - constant value");
                 group2.var("B", mReblurSettings.hitDistanceParameters.B, kEpsilon, 256.0f, 0.01f, false, "%.2f");
+                group2.tooltip("(> 0) - viewZ based linear scale (1 m - 10 cm, 10 m - 1 m, 100 m - 10 m)");
                 group2.var("C", mReblurSettings.hitDistanceParameters.C, 1.0f, 256.0f, 0.01f, false, "%.2f");
+                group2.tooltip("(>= 1) - roughness based scale, use values > 1 to get bigger hit distance for low roughness");
                 group2.var("D", mReblurSettings.hitDistanceParameters.D, -256.0f, 0.0f, 0.01f, false, "%.2f");
+                group2.tooltip(
+                    "(<= 0) - absolute value should be big enough to collapse \" exp2(D * roughness ^ 2) \" to \" ~0 \" for roughness = 1"
+                );
             }
 
-            if (auto group2 = group.group("Antilag intensity"))
+            if (auto group2 = group.group("Antilag settings"))
             {
-                group2.var("Threshold min", mReblurSettings.antilagIntensitySettings.thresholdMin, 0.0f, 1.0f, 0.01f, false, "%.2f");
-                group2.var("Threshold max", mReblurSettings.antilagIntensitySettings.thresholdMax, 0.0f, 1.0f, 0.01f, false, "%.2f");
-                group2.var("Sigma scale", mReblurSettings.antilagIntensitySettings.sigmaScale, kEpsilon, 16.0f, 0.01f, false, "%.2f");
-                group2.var(
-                    "Sensitivity to darkness", mReblurSettings.antilagIntensitySettings.sensitivityToDarkness, kEpsilon, 256.0f, 0.01f,
-                    false, "%.2f"
-                );
-                group2.checkbox("Enable", mReblurSettings.antilagIntensitySettings.enable);
-            }
-
-            if (auto group2 = group.group("Antilag hit distance"))
-            {
-                group2.var("Threshold min", mReblurSettings.antilagHitDistanceSettings.thresholdMin, 0.0f, 1.0f, 0.01f, false, "%.2f");
-                group2.var("Threshold max", mReblurSettings.antilagHitDistanceSettings.thresholdMax, 0.0f, 1.0f, 0.01f, false, "%.2f");
-                group2.var("Sigma scale", mReblurSettings.antilagHitDistanceSettings.sigmaScale, kEpsilon, 16.0f, 0.01f, false, "%.2f");
-                group2.var(
-                    "Sensitivity to darkness", mReblurSettings.antilagHitDistanceSettings.sensitivityToDarkness, kEpsilon, 1.0f, 0.01f,
-                    false, "%.2f"
-                );
-                group2.checkbox("Enable", mReblurSettings.antilagHitDistanceSettings.enable);
+                group2.var("Luminance Sigma Scale", mReblurSettings.antilagSettings.luminanceSigmaScale, 1.0f, 3.0f, 0.01f, false, "%.2f");
+                group2.var("hit Distance Sigma Scale", mReblurSettings.antilagSettings.hitDistanceSigmaScale, 1.0f, 3.0f, 0.01f, false, "%.2f");
+                group2.var("Luminance Antilag Power", mReblurSettings.antilagSettings.luminanceAntilagPower, kEpsilon, 1.0f, 0.0001f, false, "%.4f");
+                group2.var("hit Distance Antilag Power", mReblurSettings.antilagSettings.hitDistanceAntilagPower, kEpsilon, 1.0f, 0.0001f,false, "%.4f");
             }
 
             group.var("Max accumulated frame num", mReblurSettings.maxAccumulatedFrameNum, 0u, nrd::REBLUR_MAX_HISTORY_FRAME_NUM);
-            group.var("Blur radius", mReblurSettings.blurRadius, 0.0f, 256.0f, 0.01f, false, "%.2f");
-            group.var(
-                "Min converged state base radius scale", mReblurSettings.minConvergedStateBaseRadiusScale, 0.0f, 1.0f, 0.01f, false, "%.2f"
+            group.var("Max fast accumulated frame num", mReblurSettings.maxFastAccumulatedFrameNum, 0u, nrd::REBLUR_MAX_HISTORY_FRAME_NUM);
+            group.slider("History Fix frame num", mReblurSettings.historyFixFrameNum, 0u, 3u);
+            group.var("Prepass Diffuse Blur radius", mReblurSettings.diffusePrepassBlurRadius, 0.f, 256.f, 0.01f, false, "%.2f");
+
+            group.tooltip("(pixels) - pre-accumulation spatial reuse pass blur radius (0 = disabled, must be used in case of badly defined signals and probabilistic sampling)");
+            group.var("Prepass Specular Blur radius", mReblurSettings.specularPrepassBlurRadius, 0.f, 256.f, 0.01f, false, "%.2f");
+            group.tooltip("(pixels) - pre-accumulation spatial reuse pass blur radius (0 = disabled, must be used in case of badly defined signals and probabilistic sampling)");
+
+            group.var("Min Blur radius", mReblurSettings.minBlurRadius, 0.0f, 256.0f, 0.01f, false, "%.2f");
+            group.tooltip("(pixels) - min denoising radius (for converged state)");
+            group.var("Max Blur radius", mReblurSettings.maxBlurRadius, 0.0f, 256.0f, 0.01f, false, "%.2f");
+            group.tooltip("(pixels) - base (max) denoising radius (gets reduced over time)");
+
+            group.var("Normal weight (Lobe Angle Fraction)", mReblurSettings.lobeAngleFraction, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.tooltip("(normalized %) - base fraction of diffuse or specular lobe angle used to drive normal based rejection");
+            group.var("Roughness Fraction", mReblurSettings.roughnessFraction, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.tooltip("(normalized %) - base fraction of center roughness used to drive roughness based rejection");
+
+            group.var("Responsive Accumulation Roughness Threshold", mReblurSettings.responsiveAccumulationRoughnessThreshold, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.tooltip("[0; 1] - if roughness < this, temporal accumulation becomes responsive and driven by roughness (useful for animated water)");
+
+            group.var("Stabilization Strength", mReblurSettings.stabilizationStrength, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.tooltip(
+                "(normalized %) - stabilizes output, but adds temporal lag, at the same time more stabilization improves antilag (clean signals can use lower values)\n"
+                "= N / (1 + N), where N is the number of accumulated frames \n"
+                "0 - disables the stabilization pass"
             );
-            group.var("Max adaptive radius scale", mReblurSettings.maxAdaptiveRadiusScale, 0.0f, 10.0f, 0.01f, false, "%.2f");
-            group.var("Normal weight (fraction of lobe)", mReblurSettings.lobeAngleFraction, 0.0f, 1.0f, 0.01f, false, "%.2f");
-            group.var("Roughness weight (fraction)", mReblurSettings.roughnessFraction, 0.0f, 1.0f, 0.01f, false, "%.2f");
-            group.var(
-                "Responsive accumulation roughness threshold", mReblurSettings.responsiveAccumulationRoughnessThreshold, 0.0f, 1.0f, 0.01f,
-                false, "%.2f"
+
+            group.var("hit Distance Stabilization Strength", mReblurSettings.hitDistanceStabilizationStrength, 0.0f, mReblurSettings.stabilizationStrength, 0.01f, false, "%.2f");
+            group.tooltip("(normalized %) - same as \" stabilizationStrength \", but for hit distance (can't be > \" stabilizationStrength \", 0 - allows to reach parity with REBLUR_OCCLUSION) \n"
+                "= N / (1 + N), where N is the number of accumulated frames "
             );
-            group.var("Stabilization strength", mReblurSettings.stabilizationStrength, 0.0f, 1.0f, 0.01f, false, "%.2f");
-            group.var("History fix strength", mReblurSettings.historyFixStrength, 0.0f, 1.0f, 0.01f, false, "%.2f");
-            group.var("Plane distance sensitivity", mReblurSettings.planeDistanceSensitivity, kEpsilon, 16.0f, 0.01f, false, "%.3f");
-            group.var("Input mix", mReblurSettings.inputMix, 0.0f, 1.0f, 0.01f, false, "%.2f");
-            group.var("Residual noise level", mReblurSettings.residualNoiseLevel, 0.01f, 0.1f, 0.01f, false, "%.2f");
+
+            group.var("Plane Distance Sensitivity", mReblurSettings.planeDistanceSensitivity, 0.0f, 1.0f, 0.01f, false, "%.2f");
+            group.tooltip("(normalized %) - represents maximum allowed deviation from local tangent plane");
+
+            float2 specularProbabilityThresholdsForMvModification = float2(mReblurSettings.specularProbabilityThresholdsForMvModification[0],mReblurSettings.specularProbabilityThresholdsForMvModification[1]);
+            if (group.var("Specular Probability Thresholds For MV Modification", specularProbabilityThresholdsForMvModification, 0.0f, 1.f , 0.01f, false,"%.2f"))
+            {
+                mReblurSettings.specularProbabilityThresholdsForMvModification[0] = specularProbabilityThresholdsForMvModification.x;
+                mReblurSettings.specularProbabilityThresholdsForMvModification[1] = specularProbabilityThresholdsForMvModification.y;
+            }
+            group.tooltip("IN_MV = lerp(IN_MV, specularMotion, smoothstep(this[0], this[1], specularProbability))");
+
+            group.var("Firefly Suppressore Min Relative Scale", mReblurSettings.fireflySuppressorMinRelativeScale, 1.0f, 3.0f, 0.01f, false, "%.2f");
+            group.tooltip("[1; 3] - undesired sporadic outliers suppression to keep output stable (smaller values maximize suppression in exchange of bias)");
+
             group.checkbox("Antifirefly", mReblurSettings.enableAntiFirefly);
-            group.checkbox("Reference accumulation", mReblurSettings.enableReferenceAccumulation);
             group.checkbox("Performance mode", mReblurSettings.enablePerformanceMode);
             group.checkbox("Material test for diffuse", mReblurSettings.enableMaterialTestForDiffuse);
             group.checkbox("Material test for specular", mReblurSettings.enableMaterialTestForSpecular);
-            */
+            group.checkbox("Use Prepass Only For Specular Motion Estimation", mReblurSettings.usePrepassOnlyForSpecularMotionEstimation);
         }
     }
     else if (mDenoisingMethod == DenoisingMethod::SpecularReflectionMv)
@@ -988,6 +1006,7 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
     if (mRecreateDenoiser)
     {
         reinit();
+        mOptionsChanged = true;
     }
 
     if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular)
@@ -1086,7 +1105,7 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
     mCommonSettings.rectSizePrev[0] = mScreenSize.x;
     mCommonSettings.rectSizePrev[1] = mScreenSize.y;
     mCommonSettings.enableValidation = mEnableValidationLayer;
-
+    mCommonSettings.splitScreen = mEnableSplitScreen ? mSplitScreenValue : 0.0f;
 
     mPrevViewMatrix = viewMatrix;
     mPrevProjMatrix = projMatrix;
