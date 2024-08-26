@@ -458,7 +458,8 @@ void NRDPass::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
 
     widget.text("Common:");
-    widget.text(mWorldSpaceMotion ? "Motion: world space" : "Motion: screen space");
+    widget.checkbox("Motion : world space", mWorldSpaceMotion);
+    widget.tooltip("Else 2.5D Motion Vectors are assumed");
     widget.var("Disocclusion threshold (%)", mDisocclusionThreshold, 0.0f, 5.0f, 0.01f, false, "%.2f");
     mOptionsChanged |= widget.checkbox("Enable Debug Layer", mEnableValidationLayer);
     widget.checkbox("Enable Debug Split Screen", mEnableSplitScreen);
@@ -1096,6 +1097,8 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
     mCommonSettings.disocclusionThreshold = mDisocclusionThreshold * 0.01f;
     mCommonSettings.frameIndex = mFrameIndex;
     mCommonSettings.isMotionVectorInWorldSpace = mWorldSpaceMotion;
+    if (!mWorldSpaceMotion)
+        mCommonSettings.motionVectorScale[2] = 1.f; //Enable 2.5D motion
     mCommonSettings.resourceSize[0] = mScreenSize.x;
     mCommonSettings.resourceSize[1] = mScreenSize.y;
     mCommonSettings.resourceSizePrev[0] = mScreenSize.x;

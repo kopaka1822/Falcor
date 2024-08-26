@@ -196,10 +196,6 @@ void rayGen()
         //Ambient
         outColor += bsdfProperties.diffuseReflectionAlbedo * gAmbientFactor;
 
-        #if NRD_DEMODULATION
-            hitT = distance(gScene.camera.getPosition(), sd.posW);
-        #endif
-
         const float weight = 1.0/gSPP;
         //Sample Lights
         for(uint i=0; i<gSPP; i++){
@@ -209,6 +205,9 @@ void rayGen()
                 float3 LrDiffuse = bsdf.eval(sd, ls.dir, sg) * ls.Li;
                 sd.mtl.setActiveLobes((uint) LobeType::Specular);
                 float3 LrSpecular = bsdf.eval(sd, ls.dir, sg) * ls.Li;
+                #if NRD_DEMODULATION
+                    hitT = distance(ls.origin, sd.posW);
+                #endif
                 //Shadow test
                 if (any(ls.Li > 0.0))
                 {

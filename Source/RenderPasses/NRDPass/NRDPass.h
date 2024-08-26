@@ -93,7 +93,7 @@ private:
     bool mOptionsChanged = true;       //Falcor specific options changed. Sets dict flags for other passes
     DenoisingMethod mDenoisingMethod = DenoisingMethod::RelaxDiffuseSpecular;
     bool mRecreateDenoiser = false;
-    bool mWorldSpaceMotion = true;
+    bool mWorldSpaceMotion = false;
     bool mEnableValidationLayer = true;
     float mMaxIntensity = 1000.f;
     float mDisocclusionThreshold = 2.f;
