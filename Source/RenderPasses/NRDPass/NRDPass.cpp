@@ -51,6 +51,7 @@ namespace
     const char kOutputFilteredSpecularRadianceHitDist[] = "filteredSpecularRadianceHitDist";
     const char kOutputReflectionMotionVectors[] = "reflectionMvec";
     const char kOutputDeltaMotionVectors[] = "deltaMvec";
+    const char kOutputValidation[] = "outValidation";
 
     // Serialized parameters.
 
@@ -113,16 +114,16 @@ NRDPass::NRDPass(ref<Device> pDevice, const Properties& props)
     mpDevice->requireD3D12();
 
     DefineList definesRelax;
-    definesRelax.add("NRD_NORMAL_ENCODING", "2");
-    definesRelax.add("NRD_ROUGHNESS_ENCODING", "1");
+    definesRelax.add("NRD_NORMAL_ENCODING", kNormalEncoding);
+    definesRelax.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
     definesRelax.add("NRD_METHOD", "0"); // NRD_METHOD_RELAX_DIFFUSE_SPECULAR
     definesRelax.add("GROUP_X", "16");
     definesRelax.add("GROUP_Y", "16"); 
     mpPackRadiancePassRelax = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesRelax);
 
     DefineList definesReblur;
-    definesReblur.add("NRD_NORMAL_ENCODING", "2");
-    definesReblur.add("NRD_ROUGHNESS_ENCODING", "1");
+    definesReblur.add("NRD_NORMAL_ENCODING", kNormalEncoding);
+    definesReblur.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
     definesReblur.add("NRD_METHOD", "1"); // NRD_METHOD_REBLUR_DIFFUSE_SPECULAR
     definesReblur.add("GROUP_X", "16");
     definesReblur.add("GROUP_Y", "16"); 
@@ -336,6 +337,7 @@ RenderPassReflection NRDPass::reflect(const CompileData& compileData)
 
         reflector.addOutput(kOutputFilteredDiffuseRadianceHitDist, "Filtered diffuse radiance and hit distance").format(ResourceFormat::RGBA16Float).texture2D(sz.x, sz.y);
         reflector.addOutput(kOutputFilteredSpecularRadianceHitDist, "Filtered specular radiance and hit distance").format(ResourceFormat::RGBA16Float).texture2D(sz.x, sz.y);
+        reflector.addOutput(kOutputValidation, "Validation Layer for debug purposes").format(ResourceFormat::RGBA32Float).texture2D(sz.x, sz.y);
     }
     else if (mDenoisingMethod == DenoisingMethod::RelaxDiffuse)
     {
@@ -345,6 +347,7 @@ RenderPassReflection NRDPass::reflect(const CompileData& compileData)
         reflector.addInput(kInputMotionVectors, "Motion vectors");
 
         reflector.addOutput(kOutputFilteredDiffuseRadianceHitDist, "Filtered diffuse radiance and hit distance").format(ResourceFormat::RGBA16Float).texture2D(sz.x, sz.y);
+        reflector.addOutput(kOutputValidation, "Validation Layer for debug purposes").format(ResourceFormat::RGBA32Float).texture2D(sz.x, sz.y);
     }
     else if (mDenoisingMethod == DenoisingMethod::SpecularReflectionMv)
     {
@@ -442,6 +445,9 @@ void NRDPass::renderUI(Gui::Widgets& widget)
     widget.text(name);
 
     widget.checkbox("Enabled", mEnabled);
+
+    if (mEnabled)
+        widget.checkbox("Enable Debug Layer", mEnableValidationLayer);
 
     if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
     {
@@ -874,8 +880,8 @@ void NRDPass::createPipelines()
             programDesc.setCompilerFlags(Program::CompilerFlags::MatrixLayoutColumnMajor);
             DefineList defines;
             defines.add("NRD_COMPILER_DXC");
-            defines.add("NRD_NORMAL_ENCODING", "2");
-            defines.add("NRD_ROUGHNESS_ENCODING", "1");
+            defines.add("NRD_NORMAL_ENCODING", kNormalEncoding);
+            defines.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
             defines.add("GROUP_X", "16");
             defines.add("GROUP_Y", "16");
 
@@ -1079,6 +1085,8 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
     mCommonSettings.rectSize[1] = mScreenSize.y;
     mCommonSettings.rectSizePrev[0] = mScreenSize.x;
     mCommonSettings.rectSizePrev[1] = mScreenSize.y;
+    mCommonSettings.enableValidation = mEnableValidationLayer;
+
 
     mPrevViewMatrix = viewMatrix;
     mPrevProjMatrix = projMatrix;
@@ -1168,6 +1176,9 @@ void NRDPass::dispatch(RenderContext* pRenderContext, const RenderData& renderDa
                 break;
             case nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST:
                 texture = renderData.getTexture(kOutputFilteredSpecularRadianceHitDist);
+                break;
+            case nrd::ResourceType::OUT_VALIDATION:
+                texture = renderData.getTexture(kOutputValidation);
                 break;
             /*
             case nrd::ResourceType::OUT_REFLECTION_MV:

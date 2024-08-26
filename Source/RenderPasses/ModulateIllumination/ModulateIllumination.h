@@ -65,4 +65,5 @@ private:
     bool                    mUseDeltaTransmissionReflectance = true;
     bool                    mUseDeltaTransmissionRadiance = true;
     bool                    mUseResidualRadiance = true;
+    bool                    mUseDebug = true;
 };

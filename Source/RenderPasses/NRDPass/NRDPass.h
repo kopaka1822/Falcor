@@ -72,6 +72,9 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
+    const std::string kNormalEncoding = "2";
+    const std::string kRoughnessEncoding = "1";
+
     ref<Scene> mpScene;
     uint2 mScreenSize{};
     uint32_t mFrameIndex = 0;
@@ -90,6 +93,7 @@ private:
     DenoisingMethod mDenoisingMethod = DenoisingMethod::RelaxDiffuseSpecular;
     bool mRecreateDenoiser = false;
     bool mWorldSpaceMotion = true;
+    bool mEnableValidationLayer = true;
     float mMaxIntensity = 1000.f;
     float mDisocclusionThreshold = 2.f;
     nrd::CommonSettings mCommonSettings = {};

@@ -46,6 +46,7 @@ Texture2D gDeltaTransmissionEmission;
 Texture2D gDeltaTransmissionReflectance;
 Texture2D gDeltaTransmissionRadiance;
 Texture2D gResidualRadiance;
+Texture2D gDebugLayer;
 
 RWTexture2D gOutput;
 
@@ -122,6 +123,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (is_valid(gResidualRadiance))
     {
         outputColor.rgb += gResidualRadiance[pixel].rgb;
+    }
+
+    //Debug is a bit special
+    if(is_valid(gDebugLayer))
+    {
+        float4 debugLayer = gDebugLayer[pixel];
+        outputColor.rgb = debugLayer.rgb * debugLayer.a + outputColor.rgb * (1.0 - debugLayer.a);
     }
 
     gOutput[pixel] = outputColor;
