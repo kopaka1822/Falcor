@@ -46,18 +46,26 @@ public:
     enum class DenoisingMethod : uint32_t
     {
         RelaxDiffuseSpecular,
-        RelaxDiffuse,
         ReblurDiffuseSpecular,
-        SpecularReflectionMv,
-        SpecularDeltaMv
     };
 
     FALCOR_ENUM_INFO(DenoisingMethod, {
         { DenoisingMethod::RelaxDiffuseSpecular, "RelaxDiffuseSpecular" },
-        { DenoisingMethod::RelaxDiffuse, "RelaxDiffuse" },
         { DenoisingMethod::ReblurDiffuseSpecular, "ReblurDiffuseSpecular" },
-        { DenoisingMethod::SpecularReflectionMv, "SpecularReflectionMv" },
-        { DenoisingMethod::SpecularDeltaMv, "SpecularDeltaMv" },
+    });
+
+    //Copy of the NRD enum, as it uses uint8 and Falcor GUI uses uint32
+    enum class HitDistanceReconstructionMode : uint32_t
+    {
+        OFF,
+        AREA3X3,
+        AREA5X5,
+    };
+
+    FALCOR_ENUM_INFO(HitDistanceReconstructionMode, {
+            {HitDistanceReconstructionMode::OFF, "Off"},
+            {HitDistanceReconstructionMode::AREA3X3, "Area3x3"},
+            {HitDistanceReconstructionMode::AREA5X5, "Area5x5"},
     });
 
     static ref<NRDPass> create(ref<Device> pDevice, const Properties& props) { return make_ref<NRDPass>(pDevice, props); }
@@ -86,7 +94,6 @@ private:
     void executeInternal(RenderContext* pRenderContext, const RenderData& renderData);
     void dispatch(RenderContext* pRenderContext, const RenderData& renderData, const nrd::DispatchDesc& dispatchDesc);
 
-    nrd::Denoiser* mpDenoiser = nullptr;
     nrd::Instance* mpInstance = nullptr;
 
     bool mEnabled = true;
@@ -100,11 +107,10 @@ private:
     bool mEnableSplitScreen = false;
     float mSplitScreenValue = 0.5f;
     nrd::CommonSettings mCommonSettings = {};
+
     nrd::RelaxSettings mRelaxSettings = {};
-    //nrd::RelaxDiffuseSpecularSettings mRelaxDiffuseSpecularSettings = {};
-    
-    //nrd::RelaxDiffuseSettings mRelaxDiffuseSettings = {};
     nrd::ReblurSettings mReblurSettings = {};
+    HitDistanceReconstructionMode mHitDistanceReconstructionMode = HitDistanceReconstructionMode::OFF;
 
     std::vector<ref<Sampler>> mpSamplers;
     std::vector<D3D12DescriptorSetLayout> mCBVSRVUAVdescriptorSetLayouts;
@@ -120,6 +126,7 @@ private:
 
     float4x4 mPrevViewMatrix;
     float4x4 mPrevProjMatrix;
+    float2 mPrevCameraJitter;
 
     // Additional classic Falcor compute pass and resources for packing radiance and hitT for NRD.
     ref<ComputePass> mpPackRadiancePassRelax;
@@ -127,3 +134,4 @@ private:
 };
 
 FALCOR_ENUM_REGISTER(NRDPass::DenoisingMethod);
+FALCOR_ENUM_REGISTER(NRDPass::HitDistanceReconstructionMode);
