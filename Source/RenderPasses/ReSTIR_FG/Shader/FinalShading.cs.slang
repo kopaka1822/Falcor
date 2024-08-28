@@ -273,8 +273,8 @@ void main(uint2 pixel : SV_DispatchThreadID)
 
                 hitT = lerp(distance, hitT, directHitDistContribution);
                 hitTSpec = distance;
-            }else{
-                hitT = 0.f;
+            } else {
+                hitT = tracedHitT;
                 hitTSpec = tracedHitT;
             }
             
@@ -292,6 +292,8 @@ void main(uint2 pixel : SV_DispatchThreadID)
             #endif
             #if USE_CAUSTIC_FILTER_RESERVOIR
                 Reservoir causticReservoir = Reservoir(gCausticReservoir[pixel]);
+                float3 causticReservoirRadianceDiffuse = float3(0.0);
+                float3 causticResRadianceSpec = float3(0.0);
                 if (causticReservoir.M > 0) {
                     CausticSample causticSample = gCausticSample[index2Dto1D(pixel, gFrameDim.x)];
                     float NdotL = dot(bsdfProperties.guideNormal, causticSample.dir);
@@ -359,6 +361,6 @@ void main(uint2 pixel : SV_DispatchThreadID)
     if (is_valid(gOutColor)) gOutColor[pixel] = float4(color, 1.f);
     if (is_valid(gOutEmission)) gOutEmission[pixel] = float4(emission, 1.f);
     if (is_valid(gOutDiffuseRadiance)) gOutDiffuseRadiance[pixel] = float4(diffuseIllumination, hitT);
-    if (is_valid(gOutSpecularRadiance))gOutSpecularRadiance[pixel] = float4(specularIllumination, hitT);
+    if (is_valid(gOutSpecularRadiance))gOutSpecularRadiance[pixel] = float4(specularIllumination, hitTSpec);
     if (is_valid(gOutResidualRadiance))  gOutResidualRadiance[pixel] = float4(0.f); //TODO 
 }
