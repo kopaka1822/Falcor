@@ -129,6 +129,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     float3 diffuseIllumination = { };
     float3 specularIllumination = { };
     float hitT = 0.f;
+    float hitTSpec = 0.f;
 
     // Variables for RTXDI and ReSTIRFG
     float3 diffuse = { };
@@ -189,6 +190,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
             specular += bsdf.eval(sd, dir, sg) * Li * thp;
 
             hitT = distance;
+            hitTSpec = distance;
         }
     }
 #endif //RTXDI
@@ -270,8 +272,10 @@ void main(uint2 pixel : SV_DispatchThreadID)
                 float directHitDistContribution = min(hitDistContribution, maxContribution); // avoid over-sharpening
 
                 hitT = lerp(distance, hitT, directHitDistContribution);
+                hitTSpec = distance;
             }else{
-                hitT = tracedHitT;
+                hitT = 0.f;
+                hitTSpec = tracedHitT;
             }
             
             diffuse += giDiff;
@@ -288,8 +292,6 @@ void main(uint2 pixel : SV_DispatchThreadID)
             #endif
             #if USE_CAUSTIC_FILTER_RESERVOIR
                 Reservoir causticReservoir = Reservoir(gCausticReservoir[pixel]);
-                float3 causticReservoirRadianceDiffuse = float3(0);
-                float3 causticResRadianceSpec = float3(0);
                 if (causticReservoir.M > 0) {
                     CausticSample causticSample = gCausticSample[index2Dto1D(pixel, gFrameDim.x)];
                     float NdotL = dot(bsdfProperties.guideNormal, causticSample.dir);
