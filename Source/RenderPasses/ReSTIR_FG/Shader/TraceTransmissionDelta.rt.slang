@@ -125,8 +125,8 @@ void rayGen()
     uint2 launchIndex = DispatchRaysIndex().xy;
     uint2 launchDim = DispatchRaysDimensions().xy;
 
-    float3 diffuseReflectance = { };
-    float3 specularReflectance = { };
+    float4 diffuseReflectance = { };
+    float4 specularReflectance = { };
     
     HitInfo hitInfo = HitInfo(gInVBuffer[launchIndex]);
     float3 viewDir = -gScene.camera.computeRayPinhole(launchIndex, launchDim).dir;
@@ -176,17 +176,22 @@ void rayGen()
         //Write the reflectance on first hit
         if (i == 0 && (is_valid(gOutDiffuseReflectance) || is_valid(gOutDiffuseReflectance)))
         {
-            diffuseReflectance = max(kDemodulateMinReflectance, bsdfProperties.diffuseReflectionAlbedo + bsdfProperties.diffuseTransmissionAlbedo);
+            diffuseReflectance.xyz = max(kDemodulateMinReflectance, bsdfProperties.diffuseReflectionAlbedo + bsdfProperties.diffuseTransmissionAlbedo);
             // For specular an approximate shading model with a single specular lobe is used.
             const float NdotV = saturate(dot(bsdfProperties.guideNormal, sd.V));
             const float ggxAlpha = bsdfProperties.roughness * bsdfProperties.roughness;
             if(bsdfProperties.isTransmissive)
-                specularReflectance = float3(1);
+                specularReflectance.xyz = float3(1);
             else
             {
-                specularReflectance = approxSpecularIntegralGGX(bsdfProperties.specularReflectionAlbedo, ggxAlpha, NdotV);
-                specularReflectance = max(kDemodulateMinReflectance, specularReflectance);
+                specularReflectance.xyz = approxSpecularIntegralGGX(bsdfProperties.specularReflectionAlbedo, ggxAlpha, NdotV);
+                specularReflectance.xyz = max(kDemodulateMinReflectance, specularReflectance.xyz);
             }
+            float diffLuminance = luminance(diffuseReflectance.xyz);
+            float specLuminance = luminance(specularReflectance.xyz);
+            float combined = diffLuminance + specLuminance;
+            diffuseReflectance.w = diffLuminance / combined;
+            specularReflectance.w = specLuminance / combined;
         }
 
         #if CAUSTIC_TEMPORAL_FILTER_ENABLED
@@ -296,8 +301,8 @@ void rayGen()
     gOutViewDir[launchIndex] = float4(viewDir, validSurfaceForDI ? 0 : bouncesAfterValid + 1);  //Store a flag if this surface has direct light
     gOutRayDist[launchIndex] = rayDist;
     gOutThp[launchIndex] = float4(thp, hitT);
-    if (is_valid(gOutDiffuseReflectance)) gOutDiffuseReflectance[launchIndex] = float4(diffuseReflectance, 1.f);
-    if (is_valid(gOutSpecularReflectance)) gOutSpecularReflectance[launchIndex] = float4(specularReflectance, 1.f);
+    if (is_valid(gOutDiffuseReflectance)) gOutDiffuseReflectance[launchIndex] = float4(diffuseReflectance);
+    if (is_valid(gOutSpecularReflectance)) gOutSpecularReflectance[launchIndex] = float4(specularReflectance);
 
     #if DEBUG_MASK
         float3 debugOut = float3(0,0,1);

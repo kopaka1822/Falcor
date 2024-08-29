@@ -131,31 +131,20 @@ NRDPass::NRDPass(ref<Device> pDevice, const Properties& props)
     mpPackRadiancePassReblur = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesReblur);
 
     // Override some defaults coming from the NRD SDK.
-    /*TODO
-    mRelaxDiffuseSpecularSettings.diffusePrepassBlurRadius = 16.0f;
-    mRelaxDiffuseSpecularSettings.specularPrepassBlurRadius = 16.0f;
-    mRelaxDiffuseSpecularSettings.diffuseMaxFastAccumulatedFrameNum = 2;
-    mRelaxDiffuseSpecularSettings.specularMaxFastAccumulatedFrameNum = 2;
-    mRelaxDiffuseSpecularSettings.diffuseLobeAngleFraction = 0.8f;
-    mRelaxDiffuseSpecularSettings.disocclusionFixMaxRadius = 32.0f;
-    mRelaxDiffuseSpecularSettings.enableSpecularVirtualHistoryClamping = false;
-    mRelaxDiffuseSpecularSettings.disocclusionFixNumFramesToFix = 4;
-    mRelaxDiffuseSpecularSettings.spatialVarianceEstimationHistoryThreshold = 4;
-    mRelaxDiffuseSpecularSettings.atrousIterationNum = 6;
-    mRelaxDiffuseSpecularSettings.depthThreshold = 0.02f;
-    mRelaxDiffuseSpecularSettings.roughnessFraction = 0.5f;
-    mRelaxDiffuseSpecularSettings.specularLobeAngleFraction = 0.9f;
-    mRelaxDiffuseSpecularSettings.specularLobeAngleSlack = 10.0f;
+    
+    mRelaxSettings.antilagSettings.accelerationAmount = 0.3f;
+    mRelaxSettings.antilagSettings.spatialSigmaScale = 4.0f;
+    mRelaxSettings.antilagSettings.temporalSigmaScale = 0.2f;
+    mRelaxSettings.antilagSettings.resetAmount = 0.7f;
 
-    mRelaxDiffuseSettings.prepassBlurRadius = 16.0f;
-    mRelaxDiffuseSettings.diffuseMaxFastAccumulatedFrameNum = 2;
-    mRelaxDiffuseSettings.diffuseLobeAngleFraction = 0.8f;
-    mRelaxDiffuseSettings.disocclusionFixMaxRadius = 32.0f;
-    mRelaxDiffuseSettings.disocclusionFixNumFramesToFix = 4;
-    mRelaxDiffuseSettings.spatialVarianceEstimationHistoryThreshold = 4;
-    mRelaxDiffuseSettings.atrousIterationNum = 6;
-    mRelaxDiffuseSettings.depthThreshold = 0.02f;
-    */
+    mRelaxSettings.diffusePrepassBlurRadius = 30.f;
+    mRelaxSettings.specularPrepassBlurRadius = 40.f;
+
+    mRelaxSettings.diffuseMaxAccumulatedFrameNum = 50;
+    mRelaxSettings.specularMaxAccumulatedFrameNum = 40;
+
+    mRelaxSettings.enableAntiFirefly = true;
+    
     // Deserialize pass from dictionary.
     for (const auto& [key, value] : props)
     {

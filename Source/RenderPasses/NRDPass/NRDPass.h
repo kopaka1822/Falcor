@@ -101,8 +101,8 @@ private:
     DenoisingMethod mDenoisingMethod = DenoisingMethod::RelaxDiffuseSpecular;
     bool mRecreateDenoiser = false;
     bool mWorldSpaceMotion = false;
-    bool mEnableValidationLayer = true;
-    float mMaxIntensity = 1000.f;
+    bool mEnableValidationLayer = false;
+    float mMaxIntensity = 250.f;
     float mDisocclusionThreshold = 2.f;
     bool mEnableSplitScreen = false;
     float mSplitScreenValue = 0.5f;

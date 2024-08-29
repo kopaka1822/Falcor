@@ -115,12 +115,12 @@ void main(uint2 pixel : SV_DispatchThreadID)
 {
     bool valid = true;
     //Load Reflectance (was set before)
-    float3 diffuseReflectance = { };
-    float3 specularReflectance = { };
+    float4 diffuseReflectance = { };
+    float4 specularReflectance = { };
     if (is_valid(gOutDiffuseReflectance))
-        diffuseReflectance = gOutDiffuseReflectance[pixel].xyz;
+        diffuseReflectance = gOutDiffuseReflectance[pixel];
     if (is_valid(gOutSpecularReflectance))
-        specularReflectance = gOutSpecularReflectance[pixel].xyz;
+        specularReflectance = gOutSpecularReflectance[pixel];
     
     
     //Outputs
@@ -337,13 +337,14 @@ void main(uint2 pixel : SV_DispatchThreadID)
         // NRD
         if(wasTraced){
             float3 combined = (diffuse + specular + emission + caustic);
-            specularIllumination = combined / specularReflectance;
+            diffuseIllumination = (combined * diffuseReflectance.w) / diffuseReflectance.xyz;
+            specularIllumination = (combined * specularReflectance.w) / specularReflectance.xyz;
             emission = float3(0);
         }
         else
         {
-            diffuseIllumination = ((diffuse + caustic)) / diffuseReflectance;
-            specularIllumination = (specular) / specularReflectance;
+            diffuseIllumination = ((diffuse + caustic)) / diffuseReflectance.xyz;
+            specularIllumination = (specular) / specularReflectance.xyz;
         }
     }else
     {
