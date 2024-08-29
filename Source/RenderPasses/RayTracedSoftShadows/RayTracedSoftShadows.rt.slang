@@ -58,6 +58,8 @@ RWTexture2D<float4> gOutDiffuseRadiance;
 RWTexture2D<float4> gOutSpecularRadiance;
 RWTexture2D<float4> gOutDiffuseReflectance;
 RWTexture2D<float4> gOutSpecularReflectance;
+RWTexture2D<float4> gOutUnshadowed;
+RWTexture2D<float> gOutPenumbra;
 
 uniform EmissiveLightSampler gEmissiveSampler; ///< Emissive light sampler. Only valid when kUseEmissiveLights == true.
 
@@ -75,6 +77,8 @@ cbuffer CB
 static const bool kRayAlphaTest = ALPHA_TEST;
 static const bool kUseEnvBackground = USE_ENV_MAP;
 static const float3 kDefaultBackgroundColor = float3(0.01);
+
+static const float kFP16Max = 65504.0; //NRD FP16 max
 
  /** Describes a light sample.
     */
@@ -97,7 +101,7 @@ struct LightSample
 */
 struct ShadowRayData
 {
-    bool visible;
+    float distance;
 };
 
 //Load in shading data from hit and direction
@@ -143,7 +147,12 @@ bool generateEmissiveSample(const in ShadingData sd, const bool upperHemisphere,
 [shader("miss")]
 void miss(inout ShadowRayData rayData)
 {
-    rayData.visible = true;
+    rayData.distance = -1.f; 
+}
+
+[shader("closesthit")]
+void closestHit(inout ShadowRayData rayData, BuiltInTriangleIntersectionAttributes attribs) {
+    rayData.distance = RayTCurrent();
 }
 
 [shader("anyhit")]
@@ -180,6 +189,8 @@ void rayGen()
         float3 diffuseReflectance = {};
         float3 specularReflectance = {};
         float hitT = 0.0;
+        float penumbra = kFP16Max;
+        float3 unshadowedColor = {};
     #endif
 
     if (hitInfo.isValid())
@@ -206,22 +217,37 @@ void rayGen()
                 sd.mtl.setActiveLobes((uint) LobeType::Specular);
                 float3 LrSpecular = bsdf.eval(sd, ls.dir, sg) * ls.Li;
                 #if NRD_DEMODULATION
-                    hitT = distance(ls.origin, sd.posW);
+                    unshadowedColor = LrDiffuse + LrSpecular;
                 #endif
                 //Shadow test
                 if (any(ls.Li > 0.0))
                 {
                     ShadowRayData shadowData;
-                    shadowData.visible = false;
+                    shadowData.distance = -1.f;
                     RayDesc shadowRay = ls.getVisibilityRay();
-                            
-                    TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, shadowRay, shadowData);
+                    //uint flags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
+                    uint flags = 0;
+                    TraceRay(gScene.rtAccel, flags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, shadowRay, shadowData);
 
-                    if(shadowData.visible){
+                    if(shadowData.distance < 0){
                         diffuse += LrDiffuse * weight;
                         specular += LrSpecular * weight;
+                        #if NRD_DEMODULATION
+                            hitT = distance(ls.origin, sd.posW);
+                        #endif
                     }
+                    #if NRD_DEMODULATION
+                    else {
+                        hitT = shadowData.distance;
+                        penumbra = hitT;
+                    }
+                    #endif
                 }
+                #if NRD_DEMODULATION
+                else {
+                    penumbra = 0.0;
+                }
+                #endif
             }
         }
 
@@ -255,6 +281,8 @@ void rayGen()
         if(is_valid(gOutDiffuseRadiance)) gOutDiffuseRadiance[pixel] = float4(diffuse,hitT);
         if(is_valid(gOutSpecularRadiance)) gOutSpecularRadiance[pixel] = float4(specular,hitT);
         if(is_valid(gOutDiffuseReflectance)) gOutDiffuseReflectance[pixel] = float4(diffuseReflectance,1.0);
-        if(is_valid(gOutSpecularReflectance)) gOutSpecularReflectance[pixel] = float4(specularReflectance,1.0);
+        if (is_valid(gOutSpecularReflectance)) gOutSpecularReflectance[pixel] = float4(specularReflectance, 1.0);
+        if (is_valid(gOutUnshadowed)) gOutUnshadowed[pixel] = float4(unshadowedColor, 1.0);
+        if (is_valid(gOutPenumbra)) gOutPenumbra[pixel] = penumbra;
     #endif
 }

@@ -47,11 +47,13 @@ public:
     {
         RelaxDiffuseSpecular,
         ReblurDiffuseSpecular,
+        Sigma,
     };
 
     FALCOR_ENUM_INFO(DenoisingMethod, {
         { DenoisingMethod::RelaxDiffuseSpecular, "RelaxDiffuseSpecular" },
         { DenoisingMethod::ReblurDiffuseSpecular, "ReblurDiffuseSpecular" },
+        {DenoisingMethod::Sigma, "Sigma"},
     });
 
     //Copy of the NRD enum, as it uses uint8 and Falcor GUI uses uint32
@@ -110,6 +112,7 @@ private:
 
     nrd::RelaxSettings mRelaxSettings = {};
     nrd::ReblurSettings mReblurSettings = {};
+    nrd::SigmaSettings mSigmaSettings = {};
     HitDistanceReconstructionMode mHitDistanceReconstructionMode = HitDistanceReconstructionMode::OFF;
 
     std::vector<ref<Sampler>> mpSamplers;
