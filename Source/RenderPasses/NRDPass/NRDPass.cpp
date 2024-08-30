@@ -386,10 +386,7 @@ void NRDPass::renderUI(Gui::Widgets& widget)
     widget.text("Pack radiance:");
     widget.var("Max intensity", mMaxIntensity, 0.f, 100000.f, 1.f, false, "%.0f");
 
-    if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
-    {
-        mRecreateDenoiser = widget.dropdown("Denoising method", mDenoisingMethod);
-    }
+    mRecreateDenoiser = widget.dropdown("Denoising method", mDenoisingMethod);
 
     if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular)
     {
@@ -565,6 +562,20 @@ void NRDPass::renderUI(Gui::Widgets& widget)
             group.checkbox("Material test for diffuse", mReblurSettings.enableMaterialTestForDiffuse);
             group.checkbox("Material test for specular", mReblurSettings.enableMaterialTestForSpecular);
             group.checkbox("Use Prepass Only For Specular Motion Estimation", mReblurSettings.usePrepassOnlyForSpecularMotionEstimation);
+        }
+    }
+    else if (mDenoisingMethod == DenoisingMethod::Sigma)
+    {
+        if (auto group = widget.group("Sigma Shadow"))
+        {
+            group.var("Plane Distance Sensitivity", mSigmaSettings.planeDistanceSensitivity, 0.f, 1.f, 0.0001f, false, "%.4f");
+            group.tooltip("(%normalized) represents maximum allowed deviation from local tangent plane");
+            group.var("Stabilization Strength", mSigmaSettings.stabilizationStrength, 0.f, 1.f, 0.01f, false, "%.2f");
+            group.tooltip(
+                "(normalized %) - stabilizes output, more stabilization improves antilag (clean signals can use lower values)\n"
+                "0 - disables the stabilization pass and makes denoising spatial only (no history)\n"
+                "= N / (1 + N), where N is the number of accumulated frames"
+            );
         }
     }
 }
@@ -870,6 +881,7 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
     if (mRecreateDenoiser)
     {
         reinit();
+        mRecreateDenoiser = false;
         mOptionsChanged = true;
     }
 

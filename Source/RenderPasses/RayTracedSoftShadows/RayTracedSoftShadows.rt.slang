@@ -243,12 +243,12 @@ void rayGen()
                     }
                     #endif
                 }
-                #if NRD_DEMODULATION
+            }
+            #if NRD_DEMODULATION
                 else {
                     penumbra = 0.0;
                 }
-                #endif
-            }
+            #endif
         }
 
         #if NRD_DEMODULATION
