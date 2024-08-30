@@ -53,16 +53,17 @@ cbuffer CB
     float       gNear;
     float       gFar;
     uint        gSMSize;
-    float       gOffset;
+    float       gOverlap;
     float4x4    gViewProj;     // View Projection for current light
     float4x4    gInvViewProj;     // View Projection for current light
    
 }
 
 Texture2D<SM_FORMAT> gShadowMap;
-RWTexture2D<float> gReverseSM;
+RWTexture2D<float2> gVirtualLayers;
 
-Texture2D<float> gUseRayMask;
+Texture2D<uint> gLayersNeededMin;
+Texture2D<uint> gLayersNeededMax;
 
 //Texture Sampler
 SamplerState gShadowSamplerPoint;
@@ -71,7 +72,7 @@ SamplerState gShadowSamplerLinear;
 [shader("miss")]
 void miss(inout RayData rayData)
 {
-    rayData.depth = 1;
+    rayData.depth = -1;
 }
 
 //
@@ -111,34 +112,40 @@ void rayGen()
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
 
+    uint minLayer = gLayersNeededMin[pixel/2];
+    uint maxLayer = gLayersNeededMax[pixel/2];
+
     float2 pixelSample = pixel + 0.5;
 
     float2 relFramePos = pixelSample / frameDim;
     relFramePos = relFramePos * 2.0 - 1.0; // From [0,1] to [-1,1]
     relFramePos.y *= -1.f;
 
-    RayDesc ray;
 
-    float4 posWPixelNear = mul(gInvViewProj, float4(relFramePos, 0.f, 1.f));
-    float4 posWPixelFar = mul(gInvViewProj, float4(relFramePos, 1.f, 1.f));
+    float depth = gShadowMap[pixel].x;
 
-    float smDepth = gShadowMap[pixel].x;
-    smDepth = (smDepth * (gFar - gNear)) + gNear; //Linear Depth to distance
+    //TODO test if first depth is already in the needed
 
-    posWPixelNear.xyz /= posWPixelNear.w;
-    float3 toPoint = posWPixelNear.xyz - gLightPos;
+    //Only trace an additional depth if not in layer
+    if(maxLayer >= minLayer){
+        const float step = 1.0/LVSM_LAYERS;
+        const float totalRange = (gFar - gNear);
+        float4 posWPixelNear = mul(gInvViewProj, float4(relFramePos, 0.f, 1.f));
+        posWPixelNear.xyz /= posWPixelNear.w;
+        float3 toPoint = posWPixelNear.xyz - gLightPos;
+        RayDesc ray;
+        ray.TMin = max(0.0, step * minLayer - gOverlap) * totalRange + gNear; 
+        ray.TMax = min(1.0, step * maxLayer + gOverlap) * totalRange + gNear; ;
+        ray.Origin = gLightPos;
+        ray.Direction = normalize(toPoint); // World direction
 
-    ray.TMin = smDepth + (gFar - gNear) * gOffset; 
-    ray.TMax = gFar;
-    ray.Origin = gLightPos;
-    ray.Direction = normalize(toPoint); // World direction
+        RayData rayData;
+        rayData.depth = 1.0;
 
-    RayData rayData;
-    rayData.depth = 1.0;
+        TraceRay(gScene.rtAccel, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
-    TraceRay(gScene.rtAccel, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+        depth = rayData.depth < 0 ? depth : min(rayData.depth,1.0);
+    }   
 
-    rayData.depth = saturate(rayData.depth);   
-
-    gReverseSM[pixel] = rayData.depth;  
+    gVirtualLayers[pixel] = float2(depth, depth * depth);  
 }

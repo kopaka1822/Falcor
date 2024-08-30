@@ -44,16 +44,18 @@ const char kShaderDebugSM[] = "RenderPasses/TestShadowMap/DebugShadowMap.cs.slan
 const char kShaderMinMaxMips[] = "RenderPasses/TestShadowMap/GenMinMaxMips.cs.slang";
 const char kShaderRayNeeded[] = "RenderPasses/TestShadowMap/CreateRayNeededMask.cs.slang";
 const char kShaderLayeredVariance[] = "RenderPasses/TestShadowMap/LayeredVariance.cs.slang";
+const char kShaderVLVSMCreateLayers[] = "RenderPasses/TestShadowMap/VLVSM_CreateLayers.cs.slang";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
 const uint32_t kMaxPayloadSizeBytes = 16u;
 const uint32_t kMaxRecursionDepth = 1u;
 
+const char kInputVBuffer[] = "vbuffer";
 const char kInputViewDir[] = "viewW";
 
 const ChannelList kInputChannels = {
-    {"vbuffer", "gVBuffer", "Visibility buffer in packed format"},
+    {kInputVBuffer, "gVBuffer", "Visibility buffer in packed format"},
     {kInputViewDir, "gViewW", "World-space view direction (xyz float format)", true /* optional */},
 };
 
@@ -223,11 +225,6 @@ void TestShadowMap::execute(RenderContext* pRenderContext, const RenderData& ren
             genReverseSM(pRenderContext, renderData);
         }
 
-        if (mUseSparseSM)
-        {
-            genSparseShadowMap(pRenderContext, renderData);
-        }
-        
         if (mpRasterShadowMap)
         {
             mpRasterShadowMap.reset();
@@ -247,6 +244,10 @@ void TestShadowMap::execute(RenderContext* pRenderContext, const RenderData& ren
     if (mFilterSMMode == FilterSMMode::LayeredVariance)
     {
         layeredVarianceSMPass(pRenderContext, renderData);
+    }
+    else if (mFilterSMMode == FilterSMMode::VirtualLayeredVariance)
+    {
+        virtualLayeredVarianceSMPass(pRenderContext, renderData);
     }
     else
     {
@@ -294,17 +295,11 @@ void TestShadowMap::renderUI(Gui::Widgets& widget)
             if (auto specGroup = group.group("SpecialModes"))
             {
                 //Only one is allowed to be active
-                bool oneActive = mUseReverseSM || mUseSparseSM;
+                bool oneActive = mUseReverseSM;
 
                 if (!oneActive || mUseReverseSM)
                     dirty |= specGroup.checkbox("Use Reverse SM", mUseReverseSM);
-                if (!oneActive || mUseSparseSM)
-                    dirty |= specGroup.checkbox("Use Sparse SM", mUseSparseSM);
 
-                if (mUseSparseSM)
-                {
-                    specGroup.var("Sparse Offset", mSparseOffset, 0.f, 1.f, 0.0001f);
-                }
             }
 
             if (mFilterSMMode == FilterSMMode::LayeredVariance)
@@ -509,14 +504,14 @@ void TestShadowMap::setScene(RenderContext* pRenderContext, const ref<Scene>& pS
             desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
             desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
 
-            mSparseDepthSM.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
-            auto& sbt = mSparseDepthSM.pBindingTable;
+            mTraceVirtualLayers.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+            auto& sbt = mTraceVirtualLayers.pBindingTable;
             sbt->setRayGen(desc.addRayGen("rayGen", globalTypeConformances));
             sbt->setMiss(0, desc.addMiss("miss"));
 
             sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
 
-            mSparseDepthSM.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
+            mTraceVirtualLayers.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
         }
 
         // Check if the scene has more than 1 light
@@ -784,48 +779,6 @@ void TestShadowMap::genReverseSM(RenderContext* pRenderContext,const RenderData&
 
 }
 
-void TestShadowMap::genSparseShadowMap(RenderContext* pRenderContext, const RenderData& renderData)
-{
-    FALCOR_PROFILE(pRenderContext, "SparseSM");
-
-    //computeRayNeededMask(pRenderContext, renderData);
-
-    mSparseDepthSM.pProgram->addDefines(filterSMModesDefines());
-    if (!mSparseDepthSM.pVars)
-    {
-        // Configure program.
-        mSparseDepthSM.pProgram->setTypeConformances(mpScene->getTypeConformances());
-        // Create program variables for the current program.
-        // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
-        mSparseDepthSM.pVars = RtProgramVars::create(mpDevice, mSparseDepthSM.pProgram, mSparseDepthSM.pBindingTable);
-    }
-
-    // Bind utility classes into shared data.
-    auto var = mSparseDepthSM.pVars->getRootVar();
-    // Get Analytic light data
-    auto lights = mpScene->getLights();
-    const uint2 targetDim = uint2(mShadowMapSize);
-
-    var["CB"]["gLightPos"] = lights[0]->getData().posW;
-    var["CB"]["gNear"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0].x : mNearFar.x;
-    var["CB"]["gFar"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0].y : mNearFar.y;
-    var["CB"]["gViewProj"] = mShadowMapMVP[0].viewProjection;
-    var["CB"]["gInvViewProj"] = mShadowMapMVP[0].invViewProjection;
-    var["CB"]["gSMSize"] = mShadowMapSize;
-    var["CB"]["gOffset"] = mSparseOffset;
-
-    var["gUseRayMask"] = mpRayShadowNeededMask;
-    var["gReverseSM"] = mpSpecialModeSMTex ;
-    var["gShadowMap"] = mpRayShadowMaps[0];
-
-    // Bind Samplers
-    var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
-    var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
-
-    // Spawn the rays.
-    mpScene->raytrace(pRenderContext, mSparseDepthSM.pProgram.get(), mSparseDepthSM.pVars, uint3(targetDim, 1));
-}
-
 void TestShadowMap::traceScene(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "Path Tracer");
@@ -926,6 +879,7 @@ static ResourceFormat getSMFormat(TestShadowMap::FilterSMMode filterMode) {
     switch (filterMode)
     {
     case TestShadowMap::FilterSMMode::Variance:
+    case TestShadowMap::FilterSMMode::VirtualLayeredVariance:
         return ResourceFormat::RG32Float;
         break;
     case TestShadowMap::FilterSMMode::ESVM:
@@ -938,6 +892,7 @@ static ResourceFormat getSMFormat(TestShadowMap::FilterSMMode filterMode) {
         return ResourceFormat::R32Float;
         break;
     default:
+        FALCOR_UNREACHABLE();
         break;
     }
     return ResourceFormat::Unknown;
@@ -1104,12 +1059,13 @@ DefineList TestShadowMap::filterSMModesDefines()
     defines.add("FILTER_SM_ESVM", mFilterSMMode == FilterSMMode::ESVM ? "1" : "0");
     defines.add("FILTER_SM_MSM", mFilterSMMode == FilterSMMode::MSM ? "1" : "0");
     defines.add("FILTER_SM_LAYERED_VARIANCE", mFilterSMMode == FilterSMMode::LayeredVariance ? "1" : "0");
+    defines.add("FILTER_SM_VIRTUAL_LAYERED_VARIANCE", mFilterSMMode == FilterSMMode::VirtualLayeredVariance ? "1" : "0");
     //Format
-    bool Channel2 = mFilterSMMode == FilterSMMode::Variance || mFilterSMMode == FilterSMMode::LayeredVariance;
     std::string sFormat;
     switch (mFilterSMMode)
     {
     case TestShadowMap::FilterSMMode::Variance:
+    case TestShadowMap::FilterSMMode::VirtualLayeredVariance:
         sFormat = "float2";
         break;
     case TestShadowMap::FilterSMMode::ESVM:
@@ -1120,6 +1076,7 @@ DefineList TestShadowMap::filterSMModesDefines()
         sFormat = "float";
         break;
     default:
+        FALCOR_UNREACHABLE();
         sFormat = "float";
         break;
     }
@@ -1214,8 +1171,8 @@ void TestShadowMap::layeredVarianceSMPass(RenderContext* pRenderContext, const R
         //Reset both compute passes
         if (layerChanged)
         {
-            mpLayeredVarianceEvaluate.reset();
-            mpLayeredVarianceGenerate.reset();
+            data.pLayeredVarianceEvaluatePass.reset();
+            data.pLayeredVarianceGeneratePass.reset();
         }
     }
 
@@ -1227,12 +1184,13 @@ void TestShadowMap::layeredVarianceSMPass(RenderContext* pRenderContext, const R
 void TestShadowMap::layeredVarianceSMGenerate(RenderContext* pRenderContext, const RenderData& renderData) {
     FALCOR_PROFILE(pRenderContext, "Generate Layered Variance");
     auto& data = mLayeredVarianceData;
+    auto& pComputePass = data.pLayeredVarianceGeneratePass;
     // Create Pass
-    if (!mpLayeredVarianceGenerate)
+    if (!pComputePass)
     {
         Program::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kShaderLayeredVariance).csEntry("generate").setShaderModel("6_5");
+        desc.addShaderLibrary(kShaderLayeredVariance).csEntry("main").setShaderModel("6_6");
         desc.addTypeConformances(mpScene->getTypeConformances());
 
         DefineList defines;
@@ -1242,13 +1200,13 @@ void TestShadowMap::layeredVarianceSMGenerate(RenderContext* pRenderContext, con
         defines.add(mpSampleGenerator->getDefines());
 
 
-        mpLayeredVarianceGenerate = ComputePass::create(mpDevice, desc, defines, true);
+        pComputePass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
-    FALCOR_ASSERT(mpLayeredVarianceGenerate);
-    mpLayeredVarianceGenerate->getProgram()->addDefines(filterSMModesDefines());
+    FALCOR_ASSERT(pComputePass);
+    pComputePass->getProgram()->addDefines(filterSMModesDefines());
     
-    auto var = mpLayeredVarianceGenerate->getRootVar();
+    auto var = pComputePass->getRootVar();
     var["CB"]["gSMSize"] = mShadowMapSize;
     var["CB"]["gSMNearFar"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0] : mNearFar;
     var["CB"]["gOverlap"] = data.overlap;
@@ -1263,7 +1221,7 @@ void TestShadowMap::layeredVarianceSMGenerate(RenderContext* pRenderContext, con
 
     uint2 dispatchSize = uint2(mShadowMapSize);
 
-    mpLayeredVarianceGenerate->execute(pRenderContext, uint3(dispatchSize, 1));
+    pComputePass->execute(pRenderContext, uint3(dispatchSize, 1));
 
     if (mEnableBlur)
     {
@@ -1274,8 +1232,9 @@ void TestShadowMap::layeredVarianceSMGenerate(RenderContext* pRenderContext, con
 void TestShadowMap::layeredVarianceSMEvaluate(RenderContext* pRenderContext, const RenderData& renderData) {
     FALCOR_PROFILE(pRenderContext, "Evaluate Layered Variance");
     auto& data = mLayeredVarianceData;
+    auto& pComputePass = data.pLayeredVarianceEvaluatePass;
     // Create Pass
-    if (!mpLayeredVarianceEvaluate)
+    if (!pComputePass)
     {
         Program::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
@@ -1289,14 +1248,14 @@ void TestShadowMap::layeredVarianceSMEvaluate(RenderContext* pRenderContext, con
         defines.add(mpScene->getSceneDefines());
         defines.add(mpSampleGenerator->getDefines());
 
-        mpLayeredVarianceEvaluate = ComputePass::create(mpDevice, desc, defines, true);
+        pComputePass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
-    FALCOR_ASSERT(mpLayeredVarianceEvaluate);
-    mpLayeredVarianceEvaluate->getProgram()->addDefines(filterSMModesDefines());
-    mpLayeredVarianceEvaluate->getProgram()->addDefine("DEBUG_WRITE", mDebugMode == PathSMDebugModes::LayeredVarianceLayers ? "1" : "0");
+    FALCOR_ASSERT(pComputePass);
+    pComputePass->getProgram()->addDefines(filterSMModesDefines());
+    pComputePass->getProgram()->addDefine("DEBUG_WRITE", mDebugMode == PathSMDebugModes::LayeredVarianceLayers ? "1" : "0");
 
-    auto var = mpLayeredVarianceEvaluate->getRootVar();
+    auto var = pComputePass->getRootVar();
 
     mpScene->setRaytracingShaderData(pRenderContext, var, 1); // Set scene data
     mpSampleGenerator->setShaderData(var);                    // Sample generator
@@ -1330,5 +1289,130 @@ void TestShadowMap::layeredVarianceSMEvaluate(RenderContext* pRenderContext, con
 
     uint2 dispatchSize = renderData.getDefaultTextureDims();
 
-    mpLayeredVarianceEvaluate->execute(pRenderContext, uint3(dispatchSize, 1));
+    pComputePass->execute(pRenderContext, uint3(dispatchSize, 1));
+}
+
+void TestShadowMap::virtualLayeredVarianceSMPass(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "VirtualLayeredVariance");
+    //Handle Buffers
+    auto& data = mVirtualLayeredVarianceData;
+    uint layerMaskSize = mShadowMapSize / 2;
+    if (!data.pLayersNeededMax)
+    {
+        data.pLayersNeededMax = Texture::create2D(
+            mpDevice, layerMaskSize, layerMaskSize, ResourceFormat::R32Uint, 1u, 1u, nullptr,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+        );
+        data.pLayersNeededMax->setName("VirtualLayersNeededMax");
+    }
+    if (!data.pLayersNeededMin)
+    {
+        data.pLayersNeededMin = Texture::create2D(
+            mpDevice, layerMaskSize, layerMaskSize, ResourceFormat::R32Uint, 1u, 1u, nullptr,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+        );
+        data.pLayersNeededMin->setName("VirtualLayersNeededMin");
+    }
+    if (!data.pVirtualLayers)
+    {
+        data.pVirtualLayers = Texture::create2D(
+            mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::RG32Float, 1u, 1u, nullptr,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+        );
+        data.pVirtualLayers->setName("VirtualLayerSM");
+    }
+
+    createLayersNeeded(pRenderContext, renderData);
+    traceVirtualLayers(pRenderContext, renderData);
+}
+
+void TestShadowMap::createLayersNeeded(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "Virtual Layers Mask");
+
+    auto& data = mVirtualLayeredVarianceData;
+    auto& pComputePass = data.pCreateLayersNeededPass;
+    //Clear the Layers Texture
+    pRenderContext->clearUAV(data.pLayersNeededMin->getUAV(0u, 0u,1u).get(), uint4(255u));
+    pRenderContext->clearUAV(data.pLayersNeededMax->getUAV(0u, 0u, 1u).get(), uint4(0u));
+
+    // Create Pass
+    if (!pComputePass)
+    {
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderVLVSMCreateLayers).csEntry("main").setShaderModel("6_5");
+        desc.addTypeConformances(mpScene->getTypeConformances());
+        
+        DefineList defines;
+        defines.add("LVSM_LAYERS", std::to_string(data.layers));
+        defines.add(mpScene->getSceneDefines());
+
+        pComputePass = ComputePass::create(mpDevice, desc, defines, true);
+    }
+
+    FALCOR_ASSERT(pComputePass);
+    pComputePass->getProgram()->addDefines(filterSMModesDefines());
+    pComputePass->getProgram()->addDefine("LVSM_LAYERS", std::to_string(data.layers));
+
+    auto var = pComputePass->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var, 1); // Set scene data
+
+    var["CB"]["gSMSize"] = mShadowMapSize / 2;
+    var["CB"]["gSMNearFar"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0] : mNearFar;
+    var["CB"]["gOverlap"] = data.overlap;
+    var["CB"]["gViewProj"] = mShadowMapMVP[0].viewProjection;
+
+    var["gVBuffer"] = renderData[kInputVBuffer]->asTexture();
+    var["gOutLayersNeededMin"] = data.pLayersNeededMin;
+    var["gOutLayersNeededMax"] = data.pLayersNeededMax;
+
+    var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
+
+    uint2 dispatchSize = renderData.getDefaultTextureDims();
+
+    pComputePass->execute(pRenderContext, uint3(dispatchSize, 1));
+}
+
+void TestShadowMap::traceVirtualLayers(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    FALCOR_PROFILE(pRenderContext, "TraceVirtualLayers");
+    auto& data = mVirtualLayeredVarianceData;
+    // computeRayNeededMask(pRenderContext, renderData);
+
+    mTraceVirtualLayers.pProgram->addDefines(filterSMModesDefines());
+    mTraceVirtualLayers.pProgram->addDefine("LVSM_LAYERS", std::to_string(data.layers));
+    if (!mTraceVirtualLayers.pVars)
+    {
+        // Configure program.
+        mTraceVirtualLayers.pProgram->setTypeConformances(mpScene->getTypeConformances());
+        // Create program variables for the current program.
+        // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
+        mTraceVirtualLayers.pVars = RtProgramVars::create(mpDevice, mTraceVirtualLayers.pProgram, mTraceVirtualLayers.pBindingTable);
+    }
+
+    // Bind utility classes into shared data.
+    auto var = mTraceVirtualLayers.pVars->getRootVar();
+    // Get Analytic light data
+    auto lights = mpScene->getLights();
+    const uint2 targetDim = uint2(mShadowMapSize);
+
+    var["CB"]["gLightPos"] = lights[0]->getData().posW;
+    var["CB"]["gNear"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0].x : mNearFar.x;
+    var["CB"]["gFar"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0].y : mNearFar.y;
+    var["CB"]["gViewProj"] = mShadowMapMVP[0].viewProjection;
+    var["CB"]["gInvViewProj"] = mShadowMapMVP[0].invViewProjection;
+    var["CB"]["gSMSize"] = mShadowMapSize;
+    var["CB"]["gOverlap"] = data.overlap;
+
+    var["gLayersNeededMin"] = data.pLayersNeededMin;
+    var["gLayersNeededMax"] = data.pLayersNeededMax;
+    var["gVirtualLayers"] = data.pVirtualLayers;
+    var["gShadowMap"] = mpRayShadowMaps[0];
+
+    // Bind Samplers
+    var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
+    var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
+
+    // Spawn the rays.
+    mpScene->raytrace(pRenderContext, mTraceVirtualLayers.pProgram.get(), mTraceVirtualLayers.pVars, uint3(targetDim, 1));
 }

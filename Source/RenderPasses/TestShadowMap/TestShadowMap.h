@@ -84,6 +84,7 @@ public:
         ESVM = 1,
         MSM = 2,
         LayeredVariance = 3,
+        VirtualLayeredVariance = 4,
     };
     FALCOR_ENUM_INFO(
         TestShadowMap::FilterSMMode,
@@ -92,6 +93,7 @@ public:
             {FilterSMMode::ESVM, "ESVM"},
             {FilterSMMode::MSM, "MSM"},
             {FilterSMMode::LayeredVariance, "LayeredVariance"},
+            {FilterSMMode::VirtualLayeredVariance, "VirtualLayeredVariance"},
         }
     );
 
@@ -114,15 +116,20 @@ private:
     void generateShadowMap(RenderContext* pRenderContext, const RenderData& renderData);
     void computeRayNeededMask(RenderContext* pRenderContext, const RenderData& renderData);
     void genReverseSM(RenderContext* pRenderContext, const RenderData& renderData);
-    void genSparseShadowMap(RenderContext* pRenderContext, const RenderData& renderData);
+    
     void calculateShadowMapNearFar(RenderContext* pRenderContext, const RenderData& renderData, ShaderVar& var);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void debugShadowMapPass(RenderContext* pRenderContext, const RenderData& renderData);
 
-
+    //Layered Variance
     void layeredVarianceSMPass(RenderContext* pRenderContext, const RenderData& renderData);
     void layeredVarianceSMGenerate(RenderContext* pRenderContext, const RenderData& renderData);
     void layeredVarianceSMEvaluate(RenderContext* pRenderContext, const RenderData& renderData);
+
+    //Virtual Layered Variance
+    void virtualLayeredVarianceSMPass(RenderContext* pRenderContext, const RenderData& renderData);
+    void createLayersNeeded(RenderContext* pRenderContext, const RenderData& renderData);
+    void traceVirtualLayers(RenderContext* pRenderContext, const RenderData& renderData);
 
     // Takes a float2 input tex and writes the min max to the mip maps of the texture
     void generateMinMaxMips(RenderContext* pRenderContext, ref<Texture> texture);
@@ -169,7 +176,6 @@ private:
 
     //Reverse and Sparse
     bool mUseReverseSM = false;
-    bool mUseSparseSM = true;
     float mSparseOffset = 0.02f;
     // Debug
     bool mEnableDebug = false;
@@ -194,9 +200,23 @@ private:
         float overlap = 0.02f;
 
         std::vector<ref<Texture>> pVarianceLayers;
+
+        ref<ComputePass> pLayeredVarianceGeneratePass;
+        ref<ComputePass> pLayeredVarianceEvaluatePass;
     }mLayeredVarianceData;
-    ref<ComputePass> mpLayeredVarianceGenerate;
-    ref<ComputePass> mpLayeredVarianceEvaluate;
+
+    struct VirtualLayeredVarianceData
+    {
+        uint layers = 16;
+        float overlap = 0.02f;
+
+        ref<Texture> pVirtualLayers;
+        ref<Texture> pLayersNeededMax;
+        ref<Texture> pLayersNeededMin;
+
+        ref<ComputePass> pCreateLayersNeededPass;
+    } mVirtualLayeredVarianceData;
+
 
     std::vector<ref<Texture>> mpShadowMapAccessTex;
     ref<Texture> mpShadowMapBlit;
@@ -220,7 +240,7 @@ private:
     RayTracingProgram mTracer;
     RayTracingProgram mGenerateSM;
     RayTracingProgram mReverseSM;
-    RayTracingProgram mSparseDepthSM;
+    RayTracingProgram mTraceVirtualLayers;
    
 };
 
