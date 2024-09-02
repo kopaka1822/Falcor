@@ -14,6 +14,7 @@ target_sources(TestShadowMap PRIVATE
     LayeredVariance.cs.slang
     VLVSM_CreateLayers.cs.slang
 	VLVSM_EvaluateLayers.cs.slang
+	VLVSM_Blur.cs.slang
 )
 
 

@@ -128,6 +128,7 @@ private:
 
     //Virtual Layered Variance
     void virtualLayeredVarianceSMPass(RenderContext* pRenderContext, const RenderData& renderData);
+    void virtualLayersBlur(RenderContext* pRenderContext, const RenderData& renderData);
     void createLayersNeeded(RenderContext* pRenderContext, const RenderData& renderData);
     void traceVirtualLayers(RenderContext* pRenderContext, const RenderData& renderData);
     void evaluateVirtualLayers(RenderContext* pRenderContext, const RenderData& renderData);
@@ -208,15 +209,24 @@ private:
 
     struct VirtualLayeredVarianceData
     {
-        uint layers = 16;
-        float overlap = 0.02f;
+        uint layers = 255;
+        float overlap = 0.01f;
+        //blur
+        uint blurRadius = 3;
+        float sigma = 1.0f;
+        bool useBoxFilter = true;
+        bool resetBlur = true;
 
         ref<Texture> pVirtualLayers;
         ref<Texture> pLayersNeededMax;
         ref<Texture> pLayersNeededMin;
+        ref<Texture> pLayersMinMax;
+        ref<Buffer> pBlurWeights;
 
         ref<ComputePass> pCreateLayersNeededPass;
         ref<ComputePass> pEvaluateVirtualLayers;
+
+        ref<ComputePass> pBlurAndVirtualLayers[4];
     } mVirtualLayeredVarianceData;
 
 

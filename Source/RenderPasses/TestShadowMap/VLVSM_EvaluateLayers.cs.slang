@@ -26,6 +26,7 @@ Texture2D<float4> gViewW; // Optional
 
 Texture2D<uint> gOutLayersNeededMax;
 Texture2D<uint> gOutLayersNeededMin;
+Texture2D<uint2> gLayersMinMax;
 Texture2D<SM_FORMAT> gShadowMap;
 Texture2D<SM_FORMAT> gVirtualLayers;
 
@@ -68,6 +69,7 @@ ShadingData loadShadingData(const HitInfo hit, const float3 view, const ITexture
     return sd;
 }
 
+
 float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout float3 debugOut)
 {
     LightData lightData = gScene.getLight(0); // Get light at index 0
@@ -94,6 +96,19 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     if(any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
         return float3(0.0); 
 
+    const float step = 1.0/LVSM_LAYERS;
+    const uint selectedLayer = uint(floor(lightDist / step));
+    uint2 smPixel = uint2(shadowPos.xy * gSMSize);
+    uint2 minMaxLayer = gLayersMinMax[smPixel];
+    float2 pq = minMaxLayer * step;
+    debugOut = float3(pq.x, pq.y + step,lightDist);
+    lightDist = warp(pq.x,pq.y + step, lightDist);
+    float2 virtualLayerSM = gVirtualLayers.SampleLevel(gShadowSamplerPoint, shadowPos.xy,0);
+    shadow = lightDist < 1 ? ChebyshevUpperBound(virtualLayerSM, lightDist, 1e-9f) : 0.0;
+
+    
+
+    /* First Version
     uint2 smPixel = uint2((shadowPos.xy * gSMSize) / 2.0);
     uint minLayer = gOutLayersNeededMin[smPixel];
     uint maxLayer = gOutLayersNeededMax[smPixel];
@@ -127,6 +142,8 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     }
 
     shadow = min(ChebyshevUpperBound(shadowValue, lightDist, 1e-7f), ChebyshevUpperBound(virtualShadowValue, lightDist, 1e-7f));
+    */
+
 
     // Evaluate contribution.
     return mi.eval(sd, ls.dir, sg) * ls.Li * shadow;
@@ -153,8 +170,6 @@ void main(uint2 pixel: SV_DispatchThreadID)
 
          // Always output directly emitted light, independent of whether emissive materials are treated as light sources or not.
         outColor += mi.getProperties(sd).emission;
-
-        
 
         outColor += evalDirectAnalytic(sd, mi, sg, debugOut);
         //outColor = debugOut;

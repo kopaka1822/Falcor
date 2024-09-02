@@ -48,6 +48,7 @@ const char kShaderLayeredVariance[] = "RenderPasses/TestShadowMap/LayeredVarianc
 //Virtual Layers Shaders
 const char kShaderVLVSMCreateLayers[] = "RenderPasses/TestShadowMap/VLVSM_CreateLayers.cs.slang";
 const char kShaderEvaluateVirtualLayers[] = "RenderPasses/TestShadowMap/VLVSM_EvaluateLayers.cs.slang";
+const char kShaderVLVSMBlur[] = "RenderPasses/TestShadowMap/VLVSM_Blur.cs.slang";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -1299,6 +1300,16 @@ void TestShadowMap::virtualLayeredVarianceSMPass(RenderContext* pRenderContext, 
     FALCOR_PROFILE(pRenderContext, "VirtualLayeredVariance");
     //Handle Buffers
     auto& data = mVirtualLayeredVarianceData;
+
+    //Reset if size changed
+    if (data.pVirtualLayers && data.pVirtualLayers->getWidth() != mShadowMapSize)
+    {
+        data.pVirtualLayers.reset();
+        data.pLayersNeededMax.reset();
+        data.pLayersNeededMin.reset();
+        data.pLayersMinMax.reset();
+    }
+
     uint layerMaskSize = mShadowMapSize / 2;
     if (!data.pLayersNeededMax)
     {
@@ -1316,6 +1327,16 @@ void TestShadowMap::virtualLayeredVarianceSMPass(RenderContext* pRenderContext, 
         );
         data.pLayersNeededMin->setName("VirtualLayersNeededMin");
     }
+
+    if (!data.pLayersMinMax)
+    {
+        data.pLayersMinMax = Texture::create2D(
+            mpDevice, mShadowMapSize, mShadowMapSize, ResourceFormat::RG8Uint, 1u, 1u, nullptr,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+        );
+        data.pLayersMinMax->setName("VirtualLayersNeededMinMax");
+    }
+
     if (!data.pVirtualLayers)
     {
         data.pVirtualLayers = Texture::create2D(
@@ -1325,8 +1346,11 @@ void TestShadowMap::virtualLayeredVarianceSMPass(RenderContext* pRenderContext, 
         data.pVirtualLayers->setName("VirtualLayerSM");
     }
 
-    createLayersNeeded(pRenderContext, renderData);
-    traceVirtualLayers(pRenderContext, renderData);
+
+
+    //createLayersNeeded(pRenderContext, renderData);
+    //traceVirtualLayers(pRenderContext, renderData);
+    virtualLayersBlur(pRenderContext, renderData);
     evaluateVirtualLayers(pRenderContext, renderData);
 }
 
@@ -1458,6 +1482,7 @@ void TestShadowMap::evaluateVirtualLayers(RenderContext* pRenderContext, const R
 
     var["gOutLayersNeededMin"] = data.pLayersNeededMin;
     var["gOutLayersNeededMax"] = data.pLayersNeededMax;
+    var["gLayersMinMax"] = data.pLayersMinMax;
 
     var["gShadowMap"] = mpRayShadowMaps[0];
     var["gVirtualLayers"] = data.pVirtualLayers;
@@ -1482,4 +1507,110 @@ void TestShadowMap::evaluateVirtualLayers(RenderContext* pRenderContext, const R
 
     pComputePass->execute(pRenderContext, uint3(dispatchSize, 1));
 
+}
+
+float getCoefficient(float sigma, float kernelWidth, float x)
+{
+    float sigmaSquared = sigma * sigma;
+    float p = -(x * x) / (2 * sigmaSquared);
+    float e = std::exp(p);
+
+    float a = 2 * (float)M_PI * sigmaSquared;
+    return e / a;
+}
+
+void TestShadowMap::virtualLayersBlur(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    FALCOR_PROFILE(pRenderContext, "LayersAndBlur");
+    auto& data = mVirtualLayeredVarianceData;
+    auto& pComputePasses = data.pBlurAndVirtualLayers;
+
+    //Create and fill blur buffer
+    if (data.resetBlur)
+    {
+        uint center = data.blurRadius / 2;
+        float sum = 0;
+        std::vector<float> weights(center + 1);
+        for (uint i = 0; i <= center; i++)
+        {
+            weights[i] = data.useBoxFilter ? 1.0f / data.blurRadius : getCoefficient(data.sigma, (float)data.blurRadius, (float)i);
+            sum += (i == 0) ? weights[i] : 2 * weights[i];
+        }
+        std::vector<float> weightsCPU(data.blurRadius);
+        for (uint i = 0; i <= center; i++)
+        {
+            float w = weights[i] / sum;
+            weightsCPU[center + i] = w;
+            weightsCPU[center - i] = w;
+        }
+
+        if (data.pBlurWeights)
+            data.pBlurWeights.reset();
+
+        data.pBlurWeights = Buffer::createStructured(
+            mpDevice, sizeof(float), data.blurRadius, ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, weightsCPU.data(), false
+        );
+        data.pBlurWeights->setName("VirtualLayersBlurWeights");
+
+
+        data.resetBlur = false;
+    }
+
+    // Create Pass
+    if (!pComputePasses[0])
+    {
+        for (uint i = 0; i < 3; i++)
+        {
+            Program::Desc desc;
+            //desc.addShaderModules(mpScene->getShaderModules());
+            desc.addShaderLibrary(kShaderVLVSMBlur).csEntry("main").setShaderModel("6_5");
+
+            DefineList defines;
+            defines.add("LVSM_LAYERS", std::to_string(data.layers));
+            defines.add("_KERNEL_WIDTH", std::to_string(data.blurRadius));
+            defines.add("_TEX_SIZE", std::to_string(mShadowMapSize));
+            if ((i%2) == 0)
+                defines.add("_HORIZONTAL_DIR");
+            else
+                defines.add("_VERTICAL_DIR");
+
+            if (i < 2)
+                defines.add("_MINMAX_PASS");
+            else
+                defines.add("_BLUR_PASS");
+
+            pComputePasses[i] = ComputePass::create(mpDevice, desc, defines, true);
+        }
+        
+    }
+
+    FALCOR_ASSERT(pComputePasses[0] && pComputePasses[1]);
+
+    //Do both blur passes
+    for (uint i = 0; i < 3; i++)
+    {
+        std::string profileString = (i < 2 ? "LayerMinMax" : "Blur") + std::to_string(i % 2);
+        FALCOR_PROFILE(pRenderContext, profileString);
+        //Update defines
+        pComputePasses[i]->getProgram()->addDefines(filterSMModesDefines());
+        pComputePasses[i]->getProgram()->addDefine("LVSM_LAYERS", std::to_string(data.layers));
+        pComputePasses[i]->getProgram()->addDefine("_KERNEL_WIDTH", std::to_string(data.blurRadius));
+        pComputePasses[i]->getProgram()->addDefine("_TEX_SIZE", std::to_string(mShadowMapSize));
+
+        auto var = pComputePasses[i]->getRootVar();
+
+        //Ping-Pong Tex (Reuse virtual layers as tmp tex)
+        var["gSrcTex"] = ((i % 2) == 0) ? mpRayShadowMaps[0] : data.pVirtualLayers; 
+        var["gDstTex"] = ((i % 2) == 0) ? data.pVirtualLayers : mpRayShadowMaps[0];
+
+        var["gWeights"] = data.pBlurWeights;
+        if (i < 2)
+            var["gLayersMinMaxOut"] = data.pLayersMinMax;
+        else
+            var["gLayersMinMax"] = data.pLayersMinMax;
+
+        uint2 dispatchSize = uint2(mShadowMapSize);
+
+        pComputePasses[i]->execute(pRenderContext, uint3(dispatchSize, 1));
+    }    
 }
