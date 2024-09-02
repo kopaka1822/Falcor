@@ -130,6 +130,7 @@ private:
     void virtualLayeredVarianceSMPass(RenderContext* pRenderContext, const RenderData& renderData);
     void createLayersNeeded(RenderContext* pRenderContext, const RenderData& renderData);
     void traceVirtualLayers(RenderContext* pRenderContext, const RenderData& renderData);
+    void evaluateVirtualLayers(RenderContext* pRenderContext, const RenderData& renderData);
 
     // Takes a float2 input tex and writes the min max to the mip maps of the texture
     void generateMinMaxMips(RenderContext* pRenderContext, ref<Texture> texture);
@@ -164,7 +165,7 @@ private:
     bool mAlwaysRenderSM = true;
     bool mShadowMapFlag = false;
     bool mUseShadowMap = true;
-    uint mShadowMapSize = 1024;
+    uint mShadowMapSize = 2048;
     std::vector<LightMVP> mShadowMapMVP;
     float2 mNearFar = float2(0.1, 60);
     std::vector<float2> mNearFarPerLight;
@@ -215,6 +216,7 @@ private:
         ref<Texture> pLayersNeededMin;
 
         ref<ComputePass> pCreateLayersNeededPass;
+        ref<ComputePass> pEvaluateVirtualLayers;
     } mVirtualLayeredVarianceData;
 
 

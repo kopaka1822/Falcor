@@ -44,7 +44,10 @@ const char kShaderDebugSM[] = "RenderPasses/TestShadowMap/DebugShadowMap.cs.slan
 const char kShaderMinMaxMips[] = "RenderPasses/TestShadowMap/GenMinMaxMips.cs.slang";
 const char kShaderRayNeeded[] = "RenderPasses/TestShadowMap/CreateRayNeededMask.cs.slang";
 const char kShaderLayeredVariance[] = "RenderPasses/TestShadowMap/LayeredVariance.cs.slang";
+
+//Virtual Layers Shaders
 const char kShaderVLVSMCreateLayers[] = "RenderPasses/TestShadowMap/VLVSM_CreateLayers.cs.slang";
+const char kShaderEvaluateVirtualLayers[] = "RenderPasses/TestShadowMap/VLVSM_EvaluateLayers.cs.slang";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -1190,7 +1193,7 @@ void TestShadowMap::layeredVarianceSMGenerate(RenderContext* pRenderContext, con
     {
         Program::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kShaderLayeredVariance).csEntry("main").setShaderModel("6_6");
+        desc.addShaderLibrary(kShaderLayeredVariance).csEntry("generate").setShaderModel("6_6");
         desc.addTypeConformances(mpScene->getTypeConformances());
 
         DefineList defines;
@@ -1324,6 +1327,7 @@ void TestShadowMap::virtualLayeredVarianceSMPass(RenderContext* pRenderContext, 
 
     createLayersNeeded(pRenderContext, renderData);
     traceVirtualLayers(pRenderContext, renderData);
+    evaluateVirtualLayers(pRenderContext, renderData);
 }
 
 void TestShadowMap::createLayersNeeded(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -1415,4 +1419,67 @@ void TestShadowMap::traceVirtualLayers(RenderContext* pRenderContext, const Rend
 
     // Spawn the rays.
     mpScene->raytrace(pRenderContext, mTraceVirtualLayers.pProgram.get(), mTraceVirtualLayers.pVars, uint3(targetDim, 1));
+}
+
+void TestShadowMap::evaluateVirtualLayers(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "Evaluate Virtual Layers");
+    auto& data = mVirtualLayeredVarianceData;
+    auto& pComputePass = data.pEvaluateVirtualLayers;
+
+    // Create Pass
+    if (!pComputePass)
+    {
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderEvaluateVirtualLayers).csEntry("main").setShaderModel("6_5");
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        DefineList defines;
+        defines.add("LVSM_LAYERS", std::to_string(data.layers));
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
+
+        pComputePass = ComputePass::create(mpDevice, desc, defines, true);
+    }
+
+    FALCOR_ASSERT(pComputePass);
+    pComputePass->getProgram()->addDefines(filterSMModesDefines());
+    pComputePass->getProgram()->addDefine("LVSM_LAYERS", std::to_string(data.layers));
+
+    auto var = pComputePass->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var, 1); // Set scene data
+    mpSampleGenerator->setShaderData(var);
+
+    var["CB"]["gSMSize"] = mShadowMapSize;
+    var["CB"]["gSMNearFar"] = mUseOptimizedNearFarForShadowMap ? mNearFarPerLight[0] : mNearFar;
+    var["CB"]["gOverlap"] = data.overlap;
+    var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gViewProj"] = mShadowMapMVP[0].viewProjection;
+
+    var["gOutLayersNeededMin"] = data.pLayersNeededMin;
+    var["gOutLayersNeededMax"] = data.pLayersNeededMax;
+
+    var["gShadowMap"] = mpRayShadowMaps[0];
+    var["gVirtualLayers"] = data.pVirtualLayers;
+
+    // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
+    auto bind = [&](const ChannelDesc& desc)
+    {
+        if (!desc.texname.empty())
+        {
+            var[desc.texname] = renderData.getTexture(desc.name);
+        }
+    };
+    for (auto channel : kInputChannels)
+        bind(channel);
+    for (auto channel : kOutputChannels)
+        bind(channel);
+
+    var["gShadowSamplerPoint"] = mpShadowSamplerPoint;
+    var["gShadowSamplerLinear"] = mpShadowSamplerLinear;
+
+    uint2 dispatchSize = renderData.getDefaultTextureDims();
+
+    pComputePass->execute(pRenderContext, uint3(dispatchSize, 1));
+
 }
