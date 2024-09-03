@@ -162,7 +162,8 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     uint4 maxLayers = gLayersMinMax.GatherGreen(gShadowSamplerPoint, gatherUV);
     uint2 minMaxLayers = gLayersMinMax[smPixel]; // uint2(255, 0);
     
-    float2 minMaxLayersF = float2(0);   
+    float2 minMaxLayersF = float2(0);
+    /*
     [unroll]
     for (uint i = 0; i < 4; i++) {
         minMaxLayers.x = min(minMaxLayers.x, minLayers[i]);
@@ -170,19 +171,20 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
         minMaxLayersF.x += float(minLayers[i]) * w[i];
         minMaxLayersF.y += float(maxLayers[i]) * w[i];
     }
-    
+    */
     //minMaxLayers = uint2(floor(minMaxLayersF));
-    float4 virtualM1 = gVirtualLayers.GatherRed(gShadowSamplerPoint, shadowPos.xy, 0);
-    float4 virtualM2 = gVirtualLayers.GatherGreen(gShadowSamplerPoint, shadowPos.xy, 0);
+    float4 virtualM1 = gVirtualLayers.GatherRed(gShadowSamplerPoint, gatherUV.xy, 0);
+    float4 virtualM2 = gVirtualLayers.GatherGreen(gShadowSamplerPoint, gatherUV.xy, 0);
     float2 virtualSV = float2(0);
+    float testM2 = 0.0;
     float2 pq = minMaxLayers.xy * step;
     pq.y += step;
     [unroll]
     for (uint i = 0; i < 4; i++) {
         float2 depthMoments = float2(virtualM1[i], virtualM2[i]);
         // Rescale to the correct layers
-        // if ((minLayers[i] != minMaxLayers.x) || (maxLayers[i] != minMaxLayers.y)) {
-        if (true) {
+        if ((minLayers[i] != minMaxLayers.x) || (maxLayers[i] != minMaxLayers.y)) {
+        //if (true) {
             float p = minLayers[i] * step;
             float q = (maxLayers[i] * step) + step;
             float2 recreatedDepth = float2(recreateDepth(p, q, depthMoments.x), recreateDepthSq(p, q, depthMoments.y));
@@ -190,15 +192,15 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
             //depthMoments = recreatedDepth;
         }
         virtualSV += depthMoments * w[i];
+        testM2 += depthMoments.x * depthMoments.x * w[i];
     }
 
-    lightDist = warp(pq.x, pq.y, lightDist);
-    debugOut = float4(minMaxLayers.x / 255.0, minMaxLayers.y / 255.0,1,1);
-    //debugOut.xyz = float3(virtualSV.x, virtualSV.y, lightDist);
-    shadow = lightDist < 1 ? ChebyshevUpperBound(virtualSV, lightDist, 1e-2f) : 0.0;
-
-    
-
+    float2 smDepth = gVirtualLayers.SampleLevel(gShadowSamplerLinear, shadowPos.xy, 0);
+    float warpDist = warp(pq.x, pq.y, lightDist);
+    debugOut = float4(virtualSV.x, virtualSV.y, testM2, 1);
+    // debugOut.xyz = float3(virtualSV.x, virtualSV.y, lightDist);
+    shadow = warpDist < 1 ? ChebyshevUpperBound(virtualSV, warpDist, 1e-6f) : 0.0;
+    //shadow = warpDist < 1 ? ChebyshevUpperBound(smDepth, lightDist, 1e-6f) : 0.0;
     /* First Version
     uint2 smPixel = uint2((shadowPos.xy * gSMSize) / 2.0);
     uint minLayer = gOutLayersNeededMin[smPixel];
