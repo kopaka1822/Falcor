@@ -315,6 +315,16 @@ void TestShadowMap::renderUI(Gui::Widgets& widget)
                 }
             }
 
+            if (mFilterSMMode == FilterSMMode::VirtualLayeredVariance)
+            {
+                if (auto layerGroup = group.group("Virtual Layered Variance Options"))
+                {
+                    dirty |= layerGroup.var("Layers", mVirtualLayeredVarianceData.layers, 1u, 255u);
+                    dirty |= layerGroup.var("Layer Overlap", mVirtualLayeredVarianceData.overlap, 0.0f, 1.0f, 0.00001f, false, "%.5f");
+                    dirty |= layerGroup.var("Blur Radius", mVirtualLayeredVarianceData.blurRadius, 1u, 15u, 2u);
+                }
+            }
+
             mRerenderSM |= group.checkbox("Use optimized near far", mUseOptimizedNearFarForShadowMap);
             group.tooltip("Optimized near far is calculated using an additional ray tracing depth pass");
 
@@ -1569,6 +1579,7 @@ void TestShadowMap::virtualLayersBlur(RenderContext* pRenderContext, const Rende
             defines.add("LVSM_LAYERS", std::to_string(data.layers));
             defines.add("_KERNEL_WIDTH", std::to_string(data.blurRadius));
             defines.add("_TEX_SIZE", std::to_string(mShadowMapSize));
+            defines.add("_OVERLAP", std::to_string(data.overlap));
             if ((i%2) == 0)
                 defines.add("_HORIZONTAL_DIR");
             else
@@ -1596,6 +1607,7 @@ void TestShadowMap::virtualLayersBlur(RenderContext* pRenderContext, const Rende
         pComputePasses[i]->getProgram()->addDefine("LVSM_LAYERS", std::to_string(data.layers));
         pComputePasses[i]->getProgram()->addDefine("_KERNEL_WIDTH", std::to_string(data.blurRadius));
         pComputePasses[i]->getProgram()->addDefine("_TEX_SIZE", std::to_string(mShadowMapSize));
+        pComputePasses[i]->getProgram()->addDefine("_OVERLAP", std::to_string(data.overlap));
 
         auto var = pComputePasses[i]->getRootVar();
 

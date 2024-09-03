@@ -47,17 +47,7 @@ cbuffer CB
 SamplerState gShadowSamplerPoint;
 SamplerState gShadowSamplerLinear;
 
-/* Warp function. p,q,depth all in [0,1]
-*/
-float warp(float p, float q, float depth){
-    float low = max(0.0,p-gOverlap);
-    float high = min(1.0, q+gOverlap);
-    float warpedDepth = (depth-low) / (high-low);
-    warpedDepth = depth <= low ? 0.0 : warpedDepth;
-    warpedDepth = high <= depth ? 1.0 : warpedDepth;
 
-    return warpedDepth;
-}
 
 ShadingData loadShadingData(const HitInfo hit, const float3 view, const ITextureSampler lod)
 {
@@ -69,8 +59,75 @@ ShadingData loadShadingData(const HitInfo hit, const float3 view, const ITexture
     return sd;
 }
 
+/* Warp function. p,q,depth all in [0,1]
+ */
+float warp(float p, float q, float depth) {
+    float low = max(0.0, p - gOverlap);
+    float high = min(1.0, q + gOverlap);
+    float warpedDepth = (depth - low) / (high - low);
+    warpedDepth = depth <= low ? 0.0 : warpedDepth;
+    warpedDepth = high <= depth ? 1.0 : warpedDepth;
 
-float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout float3 debugOut)
+    return warpedDepth;
+}
+
+float recreateDepth(float p, float q, float depth) {
+    float low = max(0.0, p - gOverlap);
+    float high = min(1.0, q + gOverlap);
+    float warpedDepth = (depth * (high - low)) + low;
+
+    return warpedDepth;
+}
+
+/* Warp function. p,q,depth all in [0,1]
+ */
+ /*
+float warpSq(float p, float q, float depthSq) {
+    float low = max(0.0, p - gOverlap);
+    float high = min(1.0, q + gOverlap);
+    float lowSq = low  * low;
+    float highSq = high * high;
+    float highLowSq = (highSq - lowSq);
+    float warpedDepth = (depthSq - lowSq) / highLowSq;
+    warpedDepth = depthSq <= low ? 0.0 : warpedDepth;
+    warpedDepth = highSq <= depthSq ? 1.0 : warpedDepth;
+
+    return warpedDepth;
+}
+
+float recreateDepthSq(float p, float q, float depthSq) {
+    float low = max(0.0, p - gOverlap);
+    float high = min(1.0, q + gOverlap);
+    float lowSq = low * low;
+    float highSq = high * high;
+    float highLowSq = (highSq - lowSq);
+    float warpedDepth = (depthSq * highLowSq) + lowSq;
+
+    return warpedDepth;
+}
+*/
+
+float warpSq(float p, float q, float depthSq) {
+    float depth = sqrt(depthSq);
+    float low = max(0.0, p - gOverlap);
+    float high = min(1.0, q + gOverlap);
+    float warpedDepth = (depth - low) / (high - low);
+    warpedDepth = depth <= low ? 0.0 : warpedDepth;
+    warpedDepth = high <= depth ? 1.0 : warpedDepth;
+
+    return warpedDepth * warpedDepth;
+}
+
+float recreateDepthSq(float p, float q, float depthSq) {
+    float depth = sqrt(depthSq);
+    float low = max(0.0, p - gOverlap);
+    float high = min(1.0, q + gOverlap);
+    float warpedDepth = (depth * (high - low)) + low;
+
+    return warpedDepth * warpedDepth;
+}
+
+float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inout SampleGenerator sg, inout float4 debugOut)
 {
     LightData lightData = gScene.getLight(0); // Get light at index 0
     AnalyticLightSample ls = {};
@@ -99,12 +156,46 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     const float step = 1.0/LVSM_LAYERS;
     const uint selectedLayer = uint(floor(lightDist / step));
     uint2 smPixel = uint2(shadowPos.xy * gSMSize);
-    uint2 minMaxLayer = gLayersMinMax[smPixel];
-    float2 pq = minMaxLayer * step;
-    debugOut = float3(pq.x, pq.y + step,lightDist);
-    lightDist = warp(pq.x,pq.y + step, lightDist);
-    float2 virtualLayerSM = gVirtualLayers.SampleLevel(gShadowSamplerPoint, shadowPos.xy,0);
-    shadow = lightDist < 1 ? ChebyshevUpperBound(virtualLayerSM, lightDist, 1e-9f) : 0.0;
+    float2 gatherUV;
+    float4 w = getGatherWeights(shadowPos.xy, gSMSize, gatherUV);
+    uint4 minLayers = gLayersMinMax.GatherRed(gShadowSamplerPoint, gatherUV);
+    uint4 maxLayers = gLayersMinMax.GatherGreen(gShadowSamplerPoint, gatherUV);
+    uint2 minMaxLayers = gLayersMinMax[smPixel]; // uint2(255, 0);
+    
+    float2 minMaxLayersF = float2(0);   
+    [unroll]
+    for (uint i = 0; i < 4; i++) {
+        minMaxLayers.x = min(minMaxLayers.x, minLayers[i]);
+        minMaxLayers.y = max(minMaxLayers.y, maxLayers[i]);
+        minMaxLayersF.x += float(minLayers[i]) * w[i];
+        minMaxLayersF.y += float(maxLayers[i]) * w[i];
+    }
+    
+    //minMaxLayers = uint2(floor(minMaxLayersF));
+    float4 virtualM1 = gVirtualLayers.GatherRed(gShadowSamplerPoint, shadowPos.xy, 0);
+    float4 virtualM2 = gVirtualLayers.GatherGreen(gShadowSamplerPoint, shadowPos.xy, 0);
+    float2 virtualSV = float2(0);
+    float2 pq = minMaxLayers.xy * step;
+    pq.y += step;
+    [unroll]
+    for (uint i = 0; i < 4; i++) {
+        float2 depthMoments = float2(virtualM1[i], virtualM2[i]);
+        // Rescale to the correct layers
+        // if ((minLayers[i] != minMaxLayers.x) || (maxLayers[i] != minMaxLayers.y)) {
+        if (true) {
+            float p = minLayers[i] * step;
+            float q = (maxLayers[i] * step) + step;
+            float2 recreatedDepth = float2(recreateDepth(p, q, depthMoments.x), recreateDepthSq(p, q, depthMoments.y));
+            depthMoments = float2(warp(pq.x, pq.y, recreatedDepth.x), warpSq(pq.x, pq.y, recreatedDepth.y));
+            //depthMoments = recreatedDepth;
+        }
+        virtualSV += depthMoments * w[i];
+    }
+
+    lightDist = warp(pq.x, pq.y, lightDist);
+    debugOut = float4(minMaxLayers.x / 255.0, minMaxLayers.y / 255.0,1,1);
+    //debugOut.xyz = float3(virtualSV.x, virtualSV.y, lightDist);
+    shadow = lightDist < 1 ? ChebyshevUpperBound(virtualSV, lightDist, 1e-2f) : 0.0;
 
     
 
@@ -144,8 +235,8 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     shadow = min(ChebyshevUpperBound(shadowValue, lightDist, 1e-7f), ChebyshevUpperBound(virtualShadowValue, lightDist, 1e-7f));
     */
 
-
     // Evaluate contribution.
+    //return shadow;
     return mi.eval(sd, ls.dir, sg) * ls.Li * shadow;
 }
 
@@ -153,8 +244,8 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
 [numthreads(16, 16, 1)]
 void main(uint2 pixel: SV_DispatchThreadID)
 {
-    float3 outColor = float3(0.00);
-    float3 debugOut = float3(0.00);
+    float4 outColor = float4(0,0,0,1);
+    float4 debugOut = float4(0.00);
     const float3 view = -gViewW[pixel].xyz;
     HitInfo hit = HitInfo(gVBuffer[pixel]);
     if (hit.isValid())
@@ -169,13 +260,13 @@ void main(uint2 pixel: SV_DispatchThreadID)
         SampleGenerator sg = SampleGenerator(pixel, gFrameCount);
 
          // Always output directly emitted light, independent of whether emissive materials are treated as light sources or not.
-        outColor += mi.getProperties(sd).emission;
+        outColor.xyz += mi.getProperties(sd).emission;
 
-        outColor += evalDirectAnalytic(sd, mi, sg, debugOut);
+        outColor.xyz += evalDirectAnalytic(sd, mi, sg, debugOut);
         //outColor = debugOut;
 
     }else{
-        outColor = float3(0.01); //BG color
+        outColor.xyz = float3(0.01); //BG color
     }
-    gOutputColor[pixel] = float4(outColor, 1);
+    gOutputColor[pixel] = outColor;
 }

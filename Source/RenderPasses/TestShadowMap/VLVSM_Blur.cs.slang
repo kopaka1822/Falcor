@@ -11,6 +11,8 @@ Texture2D<uint2> gLayersMinMax;
 
 Buffer<float> gWeights;
 
+static const float kOverlap = _OVERLAP;
+
 float2 minMaxPass(int2 pixel)
 {
 #ifdef _HORIZONTAL_DIR
@@ -21,7 +23,7 @@ float2 minMaxPass(int2 pixel)
 #error Please define either _HORIZONTAL_DIR or _VERTICAL_DIR
 #endif
 
-    const int2 offset = -((_KERNEL_WIDTH + 2) / 2) * dir;
+    const int2 offset = -((_KERNEL_WIDTH+2) / 2) * dir;
 
     float2 minMax = float2(1,0);
     [unroll]
@@ -45,7 +47,6 @@ float2 minMaxPass(int2 pixel)
 /* Warp function. p,q,depth all in [0,1]
 */
 float warp(float p, float q, float depth){
-    const float kOverlap = 0.01;
     float low = max(0.0,p-kOverlap);
     float high = min(1.0, q+kOverlap);
     float warpedDepth = (depth-low) / (high-low);
