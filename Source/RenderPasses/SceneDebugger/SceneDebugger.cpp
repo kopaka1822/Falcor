@@ -75,6 +75,8 @@ namespace
             "Guide normal in RGB color";
         case SceneDebuggerMode::Roughness: return
             "Material roughness estimate";
+        case SceneDebuggerMode::Metallic:
+            return "Material metallic estimate. Only works with standard material else it is marked in red";
         case SceneDebuggerMode::FlatShaded: return
             "Flat shaded";
         default:
