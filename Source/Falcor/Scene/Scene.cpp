@@ -3174,7 +3174,9 @@ namespace Falcor
 
                         // If this is an opaque mesh, set the opaque flag
                         auto pMaterial = mpMaterials->getMaterial(MaterialID::fromSlang(mesh.materialID));
-                        desc.flags = pMaterial->isOpaque() ? RtGeometryFlags::Opaque : RtGeometryFlags::None;
+                        desc.flags = mForceASGeometryFlags == RtGeometryFlags::None
+                                            ? pMaterial->isOpaque() ? RtGeometryFlags::Opaque : RtGeometryFlags::None
+                                            : mForceASGeometryFlags;
 
                         // Set the position data
                         desc.content.triangles.vertexData = pVb->getGpuAddress() + (mesh.vbOffset * pVbLayout->getStride());

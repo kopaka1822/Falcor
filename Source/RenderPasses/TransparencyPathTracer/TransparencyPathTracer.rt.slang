@@ -50,6 +50,7 @@ RWTexture2D<float4> gOutputColor;
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
 static const uint kMaxBounces = MAX_BOUNCES;
+static const uint kMaxAlphaBounces = MAX_ALPHA_BOUNCES; // Max number of allowed alpha bounces
 static const bool kComputeDirect = COMPUTE_DIRECT;
 static const bool kUseImportanceSampling = USE_IMPORTANCE_SAMPLING;
 static const bool kUseAnalyticLights = USE_ANALYTIC_LIGHTS;
@@ -59,16 +60,31 @@ static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
 static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const float kRayTMax = FLT_MAX;
 
-/** Payload for shadow ray.
+/** Payload for shadow ray. (4B)
 */
 struct ShadowRayData
 {
-    bool visible;
+    float visibility;
+
+    __init() {
+        visibility = 1.0;
+    }
 };
 
-/** Payload for scatter ray (up to 72B).
+/** Payload for alpha ray (16B)
 */
-struct ScatterRayData
+struct TransparencyRayData {
+    PackedHitInfo hit; //< Packed Hit
+
+    __init()
+    {
+        hit = {}; // Init emtpy
+    }
+}
+
+/** Struct with data for the current path
+*/
+struct PathData
 {
     float3  radiance;       ///< Accumulated outgoing radiance from path.
     bool    terminated;     ///< Set to true when path is terminated.
@@ -81,7 +97,7 @@ struct ScatterRayData
 
     /** Initializes ray payload with default parameters.
     */
-    __init(SampleGenerator sg)
+    __init()
     {
         this.terminated = false;
         this.pathLength = 0;
@@ -89,13 +105,9 @@ struct ScatterRayData
         this.thp = float3(1, 1, 1);
         this.origin = float3(0, 0, 0);
         this.direction = float3(0, 0, 0);
-        this.sg = sg;
     }
 };
 
-struct TransparencyRayData {
-    float4 test;
-}
 
 /** Setup ShadingData based on loaded vertex/material attributes for a hit point.
     \param[in] hit Hit information.
@@ -104,7 +116,7 @@ struct TransparencyRayData {
     \param[in] lod Method for computing texture level-of-detail.
     \return ShadingData struct.
 */
-ShadingData loadShadingData(const HitInfo hit, const float3 rayOrigin, const float3 rayDir, const ITextureSampler lod)
+ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextureSampler lod)
 {
     const TriangleHit triangleHit = hit.getTriangleHit();
     VertexData v = gScene.getVertexData(triangleHit);
@@ -139,7 +151,7 @@ float3 getPrimaryRayDir(uint2 launchIndex, uint2 launchDim, const Camera camera)
     \param[in] distance Distance to the light source.
     \return True if light is visible, false otherwise.
 */
-bool traceShadowRay(float3 origin, float3 dir, float distance)
+float traceShadowRay(float3 origin, float3 dir, float distance)
 {
     RayDesc ray;
     ray.Origin = origin;
@@ -147,25 +159,24 @@ bool traceShadowRay(float3 origin, float3 dir, float distance)
     ray.TMin = 0.f;
     ray.TMax = distance;
 
-    ShadowRayData rayData;
-    rayData.visible = false;    // Set to true by miss shader if ray is not terminated before
-    TraceRay(gScene.rtAccel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff /* instanceInclusionMask */, 2 /* hitIdx */, rayTypeCount, 2 /* missIdx */, ray, rayData);
+    ShadowRayData rayData = ShadowRayData();
+    rayData.visibility = 1.0;
+    uint flags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
+    TraceRay(gScene.rtAccel, flags, 0xff /* instanceInclusionMask */, 1 /* hitIdx */, rayTypeCount, 1 /* missIdx */, ray, rayData);
 
-    return rayData.visible;
+    return rayData.visibility;
 }
 
-/** Traces a scatter ray based on ray parameters stored in the ray payload.
-    \param[in] rayData Describes the ray parameters. The struct is modified based on the result.
-*/
-void traceScatterRay(inout ScatterRayData rayData)
-{
+/** Traces an alpha ray
+ */
+void traceAlphaRay(inout PathData pathData, inout TransparencyRayData rayData) {
     RayDesc ray;
-    ray.Origin = rayData.origin;
-    ray.Direction = rayData.direction;
-    ray.TMin = 0.f;
+    ray.Origin = pathData.origin;
+    ray.Direction = pathData.direction;
+    ray.TMin = 0.00001f;
     ray.TMax = kRayTMax;
 
-    uint rayFlags = 0;      // TODO: Set cull mode from the app
+    uint rayFlags = 0;
     TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 }
 
@@ -201,11 +212,11 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
 
     // Test visibility by tracing a shadow ray.
-    bool V = traceShadowRay(origin, ls.dir, ls.distance);
-    if (!V) return float3(0.f);
+    float shadow = traceShadowRay(origin, ls.dir, ls.distance);
+    //if (shadow <= 0) return float3(0.f);
 
     // Evaluate contribution.
-    return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf;
+    return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
 }
 
 /** Generate a new scatter ray or terminate.
@@ -215,82 +226,86 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     \param[in,out] rayData Ray payload.
     \return True if the path continues.
 */
-bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, bool isCurveHit, float3 rayOrigin, inout ScatterRayData rayData)
+bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, inout PathData pd)
 {
     // Sample material.
     BSDFSample bsdfSample;
-    if (mi.sample(sd, rayData.sg, bsdfSample, kUseImportanceSampling))
+    if (mi.sample(sd, pd.sg, bsdfSample, kUseImportanceSampling))
     {
-        rayData.origin = rayOrigin;
-        if (!isCurveHit && bsdfSample.isLobe(LobeType::Transmission))
-        {
-            rayData.origin = sd.computeNewRayOrigin(false);
-        }
-        rayData.direction = bsdfSample.wo;
-        rayData.thp *= bsdfSample.weight;
-        return any(rayData.thp > 0.f);
+        bool isTransmission = bsdfSample.isLobe(LobeType::Transmission);
+        pd.origin = sd.computeNewRayOrigin(!isTransmission);
+        pd.direction = bsdfSample.wo;
+        pd.thp *= bsdfSample.weight;
+        return any(pd.thp > 0.f);
     }
 
     return false;
 }
 
-/** Process a hit.
-    \param[in] hit Hit info.
-    \param[in,out] rayData Ray payload.
-
+/** Determines if an alpha ray should be distributed and recalculates the origin in this case
+    \param[in] sd Shading data.
+    \param[in,out] paht data.
+    \return True if an alpha ray should be distributed
 */
-void handleHit(const HitInfo hit, inout ScatterRayData rayData)
-{
-    const bool isCurveHit = hit.getType() == HitType::Curve;
+bool generateAlphaResolveRay(const ShadingData sd, inout PathData pd){
+    if (sd.opacity < 1) {
+        pd.origin = sd.computeNewRayOrigin(false);
+        return true;
+    }
+    return false;
+}
+
+bool resolveAlpha(const HitInfo hit, inout PathData pd, out float opacity) {
+    opacity = 1.0;
+    // Miss
+    if (!hit.isValid()) {
+        // Ray missed the scene. Mark the ray as terminated.
+        pd.terminated = true;
+
+        // Add contribution from distant light (env map) in this direction.
+        if (kUseEnvLight && (kComputeDirect || pd.pathLength > 0))
+        {
+            float3 Le = gScene.envMap.eval(WorldRayDirection());
+            pd.radiance += pd.thp * Le;
+        }
+        return false; 
+    }
+
     let lod = ExplicitLodTextureSampler(0.f);
 
-    // Load shading data.
-    ShadingData sd = loadShadingData(hit, rayData.origin, rayData.direction, lod);
+    //Update shading data
+    ShadingData sd = loadShadingData(hit, pd.direction, lod);
+    opacity = sd.opacity;
 
-    // Create material instance.
+    //Update material instance
+    uint hints = (uint)MaterialInstanceHints::AdjustShadingNormal;
     let mi = gScene.materials.getMaterialInstance(sd, lod);
 
-    // Add emitted light.
-    if (kUseEmissiveLights && (kComputeDirect || rayData.pathLength > 0))
+    //Add contribution from emissive lights
+    if (kUseEmissiveLights && kComputeDirect)
     {
-        rayData.radiance += rayData.thp * mi.getProperties(sd).emission;
-    }
-
-    // Check whether to terminate based on max depth.
-    if (rayData.pathLength >= kMaxBounces)
-    {
-        rayData.terminated = true;
-        return;
-    }
-
-    // Compute ray origin for new rays spawned from the hit.
-    float3 rayOrigin;
-    if (isCurveHit)
-    {
-        // For curves, we set the new origin at the sphere center.
-        rayOrigin = sd.posW - sd.curveRadius * sd.frame.N;
-    }
-    else
-    {
-        rayOrigin = sd.computeNewRayOrigin();
+        pd.radiance += pd.thp * mi.getProperties(sd).emission * opacity;
     }
 
     // Add contribution of direct light from analytic lights.
     if (kUseAnalyticLights)
     {
-        float3 Lr = evalDirectAnalytic(sd, mi, rayData.sg);
-        rayData.radiance += rayData.thp * Lr;
+        float3 Lr = evalDirectAnalytic(sd, mi, pd.sg);
+        pd.radiance += pd.thp * Lr * opacity;
     }
 
-    // Generate scatter ray for the next path segment.
-    // The raygen shader will continue the path based on the returned payload.
-    if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, rayData))
-    {
-        rayData.terminated = true;
-        return;
+    bool needAlphaTest = generateAlphaResolveRay(sd, pd);
+
+    //Valid hit
+    if (!needAlphaTest)
+        pd.pathLength++;
+
+    //Generate scatter ray for next hit
+    if (!needAlphaTest) {
+        pd.terminated = !generateScatterRay(sd, mi, pd);
     }
 
-    rayData.pathLength++;
+    return needAlphaTest;
 }
 
 /** This is the main entry point
@@ -299,69 +314,64 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 {
     float3 outColor = float3(0.f);
 
-    const float3 primaryRayOrigin = gScene.camera.getPosition();
-    const float3 primaryRayDir = getPrimaryRayDir(pixel, frameDim, gScene.camera);
+    // Prepare ray payload.
+    PathData pd = PathData();
+
+    pd.direction = normalize(getPrimaryRayDir(pixel, frameDim, gScene.camera));
 
     const HitInfo hit = HitInfo(gVBuffer[pixel]);
     if (hit.isValid())
     {
-        // Pixel represents a valid primary hit. Compute its contribution.
-
-        const bool isCurveHit = hit.getType() == HitType::Curve;
-        let lod = ExplicitLodTextureSampler(0.f);
-
-        // Load shading data.
-        ShadingData sd = loadShadingData(hit, primaryRayOrigin, primaryRayDir, lod);
-
-        // Create material instance at shading point.
-        let mi = gScene.materials.getMaterialInstance(sd, lod);
-
         // Create sample generator.
-        SampleGenerator sg = SampleGenerator(pixel, gFrameCount);
+        pd.sg = SampleGenerator(pixel, gFrameCount);
 
-        // Compute ray origin for new rays spawned from the G-buffer.
-        float3 rayOrigin;
-        if (isCurveHit)
-        {
-            // For curves, we set the new origin at the sphere center.
-            rayOrigin = sd.posW - sd.curveRadius * sd.frame.N;
-        }
-        else
-        {
-            rayOrigin = sd.computeNewRayOrigin();
-        }
+        // Pixel represents a valid primary hit. Compute its contribution.
+        let lod = ExplicitLodTextureSampler(0.f);
+        // Load shading data.
+        ShadingData sd = loadShadingData(hit, pd.direction, lod);
+        pd.origin = sd.posW;
+        // Create material instance at shading point.
+
+        let mi = gScene.materials.getMaterialInstance(sd, lod);
 
         if (kComputeDirect)
         {
             // Always output directly emitted light, independent of whether emissive materials are treated as light sources or not.
-            outColor += mi.getProperties(sd).emission;
+            outColor += mi.getProperties(sd).emission * sd.opacity;
 
             // Add contribution of direct light from analytic lights.
             // Light probe and mesh lights are handled by the scatter ray hit/miss shaders.
-            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, sg) : float3(0.f);
+            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, pd.sg) * sd.opacity : float3(0.f);
         }
 
-        // Prepare ray payload.
-        ScatterRayData rayData = ScatterRayData(sg);
-
-        // Generate scatter ray.
-        if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, rayData)) rayData.terminated = true;
-
-        // Follow path into the scene and compute its total contribution.
-        for (uint depth = 0; depth <= kMaxBounces && !rayData.terminated; depth++)
-        {
-            // Trace scatter ray. If it hits geometry, the closest hit shader samples
-            // direct illumination and generates the next scatter ray.
-            traceScatterRay(rayData);
+        // Handle alpha
+        bool needAlphaTest = generateAlphaResolveRay(sd, pd);
+        float opacity = sd.opacity;
+        if (!needAlphaTest) {
+            opacity = 0.0;
+            pd.terminated = !generateScatterRay(sd, mi, pd);
         }
-
+        for (uint depth = 0; depth <= kMaxBounces && !pd.terminated; depth++) {
+            //Alpha Test
+            for (uint alphaDepth = 0; alphaDepth < kMaxAlphaBounces && needAlphaTest; alphaDepth++) {
+                // Update thp
+                pd.thp *= (1.0 - opacity);
+                TransparencyRayData alphaRay = TransparencyRayData();
+                traceAlphaRay(pd, alphaRay);
+                //
+                needAlphaTest = resolveAlpha(HitInfo(alphaRay.hit), pd, opacity);
+            }
+            needAlphaTest = true;
+            opacity = 0;
+        }
+        
         // Store contribution from scatter ray.
-        outColor += rayData.radiance;
+        outColor += pd.radiance;
     }
     else
     {
         // Background pixel.
-        outColor = kUseEnvBackground ? gScene.envMap.eval(primaryRayDir) : kDefaultBackgroundColor;
+        outColor = kUseEnvBackground ? gScene.envMap.eval(pd.direction) : kDefaultBackgroundColor;
     }
 
     return outColor;
@@ -372,20 +382,6 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 //
 
 [shader("miss")]
-void miss(inout ScatterRayData rayData)
-{
-    // Ray missed the scene. Mark the ray as terminated.
-    rayData.terminated = true;
-
-    // Add contribution from distant light (env map) in this direction.
-    if (kUseEnvLight && (kComputeDirect || rayData.pathLength > 0))
-    {
-        float3 Le = gScene.envMap.eval(WorldRayDirection());
-        rayData.radiance += rayData.thp * Le;
-    }
-}
-
-[shader("miss")]
 void alphaMiss(inout TransparencyRayData rayData)
 {
 
@@ -394,34 +390,12 @@ void alphaMiss(inout TransparencyRayData rayData)
 [shader("miss")]
 void shadowMiss(inout ShadowRayData rayData)
 {
-    // The miss shader is executed if the ray misses all geometry. Mark as visible.
-    rayData.visible = true;
+
 }
 
 //
 // Shader entry points for TriangleMesh hit groups.
 //
-
-[shader("anyhit")]
-void anyHit(inout ScatterRayData rayData, BuiltInTriangleIntersectionAttributes attribs)
-{
-    // Alpha test for non-opaque geometry.
-    GeometryInstanceID instanceID = getGeometryInstanceID();
-    VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
-    const uint materialID = gScene.getMaterialID(instanceID);
-    if (gScene.materials.alphaTest(v, materialID, 0.f)) IgnoreHit();
-}
-
-[shader("closesthit")]
-void closestHit(inout ScatterRayData rayData, BuiltInTriangleIntersectionAttributes attribs)
-{
-    TriangleHit triangleHit;
-    triangleHit.instanceID = getGeometryInstanceID();
-    triangleHit.primitiveIndex = PrimitiveIndex();
-    triangleHit.barycentrics = attribs.barycentrics;
-    handleHit(HitInfo(triangleHit), rayData);
-}
-
 [shader("anyhit")]
 void alphaAnyHit(inout TransparencyRayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
@@ -429,29 +403,39 @@ void alphaAnyHit(inout TransparencyRayData rayData, BuiltInTriangleIntersectionA
     GeometryInstanceID instanceID = getGeometryInstanceID();
     VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
     const uint materialID = gScene.getMaterialID(instanceID);
-    if (gScene.materials.alphaTest(v, materialID, 0.f)) IgnoreHit();
+    if (gScene.materials.alphaTest(v, materialID, 0.f, 1e-7)) IgnoreHit();
 }
 
 [shader("closesthit")]
 void alphaClosestHit(inout TransparencyRayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
-
+    TriangleHit triangleHit;
+    triangleHit.instanceID = getGeometryInstanceID();
+    triangleHit.primitiveIndex = PrimitiveIndex();
+    triangleHit.barycentrics = attribs.barycentrics;
+    rayData.hit = HitInfo(triangleHit).getData();
 }
 
 [shader("anyhit")]
 void shadowAnyHit(inout ShadowRayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
-    // Alpha test for non-opaque geometry.
-    GeometryInstanceID instanceID = getGeometryInstanceID();
-    VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
-    const uint materialID = gScene.getMaterialID(instanceID);
-    if (gScene.materials.alphaTest(v, materialID, 0.f)) IgnoreHit();
-}
+    // Get shading data
+    TriangleHit triangleHit;
+    triangleHit.instanceID = getGeometryInstanceID();
+    triangleHit.primitiveIndex = PrimitiveIndex();
+    triangleHit.barycentrics = attribs.barycentrics;
 
-[shader("closesthit")]
-void shadowClosestHit(inout ScatterRayData rayData, BuiltInTriangleIntersectionAttributes attribs)
-{
-    
+    VertexData v = gScene.getVertexData(triangleHit);
+    uint materialID = gScene.getMaterialID(triangleHit.instanceID);
+    let lod = ExplicitLodTextureSampler(0.f);
+    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -WorldRayDirection(), lod);
+
+    rayData.visibility *= saturate(1.0 - sd.opacity);
+
+    if(rayData.visibility > 0)
+        IgnoreHit();
+    else
+        AcceptHitAndEndSearch();
 }
 
 //

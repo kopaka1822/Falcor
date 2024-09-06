@@ -41,8 +41,8 @@ namespace
     const std::string kShaderFile = kShaderFolder + "TransparencyPathTracer.rt.slang";
 
     //RT shader constant settings
-    const uint32_t kMaxPayloadSizeBytes = 72u;
-    const uint32_t kMaxRecursionDepth = 2u;
+    const uint32_t kMaxPayloadSizeBytes = 16u;
+    const uint32_t kMaxRecursionDepth = 1u;
 
     const ChannelList kInputChannels = {
         {"vbuffer", "gVBuffer", "Visibility buffer in packed format"},
@@ -119,6 +119,7 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     // Specialize program.
     // These defines should not modify the program vars. Do not trigger program vars re-creation.
     mTracer.pProgram->addDefine("MAX_BOUNCES", std::to_string(mMaxBounces));
+    mTracer.pProgram->addDefine("MAX_ALPHA_BOUNCES", std::to_string(mMaxAlphaTestPerBounce));
     mTracer.pProgram->addDefine("COMPUTE_DIRECT", mComputeDirect ? "1" : "0");
     mTracer.pProgram->addDefine("USE_IMPORTANCE_SAMPLING", mUseImportanceSampling ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ANALYTIC_LIGHTS", mpScene->useAnalyticLights() ? "1" : "0");
@@ -167,6 +168,9 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
     dirty |= widget.var("Max bounces", mMaxBounces, 0u, 1u << 16);
     widget.tooltip("Maximum path length for indirect illumination.\n0 = direct only\n1 = one indirect bounce etc.", true);
 
+    dirty |= widget.var("Max Alpha Test bounces", mMaxAlphaTestPerBounce ,0u, 64u);
+    widget.tooltip("Maximum number of alpha test bounces allowed", true);
+
     dirty |= widget.checkbox("Evaluate direct illumination", mComputeDirect);
     widget.tooltip("Compute direct illumination.\nIf disabled only indirect is computed (when max bounces > 0).", true);
 
@@ -189,6 +193,8 @@ void TransparencyPathTracer::setScene(RenderContext* pRenderContext, const ref<S
 
     if (mpScene)
     {
+        mpScene->setRtAsForceGeometryFlag(RtGeometryFlags::NoDuplicateAnyHitInvocation); //Force the NoDublicateAnyHitInvocation flag for this pass
+
         if (pScene->hasGeometryType(Scene::GeometryType::Custom))
         {
             logWarning("MinimalPathTracer: This render pass does not support custom primitives.");
@@ -202,25 +208,19 @@ void TransparencyPathTracer::setScene(RenderContext* pRenderContext, const ref<S
         desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
         desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
 
-        mTracer.pBindingTable = RtBindingTable::create(3, 3, mpScene->getGeometryCount());
+        mTracer.pBindingTable = RtBindingTable::create(2, 2, mpScene->getGeometryCount());
         auto& sbt = mTracer.pBindingTable;
         sbt->setRayGen(desc.addRayGen("rayGen"));
-        sbt->setMiss(0, desc.addMiss("miss"));
-        sbt->setMiss(1, desc.addMiss("alphaMiss"));
-        sbt->setMiss(2, desc.addMiss("shadowMiss"));
+        sbt->setMiss(0, desc.addMiss("alphaMiss"));
+        sbt->setMiss(1, desc.addMiss("shadowMiss"));
 
         if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
         {
             sbt->setHitGroup(
-                0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh),
-                desc.addHitGroup("closestHit", "anyHit")
-            );
-
-            sbt->setHitGroup(
-                1, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("alphaClosestHit", "alphaAnyHit")
+                0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("alphaClosestHit", "alphaAnyHit")
             );
             sbt->setHitGroup(
-                2, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("shadowClosestHit", "shadowAnyHit")
+                1, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("", "shadowAnyHit")
             );
         }
 

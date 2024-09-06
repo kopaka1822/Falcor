@@ -1168,6 +1168,10 @@ namespace Falcor
 
         std::string getScript(const std::string& sceneVar);
 
+        /** Sets a forced geometry flag for the whole scene. Else RtGeometryFlags::Opaque is used for opaque materials and RtGeometryFlags::None for non-opaque.
+        */
+        void setRtAsForceGeometryFlag(RtGeometryFlags flags) { mForceASGeometryFlags = flags; }
+
     private:
         friend class AnimationController;
         friend class AnimatedVertexCache;
@@ -1444,6 +1448,7 @@ namespace Falcor
         std::unique_ptr<AnimationController> mpAnimationController;
 
         // Raytracing data
+        RtGeometryFlags mForceASGeometryFlags = RtGeometryFlags::None;  ///<If not None, the flag is forced for all ray tracing Acceleration Structure Building processes.
         UpdateMode mTlasUpdateMode = UpdateMode::Rebuild;   ///< How the TLAS should be updated when there are changes in the scene.
         UpdateMode mBlasUpdateMode = UpdateMode::Refit;     ///< How the BLAS should be updated when there are changes to meshes.
 
