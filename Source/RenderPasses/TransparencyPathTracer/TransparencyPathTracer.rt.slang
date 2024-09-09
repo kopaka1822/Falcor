@@ -161,7 +161,7 @@ float traceShadowRay(float3 origin, float3 dir, float distance)
 
     ShadowRayData rayData = ShadowRayData();
     rayData.visibility = 1.0;
-    uint flags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
+    uint flags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE;
     TraceRay(gScene.rtAccel, flags, 0xff /* instanceInclusionMask */, 1 /* hitIdx */, rayTypeCount, 1 /* missIdx */, ray, rayData);
 
     return rayData.visibility;

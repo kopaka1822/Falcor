@@ -193,7 +193,7 @@ void TransparencyPathTracer::setScene(RenderContext* pRenderContext, const ref<S
 
     if (mpScene)
     {
-        mpScene->setRtAsForceGeometryFlag(RtGeometryFlags::NoDuplicateAnyHitInvocation); //Force the NoDublicateAnyHitInvocation flag for this pass
+        mpScene->setRtASAdditionalGeometryFlag(RtGeometryFlags::NoDuplicateAnyHitInvocation); //Add the NoDublicateAnyHitInvocation flag to this pass
 
         if (pScene->hasGeometryType(Scene::GeometryType::Custom))
         {
