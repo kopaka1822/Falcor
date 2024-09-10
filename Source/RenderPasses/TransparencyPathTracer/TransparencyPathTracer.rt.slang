@@ -303,12 +303,9 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     AnalyticLightSample ls = sampleLightIndex(sd.posW, lightCount, sg, lightIndex, invPdf);
 
     // Reject sample if not in the hemisphere of a BSDF lobe.
-    const uint lobeTypes = mi.getLobeTypes(sd);
-    const bool hasReflection = lobeTypes & uint(LobeType::Reflection);
-    const bool hasTransmission = lobeTypes & uint(LobeType::Transmission);
     float NdotL = dot(sd.getOrientedFaceNormal(), ls.dir);
-    if ((NdotL <= kMinCosTheta && !hasTransmission) || (NdotL >= -kMinCosTheta && !hasReflection))
-        return float3(0.f);
+    bool flipLightDir = (NdotL < kMinCosTheta) && (sd.opacity < 1);
+    float3 lightDirection = flipLightDir  ? -ls.dir : ls.dir;
 
     // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
     const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
@@ -318,7 +315,7 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     //if (shadow <= 0) return float3(0.f);
 
     // Evaluate contribution.
-    return mi.eval(sd, ls.dir, sg) * ls.Li * invPdf * shadow;
+    return mi.eval(sd, lightDirection, sg) * ls.Li * invPdf * shadow;
 }
 
 /** Generate a new scatter ray or terminate.
