@@ -37,6 +37,7 @@ import Utils.Color.ColorHelpers;
 
 #define NRD_METHOD_RELAX_DIFFUSE_SPECULAR 0
 #define NRD_METHOD_REBLUR_DIFFUSE_SPECULAR 1
+#define NRD_METHOD_REBLUR_DIFFUSE_OCCLUSION 2
 
 cbuffer PerImageCB
 {
@@ -48,6 +49,8 @@ cbuffer PerImageCB
 
     RWTexture2D<float4> gDiffuseRadianceHitDist;
     RWTexture2D<float4> gSpecularRadianceHitDist;
+    RWTexture2D<float> gDiffuseHitDist;
+    RWTexture2D<float> gSpecularHitDist;
 };
 
 void clampRadiance(inout float3 diffuseRadiance, inout float3 specularRadiance)

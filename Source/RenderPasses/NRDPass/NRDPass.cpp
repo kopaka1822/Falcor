@@ -39,11 +39,14 @@ namespace
     // Input buffer names.
     const char kInputDiffuseRadianceHitDist[] = "diffuseRadianceHitDist";
     const char kInputSpecularRadianceHitDist[] = "specularRadianceHitDist";
+    const char kInputPenumbra[] = "penumbra";
+    const char kInputDiffuseHitDist[] = "diffuseHitDist";
     const char kInputSpecularHitDist[] = "specularHitDist";
     const char kInputMotionVectors[] = "mvec";
     const char kInputNormalRoughnessMaterialID[] = "normWRoughnessMaterialID";
     const char kInputViewZ[] = "viewZ";
-    const char kInputPenumbra[] = "penumbra";
+
+    //TODO remove unused
     const char kInputDeltaPrimaryPosW[] = "deltaPrimaryPosW";
     const char kInputDeltaSecondaryPosW[] = "deltaSecondaryPosW";
 
@@ -51,6 +54,8 @@ namespace
     const char kOutputFilteredDiffuseRadianceHitDist[] = "filteredDiffuseRadianceHitDist";
     const char kOutputFilteredSpecularRadianceHitDist[] = "filteredSpecularRadianceHitDist";
     const char kOutputFilteredShadow[] = "outFilteredShadow";
+    const char kOutputFilteredDiffuseOcclusion[] = "filteredDiffuseOcclusion";
+    const char kOutputFilteredSpecularOcclusion[] = "filteredSpecularOcclusion";
     const char kOutputReflectionMotionVectors[] = "reflectionMvec";
     const char kOutputDeltaMotionVectors[] = "deltaMvec";
     const char kOutputValidation[] = "outValidation";
@@ -123,6 +128,13 @@ NRDPass::NRDPass(ref<Device> pDevice, const Properties& props)
     definesReblur.add("GROUP_Y", "16"); 
     mpPackRadiancePassReblur = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesReblur);
 
+    DefineList definesReblurDiffuseOcclusion;
+    definesReblurDiffuseOcclusion.add("NRD_NORMAL_ENCODING", kNormalEncoding);
+    definesReblurDiffuseOcclusion.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
+    definesReblurDiffuseOcclusion.add("NRD_METHOD", "2"); // NRD_METHOD_REBLUR_DIFFUSE_OCCLUSION
+    definesReblurDiffuseOcclusion.add("GROUP_X", "16");
+    definesReblurDiffuseOcclusion.add("GROUP_Y", "16");
+    mpPackHitDistOcclusionDiffuse = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesReblurDiffuseOcclusion);
     // Override some defaults coming from the NRD SDK.
     
     mRelaxSettings.antilagSettings.accelerationAmount = 0.3f;
@@ -262,37 +274,42 @@ RenderPassReflection NRDPass::reflect(const CompileData& compileData)
 
     const uint2 sz = RenderPassHelpers::calculateIOSize(mOutputSizeSelection, mScreenSize, compileData.defaultTexDims);
 
-    if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular ||
-        mDenoisingMethod == DenoisingMethod::Sigma)
-    {
-        reflector.addInput(kInputDiffuseRadianceHitDist, "Diffuse radiance and hit distance").flags(RenderPassReflection::Field::Flags::Optional);
-        reflector.addInput(kInputSpecularRadianceHitDist, "Specular radiance and hit distance").flags(RenderPassReflection::Field::Flags::Optional);
-        reflector.addInput(kInputViewZ, "View Z");
-        reflector.addInput(kInputNormalRoughnessMaterialID, "World normal, roughness, and material ID");
-        reflector.addInput(kInputMotionVectors, "Motion vectors");
-        reflector.addInput(kInputPenumbra, "Penumbra").flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addInput(kInputDiffuseRadianceHitDist, "Diffuse radiance and hit distance").flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addInput(kInputSpecularRadianceHitDist, "Specular radiance and hit distance").flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addInput(kInputPenumbra, "Penumbra").flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addInput(kInputDiffuseHitDist, "DiffuseHitDist").flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addInput(kInputSpecularHitDist, "SpecularHitDist").flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addInput(kInputViewZ, "View Z");
+    reflector.addInput(kInputNormalRoughnessMaterialID, "World normal, roughness, and material ID");
+    reflector.addInput(kInputMotionVectors, "Motion vectors");
+   
 
-        reflector.addOutput(kOutputFilteredDiffuseRadianceHitDist, "Filtered diffuse radiance and hit distance")
-            .format(ResourceFormat::RGBA16Float)
-            .texture2D(sz.x, sz.y)
-            .flags(RenderPassReflection::Field::Flags::Optional);
-        reflector.addOutput(kOutputFilteredSpecularRadianceHitDist, "Filtered specular radiance and hit distance")
-            .format(ResourceFormat::RGBA16Float)
-            .texture2D(sz.x, sz.y)
-            .flags(RenderPassReflection::Field::Flags::Optional);
-        reflector.addOutput(kOutputFilteredShadow, "Filtered shadow")
-            .format(ResourceFormat::RGBA8Unorm)
-            .texture2D(sz.x, sz.y)
-            .flags(RenderPassReflection::Field::Flags::Optional);
-        reflector.addOutput(kOutputValidation, "Validation Layer for debug purposes")
-            .format(ResourceFormat::RGBA32Float)
-            .texture2D(sz.x, sz.y)
-            .flags(RenderPassReflection::Field::Flags::Optional);
-    }
-    else
-    {
-        FALCOR_UNREACHABLE();
-    }
+    reflector.addOutput(kOutputFilteredDiffuseRadianceHitDist, "(Normal)Diffuse radiance")
+        .format(ResourceFormat::RGBA16Float)
+        .texture2D(sz.x, sz.y)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addOutput(kOutputFilteredSpecularRadianceHitDist, "(Normal)Specular radiance")
+        .format(ResourceFormat::RGBA16Float)
+        .texture2D(sz.x, sz.y)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addOutput(kOutputFilteredShadow, "(Sigma)Filtered shadow")
+        .format(ResourceFormat::RGBA8Unorm)
+        .texture2D(sz.x, sz.y)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addOutput(kOutputFilteredDiffuseOcclusion, "(Occlusion) Diffuse")
+        .format(ResourceFormat::R16Float)
+        .texture2D(sz.x, sz.y)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addOutput(kOutputFilteredSpecularOcclusion, "(Occlusion) Specular")
+        .format(ResourceFormat::R16Float)
+        .texture2D(sz.x, sz.y)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addOutput(kOutputValidation, "Validation Layer for debug purposes")
+        .format(ResourceFormat::RGBA32Float)
+        .texture2D(sz.x, sz.y)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+    
+   
 
     return reflector;
 }
@@ -333,6 +350,11 @@ void NRDPass::execute(RenderContext* pRenderContext, const RenderData& renderDat
         {
             pRenderContext->clearTexture(renderData.getTexture(kOutputFilteredShadow).get(), float4(1, 1, 1, 1));
         }
+        if (mDenoisingMethod == DenoisingMethod::ReblurOcclusionDiffuse)
+        {
+            pRenderContext->blit(renderData.getTexture(kInputDiffuseHitDist)->getSRV(),renderData.getTexture(kOutputFilteredDiffuseOcclusion)->getRTV());
+        }
+            
     }
 
     //Update dict flag if options changed
@@ -386,6 +408,7 @@ void NRDPass::renderUI(Gui::Widgets& widget)
     widget.text("Pack radiance:");
     widget.var("Max intensity", mMaxIntensity, 0.f, 100000.f, 1.f, false, "%.0f");
 
+    //TODO make this more save as some inputs are probably not set
     mRecreateDenoiser = widget.dropdown("Denoising method", mDenoisingMethod);
 
     if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular)
@@ -475,7 +498,7 @@ void NRDPass::renderUI(Gui::Widgets& widget)
             group.checkbox("Material test for specular", mRelaxSettings.enableMaterialTestForSpecular);
         }
     }
-    else if (mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
+    else if (mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurOcclusionDiffuse)
     {
         if (auto group = widget.group("ReBLUR Diffuse/Specular"))
         {
@@ -498,7 +521,7 @@ void NRDPass::renderUI(Gui::Widgets& widget)
                     "(<= 0) - absolute value should be big enough to collapse \" exp2(D * roughness ^ 2) \" to \" ~0 \" for roughness = 1"
                 );
             }
-
+        
             if (auto group2 = group.group("Antilag settings"))
             {
                 group2.var("Luminance Sigma Scale", mReblurSettings.antilagSettings.luminanceSigmaScale, 1.0f, 3.0f, 0.01f, false, "%.2f");
@@ -663,6 +686,8 @@ static nrd::Denoiser getNrdDenoiser(NRDPass::DenoisingMethod denoisingMethod)
         return nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR;
     case NRDPass::DenoisingMethod::Sigma:
         return nrd::Denoiser::SIGMA_SHADOW;
+    case NRDPass::DenoisingMethod::ReblurOcclusionDiffuse:
+        return nrd::Denoiser::REBLUR_DIFFUSE_OCCLUSION;
     default:
         FALCOR_UNREACHABLE();
         return nrd::Denoiser::RELAX_DIFFUSE_SPECULAR;
@@ -924,6 +949,21 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
             *mpInstance, nrd::Identifier(nrd::Denoiser::SIGMA_SHADOW), static_cast<void*>(&mSigmaSettings)
         );
     }
+    else if (mDenoisingMethod == DenoisingMethod::ReblurOcclusionDiffuse)
+    {
+        FALCOR_PROFILE(pRenderContext, "PackHitDist");
+        auto perImageCB = mpPackRadiancePassReblur->getRootVar()["PerImageCB"];
+
+        perImageCB["gHitDistParams"].setBlob(mReblurSettings.hitDistanceParameters);
+        perImageCB["gDiffuseHitDist"] = renderData.getTexture(kInputDiffuseHitDist);
+        perImageCB["gNormalRoughness"] = renderData.getTexture(kInputNormalRoughnessMaterialID);
+        perImageCB["gViewZ"] = renderData.getTexture(kInputViewZ);
+        mpPackRadiancePassReblur->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
+
+        nrd::SetDenoiserSettings(
+            *mpInstance, nrd::Identifier(getNrdDenoiser(mDenoisingMethod)), static_cast<void*>(&mReblurSettings)
+        );
+    }
     else
     {
         FALCOR_UNREACHABLE();
@@ -1043,9 +1083,6 @@ void NRDPass::dispatch(RenderContext* pRenderContext, const RenderData& renderDa
             case nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST:
                 texture = renderData.getTexture(kInputSpecularRadianceHitDist);
                 break;
-            case nrd::ResourceType::IN_SPEC_HITDIST:
-                texture = renderData.getTexture(kInputSpecularHitDist);
-                break;
             case nrd::ResourceType::IN_DELTA_PRIMARY_POS:
                 texture = renderData.getTexture(kInputDeltaPrimaryPosW);
                 break;
@@ -1063,6 +1100,18 @@ void NRDPass::dispatch(RenderContext* pRenderContext, const RenderData& renderDa
                 break;
             case nrd::ResourceType::OUT_SHADOW_TRANSLUCENCY:
                 texture = renderData.getTexture(kOutputFilteredShadow);
+                break;
+            case nrd::ResourceType::IN_DIFF_HITDIST:
+                texture = renderData.getTexture(kInputDiffuseHitDist);
+                break;
+            case nrd::ResourceType::OUT_DIFF_HITDIST:
+                texture = renderData.getTexture(kOutputFilteredDiffuseOcclusion);
+                break;
+            case nrd::ResourceType::IN_SPEC_HITDIST:
+                texture = renderData.getTexture(kInputSpecularHitDist);
+                break;
+            case nrd::ResourceType::OUT_SPEC_HITDIST:
+                texture = renderData.getTexture(kOutputFilteredSpecularOcclusion);
                 break;
             case nrd::ResourceType::OUT_VALIDATION:
                 texture = renderData.getTexture(kOutputValidation);

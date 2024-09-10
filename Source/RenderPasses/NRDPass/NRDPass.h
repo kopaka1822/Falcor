@@ -48,12 +48,14 @@ public:
         RelaxDiffuseSpecular,
         ReblurDiffuseSpecular,
         Sigma,
+        ReblurOcclusionDiffuse,
     };
 
     FALCOR_ENUM_INFO(DenoisingMethod, {
         { DenoisingMethod::RelaxDiffuseSpecular, "RelaxDiffuseSpecular" },
         { DenoisingMethod::ReblurDiffuseSpecular, "ReblurDiffuseSpecular" },
         {DenoisingMethod::Sigma, "Sigma"},
+        {DenoisingMethod::ReblurOcclusionDiffuse, "ReblurOcclusionDiffuse"},
     });
 
     //Copy of the NRD enum, as it uses uint8 and Falcor GUI uses uint32
@@ -134,6 +136,7 @@ private:
     // Additional classic Falcor compute pass and resources for packing radiance and hitT for NRD.
     ref<ComputePass> mpPackRadiancePassRelax;
     ref<ComputePass> mpPackRadiancePassReblur;
+    ref<ComputePass> mpPackHitDistOcclusionDiffuse;
 };
 
 FALCOR_ENUM_REGISTER(NRDPass::DenoisingMethod);
