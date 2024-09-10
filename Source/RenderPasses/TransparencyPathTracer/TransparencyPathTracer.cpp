@@ -126,6 +126,7 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     mTracer.pProgram->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_LIGHT", mpScene->useEnvLight() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
+    mTracer.pProgram->addDefine("LIGHT_SAMPLE_MODE", std::to_string((uint)mLightSampleMode));
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     mTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));
@@ -164,6 +165,13 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
 void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
 {
     bool dirty = false;
+
+    dirty |= widget.dropdown("Light Sample Mode", mLightSampleMode);
+    widget.tooltip(
+        "Changes light sample mode.\n"
+        "RIS: Loops through all lights and resamples them. Recommended if there multiple lights that have not many overlaps \n"
+        "Uniform: Randomly samples a light."
+    );
 
     dirty |= widget.var("Max bounces", mMaxBounces, 0u, 1u << 16);
     widget.tooltip("Maximum path length for indirect illumination.\n0 = direct only\n1 = one indirect bounce etc.", true);

@@ -34,6 +34,8 @@ import Utils.Math.MathHelpers;
 import Utils.Geometry.GeometryHelpers;
 import Utils.Sampling.SampleGenerator;
 import Rendering.Lights.LightHelpers;
+import Utils.Color.ColorHelpers;
+import SharedTypes;
 
 cbuffer CB
 {
@@ -60,6 +62,7 @@ static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
 static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const float kRayTMax = FLT_MAX;
 static const float kAlphaTMinOffset = 1e-7;
+static const uint kLightSampleMode = LIGHT_SAMPLE_MODE;
 
 /** Payload for shadow ray. (4B)
 */
@@ -113,6 +116,43 @@ struct PathData
     }
 };
 
+// For RIS light sampling
+struct RISReservoir {
+    uint lightIdx; // Light Index
+    float wSum;    // Weight and Weight sum
+    // uint M;         //Unused, as all possible Samples are seen
+
+    /** Initializes ray payload with default parameters.
+     */
+    __init() {
+        lightIdx = 0;
+        wSum = 0.0;
+        // M = 0;
+    }
+
+    [mutating] bool update(uint index, float risWeight, float rnd) {
+        wSum += risWeight;
+        // M += 1;
+        bool selectSample = (rnd * wSum < risWeight);
+        if (selectSample) {
+            lightIdx = index;
+        }
+        return selectSample;
+    }
+
+    [mutating] void finalize(float targetFunction) {
+        /* //When not looping through all lights
+        if(targetFunction > 0 && M > 0){
+            wSum = (1.0 / targetFunction) * ((1.0/M) * wSum);
+            r.M = 1;
+        */
+        if (targetFunction > 0) {
+            wSum = wSum / targetFunction;
+        } else {
+            wSum = 0;
+        }
+    }
+};
 
 /** Setup ShadingData based on loaded vertex/material attributes for a hit point.
     \param[in] hit Hit information.
@@ -185,6 +225,49 @@ void traceAlphaRay(inout PathData pathData, inout TransparencyRayData rayData) {
     TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 }
 
+/** Samples a light index either uniform or with RIS (Good if a couple lights are used that dont overlap each other)
+ */
+AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout SampleGenerator sg, out uint lightIndex, out float invPdf) {
+    AnalyticLightSample ls = {};
+    if (kLightSampleMode == (uint)TPTLightSampleMode::Uniform) {
+        float lightSelect = 0.0;
+        lightSelect = sampleNext1D(sg);
+
+        // Pick one of the analytic light sources randomly with equal probability.
+        lightIndex = min(uint(lightSelect * lightCount), lightCount - 1);
+        invPdf = lightCount; // Light selection pdf = 1.0 / lightCount.
+
+        // Sample local light source.
+        LightData lightData = gScene.getLight(lightIndex);
+        sampleLight(posW, lightData, sg, ls);
+    } else if (kLightSampleMode == (uint)TPTLightSampleMode::RIS) {
+        RISReservoir r = RISReservoir();
+        LightData selectedLightData = {};
+        // Loop through all lights
+        for (uint i = 0; i < lightCount; i++) {
+            float randomNum = i == 0 ? 0.5 : sampleNext1D(sg); // Random number
+            LightData lightData = gScene.getLight(i);
+            AnalyticLightSample itLs;
+            sampleLight(posW, lightData, sg, itLs);
+            float w = luminance(itLs.Li); // Take the Light attenuation as weight
+            if (r.update(i, w, randomNum)) {
+                ls = itLs;
+                selectedLightData = lightData;
+            }
+        }
+        r.finalize(luminance(ls.Li)); // targetFunction
+        // Out data
+        lightIndex = r.lightIdx;
+        invPdf = r.wSum; // W
+    }
+    else { // Invalid type
+        lightIndex = 0;
+        invPdf = -1.0;
+    }
+
+    return ls;
+}
+
 /** Evaluates the direct illumination from analytic lights.
     This function samples Falcor's light list uniformly with one shadow ray.
     \param[in] sd Shading data.
@@ -198,12 +281,11 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     if (lightCount == 0) return float3(0.f);
 
     // Pick one of the analytic light sources randomly with equal probability.
-    const uint lightIndex = min(uint(sampleNext1D(sg) * lightCount), lightCount - 1);
-    float invPdf = lightCount; // Light selection pdf = 1.0 / lightCount.
+    uint lightIndex = 0;
+    float invPdf = 1.0;
 
     // Sample local light source.
-    AnalyticLightSample ls;
-    if (!sampleLight(sd.posW, gScene.getLight(lightIndex), sg, ls)) return float3(0.f);
+    AnalyticLightSample ls = sampleLightIndex(sd.posW, lightCount, sg, lightIndex, invPdf);
 
     // Reject sample if not in the hemisphere of a BSDF lobe.
     const uint lobeTypes = mi.getLobeTypes(sd);
@@ -376,7 +458,6 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         
         // Store contribution from scatter ray.
         outColor += pd.radiance;
-        //outColor = opacity;
     }
     else
     {

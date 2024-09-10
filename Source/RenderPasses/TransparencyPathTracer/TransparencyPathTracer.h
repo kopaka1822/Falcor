@@ -28,6 +28,7 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include "SharedTypes.slang"
 
 using namespace Falcor;
 
@@ -60,6 +61,7 @@ private:
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
 
      // Configuration
+    TPTLightSampleMode mLightSampleMode = TPTLightSampleMode::RIS;
     uint mMaxBounces = 0;               ///< Max number of indirect bounces (0 = none).
     uint mMaxAlphaTestPerBounce = 32;   ///< Max number of allowed alpha tests per bounce
     bool mComputeDirect = true;         ///< Compute direct illumination (otherwise indirect only).
