@@ -66,6 +66,8 @@ private:
     uint mMaxAlphaTestPerBounce = 32;   ///< Max number of allowed alpha tests per bounce
     bool mComputeDirect = true;         ///< Compute direct illumination (otherwise indirect only).
     bool mUseImportanceSampling = true; ///< Use importance sampling for materials.
+    bool mUseRussianRoulettePath = false;   ///< Russian Roulett to abort the path early
+    bool mUseRussianRouletteForAlpha = false; ///< Use Russian Roulette for transparent materials
 
      // Runtime data
     uint mFrameCount = 0; ///< Frame count since scene was loaded.

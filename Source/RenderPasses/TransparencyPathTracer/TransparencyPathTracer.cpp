@@ -127,6 +127,8 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     mTracer.pProgram->addDefine("USE_ENV_LIGHT", mpScene->useEnvLight() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
     mTracer.pProgram->addDefine("LIGHT_SAMPLE_MODE", std::to_string((uint)mLightSampleMode));
+    mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE_FOR_ALPHA", mUseRussianRouletteForAlpha ? "1" : "0");
+    mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE_PATH", mUseRussianRoulettePath ? "1" : "0");
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     mTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));
@@ -178,6 +180,12 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
 
     dirty |= widget.var("Max Alpha Test bounces", mMaxAlphaTestPerBounce ,0u, 64u);
     widget.tooltip("Maximum number of alpha test bounces allowed", true);
+
+    dirty |= widget.checkbox("Russian Roulette Path", mUseRussianRoulettePath);
+    widget.tooltip("Russian Roulette for the path. Is used at the end of every bounce (after all alpha tests)");
+
+    dirty |= widget.checkbox("Russian Roulette Transparency", mUseRussianRouletteForAlpha);
+    widget.tooltip("Use Russian Roulette to abort alpha tested paths early (before reaching transparency == 0)");
 
     dirty |= widget.checkbox("Evaluate direct illumination", mComputeDirect);
     widget.tooltip("Compute direct illumination.\nIf disabled only indirect is computed (when max bounces > 0).", true);

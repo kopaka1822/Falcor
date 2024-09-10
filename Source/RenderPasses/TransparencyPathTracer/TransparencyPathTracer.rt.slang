@@ -63,6 +63,8 @@ static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const float kRayTMax = FLT_MAX;
 static const float kAlphaTMinOffset = 1e-7;
 static const uint kLightSampleMode = LIGHT_SAMPLE_MODE;
+static const bool kUseAlphaRussianRoulette = USE_RUSSIAN_ROULETTE_FOR_ALPHA;
+static const bool kUsePathRussianRoulette = USE_RUSSIAN_ROULETTE_PATH;
 
 /** Payload for shadow ray. (4B)
 */
@@ -96,7 +98,8 @@ struct PathData
     bool    terminated;     ///< Set to true when path is terminated.
     float3  thp;            ///< Current path throughput. This is updated at each path vertex.
     uint    pathLength;     ///< Path length in number of path segments (0 at origin, 1 at first secondary hit, etc.). Max 2^31.
-    float3  origin;         ///< Next path segment origin.
+    float3 origin;          ///< Next path segment origin.
+    float rayTransparency;  ///< Full transparency for the ray
     float3 direction;       ///< Next path segment direction.
     float alphaDist;        ///< Distance when the alpha ray should start
 
@@ -188,6 +191,18 @@ float3 getPrimaryRayDir(uint2 launchIndex, uint2 launchDim, const Camera camera)
         // sample generator between the passes, which is error prone. The host side will issue a warning instead.
         return camera.computeRayPinhole(launchIndex, launchDim).dir;
     }
+}
+
+/** Russian Roulette function that can abort a path early
+    Return "true" if the path should be aborted (absorbed)
+*/
+bool russianRoulette(float prob, inout float3 thp, inout SampleGenerator sg) {
+    float rnd = sampleNext1D(sg);
+    bool rr = rnd > prob;
+    if (!rr) {
+        thp /= prob;
+    }
+    return rr;
 }
 
 /** Traces a shadow ray towards a light source.
@@ -385,6 +400,15 @@ bool resolveAlpha(const in TransparencyRayData alphaRay, inout PathData pd, out 
 
     bool needAlphaTest = generateAlphaResolveRay(sd, pd, alphaRay.dist);
 
+    // Update THP (and use Russian Roulette to abort early)
+    float transparency = (1.0 - opacity);
+    pd.thp *= transparency; // Update THP
+    if (kUseAlphaRussianRoulette) { // Russian Roulette
+        pd.rayTransparency *= (1.0 - opacity);
+        if (russianRoulette(pd.rayTransparency, pd.thp, pd.sg))
+            needAlphaTest = false;
+    }
+
     //Valid hit
     if (!needAlphaTest)
         pd.pathLength++;
@@ -433,27 +457,42 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
             outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, pd.sg) * sd.opacity : float3(0.f);
         }
 
-        // Handle alpha
+        //Handle alpha for the first hit
         float distToPoint = distance(pd.origin, sd.computeNewRayOrigin(false));
         bool needAlphaTest = generateAlphaResolveRay(sd, pd, distToPoint);
         float opacity = sd.opacity;
         uint depth = 0;
+        if (needAlphaTest) {
+            float transparency = (1.0 - opacity);
+            pd.thp *= transparency;
+            if (kUseAlphaRussianRoulette)
+                needAlphaTest = !russianRoulette(transparency, pd.thp, pd.sg);
+        }
+
         if ((kMaxBounces > 0) && !needAlphaTest) {
             opacity = 0.0;
             pd.terminated = !generateScatterRay(sd, mi, pd);
+            needAlphaTest = true;
             depth++;
         }
-        for (depth; depth <= kMaxBounces && !pd.terminated; depth++) {
-            //Alpha Test
-            for (uint alphaDepth = 0; (alphaDepth < kMaxAlphaBounces) && needAlphaTest; alphaDepth++) {
-                // Update thp
-                pd.thp *= (1.0 - opacity);
+
+        for (depth; (depth <= kMaxBounces) && !pd.terminated; ++depth) {
+            // Alpha Test
+            pd.rayTransparency = (1.0 - opacity);
+            for (uint alphaDepth = 0; (alphaDepth < kMaxAlphaBounces) && needAlphaTest; alphaDepth++) {                
                 TransparencyRayData alphaRay = TransparencyRayData();
                 traceAlphaRay(pd, alphaRay);
                 needAlphaTest = resolveAlpha(alphaRay, pd, opacity);
             }
             needAlphaTest = true;
             opacity = 0;
+            // Path russian roulette
+            if (kUsePathRussianRoulette && depth > 0) {
+                const float rrVal = luminance(pd.thp);
+                if (russianRoulette(rrVal, pd.thp, pd.sg))
+                    pd.terminated = true;
+            }
+
         }
         
         // Store contribution from scatter ray.
