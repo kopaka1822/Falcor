@@ -59,6 +59,7 @@ static const bool kUseEnvLight = USE_ENV_LIGHT;
 static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
 static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const float kRayTMax = FLT_MAX;
+static const float kAlphaTMinOffset = 1e-7;
 
 /** Payload for shadow ray. (4B)
 */
@@ -75,10 +76,12 @@ struct ShadowRayData
 */
 struct TransparencyRayData {
     PackedHitInfo hit; //< Packed Hit
+    float dist;
 
     __init()
     {
         hit = {}; // Init emtpy
+        dist = -1.0;
     }
 }
 
@@ -91,7 +94,8 @@ struct PathData
     float3  thp;            ///< Current path throughput. This is updated at each path vertex.
     uint    pathLength;     ///< Path length in number of path segments (0 at origin, 1 at first secondary hit, etc.). Max 2^31.
     float3  origin;         ///< Next path segment origin.
-    float3  direction;      ///< Next path segment direction.
+    float3 direction;       ///< Next path segment direction.
+    float alphaDist;        ///< Distance when the alpha ray should start
 
     SampleGenerator sg;     ///< Per-ray state for the sample generator (up to 16B).
 
@@ -105,6 +109,7 @@ struct PathData
         this.thp = float3(1, 1, 1);
         this.origin = float3(0, 0, 0);
         this.direction = float3(0, 0, 0);
+        this.alphaDist = 0.0;
     }
 };
 
@@ -173,7 +178,7 @@ void traceAlphaRay(inout PathData pathData, inout TransparencyRayData rayData) {
     RayDesc ray;
     ray.Origin = pathData.origin;
     ray.Direction = pathData.direction;
-    ray.TMin = 0.00001f;
+    ray.TMin = pathData.alphaDist + kAlphaTMinOffset;
     ray.TMax = kRayTMax;
 
     uint rayFlags = 0;
@@ -236,6 +241,7 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, inout 
         pd.origin = sd.computeNewRayOrigin(!isTransmission);
         pd.direction = bsdfSample.wo;
         pd.thp *= bsdfSample.weight;
+        pd.alphaDist = 0.0;
         return any(pd.thp > 0.f);
     }
 
@@ -247,18 +253,19 @@ bool generateScatterRay(const ShadingData sd, const IMaterialInstance mi, inout 
     \param[in,out] paht data.
     \return True if an alpha ray should be distributed
 */
-bool generateAlphaResolveRay(const ShadingData sd, inout PathData pd){
+bool generateAlphaResolveRay(const ShadingData sd, inout PathData pd, float startDist){
     if (sd.opacity < 1) {
-        pd.origin = sd.computeNewRayOrigin(false);
+        pd.alphaDist = startDist;
         return true;
     }
     return false;
 }
 
-bool resolveAlpha(const HitInfo hit, inout PathData pd, out float opacity) {
+bool resolveAlpha(const in TransparencyRayData alphaRay, inout PathData pd, out float opacity) {
     opacity = 1.0;
+    const HitInfo hit = HitInfo(alphaRay.hit);
     // Miss
-    if (!hit.isValid()) {
+    if (!hit.isValid() || alphaRay.dist < 0) {
         // Ray missed the scene. Mark the ray as terminated.
         pd.terminated = true;
 
@@ -294,14 +301,14 @@ bool resolveAlpha(const HitInfo hit, inout PathData pd, out float opacity) {
         pd.radiance += pd.thp * Lr * opacity;
     }
 
-    bool needAlphaTest = generateAlphaResolveRay(sd, pd);
+    bool needAlphaTest = generateAlphaResolveRay(sd, pd, alphaRay.dist);
 
     //Valid hit
     if (!needAlphaTest)
         pd.pathLength++;
 
     //Generate scatter ray for next hit
-    if (!needAlphaTest) {
+    if (!needAlphaTest && (pd.pathLength < kMaxBounces)) {
         pd.terminated = !generateScatterRay(sd, mi, pd);
     }
 
@@ -317,6 +324,7 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
     // Prepare ray payload.
     PathData pd = PathData();
 
+    pd.origin = gScene.camera.getPosition();
     pd.direction = normalize(getPrimaryRayDir(pixel, frameDim, gScene.camera));
 
     const HitInfo hit = HitInfo(gVBuffer[pixel]);
@@ -329,7 +337,6 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         let lod = ExplicitLodTextureSampler(0.f);
         // Load shading data.
         ShadingData sd = loadShadingData(hit, pd.direction, lod);
-        pd.origin = sd.posW;
         // Create material instance at shading point.
 
         let mi = gScene.materials.getMaterialInstance(sd, lod);
@@ -345,21 +352,23 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         }
 
         // Handle alpha
-        bool needAlphaTest = generateAlphaResolveRay(sd, pd);
+        float distToPoint = distance(pd.origin, sd.computeNewRayOrigin(false));
+        bool needAlphaTest = generateAlphaResolveRay(sd, pd, distToPoint);
         float opacity = sd.opacity;
-        if (!needAlphaTest) {
+        uint depth = 0;
+        if ((kMaxBounces > 0) && !needAlphaTest) {
             opacity = 0.0;
             pd.terminated = !generateScatterRay(sd, mi, pd);
+            depth++;
         }
-        for (uint depth = 0; depth <= kMaxBounces && !pd.terminated; depth++) {
+        for (depth; depth <= kMaxBounces && !pd.terminated; depth++) {
             //Alpha Test
-            for (uint alphaDepth = 0; alphaDepth < kMaxAlphaBounces && needAlphaTest; alphaDepth++) {
+            for (uint alphaDepth = 0; (alphaDepth < kMaxAlphaBounces) && needAlphaTest; alphaDepth++) {
                 // Update thp
                 pd.thp *= (1.0 - opacity);
                 TransparencyRayData alphaRay = TransparencyRayData();
                 traceAlphaRay(pd, alphaRay);
-                //
-                needAlphaTest = resolveAlpha(HitInfo(alphaRay.hit), pd, opacity);
+                needAlphaTest = resolveAlpha(alphaRay, pd, opacity);
             }
             needAlphaTest = true;
             opacity = 0;
@@ -367,6 +376,7 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         
         // Store contribution from scatter ray.
         outColor += pd.radiance;
+        //outColor = opacity;
     }
     else
     {
@@ -414,6 +424,7 @@ void alphaClosestHit(inout TransparencyRayData rayData, BuiltInTriangleIntersect
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics = attribs.barycentrics;
     rayData.hit = HitInfo(triangleHit).getData();
+    rayData.dist = RayTCurrent();
 }
 
 [shader("anyhit")]

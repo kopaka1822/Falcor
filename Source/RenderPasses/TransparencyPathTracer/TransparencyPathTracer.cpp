@@ -41,7 +41,7 @@ namespace
     const std::string kShaderFile = kShaderFolder + "TransparencyPathTracer.rt.slang";
 
     //RT shader constant settings
-    const uint32_t kMaxPayloadSizeBytes = 16u;
+    const uint32_t kMaxPayloadSizeBytes = 20u;
     const uint32_t kMaxRecursionDepth = 1u;
 
     const ChannelList kInputChannels = {
