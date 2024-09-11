@@ -51,7 +51,20 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
+    struct LightMVP
+    {
+        float3   pos = float3(0);
+        uint     _pad = 0;
+        float4x4 view = float4x4();
+        float4x4 projection = float4x4();
+        float4x4 viewProjection = float4x4();
+        float4x4 invViewProjection = float4x4();
 
+        void calculate(ref<Light> light, float2 nearFar);
+    };
+
+
+    void generateAVSM(RenderContext* pRenderCotext, const RenderData& renderData);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void prepareVars();
 
@@ -60,7 +73,7 @@ private:
     ref<Scene> mpScene;                     ///< Current scene.
     ref<SampleGenerator> mpSampleGenerator; ///< GPU sample generator.
 
-     // Configuration
+    // Configuration Tracer
     TPTLightSampleMode mLightSampleMode = TPTLightSampleMode::RIS;
     uint mMaxBounces = 0;               ///< Max number of indirect bounces (0 = none).
     uint mMaxAlphaTestPerBounce = 32;   ///< Max number of allowed alpha tests per bounce
@@ -69,15 +82,30 @@ private:
     bool mUseRussianRoulettePath = false;   ///< Russian Roulett to abort the path early
     bool mUseRussianRouletteForAlpha = false; ///< Use Russian Roulette for transparent materials
 
-     // Runtime data
+    // Runtime data Tracer
     uint mFrameCount = 0; ///< Frame count since scene was loaded.
     bool mOptionsChanged = false;
 
+    //Configuration DeepSM
+    bool mUseAVSM = true;
+    uint mSMSize = 512;
+    float2 mNearFar = float2(0.01, 60.f);
+
+    //Runtime Data DeepSM
+    std::vector<LightMVP> mShadowMapMVP;
+    std::vector<ref<Texture>> mAVSM;        //AVSM function
+    std::vector<ref<Texture>> mAVSMLast;    //Last element of a AVSM
+
+     
+
     // Ray tracing program.
-    struct
+    struct RayTracingPipeline
     {
         ref<RtProgram> pProgram;
         ref<RtBindingTable> pBindingTable;
         ref<RtProgramVars> pVars;
-    } mTracer;
+    };
+
+    RayTracingPipeline mTracer;
+    RayTracingPipeline mGenVASMPip; //Volumetric Adaptive SM
 };

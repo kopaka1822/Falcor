@@ -37,14 +37,34 @@ import Rendering.Lights.LightHelpers;
 import Utils.Color.ColorHelpers;
 import SharedTypes;
 
+#ifndef COUNT_SM
+#define COUNT_SM 1
+#endif
+
 cbuffer CB
 {
     uint        gFrameCount;        // Frame count since scene was loaded.
 }
 
+cbuffer SMCB
+{
+    uint gSMSize;
+    float gNear;
+    float gFar;
+    uint _pad;
+}
+
+cbuffer ShadowVPs
+{
+    float4x4 gShadowMapVP[COUNT_SM];
+}
+
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
+
+// Optional
+Texture2D<float2> gAVSMLast[COUNT_SM];
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -65,6 +85,7 @@ static const float kAlphaTMinOffset = 1e-7;
 static const uint kLightSampleMode = LIGHT_SAMPLE_MODE;
 static const bool kUseAlphaRussianRoulette = USE_RUSSIAN_ROULETTE_FOR_ALPHA;
 static const bool kUsePathRussianRoulette = USE_RUSSIAN_ROULETTE_PATH;
+static const bool kUseAVSM= USE_AVSM;
 
 /** Payload for shadow ray. (4B)
 */
@@ -240,6 +261,28 @@ void traceAlphaRay(inout PathData pathData, inout TransparencyRayData rayData) {
     TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 }
 
+/**
+ */
+float evalAVSM(uint lightIdx, float3 posW) {
+    float4 shadowPos = mul(gShadowMapVP[lightIdx], float4(posW, 1));
+    shadowPos.xyz /= shadowPos.w;
+
+    shadowPos.y *= -1;                       // Flip
+    shadowPos.xy = shadowPos.xy * 0.5 + 0.5; // UV from [-1,1] to [0,1]
+    float lightDist = (shadowPos.w - gNear) / (gFar - gNear); //Linear distance
+
+    if (any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
+        return 0.0;
+
+    uint2 shadowPixel = uint2(shadowPos.xy * gSMSize);
+    float2 avsmLast = gAVSMLast[lightIdx][shadowPixel];
+    float shadow = 1.0;
+    if (lightDist > (avsmLast.x + 1e-3))
+        shadow = avsmLast.y;
+
+    return shadow;
+}
+
 /** Samples a light index either uniform or with RIS (Good if a couple lights are used that dont overlap each other)
  */
 AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout SampleGenerator sg, out uint lightIndex, out float invPdf) {
@@ -307,12 +350,17 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
     bool flipLightDir = (NdotL < kMinCosTheta) && (sd.opacity < 1);
     float3 lightDirection = flipLightDir  ? -ls.dir : ls.dir;
 
-    // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
-    const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
-
     // Test visibility by tracing a shadow ray.
-    float shadow = traceShadowRay(origin, ls.dir, ls.distance);
-    //if (shadow <= 0) return float3(0.f);
+    float shadow = 1.0;
+    if (kUseAVSM) {
+        shadow = evalAVSM(lightIndex, sd.posW);
+    } else {
+        // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
+        const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
+        shadow = traceShadowRay(origin, ls.dir, ls.distance);
+    }
+    
+    if (shadow <= 0) return float3(0.f);
 
     // Evaluate contribution.
     return mi.eval(sd, lightDirection, sg) * ls.Li * invPdf * shadow;

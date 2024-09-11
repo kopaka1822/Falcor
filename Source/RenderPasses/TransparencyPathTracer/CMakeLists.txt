@@ -4,6 +4,7 @@ target_sources(TransparencyPathTracer PRIVATE
     TransparencyPathTracer.cpp
     TransparencyPathTracer.h
     TransparencyPathTracer.rt.slang
+    GenAdaptiveVolumetricSM.rt.slang
     SharedTypes.slang
 )
 
