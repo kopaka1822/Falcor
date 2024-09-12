@@ -297,11 +297,11 @@ RenderPassReflection NRDPass::reflect(const CompileData& compileData)
         .texture2D(sz.x, sz.y)
         .flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(kOutputFilteredDiffuseOcclusion, "(Occlusion) Diffuse")
-        .format(ResourceFormat::R16Float)
+        .format(ResourceFormat::R8Unorm)
         .texture2D(sz.x, sz.y)
         .flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(kOutputFilteredSpecularOcclusion, "(Occlusion) Specular")
-        .format(ResourceFormat::R16Float)
+        .format(ResourceFormat::R8Unorm)
         .texture2D(sz.x, sz.y)
         .flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(kOutputValidation, "Validation Layer for debug purposes")

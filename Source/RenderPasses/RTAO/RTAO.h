@@ -66,7 +66,5 @@ private:
     uint frameIndex = 0;
 
     RTAOData mData;
-    float mMaxTHit = 1.f;
-    float mMinOcclusionCutoff = 0.4f;   //0-1
     bool mDirty = true;
 };

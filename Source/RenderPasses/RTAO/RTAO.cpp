@@ -29,6 +29,8 @@
 
 #include <random>
 
+#include "../../../external/gli/external/glm/packing.hpp"
+
 namespace
 {
     //In
@@ -37,7 +39,6 @@ namespace
 
     //Out
     const std::string kAmbient = "ambient";
-    const std::string kRayDistance = "rayDistance";
 
     const std::string kRayShader = "RenderPasses/RTAO/Ray.rt.slang";
     const uint32_t kMaxPayloadSize = 4;
@@ -67,7 +68,6 @@ RenderPassReflection RTAO::reflect(const CompileData& compileData)
     reflector.addInput(kWPos, "world position");
     reflector.addInput(kFaceNormal, "world space face normals");
     reflector.addOutput(kAmbient, "ambient map").format(ResourceFormat::R8Unorm);
-    reflector.addOutput(kRayDistance, "distance of the ambient ray").format(ResourceFormat::R16Float);
     return reflector;
 }
 
@@ -84,7 +84,6 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pWPos = renderData[kWPos]->asTexture();
     auto pFaceNormal = renderData[kFaceNormal]->asTexture();
     auto pAmbient = renderData[kAmbient]->asTexture();
-    auto pRayDistance = renderData[kRayDistance]->asTexture();
 
     if (!mEnabled)
     {
@@ -111,7 +110,6 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         sbt->setRayGen(desc.addRayGen("rayGen"));
         sbt->setMiss(0, desc.addMiss("miss"));
         sbt->setHitGroup(0, mpScene->getGeometryIDs(GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
-        // TODO add remaining primitives
         mRayProgram = RtProgram::create(mpDevice, desc, defines);
         mRayVars = RtProgramVars::create(mpDevice, mRayProgram, sbt);
         mDirty = true;
@@ -125,20 +123,6 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     if (mDirty)
     {
-        // Calculate a theoretical max ray distance to be used in occlusion factor computation.
-        // Occlusion factor of a ray hit is computed based of its ray hit time, falloff exponent and a max ray hit time.
-        // By specifying a min occlusion factor of a ray, we can skip tracing rays that would have an occlusion 
-        // factor less than the cutoff to save a bit of performance (generally 1-10% perf win without visible AO result impact).
-        // Therefore the sample discerns between true maxRayHitTime, used in TraceRay, 
-        // and a theoretical one used in calculating the occlusion factor on a hit.
-        {
-            float lambda = mData.exponentialFalloffDecayConstant;
-            // Invert occlusionFactor = exp(-lambda * t * t), where t is tHit/tMax of a ray.
-            float t = sqrt(logf(mMinOcclusionCutoff) / -lambda);
-
-            mData.maxAORayTHit = mData.applyExponentialFalloff ? t * mMaxTHit : mMaxTHit;
-            mData.maxTheoreticalTHit = mMaxTHit;
-        }
         vars["StaticCB"].setBlob(mData);
         mDirty = false;
     }
@@ -152,7 +136,6 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     vars["gWPosTex"] = pWPos;
     vars["gFaceNormalTex"] = pFaceNormal;
     vars["ambientOut"] = pAmbient;
-    vars["rayDistanceOut"] = pRayDistance;
 
     mpScene->raytrace(pRenderContext, mRayProgram.get(), mRayVars, uint3(pAmbient->getWidth(), pAmbient->getHeight(), 1));
 }
@@ -162,18 +145,10 @@ void RTAO::renderUI(Gui::Widgets& widget)
     bool dirty = false;
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
-    dirty |= widget.var("Ray Max THit", mMaxTHit, 0.01f, FLT_MAX, 0.01f);
+    dirty |= widget.var("Radius", mData.radius, 0.01f, FLT_MAX, 0.01f);
     widget.tooltip("Max THit value. Real value is dependent on Occlusion Cutoff and Decay Constant if exponential falloff is enabled");
     dirty |= widget.var("Origin offset scale", mData.normalScale, 0.0f, FLT_MAX, 0.001f);
     widget.tooltip("Scale of how much the ray origin is offset by the face normal");
-    dirty |= widget.checkbox("Exponential falloff", mData.applyExponentialFalloff);
-    if (mData.applyExponentialFalloff) {
-        dirty |= widget.var("Occlusion Cutoff", mMinOcclusionCutoff, 0.f, 1.f, 0.01f);
-        widget.tooltip("Cutoff for occlusion. Cutts of the end of the ray, as they contribute little in exponential falloff");
-        dirty |= widget.var("Falloff decay constant", mData.exponentialFalloffDecayConstant, 0.f, 20.f, 0.1f);
-    }
-    dirty |= widget.var("min Ambient Illumination", mData.minimumAmbientIllumination, 0.0f, 1.0f, 0.001f);
-
     dirty |= widget.var("spp", mData.spp, 1u, UINT32_MAX, 1u);
     widget.tooltip("Numbers of ray per pixel. If higher than 1 a slower sample generator is used");
 
@@ -184,25 +159,6 @@ void RTAO::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
     mRayProgram.reset();
-}
-
-// helper func
-static uint packSnorm4x8(float4 v)
-{
-    union
-    {
-        signed char in[4];
-        uint out;
-    } u;
-
-    int4 result(round(clamp(v, float4(- 1.0f), float4(1.0f)) * 127.0f));
-
-    u.in[0] = static_cast<signed char>(result[0]);
-    u.in[1] = static_cast<signed char>(result[1]);
-    u.in[2] = static_cast<signed char>(result[2]);
-    u.in[3] = static_cast<signed char>(result[3]);
-    
-    return u.out;
 }
 
 ref<Texture> RTAO::genSamplesTexture(uint size) const
@@ -226,8 +182,8 @@ ref<Texture> RTAO::genSamplesTexture(uint size) const
         float t = std::sqrt(1.0f - uv.x);
         float s = std::sqrt(1.0f - t * t);
         float4 dir = float4(s * std::cos(phi), s * std::sin(phi), t, 0.0f);
-
-        dat = packSnorm4x8(dir);
+       
+        dat = glm::packSnorm4x8({ dir.x, dir.y, dir.z, dir.w });
     }
 
     return Texture::create1D(mpDevice, size, ResourceFormat::RGBA8Snorm, 1, 1, data.data());
