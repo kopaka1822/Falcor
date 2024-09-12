@@ -65,9 +65,14 @@ Texture2D<float4> gViewW; // Optional
 
 // Optional
 Texture2D<float2> gAVSMLast[COUNT_SM];
+Texture2D<float4> gAVSMDepths[COUNT_SM];
+Texture2D<float4> gAVSMTransmittance[COUNT_SM];
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
+
+// Sampler
+SamplerState gPointSampler;
 
 // Static configuration based on defines set from the host.
 #define is_valid(name) (is_valid_##name != 0)
@@ -85,7 +90,8 @@ static const float kAlphaTMinOffset = 1e-7;
 static const uint kLightSampleMode = LIGHT_SAMPLE_MODE;
 static const bool kUseAlphaRussianRoulette = USE_RUSSIAN_ROULETTE_FOR_ALPHA;
 static const bool kUsePathRussianRoulette = USE_RUSSIAN_ROULETTE_PATH;
-static const bool kUseAVSM= USE_AVSM;
+static const bool kUseAVSM = USE_AVSM;
+static const bool kUsePCF = true;
 
 /** Payload for shadow ray. (4B)
 */
@@ -261,24 +267,88 @@ void traceAlphaRay(inout PathData pathData, inout TransparencyRayData rayData) {
     TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 }
 
-/**
- */
-float evalAVSM(uint lightIdx, float3 posW) {
+float3 getShadowUVAndLightDist(uint lightIdx, float3 posW) {
     float4 shadowPos = mul(gShadowMapVP[lightIdx], float4(posW, 1));
     shadowPos.xyz /= shadowPos.w;
 
-    shadowPos.y *= -1;                       // Flip
-    shadowPos.xy = shadowPos.xy * 0.5 + 0.5; // UV from [-1,1] to [0,1]
-    float lightDist = (shadowPos.w - gNear) / (gFar - gNear); //Linear distance
+    shadowPos.y *= -1;                                        // Flip
+    shadowPos.xy = shadowPos.xy * 0.5 + 0.5;                  // UV from [-1,1] to [0,1]
+    shadowPos.z = (shadowPos.w - gNear) / (gFar - gNear); // Linear distance
 
+    return shadowPos.xyz;
+}
+
+float evalAVTransmittanceFunction(float depth, float2 avsmLast, float4 depthSamples, float4 transmittanceSamples) {
+    float shadow = 1.0;
+    if (depth > (avsmLast.x)) {
+        shadow = avsmLast.y;
+    } else if (depth > depthSamples.x){ // Possible in between
+        // Interpolate if smaller than the smallest depth
+        uint choosenIdx = 3;
+        for (uint i = 1; i < 4; i++) {
+            if (depth < depthSamples[i]) {
+                choosenIdx = i - 1;
+                break;
+            }
+        }
+        // Create Interpolation points
+        float2 A = float2(depthSamples[choosenIdx], transmittanceSamples[choosenIdx]);
+        float2 B = choosenIdx == 3 ? avsmLast : float2(depthSamples[choosenIdx + 1], transmittanceSamples[choosenIdx + 1]);
+        float t = B.y > 0 ? (depth - A.x) / (B.x - A.x) : 0.0; // Normalized t
+        shadow = lerp(A.y, B.y, t);
+        
+    }
+    return shadow;
+}
+
+float4 getGatherWeights(const float2 uv, const uint smRes, out float2 gatherUV) {
+    gatherUV = (floor(uv * float(smRes) - 0.5) + 1.0f) / float(smRes);
+    float2 f = frac(uv * float(smRes) - 0.5f);
+    // (-,+),(+,+)(+,-)(-,-)
+    return float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
+}
+
+/**
+ */
+float evalAVSM(uint lightIdx, float3 posW) {
+
+    float3 shadowPos = getShadowUVAndLightDist(lightIdx, posW);
+
+    //Check if inside
     if (any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
         return 0.0;
 
-    uint2 shadowPixel = uint2(shadowPos.xy * gSMSize);
-    float2 avsmLast = gAVSMLast[lightIdx][shadowPixel];
     float shadow = 1.0;
-    if (lightDist > (avsmLast.x + 1e-3))
-        shadow = avsmLast.y;
+    if (kUsePCF) {
+        float2 gatherUV;
+        float4 w = getGatherWeights(shadowPos.xy, gSMSize, gatherUV);
+        // Get all values
+        float4 avsmLastR = gAVSMLast[lightIdx].GatherRed(gPointSampler, gatherUV.xy);
+        float4 avsmLastG = gAVSMLast[lightIdx].GatherGreen(gPointSampler, gatherUV.xy);
+        float4 depthsSamplesR = gAVSMDepths[lightIdx].GatherRed(gPointSampler, gatherUV.xy);
+        float4 depthsSamplesG = gAVSMDepths[lightIdx].GatherGreen(gPointSampler, gatherUV.xy);
+        float4 depthsSamplesB = gAVSMDepths[lightIdx].GatherBlue(gPointSampler, gatherUV.xy);
+        float4 depthsSamplesA = gAVSMDepths[lightIdx].GatherAlpha(gPointSampler, gatherUV.xy);
+        float4 transmittanceSamplesR = gAVSMTransmittance[lightIdx].GatherRed(gPointSampler, gatherUV.xy);
+        float4 transmittanceSamplesG = gAVSMTransmittance[lightIdx].GatherGreen(gPointSampler, gatherUV.xy);
+        float4 transmittanceSamplesB = gAVSMTransmittance[lightIdx].GatherBlue(gPointSampler, gatherUV.xy);
+        float4 transmittanceSamplesA = gAVSMTransmittance[lightIdx].GatherAlpha(gPointSampler, gatherUV.xy);
+
+        shadow = 0.0;
+        for (uint i = 0; i < 4; i++) {
+            float4 depthSamples = float4(depthsSamplesR[i], depthsSamplesG[i], depthsSamplesB[i], depthsSamplesA[i]);
+            float4 transmittanceSamples = float4(transmittanceSamplesR[i], transmittanceSamplesG[i], transmittanceSamplesB[i], transmittanceSamplesA[i]);
+            shadow += w[i] * evalAVTransmittanceFunction(shadowPos.z, float2(avsmLastR[i], avsmLastG[i]), depthSamples, transmittanceSamples);
+        }
+
+    } else {
+        float2 avsmLast = gAVSMLast[lightIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
+        float4 depthsSamples = gAVSMDepths[lightIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
+        float4 transmittanceSamples = gAVSMTransmittance[lightIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
+
+        float shadow = evalAVTransmittanceFunction(shadowPos.z, avsmLast, depthsSamples, transmittanceSamples);
+    }
+    
 
     return shadow;
 }

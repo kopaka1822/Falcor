@@ -65,6 +65,13 @@ TransparencyPathTracer::TransparencyPathTracer(ref<Device> pDevice, const Proper
     // Create a sample generator.
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
     FALCOR_ASSERT(mpSampleGenerator);
+
+    // Create sampler.
+    Sampler::Desc samplerDesc;
+    samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
+    samplerDesc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
+    mpPointSampler = Sampler::create(mpDevice, samplerDesc);
+    FALCOR_ASSERT(mpShadowSamplerPoint);
 }
 
 Properties TransparencyPathTracer::getProperties() const
@@ -165,7 +172,7 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
             for (uint i = 0; i < lights.size() * 2; i++)
             {
                 mAVSM[i] = Texture::create2D(
-                    mpDevice, mSMSize, mSMSize, ResourceFormat::RGBA16Float, 1u, 1u, nullptr,
+                    mpDevice, mSMSize, mSMSize, ResourceFormat::RGBA32Float, 1u, 1u, nullptr,
                     ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
                 );
                 mAVSM[i]->setName("AVSM_" + std::to_string(i));
@@ -188,6 +195,9 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
     
 
     // Defines
+    mGenVASMPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
+    mGenVASMPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
+
 
     //Create Program Vars
     if (!mGenVASMPip.pVars)
@@ -267,8 +277,12 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     {
         var["ShadowVPs"]["gShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
         var["gAVSMLast"][i] = mAVSMLast[i];
+        var["gAVSMDepths"][i] = mAVSM[i];
+        var["gAVSMTransmittance"][i] = mAVSM[i + lights.size()];
     }
-   
+
+    var["gPointSampler"] = mpPointSampler;
+
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)
     {
@@ -324,7 +338,10 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Adaptive Volumetric Shadow Maps Settings"))
         {
-
+            group.var("Depth Bias", mDepthBias, 0.f, FLT_MAX, 0.0000001f, false, "%.7f");
+            group.tooltip("Constant bias that is added to the depth");
+            group.var("Normal Depth Bias", mNormalDepthBias, 0.f, FLT_MAX, 0.0000001f, false, "%.7f");
+            group.tooltip("Bias that is added depending on the normal");
         }
     }
 

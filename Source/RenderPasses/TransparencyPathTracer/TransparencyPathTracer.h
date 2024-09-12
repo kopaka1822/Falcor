@@ -85,11 +85,14 @@ private:
     // Runtime data Tracer
     uint mFrameCount = 0; ///< Frame count since scene was loaded.
     bool mOptionsChanged = false;
+    ref<Sampler> mpPointSampler;
 
     //Configuration DeepSM
     bool mUseAVSM = true;
     uint mSMSize = 512;
-    float2 mNearFar = float2(0.01, 60.f);
+    float2 mNearFar = float2(1.f, 30.f);
+    float mDepthBias = 1e-6f;
+    float mNormalDepthBias = 1e-2f;
 
     //Runtime Data DeepSM
     std::vector<LightMVP> mShadowMapMVP;
