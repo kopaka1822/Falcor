@@ -70,4 +70,5 @@ private:
     } mControls;
 
     ref<Texture> mpPrevColor;
+    bool mEnabled = true;
 };

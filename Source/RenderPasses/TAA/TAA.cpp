@@ -95,6 +95,12 @@ void TAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
     const auto& pColorIn = renderData.getTexture(kColorIn);
     const auto& pColorOut = renderData.getTexture(kColorOut);
     const auto& pMotionVec = renderData.getTexture(kMotionVec);
+    if(!mEnabled)
+    {
+        pRenderContext->blit(pColorIn->getSRV(), pColorOut->getRTV());
+        return;
+    }
+
     allocatePrevColor(pColorOut.get());
     mpFbo->attachColorTarget(pColorOut, 0);
 
@@ -130,6 +136,8 @@ void TAA::allocatePrevColor(const Texture* pColorOut)
 
 void TAA::renderUI(Gui::Widgets& widget)
 {
+    widget.checkbox("Enabled", mEnabled);
+    if(!mEnabled) return;
     widget.var("Alpha", mControls.alpha, 0.f, 1.0f, 0.001f);
     widget.var("Color-Box Sigma", mControls.colorBoxSigma, 0.f, 15.f, 0.001f);
     widget.checkbox("Anti Flicker", mControls.antiFlicker);
