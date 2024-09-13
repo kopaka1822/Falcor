@@ -112,31 +112,9 @@ NRDPass::NRDPass(ref<Device> pDevice, const Properties& props)
 {
     mpDevice->requireD3D12();
 
-    DefineList definesRelax;
-    definesRelax.add("NRD_NORMAL_ENCODING", kNormalEncoding);
-    definesRelax.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
-    definesRelax.add("NRD_METHOD", "0"); // NRD_METHOD_RELAX_DIFFUSE_SPECULAR
-    definesRelax.add("GROUP_X", "16");
-    definesRelax.add("GROUP_Y", "16"); 
-    mpPackRadiancePassRelax = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesRelax);
+    mRecreateDenoiser = true;
 
-    DefineList definesReblur;
-    definesReblur.add("NRD_NORMAL_ENCODING", kNormalEncoding);
-    definesReblur.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
-    definesReblur.add("NRD_METHOD", "1"); // NRD_METHOD_REBLUR_DIFFUSE_SPECULAR
-    definesReblur.add("GROUP_X", "16");
-    definesReblur.add("GROUP_Y", "16"); 
-    mpPackRadiancePassReblur = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesReblur);
-
-    DefineList definesReblurDiffuseOcclusion;
-    definesReblurDiffuseOcclusion.add("NRD_NORMAL_ENCODING", kNormalEncoding);
-    definesReblurDiffuseOcclusion.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
-    definesReblurDiffuseOcclusion.add("NRD_METHOD", "2"); // NRD_METHOD_REBLUR_DIFFUSE_OCCLUSION
-    definesReblurDiffuseOcclusion.add("GROUP_X", "16");
-    definesReblurDiffuseOcclusion.add("GROUP_Y", "16");
-    mpPackHitDistOcclusionDiffuse = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesReblurDiffuseOcclusion);
     // Override some defaults coming from the NRD SDK.
-    
     mRelaxSettings.antilagSettings.accelerationAmount = 0.3f;
     mRelaxSettings.antilagSettings.spatialSigmaScale = 4.0f;
     mRelaxSettings.antilagSettings.temporalSigmaScale = 0.2f;
@@ -320,7 +298,6 @@ void NRDPass::compile(RenderContext* pRenderContext, const CompileData& compileD
     if (mScreenSize.x == 0 || mScreenSize.y == 0)
         mScreenSize = compileData.defaultTexDims;
     mFrameIndex = 0;
-    reinit();
 }
 
 void NRDPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -910,8 +887,26 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
         mOptionsChanged = true;
     }
 
+    /*
+    
+
+   
+    */
+
     if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular)
     {
+        //Create Falcor Pass
+        if (!mpPackRadiancePassRelax)
+        {
+            DefineList definesRelax;
+            definesRelax.add("NRD_NORMAL_ENCODING", kNormalEncoding);
+            definesRelax.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
+            definesRelax.add("NRD_METHOD", "0"); // NRD_METHOD_RELAX_DIFFUSE_SPECULAR
+            definesRelax.add("GROUP_X", "16");
+            definesRelax.add("GROUP_Y", "16");
+            mpPackRadiancePassRelax = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesRelax);
+        }
+
         // Run classic Falcor compute pass to pack radiance.
         {
             FALCOR_PROFILE(pRenderContext, "PackRadiance");
@@ -927,6 +922,16 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
     }
     else if (mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
     {
+        if (!mpPackRadiancePassReblur)
+        {
+            DefineList definesReblur;
+            definesReblur.add("NRD_NORMAL_ENCODING", kNormalEncoding);
+            definesReblur.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
+            definesReblur.add("NRD_METHOD", "1"); // NRD_METHOD_REBLUR_DIFFUSE_SPECULAR
+            definesReblur.add("GROUP_X", "16");
+            definesReblur.add("GROUP_Y", "16");
+            mpPackRadiancePassReblur = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesReblur);
+        }
         // Run classic Falcor compute pass to pack radiance and hit distance.
         {
             FALCOR_PROFILE(pRenderContext, "PackRadianceHitDist");
@@ -951,6 +956,17 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
     }
     else if (mDenoisingMethod == DenoisingMethod::ReblurOcclusionDiffuse)
     {
+        if (!mpPackHitDistOcclusionDiffuse)
+        {
+            DefineList definesReblurDiffuseOcclusion;
+            definesReblurDiffuseOcclusion.add("NRD_NORMAL_ENCODING", kNormalEncoding);
+            definesReblurDiffuseOcclusion.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
+            definesReblurDiffuseOcclusion.add("NRD_METHOD", "2"); // NRD_METHOD_REBLUR_DIFFUSE_OCCLUSION
+            definesReblurDiffuseOcclusion.add("GROUP_X", "16");
+            definesReblurDiffuseOcclusion.add("GROUP_Y", "16");
+            mpPackHitDistOcclusionDiffuse = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesReblurDiffuseOcclusion);
+        }
+
         FALCOR_PROFILE(pRenderContext, "PackHitDist");
         auto perImageCB = mpPackRadiancePassReblur->getRootVar()["PerImageCB"];
 
