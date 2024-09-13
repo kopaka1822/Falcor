@@ -89,15 +89,19 @@ private:
 
     //Configuration DeepSM
     bool mUseAVSM = true;
+    bool mAVSMRebuildProgram = false;
+    bool mAVSMTexResChanged = false;
+    bool mAVSMUsePCF = false;
     uint mSMSize = 512;
     float2 mNearFar = float2(1.f, 30.f);
     float mDepthBias = 1e-6f;
     float mNormalDepthBias = 1e-2f;
+    uint mNumberAVSMSamples = 8;    //< k for AVSM
 
     //Runtime Data DeepSM
     std::vector<LightMVP> mShadowMapMVP;
-    std::vector<ref<Texture>> mAVSM;        //AVSM function
-    std::vector<ref<Texture>> mAVSMLast;    //Last element of a AVSM
+    std::vector<ref<Texture>> mAVSMDepths;        //Depths for the avsm
+    std::vector<ref<Texture>> mAVSMTransmittance;    //Trancemittance for each point of the avsm
 
      
 
@@ -110,5 +114,5 @@ private:
     };
 
     RayTracingPipeline mTracer;
-    RayTracingPipeline mGenVASMPip; //Volumetric Adaptive SM
+    RayTracingPipeline mGenAVSMPip; //Volumetric Adaptive SM
 };

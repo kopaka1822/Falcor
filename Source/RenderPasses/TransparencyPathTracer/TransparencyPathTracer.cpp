@@ -44,7 +44,7 @@ namespace
     //RT shader constant settings
     const uint kMaxPayloadSizeBytes = 20u;
     const uint kMaxRecursionDepth = 1u;
-    const uint kMaxPayloadSizeAVSM = 48u;
+    const uint kMaxPayloadSizeAVSMPerK = 8u;
 
     const ChannelList kInputChannels = {
         {"vbuffer", "gVBuffer", "Visibility buffer in packed format"},
@@ -55,6 +55,13 @@ namespace
         {"color", "gOutputColor", "Output color (sum of direct and indirect)", false, ResourceFormat::RGBA32Float},
     };
 
+    const Gui::DropdownList kSMResolutionDropdown = {
+        {256, "256x256"}, {512, "512x512"}, {768, "768x768"}, {1024, "1024x1024"}, {2048, "2048x2048"}, {4096, "4096x4096"},
+    };
+
+    const Gui::DropdownList kAVSMDropdownK = {
+        {4, "4"},{8, "8"},{12, "12"},{16, "16"},{20, "20"}, {24, "24"},{28, "28"}, {32, "32"},
+    };
 }
 
 
@@ -129,6 +136,50 @@ void TransparencyPathTracer::execute(RenderContext* pRenderContext, const Render
 void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const RenderData& renderData) {
     FALCOR_PROFILE(pRenderContext, "Generate AVSM");
 
+    if (mAVSMRebuildProgram)
+    {
+        mGenAVSMPip.pProgram.reset();
+        mGenAVSMPip.pBindingTable.reset();
+        mGenAVSMPip.pVars.reset();
+
+        mTracer.pVars.reset(); //Recompile tracer program
+        mAVSMTexResChanged = true; //Trigger texture reiinit
+        mAVSMRebuildProgram = false;
+    }
+
+    if (mAVSMTexResChanged)
+    {
+        mAVSMDepths.clear();
+        mAVSMTransmittance.clear();
+        mAVSMTexResChanged = false;
+    }
+
+    // Create AVSM trace program
+    if(!mGenAVSMPip.pProgram){
+        RtProgram::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderAVSMRay);
+        desc.setMaxPayloadSize(kMaxPayloadSizeAVSMPerK * mNumberAVSMSamples);
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1u);
+
+        mGenAVSMPip.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        auto& sbt = mGenAVSMPip.pBindingTable;
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setMiss(0, desc.addMiss("miss"));
+
+        if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
+        {
+            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("", "anyHit"));
+        }
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add("AVSM_K", std::to_string(mNumberAVSMSamples));
+
+        mGenAVSMPip.pProgram = RtProgram::create(mpDevice, desc, defines);
+    }
+
     // Get Analytic light data
     auto& lights = mpScene->getLights();
     // Nothing to do if there are no lights
@@ -146,8 +197,8 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
     //Destroy resources if pass is not enabled or a resize is necessary
     if (rebuildAll) //TODO add global bool
     {
-        mAVSM.clear();
-        mAVSMLast.clear();
+        mAVSMDepths.clear();
+        mAVSMTransmittance.clear();
     }
 
     //Update matrices
@@ -166,71 +217,76 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
     // Create / Destroy resources
     //TODO MIPS and check formats
     {
-        if (mAVSM.empty())
+        uint numTextures = lights.size() * (mNumberAVSMSamples / 4);
+        if (mAVSMDepths.empty())
         {
-            mAVSM.resize(lights.size() * 2);
-            for (uint i = 0; i < lights.size() * 2; i++)
+            mAVSMDepths.resize(numTextures);
+            for (uint i = 0; i < numTextures; i++)
             {
-                mAVSM[i] = Texture::create2D(
+                mAVSMDepths[i] = Texture::create2D(
                     mpDevice, mSMSize, mSMSize, ResourceFormat::RGBA32Float, 1u, 1u, nullptr,
                     ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
                 );
-                mAVSM[i]->setName("AVSM_" + std::to_string(i));
+                mAVSMDepths[i]->setName("AVSMDepth_" + std::to_string(i));
             }
         }
 
-        if (mAVSMLast.empty())
+        if (mAVSMTransmittance.empty())
         {
-            mAVSMLast.resize(lights.size());
-            for (uint i = 0; i < lights.size(); i++)
+            mAVSMTransmittance.resize(numTextures);
+            for (uint i = 0; i < numTextures; i++)
             {
-                mAVSMLast[i] = Texture::create2D(
-                    mpDevice, mSMSize, mSMSize, ResourceFormat::RG32Float, 1u, 1u, nullptr,
+                mAVSMTransmittance[i] = Texture::create2D(
+                    mpDevice, mSMSize, mSMSize, ResourceFormat::RGBA8Unorm, 1u, 1u, nullptr,
                     ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
                 );
-                mAVSMLast[i]->setName("AVSMLastElement_" + std::to_string(i));
+                mAVSMTransmittance[i]->setName("AVSMTransmittance_" + std::to_string(i));
             }
         }
     }
     
 
     // Defines
-    mGenVASMPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
-    mGenVASMPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
+    mGenAVSMPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
+    mGenAVSMPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
 
 
     //Create Program Vars
-    if (!mGenVASMPip.pVars)
+    if (!mGenAVSMPip.pVars)
     {
-        mGenVASMPip.pProgram->setTypeConformances(mpScene->getTypeConformances());
-        mGenVASMPip.pVars = RtProgramVars::create(mpDevice, mGenVASMPip.pProgram, mGenVASMPip.pBindingTable);
+        mGenAVSMPip.pProgram->setTypeConformances(mpScene->getTypeConformances());
+        mGenAVSMPip.pVars = RtProgramVars::create(mpDevice, mGenAVSMPip.pProgram, mGenAVSMPip.pBindingTable);
     }
         
-    FALCOR_ASSERT(mGenVASMPip.pVars);
+    FALCOR_ASSERT(mGenAVSMPip.pVars);
 
     //Trace the pass for every light
     for (uint i = 0; i < lights.size(); i++)
     {
+        if (!lights[i]->isActive())
+            break;
         FALCOR_PROFILE(pRenderContext, lights[i]->getName());
         // Bind Utility
-        auto var = mGenVASMPip.pVars->getRootVar();
+        auto var = mGenAVSMPip.pVars->getRootVar();
         var["CB"]["gLightPos"] = mShadowMapMVP[i].pos;
         var["CB"]["gNear"] = mNearFar.x;
         var["CB"]["gFar"] = mNearFar.y;
         var["CB"]["gViewProj"] = mShadowMapMVP[i].viewProjection;
         var["CB"]["gInvViewProj"] = mShadowMapMVP[i].invViewProjection;
 
-        //var["gAVSM"] = mAVSM[i];
-        var["gAVSMDepths"] = mAVSM[i];
-        var["gAVSMTransparency"] = mAVSM[i + lights.size()];
-        var["gAVSMLast"] = mAVSMLast[i];
-
+        for (uint j = 0; j < mNumberAVSMSamples / 4; j++)
+        {
+            uint idx = i * (mNumberAVSMSamples/4) +j;
+            var["gAVSMDepths"][j] = mAVSMDepths[idx];
+            var["gAVSMTransmittance"][j] = mAVSMTransmittance[idx];
+        }
+        
         // Get dimensions of ray dispatch.
         const uint2 targetDim = uint2(mSMSize);
         FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
 
         // Spawn the rays.
-        mpScene->raytrace(pRenderContext, mGenVASMPip.pProgram.get(), mGenVASMPip.pVars, uint3(targetDim, 1));
+        mpScene->raytrace(pRenderContext, mGenAVSMPip.pProgram.get(), mGenAVSMPip.pVars, uint3(targetDim, 1));
     }
 }
 
@@ -251,7 +307,7 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE_FOR_ALPHA", mUseRussianRouletteForAlpha ? "1" : "0");
     mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE_PATH", mUseRussianRoulettePath ? "1" : "0");
     mTracer.pProgram->addDefine("USE_AVSM", mUseAVSM ? "1" : "0");
-    mTracer.pProgram->addDefine("COUNT_SM", std::to_string(lights.size()));
+    mTracer.pProgram->addDefine("USE_AVSM_PCF", mAVSMUsePCF ? "1" : "0");
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     mTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));
@@ -274,11 +330,11 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     
     
     for (uint i = 0; i < lights.size(); i++)
-    {
         var["ShadowVPs"]["gShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
-        var["gAVSMLast"][i] = mAVSMLast[i];
-        var["gAVSMDepths"][i] = mAVSM[i];
-        var["gAVSMTransmittance"][i] = mAVSM[i + lights.size()];
+    for (uint i = 0; i < lights.size() * (mNumberAVSMSamples / 4); i++)
+    {
+        var["gAVSMDepths"][i] = mAVSMDepths[i];
+        var["gAVSMTransmittance"][i] = mAVSMTransmittance[i];
     }
 
     var["gPointSampler"] = mpPointSampler;
@@ -338,10 +394,16 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Adaptive Volumetric Shadow Maps Settings"))
         {
+            mAVSMRebuildProgram |= group.dropdown("K", kAVSMDropdownK, mNumberAVSMSamples);
+            mAVSMTexResChanged |= group.dropdown("Resolution", kSMResolutionDropdown, mSMSize);
             group.var("Depth Bias", mDepthBias, 0.f, FLT_MAX, 0.0000001f, false, "%.7f");
             group.tooltip("Constant bias that is added to the depth");
             group.var("Normal Depth Bias", mNormalDepthBias, 0.f, FLT_MAX, 0.0000001f, false, "%.7f");
             group.tooltip("Bias that is added depending on the normal");
+            group.checkbox("Use PCF", mAVSMUsePCF); //TODO add other kernels
+            group.tooltip("Enable 2x2 PCF using gather");
+
+            
         }
     }
 
@@ -392,32 +454,7 @@ void TransparencyPathTracer::setScene(RenderContext* pRenderContext, const ref<S
             }
 
             mTracer.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
-        }
-
-        //Create AVSM trace program
-        {
-            RtProgram::Desc desc;
-            desc.addShaderModules(mpScene->getShaderModules());
-            desc.addShaderLibrary(kShaderAVSMRay);
-            desc.setMaxPayloadSize(kMaxPayloadSizeAVSM);
-            desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
-            desc.setMaxTraceRecursionDepth(1u);
-
-            mGenVASMPip.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
-            auto& sbt = mGenVASMPip.pBindingTable;
-            sbt->setRayGen(desc.addRayGen("rayGen"));
-            sbt->setMiss(0, desc.addMiss("miss"));
-
-            if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
-            {
-                sbt->setHitGroup(
-                    0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("", "anyHit")
-                );
-            }
-
-            mGenVASMPip.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
-        }
-        
+        }        
     }
 }
 
@@ -428,6 +465,8 @@ void TransparencyPathTracer::prepareVars() {
     // Configure program.
     mTracer.pProgram->addDefines(mpSampleGenerator->getDefines());
     mTracer.pProgram->setTypeConformances(mpScene->getTypeConformances());
+    mTracer.pProgram->addDefine("AVSM_K", std::to_string(mNumberAVSMSamples));
+    mTracer.pProgram->addDefine("COUNT_LIGHTS",  std::to_string(mpScene->getLightCount()));
 
     // Create program variables for the current program.
     // This may trigger shader compilation. If it fails, throw an exception to abort rendering.

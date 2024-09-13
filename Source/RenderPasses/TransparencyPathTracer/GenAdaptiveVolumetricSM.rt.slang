@@ -6,23 +6,24 @@ import Scene.Intersection;
 import Utils.Math.MathHelpers;
 import Utils.Geometry.GeometryHelpers;
 
+#ifndef AVSM_K
+#define AVSM_K 4
+#endif
+
+#define AVSM_NUM_TEX AVSM_K/4
 
 /** Payload for shadow ray.
 */
 struct RayData
 {
-    float4 depths;
-    float4 transmittances;
-    float lastDepth;
-    float lastTransmittance;
-    uint count;
+    float depths[AVSM_K];
+    float transmittances[AVSM_K];
 
     __init() {
-        this.depths = float4(-1);
-        this.transmittances = float4(1);
-        this.lastDepth = -1;
-        this.lastTransmittance = 1;
-        this.count = 0;
+        for (uint i = 0; i < AVSM_K; i++) {
+            depths[i] = -1.0;
+            transmittances[i] = 1;
+        }
     }
 };
 
@@ -36,9 +37,8 @@ cbuffer CB
     float4x4    gInvViewProj;   // Inverse view projection
 }
 
-RWTexture2D<float4> gAVSMDepths;
-RWTexture2D<float4> gAVSMTransparency;
-RWTexture2D<float2> gAVSMLast;
+RWTexture2D<float4> gAVSMDepths[AVSM_NUM_TEX];
+RWTexture2D<float4> gAVSMTransmittance[AVSM_NUM_TEX];
 
 static const float kDepthBias = AVSM_DEPTH_BIAS;
 static const float kNormalBias = AVSM_NORMAL_DEPTH_BIAS;
@@ -75,10 +75,7 @@ float areaTriangle(const float2 A,const float2 B,const float2 C) {
 [shader("miss")]
 void miss(inout RayData rayData)
 {
-    if (rayData.count == 0) {
-        rayData.lastDepth = 1;
-        rayData.lastTransmittance = 1;
-    }
+    
 }
 
 //
@@ -106,118 +103,87 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
         IgnoreHit();
         return;
     }
-
-    float currentTransmittance = (1.0  - sd.opacity);
     
     //Get depth
     float4 posH = mul(gViewProj, float4(sd.posW, 1.f));
     float depth = (posH.w - gNear) / (gFar - gNear); // Normalized depth
-    float transmittance = currentTransmittance;
+    const float transmittance = (1.0 - sd.opacity);
+    float currentTransmittance = transmittance;
 
-    // add bias to depth
+    //Add bias to depth
     float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
     depth = saturate(depth + kDepthBias + normalBias);
 
-    //If there is no previous element
-    if (rayData.count == 0) {
-        rayData.lastDepth = depth;
-        rayData.lastTransmittance = currentTransmittance;
-    } // Count bigger than 0
-    else if (rayData.count < 5) {
-        // Check if it is the new last element
-        if (depth > rayData.lastDepth) {
-            rayData.depths[rayData.count - 1] = rayData.lastDepth;
-            rayData.transmittances[rayData.count - 1] = rayData.lastTransmittance;
-            rayData.lastDepth = depth;
-            rayData.lastTransmittance *= currentTransmittance;
-        } else {
-            // Find index to be inserted
-            uint insertIndex = 3;
-            for (uint i = 0; i < 3; i++) {
-                if (depth < rayData.depths[i] || rayData.depths[i] < 0) {
-                    insertIndex = i;
-                    break;
-                }
-            }
-            // Create new list
-            float depthTmp = depth;
-            float transmittanceTmp = insertIndex > 0 ? rayData.transmittances[insertIndex - 1] * currentTransmittance : currentTransmittance;
-            for (uint i = insertIndex; i < rayData.count; i++) {
-                float2 tmp = float2(rayData.depths[i], rayData.transmittances[i]);
-                rayData.depths[i] = depthTmp;
-                rayData.transmittances[i] = transmittanceTmp;
-                depthTmp = tmp.x;
-                transmittanceTmp = tmp.y * currentTransmittance;
-            }
-            rayData.lastTransmittance *= currentTransmittance; //Update last element
-        }
-    } else {// More than 5 elements
-        // Find index to be inserted
-        uint insertIndex = 4;
-        for (uint i = 0; i < 4; i++) {
-            if (depth < rayData.depths[i]) {
-                insertIndex = i;
-                break;
-            }
-        }
-        // Create a list with 6 elements
-        float tmpDepths[6];
-        float tmpTransparencies[6];
-        // Fill the list with the existing and current element and update transmittance; TODO optimize 
-        bool currentElementAdded = false;
-        for (int i = 0; i < insertIndex; i++) {
-            tmpDepths[i] = rayData.depths[i];
-            tmpTransparencies[i] = rayData.transmittances[i];
-        }
-        float depthTmp = depth;
-        float transmittanceTmp = insertIndex > 0 ? rayData.transmittances[insertIndex - 1] * currentTransmittance : currentTransmittance;
-        for (uint i = insertIndex; i < 5; i++) {
-            float2 tmp = float2(rayData.depths[i], rayData.transmittances[i]);
-            tmpDepths[i] = depthTmp;
-            tmpTransparencies[i] = transmittanceTmp;
-            depthTmp = tmp.x;
-            transmittanceTmp = tmp.y * currentTransmittance;
-        }
-        // Check last element
-        tmpTransparencies[5] = rayData.lastTransmittance * currentTransmittance;
-        if (depth > rayData.lastDepth) { // Swap
-            tmpDepths[5] = depth;
-            tmpDepths[4] = rayData.lastDepth;
-            tmpDepths[4] = rayData.lastTransmittance;
-        } else {
-            tmpDepths[5] = rayData.lastDepth;
-        }
+    float tmpDepths[AVSM_K + 1];
+    float tmpTransmittance[AVSM_K + 1];
+    float lastTransmittance = 1.0;
+    bool currentWasSwapped = false;
 
-        // Get all triangle areas of the points between
-        float minArea = 1;
-        uint minIdx = 4;
+    for (int i = 0; i < AVSM_K; i++) {
+        if (lastTransmittance <= kMinOpacity)
+        {
+            tmpDepths[i] = -1.0;
+            tmpTransmittance[i] = 0;
+        }else if (currentWasSwapped)
+        {
+            tmpDepths[i] = rayData.depths[i - 1];
+            tmpTransmittance[i] = rayData.transmittances[i - 1] * transmittance;
+            lastTransmittance = tmpTransmittance[i];
+        } else
+        {
+            if (depth < rayData.depths[i] || rayData.depths[i] < 0) {
+                tmpDepths[i] = depth;
+                currentTransmittance = transmittance * lastTransmittance;
+                tmpTransmittance[i] = currentTransmittance;
+                currentWasSwapped = true;
+            } else {
+                tmpDepths[i] = rayData.depths[i];
+                tmpTransmittance[i] = rayData.transmittances[i];
+                lastTransmittance = rayData.transmittances[i];
+            }
+        }
+    }
+    // Last Element
+    if (lastTransmittance <= kMinOpacity)
+    {
+        tmpDepths[AVSM_K] = -1.0;
+        tmpTransmittance[AVSM_K] = 0;
+    }
+    else if (currentWasSwapped) {
+        tmpDepths[AVSM_K] = rayData.depths[AVSM_K - 1];
+        tmpTransmittance[AVSM_K] = rayData.transmittances[AVSM_K - 1] * transmittance;
+    } else {
+        tmpDepths[AVSM_K] = depth;
+        tmpTransmittance[AVSM_K] = lastTransmittance * transmittance;
+    }
+
+    // Check if last point is invalid or transmittance is zero
+    uint removeIndex = AVSM_K;
+    //Check which element has the smalles tri area
+    if (tmpDepths[AVSM_K] >= 0) {
+        float minArea = 500.0; //1 should be max TODO check
         [unroll]
-        for (uint i = 1; i < 5; i++) {
-            float triArea = areaTriangle(float2(tmpDepths[i - 1], tmpTransparencies[i - 1]), float2(tmpDepths[i], tmpTransparencies[i]), float2(tmpDepths[i + 1], tmpTransparencies[i + 1]));
+        for (uint i = 1; i < AVSM_K; i++) {
+            float triArea = areaTriangle(float2(tmpDepths[i - 1], tmpTransmittance[i - 1]), float2(tmpDepths[i], tmpTransmittance[i]), float2(tmpDepths[i + 1], tmpTransmittance[i + 1]));
             if (triArea < minArea) {
                 minArea = triArea;
-                minIdx = i;
+                removeIndex = i;
             }
         }
-
-        // Copy tmp list to payload without the min element
-        [unroll]
-        for (uint i = 0; i < 4; i++) {
-            uint idx = i < minIdx ? i : i + 1;
-            rayData.depths[i] = tmpDepths[idx];
-            rayData.transmittances[i] = tmpTransparencies[idx];
-        }
-        rayData.lastDepth = tmpDepths[5];
-        rayData.lastTransmittance = tmpTransparencies[5];
-        
     }
-    rayData.count++;
-    // End search
-    if (currentTransmittance < kMinOpacity)
-        // AcceptHitAndEndSearch();
+
+    // Copy to payload
+    for (uint i = 0; i < AVSM_K; i++) {
+        uint idx = i < removeIndex ? i : i + 1;
+        rayData.depths[i] = tmpDepths[idx];
+        rayData.transmittances[i] = tmpTransmittance[idx];
+    }
+
+    //Commit RayTMax if current element has 0 transmittance
+    if (transmittance <= kMinOpacity)
         return;
     else
-        IgnoreHit();
+        IgnoreHit();   
 }
 
 /*
@@ -267,19 +233,23 @@ void rayGen()
 
     // Fill undefined points
     float fillDepth = 1;
-    float fillTransparency = 1;
+    float fillTransmittance = 1;
     [unroll]
-    for (uint i = 0; i < 4; i++) {
+    for (uint i = 0; i < AVSM_K; i++) {
         if (rayData.depths[i] < 0) {
             rayData.depths[i] = fillDepth;
-            rayData.transmittances[i] = fillTransparency;
+            rayData.transmittances[i] = fillTransmittance;
         }
         fillDepth = rayData.depths[i];
-        fillTransparency = rayData.transmittances[i];
+        fillTransmittance = rayData.transmittances[i];
     }
-    
+
     // Write to textures
-    gAVSMDepths[pixel] = rayData.depths;
-    gAVSMTransparency[pixel] = rayData.transmittances;
-    gAVSMLast[pixel] = float2(rayData.lastDepth, rayData.lastTransmittance);
+    for (uint i = 0; i < AVSM_NUM_TEX; i++) {
+        uint payIdx = i * 4;
+        float4 depths = float4(rayData.depths[payIdx], rayData.depths[payIdx + 1], rayData.depths[payIdx + 2], rayData.depths[payIdx + 3]);
+        gAVSMDepths[i][pixel] = depths;
+        float4 transmittance = float4(rayData.transmittances[payIdx], rayData.transmittances[payIdx + 1], rayData.transmittances[payIdx + 2], rayData.transmittances[payIdx + 3]);
+        gAVSMTransmittance[i][pixel] = transmittance;
+    }
 }
