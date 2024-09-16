@@ -38,10 +38,10 @@
 
 using namespace Falcor;
 
-class NRDPass : public RenderPass
+class NRDPassBase : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(NRDPass, "NRD", "NRD denoiser.");
+    //FALCOR_PLUGIN_CLASS(NRDPassBase, "NRD", "NRD denoiser.");
 
     enum class DenoisingMethod : uint32_t
     {
@@ -72,18 +72,38 @@ public:
             {HitDistanceReconstructionMode::AREA5X5, "Area5x5"},
     });
 
-    static ref<NRDPass> create(ref<Device> pDevice, const Properties& props) { return make_ref<NRDPass>(pDevice, props); }
-
-    NRDPass(ref<Device> pDevice, const Properties& props);
-
     virtual Properties getProperties() const override;
-    virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
-private:
+protected:
+    //
+    // I/O Strings for RenderData
+    //
+    //  Input buffer names.
+    static constexpr const char* kInputDiffuseRadianceHitDist = "diffuseRadianceHitDist";
+    static constexpr const char* kInputSpecularRadianceHitDist = "specularRadianceHitDist";
+    static constexpr const char* kInputPenumbra = "penumbra";
+    static constexpr const char* kInputDiffuseHitDist = "diffuseHitDist";
+    static constexpr const char* kInputSpecularHitDist = "specularHitDist";
+    static constexpr const char* kInputMotionVectors = "mvec";
+    static constexpr const char* kInputNormalRoughnessMaterialID = "normWRoughnessMaterialID";
+    static constexpr const char* kInputViewZ = "viewZ";
+
+    // Output buffer names.
+    static constexpr const char* kOutputFilteredDiffuseRadianceHitDist = "filteredDiffuseRadianceHitDist";
+    static constexpr const char* kOutputFilteredSpecularRadianceHitDist = "filteredSpecularRadianceHitDist";
+    static constexpr const char* kOutputFilteredShadow = "outFilteredShadow";
+    static constexpr const char* kOutputFilteredDiffuseOcclusion = "filteredDiffuseOcclusion";
+    static constexpr const char* kOutputFilteredSpecularOcclusion = "filteredSpecularOcclusion";
+    static constexpr const char* kOutputReflectionMotionVectors = "reflectionMvec";
+    static constexpr const char* kOutputDeltaMotionVectors = "deltaMvec";
+    static constexpr const char* kOutputValidation = "outValidation";
+
+
+    NRDPassBase(ref<Device> pDevice, const Properties& props);
     const std::string kNormalEncoding = "2";
     const std::string kRoughnessEncoding = "1";
 
@@ -92,10 +112,12 @@ private:
     uint32_t mFrameIndex = 0;
     RenderPassHelpers::IOSize  mOutputSizeSelection = RenderPassHelpers::IOSize::Default; ///< Selected output size.
 
+    void reflectBase(const uint2 ioSize, RenderPassReflection& reflector);
     void reinit();
     void createPipelines();
     void createResources();
     void executeInternal(RenderContext* pRenderContext, const RenderData& renderData);
+    void packRadiancePass(RenderContext* pRenderContext, const RenderData& renderData);
     void dispatch(RenderContext* pRenderContext, const RenderData& renderData, const nrd::DispatchDesc& dispatchDesc);
 
     nrd::Instance* mpInstance = nullptr;
@@ -139,5 +161,5 @@ private:
     ref<ComputePass> mpPackHitDistOcclusionDiffuse;
 };
 
-FALCOR_ENUM_REGISTER(NRDPass::DenoisingMethod);
-FALCOR_ENUM_REGISTER(NRDPass::HitDistanceReconstructionMode);
+FALCOR_ENUM_REGISTER(NRDPassBase::DenoisingMethod);
+FALCOR_ENUM_REGISTER(NRDPassBase::HitDistanceReconstructionMode);

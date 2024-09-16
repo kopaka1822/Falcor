@@ -29,37 +29,24 @@
 #include "Core/API/NativeHandleTraits.h"
 #include "RenderGraph/RenderPassStandardFlags.h"
 
-#include "NRDPass.h"
+#include "NRDPassBase.h"
+#include "NRDPasses/NRDPassNormal.h"
+#include "NRDPasses/NRDPassOcclusion.h"
+#include "NRDPasses/NRDPassShadow.h"
 #include "RenderPasses/Shared/Denoising/NRDConstants.slang"
+
+extern "C" FALCOR_API_EXPORT void registerPlugin(PluginRegistry& registry)
+{
+    registry.registerClass<RenderPass, NRDPassNormal>();
+    registry.registerClass<RenderPass, NRDPassOcclusion>();
+    registry.registerClass<RenderPass, NRDPassShadow>();
+}
 
 namespace
 {
     const char kShaderPackRadiance[] = "RenderPasses/NRDPass/PackRadiance.cs.slang";
 
-    // Input buffer names.
-    const char kInputDiffuseRadianceHitDist[] = "diffuseRadianceHitDist";
-    const char kInputSpecularRadianceHitDist[] = "specularRadianceHitDist";
-    const char kInputPenumbra[] = "penumbra";
-    const char kInputDiffuseHitDist[] = "diffuseHitDist";
-    const char kInputSpecularHitDist[] = "specularHitDist";
-    const char kInputMotionVectors[] = "mvec";
-    const char kInputNormalRoughnessMaterialID[] = "normWRoughnessMaterialID";
-    const char kInputViewZ[] = "viewZ";
-
-    //TODO remove unused
-    const char kInputDeltaPrimaryPosW[] = "deltaPrimaryPosW";
-    const char kInputDeltaSecondaryPosW[] = "deltaSecondaryPosW";
-
-    // Output buffer names.
-    const char kOutputFilteredDiffuseRadianceHitDist[] = "filteredDiffuseRadianceHitDist";
-    const char kOutputFilteredSpecularRadianceHitDist[] = "filteredSpecularRadianceHitDist";
-    const char kOutputFilteredShadow[] = "outFilteredShadow";
-    const char kOutputFilteredDiffuseOcclusion[] = "filteredDiffuseOcclusion";
-    const char kOutputFilteredSpecularOcclusion[] = "filteredSpecularOcclusion";
-    const char kOutputReflectionMotionVectors[] = "reflectionMvec";
-    const char kOutputDeltaMotionVectors[] = "deltaMvec";
-    const char kOutputValidation[] = "outValidation";
-
+    
     // Serialized parameters.
 
     const char kEnabled[] = "enabled";
@@ -105,9 +92,19 @@ namespace
     const char kEnableRoughnessEdgeStopping[] = "enableRoughnessEdgeStopping";
     const char kEnableMaterialTestForDiffuse[] = "enableMaterialTestForDiffuse";
     const char kEnableMaterialTestForSpecular[] = "enableMaterialTestForSpecular";
-    }
 
-NRDPass::NRDPass(ref<Device> pDevice, const Properties& props)
+    const Gui::DropdownList kDropdownNormal = {
+        {(uint)NRDPassBase::DenoisingMethod::RelaxDiffuseSpecular, "RelaxDiffuseSpecular"},
+        {(uint)NRDPassBase::DenoisingMethod::ReblurDiffuseSpecular, "ReblurDiffuseSpecular"},
+    };
+
+    const Gui::DropdownList kDropdownOcclusion = {
+        {(uint)NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuse, "ReblurOcclusionDiffuse"},
+    };
+
+}
+
+NRDPassBase::NRDPassBase(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
 {
     mpDevice->requireD3D12();
@@ -190,7 +187,7 @@ NRDPass::NRDPass(ref<Device> pDevice, const Properties& props)
     }
 }
 
-Properties NRDPass::getProperties() const
+Properties NRDPassBase::getProperties() const
 {
     Properties props;
 
@@ -246,53 +243,18 @@ Properties NRDPass::getProperties() const
     return props;
 }
 
-RenderPassReflection NRDPass::reflect(const CompileData& compileData)
-{
-    RenderPassReflection reflector;
-
-    const uint2 sz = RenderPassHelpers::calculateIOSize(mOutputSizeSelection, mScreenSize, compileData.defaultTexDims);
-
-    reflector.addInput(kInputDiffuseRadianceHitDist, "Diffuse radiance and hit distance").flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addInput(kInputSpecularRadianceHitDist, "Specular radiance and hit distance").flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addInput(kInputPenumbra, "Penumbra").flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addInput(kInputDiffuseHitDist, "DiffuseHitDist").flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addInput(kInputSpecularHitDist, "SpecularHitDist").flags(RenderPassReflection::Field::Flags::Optional);
+void NRDPassBase::reflectBase(const uint2 ioSize, RenderPassReflection& reflector) {
     reflector.addInput(kInputViewZ, "View Z");
     reflector.addInput(kInputNormalRoughnessMaterialID, "World normal, roughness, and material ID");
     reflector.addInput(kInputMotionVectors, "Motion vectors");
-   
 
-    reflector.addOutput(kOutputFilteredDiffuseRadianceHitDist, "(Normal)Diffuse radiance")
-        .format(ResourceFormat::RGBA16Float)
-        .texture2D(sz.x, sz.y)
-        .flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addOutput(kOutputFilteredSpecularRadianceHitDist, "(Normal)Specular radiance")
-        .format(ResourceFormat::RGBA16Float)
-        .texture2D(sz.x, sz.y)
-        .flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addOutput(kOutputFilteredShadow, "(Sigma)Filtered shadow")
-        .format(ResourceFormat::RGBA8Unorm)
-        .texture2D(sz.x, sz.y)
-        .flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addOutput(kOutputFilteredDiffuseOcclusion, "(Occlusion) Diffuse")
-        .format(ResourceFormat::R16Float)
-        .texture2D(sz.x, sz.y)
-        .flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addOutput(kOutputFilteredSpecularOcclusion, "(Occlusion) Specular")
-        .format(ResourceFormat::R16Float)
-        .texture2D(sz.x, sz.y)
-        .flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(kOutputValidation, "Validation Layer for debug purposes")
         .format(ResourceFormat::RGBA32Float)
-        .texture2D(sz.x, sz.y)
+        .texture2D(ioSize.x, ioSize.y)
         .flags(RenderPassReflection::Field::Flags::Optional);
-    
-   
-
-    return reflector;
 }
 
-void NRDPass::compile(RenderContext* pRenderContext, const CompileData& compileData)
+void NRDPassBase::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
     mScreenSize = RenderPassHelpers::calculateIOSize(mOutputSizeSelection, mScreenSize, compileData.defaultTexDims);
     if (mScreenSize.x == 0 || mScreenSize.y == 0)
@@ -300,7 +262,7 @@ void NRDPass::compile(RenderContext* pRenderContext, const CompileData& compileD
     mFrameIndex = 0;
 }
 
-void NRDPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
+void NRDPassBase::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
 
@@ -348,22 +310,22 @@ void NRDPass::execute(RenderContext* pRenderContext, const RenderData& renderDat
     }
 }
 
-nrd::HitDistanceReconstructionMode getNRDHitDistanceReconstructionMode(NRDPass::HitDistanceReconstructionMode& falcorHitDistMode)
+nrd::HitDistanceReconstructionMode getNRDHitDistanceReconstructionMode(NRDPassBase::HitDistanceReconstructionMode& falcorHitDistMode)
 {
     switch (falcorHitDistMode)
     {
-    case NRDPass::HitDistanceReconstructionMode::OFF:
+    case NRDPassBase::HitDistanceReconstructionMode::OFF:
         return nrd::HitDistanceReconstructionMode::OFF;
-    case NRDPass::HitDistanceReconstructionMode::AREA3X3:
+    case NRDPassBase::HitDistanceReconstructionMode::AREA3X3:
         return nrd::HitDistanceReconstructionMode::AREA_3X3;
-    case NRDPass::HitDistanceReconstructionMode::AREA5X5:
+    case NRDPassBase::HitDistanceReconstructionMode::AREA5X5:
         return nrd::HitDistanceReconstructionMode::AREA_5X5;
     }
     //Should not happen
     return nrd::HitDistanceReconstructionMode::OFF;
 }
 
-void NRDPass::renderUI(Gui::Widgets& widget)
+void NRDPassBase::renderUI(Gui::Widgets& widget)
 {
     const nrd::LibraryDesc& nrdLibraryDesc = nrd::GetLibraryDesc();
     char name[256];
@@ -386,11 +348,13 @@ void NRDPass::renderUI(Gui::Widgets& widget)
     widget.var("Max intensity", mMaxIntensity, 0.f, 100000.f, 1.f, false, "%.0f");
 
     //TODO make this more save as some inputs are probably not set
-    mRecreateDenoiser = widget.dropdown("Denoising method", mDenoisingMethod);
+    if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
+        mRecreateDenoiser = widget.dropdown("Denoising method", kDropdownNormal, (uint&)mDenoisingMethod);
+    else if (mDenoisingMethod == DenoisingMethod::ReblurOcclusionDiffuse)
+        mRecreateDenoiser = widget.dropdown("Denoising method", kDropdownOcclusion, (uint&)mDenoisingMethod);
 
     if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular)
     {
-        
         // ReLAX diffuse/specular settings.
         if (auto group = widget.group("ReLAX Diffuse/Specular"))
         {
@@ -580,7 +544,7 @@ void NRDPass::renderUI(Gui::Widgets& widget)
     }
 }
 
-void NRDPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
+void NRDPassBase::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
 }
@@ -653,17 +617,17 @@ static ResourceFormat getFalcorFormat(nrd::Format format)
     }
 }
 
-static nrd::Denoiser getNrdDenoiser(NRDPass::DenoisingMethod denoisingMethod)
+static nrd::Denoiser getNrdDenoiser(NRDPassBase::DenoisingMethod denoisingMethod)
 {
     switch (denoisingMethod)
     {
-    case NRDPass::DenoisingMethod::RelaxDiffuseSpecular:
+    case NRDPassBase::DenoisingMethod::RelaxDiffuseSpecular:
         return nrd::Denoiser::RELAX_DIFFUSE_SPECULAR;
-    case NRDPass::DenoisingMethod::ReblurDiffuseSpecular:
+    case NRDPassBase::DenoisingMethod::ReblurDiffuseSpecular:
         return nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR;
-    case NRDPass::DenoisingMethod::Sigma:
+    case NRDPassBase::DenoisingMethod::Sigma:
         return nrd::Denoiser::SIGMA_SHADOW;
-    case NRDPass::DenoisingMethod::ReblurOcclusionDiffuse:
+    case NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuse:
         return nrd::Denoiser::REBLUR_DIFFUSE_OCCLUSION;
     default:
         FALCOR_UNREACHABLE();
@@ -680,7 +644,7 @@ static void copyMatrix(float* dstMatrix, const float4x4& srcMatrix)
 }
 
 
-void NRDPass::reinit()
+void NRDPassBase::reinit()
 {
     // Create a new denoiser instance.
     if (mpInstance)
@@ -697,13 +661,13 @@ void NRDPass::reinit()
 
     nrd::Result res = nrd::CreateInstance(instanceCreationDesc, mpInstance);
     if (res != nrd::Result::SUCCESS)
-        throw RuntimeError("NRDPass: Failed to create NRD denoiser");
+        throw RuntimeError("NRDPassBase: Failed to create NRD denoiser");
 
     createResources();
     createPipelines();
 }
 
-void NRDPass::createPipelines()
+void NRDPassBase::createPipelines()
 {
     mpPasses.clear();
     mpCachedProgramKernels.clear();
@@ -803,7 +767,7 @@ static inline uint16_t NRD_DivideUp(uint32_t x, uint16_t y)
     return uint16_t((x + y - 1) / y);
 }
 
-void NRDPass::createResources()
+void NRDPassBase::createResources()
 {
     // Destroy previously created resources.
     mpSamplers.clear();
@@ -876,26 +840,10 @@ void NRDPass::createResources()
         nullptr);
 }
 
-void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& renderData)
-{
-    FALCOR_ASSERT(mpScene);
-
-    if (mRecreateDenoiser)
-    {
-        reinit();
-        mRecreateDenoiser = false;
-        mOptionsChanged = true;
-    }
-
-    /*
-    
-
-   
-    */
-
+void NRDPassBase::packRadiancePass(RenderContext* pRenderContext, const RenderData& renderData) {
     if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular)
     {
-        //Create Falcor Pass
+        // Create Falcor Pass
         if (!mpPackRadiancePassRelax)
         {
             DefineList definesRelax;
@@ -946,13 +894,13 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
             mpPackRadiancePassReblur->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
         }
 
-        nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR), static_cast<void*>(&mReblurSettings));
+        nrd::SetDenoiserSettings(
+            *mpInstance, nrd::Identifier(nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR), static_cast<void*>(&mReblurSettings)
+        );
     }
     else if (mDenoisingMethod == DenoisingMethod::Sigma)
     {
-        nrd::SetDenoiserSettings(
-            *mpInstance, nrd::Identifier(nrd::Denoiser::SIGMA_SHADOW), static_cast<void*>(&mSigmaSettings)
-        );
+        nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(nrd::Denoiser::SIGMA_SHADOW), static_cast<void*>(&mSigmaSettings));
     }
     else if (mDenoisingMethod == DenoisingMethod::ReblurOcclusionDiffuse)
     {
@@ -976,15 +924,27 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
         perImageCB["gViewZ"] = renderData.getTexture(kInputViewZ);
         mpPackRadiancePassReblur->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
 
-        nrd::SetDenoiserSettings(
-            *mpInstance, nrd::Identifier(getNrdDenoiser(mDenoisingMethod)), static_cast<void*>(&mReblurSettings)
-        );
+        nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(getNrdDenoiser(mDenoisingMethod)), static_cast<void*>(&mReblurSettings));
     }
     else
     {
         FALCOR_UNREACHABLE();
         return;
     }
+}
+
+void NRDPassBase::executeInternal(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    FALCOR_ASSERT(mpScene);
+
+    if (mRecreateDenoiser)
+    {
+        reinit();
+        mRecreateDenoiser = false;
+        mOptionsChanged = true;
+    }
+
+    packRadiancePass(pRenderContext, renderData);
 
     // Initialize common settings.
     float4x4 viewMatrix = mpScene->getCamera()->getViewMatrix();
@@ -1050,7 +1010,7 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
     pRenderContext->flush();
 }
 
-void NRDPass::dispatch(RenderContext* pRenderContext, const RenderData& renderData, const nrd::DispatchDesc& dispatchDesc)
+void NRDPassBase::dispatch(RenderContext* pRenderContext, const RenderData& renderData, const nrd::DispatchDesc& dispatchDesc)
 {
     const nrd::InstanceDesc& instanceDesc = nrd::GetInstanceDesc(*mpInstance);
     const nrd::PipelineDesc& pipelineDesc = instanceDesc.pipelines[dispatchDesc.pipelineIndex];
@@ -1099,12 +1059,14 @@ void NRDPass::dispatch(RenderContext* pRenderContext, const RenderData& renderDa
             case nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST:
                 texture = renderData.getTexture(kInputSpecularRadianceHitDist);
                 break;
+            /*
             case nrd::ResourceType::IN_DELTA_PRIMARY_POS:
                 texture = renderData.getTexture(kInputDeltaPrimaryPosW);
                 break;
             case nrd::ResourceType::IN_DELTA_SECONDARY_POS:
                 texture = renderData.getTexture(kInputDeltaSecondaryPosW);
                 break;
+            */
             case nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST:
                 texture = renderData.getTexture(kOutputFilteredDiffuseRadianceHitDist);
                 break;
@@ -1206,7 +1168,4 @@ void NRDPass::dispatch(RenderContext* pRenderContext, const RenderData& renderDa
     pCommandList->Dispatch(dispatchDesc.gridWidth, dispatchDesc.gridHeight, 1);
 }
 
-extern "C" FALCOR_API_EXPORT void registerPlugin(PluginRegistry& registry)
-{
-    registry.registerClass<RenderPass, NRDPass>();
-}
+
