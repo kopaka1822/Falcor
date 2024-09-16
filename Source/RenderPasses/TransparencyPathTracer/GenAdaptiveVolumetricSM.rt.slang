@@ -161,7 +161,7 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
     uint removeIndex = AVSM_K;
     //Check which element has the smalles tri area
     if (tmpDepths[AVSM_K] >= 0) {
-        float minArea = 500.0; //1 should be max TODO check
+        float minArea = 1.0; //1 should be max possible area
         [unroll]
         for (uint i = 1; i < AVSM_K; i++) {
             float triArea = areaTriangle(float2(tmpDepths[i - 1], tmpTransmittance[i - 1]), float2(tmpDepths[i], tmpTransmittance[i]), float2(tmpDepths[i + 1], tmpTransmittance[i + 1]));
@@ -228,7 +228,8 @@ void rayGen()
 
     RayData rayData = RayData();
 
-    uint flags = RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; //Call anyHit for every type of object
+    uint flags = RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
+    //uint flags = RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
     TraceRay(gScene.rtAccel, flags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
     // Fill undefined points

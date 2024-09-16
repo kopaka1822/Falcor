@@ -308,6 +308,7 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE_PATH", mUseRussianRoulettePath ? "1" : "0");
     mTracer.pProgram->addDefine("USE_AVSM", mUseAVSM ? "1" : "0");
     mTracer.pProgram->addDefine("USE_AVSM_PCF", mAVSMUsePCF ? "1" : "0");
+    mTracer.pProgram->addDefine("USE_AVSM_INTERPOLATION", mAVSMUseInterpolation ? "1" : "0");
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     mTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));
@@ -396,14 +397,15 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
         {
             mAVSMRebuildProgram |= group.dropdown("K", kAVSMDropdownK, mNumberAVSMSamples);
             mAVSMTexResChanged |= group.dropdown("Resolution", kSMResolutionDropdown, mSMSize);
+            group.var("Near/Far", mNearFar, 0.000001f, FLT_MAX, 0.000001f, false, "%.6f");
             group.var("Depth Bias", mDepthBias, 0.f, FLT_MAX, 0.0000001f, false, "%.7f");
             group.tooltip("Constant bias that is added to the depth");
             group.var("Normal Depth Bias", mNormalDepthBias, 0.f, FLT_MAX, 0.0000001f, false, "%.7f");
             group.tooltip("Bias that is added depending on the normal");
+            group.checkbox("Use Interpolation", mAVSMUseInterpolation);
+            group.tooltip("Use interpolation for the evaluation.");
             group.checkbox("Use PCF", mAVSMUsePCF); //TODO add other kernels
             group.tooltip("Enable 2x2 PCF using gather");
-
-            
         }
     }
 

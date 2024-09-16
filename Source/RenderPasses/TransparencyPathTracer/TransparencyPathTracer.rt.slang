@@ -99,6 +99,7 @@ static const bool kUseAlphaRussianRoulette = USE_RUSSIAN_ROULETTE_FOR_ALPHA;
 static const bool kUsePathRussianRoulette = USE_RUSSIAN_ROULETTE_PATH;
 static const bool kUseAVSM = USE_AVSM;
 static const bool kUsePCF = USE_AVSM_PCF;
+static const bool kAVSMUseInterpolation = USE_AVSM_INTERPOLATION;
 
 static const float kMinOpacity = 1e-7;
 
@@ -299,8 +300,8 @@ float evalAVTransmittanceFunction(float depth, float depthSamples[AVSM_K], float
             break;
         }
     }
-    if (choosenIdx == (AVSM_K-1))
-        shadow = transmittanceSamples[AVSM_K - 1];
+    if ((!kAVSMUseInterpolation) || (choosenIdx == (AVSM_K - 1)))
+        shadow = transmittanceSamples[choosenIdx];
     else
     {
         // Create Interpolation points

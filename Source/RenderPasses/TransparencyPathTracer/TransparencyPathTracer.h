@@ -92,6 +92,7 @@ private:
     bool mAVSMRebuildProgram = false;
     bool mAVSMTexResChanged = false;
     bool mAVSMUsePCF = false;
+    bool mAVSMUseInterpolation = false;
     uint mSMSize = 512;
     float2 mNearFar = float2(1.f, 30.f);
     float mDepthBias = 1e-6f;
