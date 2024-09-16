@@ -11,7 +11,7 @@ def render_graph_RTAO():
     g.create_pass('EnvMapPass', 'EnvMapPass', {})
     g.create_pass('ForwardLighting', 'ForwardLighting', {'envMapIntensity': 0.25, 'ambientIntensity': 0.25, 'lightIntensity': 0.5, 'envMapMirror': False})
     g.create_pass('RayShadow', 'RayShadow', {})
-    g.create_pass('ToneMapper', 'ToneMapper', {'outputSize': 'Default', 'useSceneMetadata': True, 'exposureCompensation': 1.0, 'autoExposure': False, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': 'Aces', 'clamp': True, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': 'AperturePriority'})
+    g.create_pass('ToneMapper', 'ToneMapper', {'outputSize': 'Default', 'useSceneMetadata': True, 'exposureCompensation': 0.0, 'autoExposure': False, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': 'Linear', 'clamp': False, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': 'AperturePriority'})
     g.create_pass('DepthPass', 'DepthPass', {'depthFormat': 'D32Float', 'useAlphaTest': True, 'cullMode': 'Back'})
     g.create_pass('Ambient', 'ImageEquation', {'formula': 'I0[xy].xxxw', 'format': 'RGBA8UnormSrgb'})
     g.create_pass('PathBenchmark', 'PathBenchmark', {})
