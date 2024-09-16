@@ -900,6 +900,17 @@ void NRDPassBase::packRadiancePass(RenderContext* pRenderContext, const RenderDa
     }
 }
 
+void NRDPassBase::checkMotionFormat(const RenderData& renderData) {
+    //Get texture format
+    auto format = renderData[kInputMotionVectors]->asTexture()->getFormat();
+    bool has3Components = false;
+    has3Components |= format == ResourceFormat::RGBA32Float;
+    has3Components |= format == ResourceFormat::RGBA16Float;
+    has3Components |= format == ResourceFormat::RGB32Float;
+
+    mMotion2_5D = has3Components;
+}
+
 void NRDPassBase::executeInternal(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_ASSERT(mpScene);
@@ -907,6 +918,7 @@ void NRDPassBase::executeInternal(RenderContext* pRenderContext, const RenderDat
     if (mRecreateDenoiser)
     {
         reinit();
+        checkMotionFormat(renderData);
         mRecreateDenoiser = false;
         mOptionsChanged = true;
     }
@@ -939,7 +951,8 @@ void NRDPassBase::executeInternal(RenderContext* pRenderContext, const RenderDat
     mCommonSettings.frameIndex = mFrameIndex;
     mCommonSettings.isMotionVectorInWorldSpace = mWorldSpaceMotion;
     if (!mWorldSpaceMotion)
-        mCommonSettings.motionVectorScale[2] = 1.f; //Enable 2.5D motion
+        mCommonSettings.motionVectorScale[2] = mMotion2_5D ? 1.f : 0.f; // Enable 2.5D motion
+
     mCommonSettings.resourceSize[0] = mScreenSize.x;
     mCommonSettings.resourceSize[1] = mScreenSize.y;
     mCommonSettings.resourceSizePrev[0] = mScreenSize.x;

@@ -128,6 +128,7 @@ protected:
     void reinit();
     void createPipelines();
     void createResources();
+    void checkMotionFormat(const RenderData& renderData);
     void executeInternal(RenderContext* pRenderContext, const RenderData& renderData);
     void packRadiancePass(RenderContext* pRenderContext, const RenderData& renderData);
     void dispatch(RenderContext* pRenderContext, const RenderData& renderData, const nrd::DispatchDesc& dispatchDesc);
@@ -139,6 +140,7 @@ protected:
     DenoisingMethod mDenoisingMethod = DenoisingMethod::RelaxDiffuseSpecular;
     bool mRecreateDenoiser = true;
     bool mWorldSpaceMotion = false;
+    bool mMotion2_5D = false;
     bool mEnableValidationLayer = false;
     float mMaxIntensity = 250.f;
     float mDisocclusionThreshold = 2.f;
