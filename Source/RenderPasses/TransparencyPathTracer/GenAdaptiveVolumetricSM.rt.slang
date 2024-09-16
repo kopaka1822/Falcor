@@ -12,6 +12,10 @@ import Utils.Geometry.GeometryHelpers;
 
 #define AVSM_NUM_TEX AVSM_K/4
 
+#ifndef AVSM_USE_TRIANGLE_AREA
+#define AVSM_USE_TRIANGLE_AREA 1
+#endif
+
 /** Payload for shadow ray.
 */
 struct RayData
@@ -96,8 +100,6 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
     let lod = ExplicitLodTextureSampler(0.f);
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -WorldRayDirection(), lod);
 
-    //TODO special case opacity = 1
-
     // Abort if opacity is too low
     if (sd.opacity < kMinOpacity) {
         IgnoreHit();
@@ -159,24 +161,46 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
 
     // Check if last point is invalid or transmittance is zero
     uint removeIndex = AVSM_K;
-    //Check which element has the smalles tri area
-    if (tmpDepths[AVSM_K] >= 0) {
-        float minArea = 1.0; //1 should be max possible area
-        [unroll]
-        for (uint i = 1; i < AVSM_K; i++) {
-            float triArea = areaTriangle(float2(tmpDepths[i - 1], tmpTransmittance[i - 1]), float2(tmpDepths[i], tmpTransmittance[i]), float2(tmpDepths[i + 1], tmpTransmittance[i + 1]));
-            if (triArea < minArea) {
-                minArea = triArea;
-                removeIndex = i;
+// Check which element has the smalles tri area
+    #if AVSM_USE_TRIANGLE_AREA
+        if (tmpDepths[AVSM_K] >= 0) {
+            float minArea = 1.0; //1 should be max possible area
+            [unroll]
+            for (uint i = 1; i < AVSM_K; i++) {
+                float triArea = areaTriangle(float2(tmpDepths[i - 1], tmpTransmittance[i - 1]), float2(tmpDepths[i], tmpTransmittance[i]), float2(tmpDepths[i + 1], tmpTransmittance[i + 1]));
+                if (triArea < minArea) {
+                    minArea = triArea;
+                    removeIndex = i;
+                }
             }
         }
-    }
+    #else
+        if (tmpDepths[AVSM_K] >= 0) {
+            float minArea = 1.0;
+            [unroll]
+            for (uint i = 1; i < AVSM_K + 1; i++) {
+                float2 A = float2(tmpDepths[i - 1], tmpTransmittance[i - 1]);
+                float2 B = float2(tmpDepths[i], tmpTransmittance[i]);
+                float2 lenWidth = float2(B.x - A.x, A.y - B.y);
+                float recArea = lenWidth.x * lenWidth.y;
+                if (recArea < minArea) {
+                    minArea = recArea;
+                    removeIndex = i;
+                }
+            }
+        }
+    #endif
 
     // Copy to payload
     for (uint i = 0; i < AVSM_K; i++) {
-        uint idx = i < removeIndex ? i : i + 1;
-        rayData.depths[i] = tmpDepths[idx];
-        rayData.transmittances[i] = tmpTransmittance[idx];
+        uint idxD = i < removeIndex ? i : i + 1;
+        uint idxT = i < removeIndex ? i : i + 1;
+    #if !AVSM_USE_TRIANGLE_AREA
+        if (i + 1 == removeIndex)
+            idxT = removeIndex;
+    #endif
+        rayData.depths[i] = tmpDepths[idxD];
+        rayData.transmittances[i] = tmpTransmittance[idxT];
     }
 
     //Commit RayTMax if current element has 0 transmittance

@@ -249,6 +249,7 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
     // Defines
     mGenAVSMPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
     mGenAVSMPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
+    mGenAVSMPip.pProgram->addDefine("AVSM_USE_TRIANGLE_AREA", mAVSMUseRectArea ? "1" : "0");
 
 
     //Create Program Vars
@@ -404,6 +405,11 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
             group.tooltip("Bias that is added depending on the normal");
             group.checkbox("Use Interpolation", mAVSMUseInterpolation);
             group.tooltip("Use interpolation for the evaluation.");
+            group.checkbox("Use Rect Area Rejection", mAVSMUseRectArea);
+            group.tooltip(
+                "Uses Rectange Area rejection from Adaptive Transparency with underestimation instead of the triangle rejection of the "
+                "original paper."
+            );
             group.checkbox("Use PCF", mAVSMUsePCF); //TODO add other kernels
             group.tooltip("Enable 2x2 PCF using gather");
         }
