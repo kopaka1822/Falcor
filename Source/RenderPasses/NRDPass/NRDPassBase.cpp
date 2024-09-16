@@ -46,9 +46,7 @@ namespace
 {
     const char kShaderPackRadiance[] = "RenderPasses/NRDPass/PackRadiance.cs.slang";
 
-    
     // Serialized parameters.
-
     const char kEnabled[] = "enabled";
     const char kMethod[] = "method";
     const char kOutputSize[] = "outputSize";
@@ -60,46 +58,21 @@ namespace
     // Pack radiance settings.
     const char kMaxIntensity[] = "maxIntensity";
 
-    // ReLAX diffuse/specular settings.
-    const char kDiffusePrepassBlurRadius[] = "diffusePrepassBlurRadius";
-    const char kSpecularPrepassBlurRadius[] = "specularPrepassBlurRadius";
-    const char kDiffuseMaxAccumulatedFrameNum[] = "diffuseMaxAccumulatedFrameNum";
-    const char kSpecularMaxAccumulatedFrameNum[] = "specularMaxAccumulatedFrameNum";
-    const char kDiffuseMaxFastAccumulatedFrameNum[] = "diffuseMaxFastAccumulatedFrameNum";
-    const char kSpecularMaxFastAccumulatedFrameNum[] = "specularMaxFastAccumulatedFrameNum";
-    const char kDiffusePhiLuminance[] = "diffusePhiLuminance";
-    const char kSpecularPhiLuminance[] = "specularPhiLuminance";
-    const char kDiffuseLobeAngleFraction[] = "diffuseLobeAngleFraction";
-    const char kSpecularLobeAngleFraction[] = "specularLobeAngleFraction";
-    const char kRoughnessFraction[] = "roughnessFraction";
-    const char kDiffuseHistoryRejectionNormalThreshold[] = "diffuseHistoryRejectionNormalThreshold";
-    const char kSpecularVarianceBoost[] = "specularVarianceBoost";
-    const char kSpecularLobeAngleSlack[] = "specularLobeAngleSlack";
-    const char kDisocclusionFixEdgeStoppingNormalPower[] = "disocclusionFixEdgeStoppingNormalPower";
-    const char kDisocclusionFixMaxRadius[] = "disocclusionFixMaxRadius";
-    const char kDisocclusionFixNumFramesToFix[] = "disocclusionFixNumFramesToFix";
-    const char kHistoryClampingColorBoxSigmaScale[] = "historyClampingColorBoxSigmaScale";
-    const char kSpatialVarianceEstimationHistoryThreshold[] = "spatialVarianceEstimationHistoryThreshold";
-    const char kAtrousIterationNum[] = "atrousIterationNum";
-    const char kMinLuminanceWeight[] = "minLuminanceWeight";
-    const char kDepthThreshold[] = "depthThreshold";
-    const char kRoughnessEdgeStoppingRelaxation[] = "roughnessEdgeStoppingRelaxation";
-    const char kNormalEdgeStoppingRelaxation[] = "normalEdgeStoppingRelaxation";
-    const char kLuminanceEdgeStoppingRelaxation[] = "luminanceEdgeStoppingRelaxation";
-    const char kEnableAntiFirefly[] = "enableAntiFirefly";
-    const char kEnableReprojectionTestSkippingWithoutMotion[] = "enableReprojectionTestSkippingWithoutMotion";
-    const char kEnableSpecularVirtualHistoryClamping[] = "enableSpecularVirtualHistoryClamping";
-    const char kEnableRoughnessEdgeStopping[] = "enableRoughnessEdgeStopping";
-    const char kEnableMaterialTestForDiffuse[] = "enableMaterialTestForDiffuse";
-    const char kEnableMaterialTestForSpecular[] = "enableMaterialTestForSpecular";
+    // ReLAX diffuse/specular settings. TODO settings specialization
 
     const Gui::DropdownList kDropdownNormal = {
         {(uint)NRDPassBase::DenoisingMethod::RelaxDiffuseSpecular, "RelaxDiffuseSpecular"},
         {(uint)NRDPassBase::DenoisingMethod::ReblurDiffuseSpecular, "ReblurDiffuseSpecular"},
+        {(uint)NRDPassBase::DenoisingMethod::RelaxDiffuse, "RelaxDiffuse"},
+        {(uint)NRDPassBase::DenoisingMethod::RelaxSpecular, "RelaxSpecular"},
+        {(uint)NRDPassBase::DenoisingMethod::ReblurDiffuse, "ReblurDiffuse"},
+        {(uint)NRDPassBase::DenoisingMethod::ReblurSpecular, "ReblurSpecular"},
     };
 
     const Gui::DropdownList kDropdownOcclusion = {
-        {(uint)NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuse, "ReblurOcclusionDiffuse"},
+        {(uint)NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuse, "OcclusionDiffuse"},
+        {(uint)NRDPassBase::DenoisingMethod::ReblurOcclusionSpecular, "OcclusionSpecular"},
+        {(uint)NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuseSpecular, "OcclusionDiffuseSpecular"},
     };
 
 }
@@ -144,36 +117,6 @@ NRDPassBase::NRDPassBase(ref<Device> pDevice, const Properties& props)
         {
             /*TODO
             if (key == kDiffusePrepassBlurRadius) mRelaxDiffuseSpecularSettings.diffusePrepassBlurRadius = value;
-            else if (key == kSpecularPrepassBlurRadius) mRelaxDiffuseSpecularSettings.specularPrepassBlurRadius = value;
-            else if (key == kDiffuseMaxAccumulatedFrameNum) mRelaxDiffuseSpecularSettings.diffuseMaxAccumulatedFrameNum = value;
-            else if (key == kSpecularMaxAccumulatedFrameNum) mRelaxDiffuseSpecularSettings.specularMaxAccumulatedFrameNum = value;
-            else if (key == kDiffuseMaxFastAccumulatedFrameNum) mRelaxDiffuseSpecularSettings.diffuseMaxFastAccumulatedFrameNum = value;
-            else if (key == kSpecularMaxFastAccumulatedFrameNum) mRelaxDiffuseSpecularSettings.specularMaxFastAccumulatedFrameNum = value;
-            else if (key == kDiffusePhiLuminance) mRelaxDiffuseSpecularSettings.diffusePhiLuminance = value;
-            else if (key == kSpecularPhiLuminance) mRelaxDiffuseSpecularSettings.specularPhiLuminance = value;
-            else if (key == kDiffuseLobeAngleFraction) mRelaxDiffuseSpecularSettings.diffuseLobeAngleFraction = value;
-            else if (key == kSpecularLobeAngleFraction) mRelaxDiffuseSpecularSettings.specularLobeAngleFraction = value;
-            else if (key == kRoughnessFraction) mRelaxDiffuseSpecularSettings.roughnessFraction = value;
-            else if (key == kDiffuseHistoryRejectionNormalThreshold) mRelaxDiffuseSpecularSettings.diffuseHistoryRejectionNormalThreshold = value;
-            else if (key == kSpecularVarianceBoost) mRelaxDiffuseSpecularSettings.specularVarianceBoost = value;
-            else if (key == kSpecularLobeAngleSlack) mRelaxDiffuseSpecularSettings.specularLobeAngleSlack = value;
-            else if (key == kDisocclusionFixEdgeStoppingNormalPower) mRelaxDiffuseSpecularSettings.disocclusionFixEdgeStoppingNormalPower = value;
-            else if (key == kDisocclusionFixMaxRadius) mRelaxDiffuseSpecularSettings.disocclusionFixMaxRadius = value;
-            else if (key == kDisocclusionFixNumFramesToFix) mRelaxDiffuseSpecularSettings.disocclusionFixNumFramesToFix = value;
-            else if (key == kHistoryClampingColorBoxSigmaScale) mRelaxDiffuseSpecularSettings.historyClampingColorBoxSigmaScale = value;
-            else if (key == kSpatialVarianceEstimationHistoryThreshold) mRelaxDiffuseSpecularSettings.spatialVarianceEstimationHistoryThreshold = value;
-            else if (key == kAtrousIterationNum) mRelaxDiffuseSpecularSettings.atrousIterationNum = value;
-            else if (key == kMinLuminanceWeight) mRelaxDiffuseSpecularSettings.minLuminanceWeight = value;
-            else if (key == kDepthThreshold) mRelaxDiffuseSpecularSettings.depthThreshold = value;
-            else if (key == kLuminanceEdgeStoppingRelaxation) mRelaxDiffuseSpecularSettings.luminanceEdgeStoppingRelaxation = value;
-            else if (key == kNormalEdgeStoppingRelaxation) mRelaxDiffuseSpecularSettings.normalEdgeStoppingRelaxation = value;
-            else if (key == kRoughnessEdgeStoppingRelaxation) mRelaxDiffuseSpecularSettings.roughnessEdgeStoppingRelaxation = value;
-            else if (key == kEnableAntiFirefly) mRelaxDiffuseSpecularSettings.enableAntiFirefly = value;
-            else if (key == kEnableReprojectionTestSkippingWithoutMotion) mRelaxDiffuseSpecularSettings.enableReprojectionTestSkippingWithoutMotion = value;
-            else if (key == kEnableSpecularVirtualHistoryClamping) mRelaxDiffuseSpecularSettings.enableSpecularVirtualHistoryClamping = value;
-            else if (key == kEnableRoughnessEdgeStopping) mRelaxDiffuseSpecularSettings.enableRoughnessEdgeStopping = value;
-            else if (key == kEnableMaterialTestForDiffuse) mRelaxDiffuseSpecularSettings.enableMaterialTestForDiffuse = value;
-            else if (key == kEnableMaterialTestForSpecular) mRelaxDiffuseSpecularSettings.enableMaterialTestForSpecular = value;
             else
             {
                 logWarning("Unknown property '{}' in NRD properties.", key);
@@ -205,38 +148,7 @@ Properties NRDPassBase::getProperties() const
     // ReLAX diffuse/specular settings.
     if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
     {
-        /*
-        props[kDiffusePrepassBlurRadius] = mRelaxDiffuseSpecularSettings.diffusePrepassBlurRadius;
-        props[kSpecularPrepassBlurRadius] = mRelaxDiffuseSpecularSettings.specularPrepassBlurRadius;
-        props[kDiffuseMaxAccumulatedFrameNum] = mRelaxDiffuseSpecularSettings.diffuseMaxAccumulatedFrameNum;
-        props[kSpecularMaxAccumulatedFrameNum] = mRelaxDiffuseSpecularSettings.specularMaxAccumulatedFrameNum;
-        props[kDiffuseMaxFastAccumulatedFrameNum] = mRelaxDiffuseSpecularSettings.diffuseMaxFastAccumulatedFrameNum;
-        props[kSpecularMaxFastAccumulatedFrameNum] = mRelaxDiffuseSpecularSettings.specularMaxFastAccumulatedFrameNum;
-        props[kDiffusePhiLuminance] = mRelaxDiffuseSpecularSettings.diffusePhiLuminance;
-        props[kSpecularPhiLuminance] = mRelaxDiffuseSpecularSettings.specularPhiLuminance;
-        props[kDiffuseLobeAngleFraction] = mRelaxDiffuseSpecularSettings.diffuseLobeAngleFraction;
-        props[kSpecularLobeAngleFraction] = mRelaxDiffuseSpecularSettings.specularLobeAngleFraction;
-        props[kRoughnessFraction] = mRelaxDiffuseSpecularSettings.roughnessFraction;
-        props[kDiffuseHistoryRejectionNormalThreshold] = mRelaxDiffuseSpecularSettings.diffuseHistoryRejectionNormalThreshold;
-        props[kSpecularVarianceBoost] = mRelaxDiffuseSpecularSettings.specularVarianceBoost;
-        props[kSpecularLobeAngleSlack] = mRelaxDiffuseSpecularSettings.specularLobeAngleSlack;
-        props[kDisocclusionFixEdgeStoppingNormalPower] = mRelaxDiffuseSpecularSettings.disocclusionFixEdgeStoppingNormalPower;
-        props[kDisocclusionFixMaxRadius] = mRelaxDiffuseSpecularSettings.disocclusionFixMaxRadius;
-        props[kDisocclusionFixNumFramesToFix] = mRelaxDiffuseSpecularSettings.disocclusionFixNumFramesToFix;
-        props[kHistoryClampingColorBoxSigmaScale] = mRelaxDiffuseSpecularSettings.historyClampingColorBoxSigmaScale;
-        props[kSpatialVarianceEstimationHistoryThreshold] = mRelaxDiffuseSpecularSettings.spatialVarianceEstimationHistoryThreshold;
-        props[kAtrousIterationNum] = mRelaxDiffuseSpecularSettings.atrousIterationNum;
-        props[kMinLuminanceWeight] = mRelaxDiffuseSpecularSettings.minLuminanceWeight;
-        props[kDepthThreshold] = mRelaxDiffuseSpecularSettings.depthThreshold;
-        props[kLuminanceEdgeStoppingRelaxation] = mRelaxDiffuseSpecularSettings.luminanceEdgeStoppingRelaxation;
-        props[kNormalEdgeStoppingRelaxation] = mRelaxDiffuseSpecularSettings.normalEdgeStoppingRelaxation;
-        props[kRoughnessEdgeStoppingRelaxation] = mRelaxDiffuseSpecularSettings.roughnessEdgeStoppingRelaxation;
-        props[kEnableAntiFirefly] = mRelaxDiffuseSpecularSettings.enableAntiFirefly;
-        props[kEnableReprojectionTestSkippingWithoutMotion] = mRelaxDiffuseSpecularSettings.enableReprojectionTestSkippingWithoutMotion;
-        props[kEnableSpecularVirtualHistoryClamping] = mRelaxDiffuseSpecularSettings.enableSpecularVirtualHistoryClamping;
-        props[kEnableRoughnessEdgeStopping] = mRelaxDiffuseSpecularSettings.enableRoughnessEdgeStopping;
-        props[kEnableMaterialTestForDiffuse] = mRelaxDiffuseSpecularSettings.enableMaterialTestForDiffuse;
-        props[kEnableMaterialTestForSpecular] = mRelaxDiffuseSpecularSettings.enableMaterialTestForSpecular;
+        /* TODO
         */
     }
 
@@ -262,6 +174,57 @@ void NRDPassBase::compile(RenderContext* pRenderContext, const CompileData& comp
     mFrameIndex = 0;
 }
 
+static bool isReblur(NRDPassBase::DenoisingMethod denoisingMethod)
+{
+    bool check = false;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurDiffuse;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurSpecular;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurDiffuseSpecular;
+    return check;
+}
+
+static bool isRelax(NRDPassBase::DenoisingMethod denoisingMethod)
+{
+    bool check = false;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::RelaxDiffuse;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::RelaxSpecular;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::RelaxDiffuseSpecular;
+    return check;
+}
+
+static bool isOcclusion(NRDPassBase::DenoisingMethod denoisingMethod)
+{
+    bool check = false;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuse;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurOcclusionSpecular;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuseSpecular;
+    return check;
+}
+
+static bool denoiserIsDiffuse(NRDPassBase::DenoisingMethod denoisingMethod)
+{
+    bool check = false;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuse;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuseSpecular;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::RelaxDiffuse;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::RelaxDiffuseSpecular;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurDiffuse;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurDiffuseSpecular;
+    return check;
+}
+
+static bool denoiserIsSpecular(NRDPassBase::DenoisingMethod denoisingMethod)
+{
+    bool check = false;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurOcclusionSpecular;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuseSpecular;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::RelaxSpecular;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::RelaxDiffuseSpecular;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurSpecular;
+    check |= denoisingMethod == NRDPassBase::DenoisingMethod::ReblurDiffuseSpecular;
+    return check;
+}
+
 void NRDPassBase::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene) return;
@@ -280,18 +243,23 @@ void NRDPassBase::execute(RenderContext* pRenderContext, const RenderData& rende
     }
     else
     {
-        if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
+        if (isRelax(mDenoisingMethod) || isReblur(mDenoisingMethod))
         {
-            pRenderContext->blit(renderData.getTexture(kInputDiffuseRadianceHitDist)->getSRV(), renderData.getTexture(kOutputFilteredDiffuseRadianceHitDist)->getRTV());
-            pRenderContext->blit(renderData.getTexture(kInputSpecularRadianceHitDist)->getSRV(), renderData.getTexture(kOutputFilteredSpecularRadianceHitDist)->getRTV());
+            if (denoiserIsDiffuse(mDenoisingMethod))
+                pRenderContext->blit(renderData.getTexture(kInputDiffuseRadianceHitDist)->getSRV(), renderData.getTexture(kOutputFilteredDiffuseRadianceHitDist)->getRTV());
+            if (denoiserIsSpecular(mDenoisingMethod))
+                pRenderContext->blit(renderData.getTexture(kInputSpecularRadianceHitDist)->getSRV(), renderData.getTexture(kOutputFilteredSpecularRadianceHitDist)->getRTV());
         }
         if (mDenoisingMethod == DenoisingMethod::Sigma)
         {
             pRenderContext->clearTexture(renderData.getTexture(kOutputFilteredShadow).get(), float4(1, 1, 1, 1));
         }
-        if (mDenoisingMethod == DenoisingMethod::ReblurOcclusionDiffuse)
+        if (isOcclusion(mDenoisingMethod))
         {
-            pRenderContext->blit(renderData.getTexture(kInputDiffuseHitDist)->getSRV(),renderData.getTexture(kOutputFilteredDiffuseOcclusion)->getRTV());
+            if (denoiserIsDiffuse(mDenoisingMethod))
+                pRenderContext->blit(renderData.getTexture(kInputDiffuseHitDist)->getSRV(),renderData.getTexture(kOutputFilteredDiffuseOcclusion)->getRTV());
+            if (denoiserIsSpecular(mDenoisingMethod))
+                pRenderContext->blit(renderData.getTexture(kInputSpecularHitDist)->getSRV(),renderData.getTexture(kOutputFilteredSpecularOcclusion)->getRTV());
         }
             
     }
@@ -348,15 +316,15 @@ void NRDPassBase::renderUI(Gui::Widgets& widget)
     widget.var("Max intensity", mMaxIntensity, 0.f, 100000.f, 1.f, false, "%.0f");
 
     //TODO make this more save as some inputs are probably not set
-    if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
+    if (isReblur(mDenoisingMethod) || isRelax(mDenoisingMethod))
         mRecreateDenoiser = widget.dropdown("Denoising method", kDropdownNormal, (uint&)mDenoisingMethod);
-    else if (mDenoisingMethod == DenoisingMethod::ReblurOcclusionDiffuse)
-        mRecreateDenoiser = widget.dropdown("Denoising method", kDropdownOcclusion, (uint&)mDenoisingMethod);
+    else if (isOcclusion(mDenoisingMethod))
+        mRecreateDenoiser = widget.dropdown("Denoising method (ReBLUR)", kDropdownOcclusion, (uint&)mDenoisingMethod);
 
-    if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular)
+    if (isRelax(mDenoisingMethod))
     {
         // ReLAX diffuse/specular settings.
-        if (auto group = widget.group("ReLAX Diffuse/Specular"))
+        if (auto group = widget.group("ReLAX Settings"))
         {
             if (auto group2 = group.group("Antilag Settings"))
             {
@@ -439,9 +407,9 @@ void NRDPassBase::renderUI(Gui::Widgets& widget)
             group.checkbox("Material test for specular", mRelaxSettings.enableMaterialTestForSpecular);
         }
     }
-    else if (mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurOcclusionDiffuse)
+    else if (isReblur(mDenoisingMethod) || isOcclusion(mDenoisingMethod)) //TODO specialize occlusion settings
     {
-        if (auto group = widget.group("ReBLUR Diffuse/Specular"))
+        if (auto group = widget.group("ReBLUR"))
         {
             
             const float kEpsilon = 0.0001f;
@@ -625,10 +593,22 @@ static nrd::Denoiser getNrdDenoiser(NRDPassBase::DenoisingMethod denoisingMethod
         return nrd::Denoiser::RELAX_DIFFUSE_SPECULAR;
     case NRDPassBase::DenoisingMethod::ReblurDiffuseSpecular:
         return nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR;
+    case NRDPassBase::DenoisingMethod::RelaxDiffuse:
+        return nrd::Denoiser::RELAX_DIFFUSE;
+    case NRDPassBase::DenoisingMethod::RelaxSpecular:
+        return nrd::Denoiser::RELAX_SPECULAR;
+    case NRDPassBase::DenoisingMethod::ReblurDiffuse:
+        return nrd::Denoiser::REBLUR_DIFFUSE;
+    case NRDPassBase::DenoisingMethod::ReblurSpecular:
+        return nrd::Denoiser::REBLUR_SPECULAR;
     case NRDPassBase::DenoisingMethod::Sigma:
         return nrd::Denoiser::SIGMA_SHADOW;
     case NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuse:
         return nrd::Denoiser::REBLUR_DIFFUSE_OCCLUSION;
+    case NRDPassBase::DenoisingMethod::ReblurOcclusionSpecular:
+        return nrd::Denoiser::REBLUR_SPECULAR_OCCLUSION;
+    case NRDPassBase::DenoisingMethod::ReblurOcclusionDiffuseSpecular:
+        return nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR_OCCLUSION;
     default:
         FALCOR_UNREACHABLE();
         return nrd::Denoiser::RELAX_DIFFUSE_SPECULAR;
@@ -649,6 +629,10 @@ void NRDPassBase::reinit()
     // Create a new denoiser instance.
     if (mpInstance)
         nrd::DestroyInstance(*mpInstance);
+
+    //Create new Radiance Pass
+    if (mpPackRadiancePass)
+        mpPackRadiancePass.reset();
 
     const nrd::LibraryDesc& libraryDesc = nrd::GetLibraryDesc();
 
@@ -841,49 +825,43 @@ void NRDPassBase::createResources()
 }
 
 void NRDPassBase::packRadiancePass(RenderContext* pRenderContext, const RenderData& renderData) {
-    if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular)
+    //Init the pack Radiance pass
+    if (!mpPackRadiancePass && (mDenoisingMethod != DenoisingMethod::Sigma))
     {
-        // Create Falcor Pass
-        if (!mpPackRadiancePassRelax)
-        {
-            DefineList definesRelax;
-            definesRelax.add("NRD_NORMAL_ENCODING", kNormalEncoding);
-            definesRelax.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
-            definesRelax.add("NRD_METHOD", "0"); // NRD_METHOD_RELAX_DIFFUSE_SPECULAR
-            definesRelax.add("GROUP_X", "16");
-            definesRelax.add("GROUP_Y", "16");
-            mpPackRadiancePassRelax = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesRelax);
-        }
+        //Get Method; 0=Relax, 1 = Reblur, 2= Occlusion
+        uint nrdMethod = isRelax(mDenoisingMethod) ? 0 : isReblur(mDenoisingMethod) ? 1 : 2;
+        DefineList defines;
+        defines.add("NRD_NORMAL_ENCODING", kNormalEncoding);
+        defines.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
+        defines.add("GROUP_X", "16");
+        defines.add("GROUP_Y", "16");
+        defines.add("NRD_DIFFUSE_VALID", denoiserIsDiffuse(mDenoisingMethod) ? "1" : "0");
+        defines.add("NRD_SPECULAR_VALID", denoiserIsSpecular(mDenoisingMethod) ? "1" : "0");
+        defines.add("NRD_METHOD", std::to_string(nrdMethod));
+        mpPackRadiancePass = ComputePass::create(mpDevice, kShaderPackRadiance, "main", defines);
+    }
 
+    if (isRelax(mDenoisingMethod))
+    {
         // Run classic Falcor compute pass to pack radiance.
         {
             FALCOR_PROFILE(pRenderContext, "PackRadiance");
-            auto perImageCB = mpPackRadiancePassRelax->getRootVar()["PerImageCB"];
+            auto perImageCB = mpPackRadiancePass->getRootVar()["PerImageCB"];
 
             perImageCB["gMaxIntensity"] = mMaxIntensity;
             perImageCB["gDiffuseRadianceHitDist"] = renderData.getTexture(kInputDiffuseRadianceHitDist);
             perImageCB["gSpecularRadianceHitDist"] = renderData.getTexture(kInputSpecularRadianceHitDist);
-            mpPackRadiancePassRelax->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
+            mpPackRadiancePass->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
         }
 
-        nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(nrd::Denoiser::RELAX_DIFFUSE_SPECULAR), static_cast<void*>(&mRelaxSettings));
+        nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(getNrdDenoiser(mDenoisingMethod)), static_cast<void*>(&mRelaxSettings));
     }
-    else if (mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
+    else if (isReblur(mDenoisingMethod))
     {
-        if (!mpPackRadiancePassReblur)
-        {
-            DefineList definesReblur;
-            definesReblur.add("NRD_NORMAL_ENCODING", kNormalEncoding);
-            definesReblur.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
-            definesReblur.add("NRD_METHOD", "1"); // NRD_METHOD_REBLUR_DIFFUSE_SPECULAR
-            definesReblur.add("GROUP_X", "16");
-            definesReblur.add("GROUP_Y", "16");
-            mpPackRadiancePassReblur = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesReblur);
-        }
         // Run classic Falcor compute pass to pack radiance and hit distance.
         {
             FALCOR_PROFILE(pRenderContext, "PackRadianceHitDist");
-            auto perImageCB = mpPackRadiancePassReblur->getRootVar()["PerImageCB"];
+            auto perImageCB = mpPackRadiancePass->getRootVar()["PerImageCB"];
 
             perImageCB["gHitDistParams"].setBlob(mReblurSettings.hitDistanceParameters);
             perImageCB["gMaxIntensity"] = mMaxIntensity;
@@ -891,40 +869,29 @@ void NRDPassBase::packRadiancePass(RenderContext* pRenderContext, const RenderDa
             perImageCB["gSpecularRadianceHitDist"] = renderData.getTexture(kInputSpecularRadianceHitDist);
             perImageCB["gNormalRoughness"] = renderData.getTexture(kInputNormalRoughnessMaterialID);
             perImageCB["gViewZ"] = renderData.getTexture(kInputViewZ);
-            mpPackRadiancePassReblur->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
+            mpPackRadiancePass->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
         }
 
-        nrd::SetDenoiserSettings(
-            *mpInstance, nrd::Identifier(nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR), static_cast<void*>(&mReblurSettings)
+        nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(getNrdDenoiser(mDenoisingMethod)), static_cast<void*>(&mReblurSettings)
         );
+    }
+    else if (isOcclusion(mDenoisingMethod))
+    {
+        FALCOR_PROFILE(pRenderContext, "PackHitDist");
+        auto perImageCB = mpPackRadiancePass->getRootVar()["PerImageCB"];
+
+        perImageCB["gHitDistParams"].setBlob(mReblurSettings.hitDistanceParameters);
+        perImageCB["gDiffuseHitDist"] = renderData.getTexture(kInputDiffuseHitDist);
+        perImageCB["gSpecularHitDist"] = renderData.getTexture(kInputSpecularHitDist);
+        perImageCB["gNormalRoughness"] = renderData.getTexture(kInputNormalRoughnessMaterialID);
+        perImageCB["gViewZ"] = renderData.getTexture(kInputViewZ);
+        mpPackRadiancePass->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
+
+        nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(getNrdDenoiser(mDenoisingMethod)), static_cast<void*>(&mReblurSettings));
     }
     else if (mDenoisingMethod == DenoisingMethod::Sigma)
     {
         nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(nrd::Denoiser::SIGMA_SHADOW), static_cast<void*>(&mSigmaSettings));
-    }
-    else if (mDenoisingMethod == DenoisingMethod::ReblurOcclusionDiffuse)
-    {
-        if (!mpPackHitDistOcclusionDiffuse)
-        {
-            DefineList definesReblurDiffuseOcclusion;
-            definesReblurDiffuseOcclusion.add("NRD_NORMAL_ENCODING", kNormalEncoding);
-            definesReblurDiffuseOcclusion.add("NRD_ROUGHNESS_ENCODING", kRoughnessEncoding);
-            definesReblurDiffuseOcclusion.add("NRD_METHOD", "2"); // NRD_METHOD_REBLUR_DIFFUSE_OCCLUSION
-            definesReblurDiffuseOcclusion.add("GROUP_X", "16");
-            definesReblurDiffuseOcclusion.add("GROUP_Y", "16");
-            mpPackHitDistOcclusionDiffuse = ComputePass::create(mpDevice, kShaderPackRadiance, "main", definesReblurDiffuseOcclusion);
-        }
-
-        FALCOR_PROFILE(pRenderContext, "PackHitDist");
-        auto perImageCB = mpPackRadiancePassReblur->getRootVar()["PerImageCB"];
-
-        perImageCB["gHitDistParams"].setBlob(mReblurSettings.hitDistanceParameters);
-        perImageCB["gDiffuseHitDist"] = renderData.getTexture(kInputDiffuseHitDist);
-        perImageCB["gNormalRoughness"] = renderData.getTexture(kInputNormalRoughnessMaterialID);
-        perImageCB["gViewZ"] = renderData.getTexture(kInputViewZ);
-        mpPackRadiancePassReblur->execute(pRenderContext, uint3(mScreenSize.x, mScreenSize.y, 1u));
-
-        nrd::SetDenoiserSettings(*mpInstance, nrd::Identifier(getNrdDenoiser(mDenoisingMethod)), static_cast<void*>(&mReblurSettings));
     }
     else
     {

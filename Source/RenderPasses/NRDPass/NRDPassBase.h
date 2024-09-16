@@ -47,15 +47,27 @@ public:
     {
         RelaxDiffuseSpecular,
         ReblurDiffuseSpecular,
+        RelaxDiffuse,
+        RelaxSpecular,
+        ReblurDiffuse,
+        ReblurSpecular,
         Sigma,
         ReblurOcclusionDiffuse,
+        ReblurOcclusionSpecular,
+        ReblurOcclusionDiffuseSpecular,
     };
 
     FALCOR_ENUM_INFO(DenoisingMethod, {
         { DenoisingMethod::RelaxDiffuseSpecular, "RelaxDiffuseSpecular" },
         { DenoisingMethod::ReblurDiffuseSpecular, "ReblurDiffuseSpecular" },
+        {DenoisingMethod::RelaxDiffuse, "RelaxDiffuse"},
+        {DenoisingMethod::RelaxSpecular, "ReblurSpecular"},
+        {DenoisingMethod::ReblurDiffuse, "ReblurDiffuse"},
+        {DenoisingMethod::ReblurSpecular, "ReblurSpecular"},
         {DenoisingMethod::Sigma, "Sigma"},
         {DenoisingMethod::ReblurOcclusionDiffuse, "ReblurOcclusionDiffuse"},
+        {DenoisingMethod::ReblurOcclusionSpecular, "ReblurOcclusionSpecular"},
+        {DenoisingMethod::ReblurOcclusionDiffuseSpecular, "ReblurOcclusionDiffuseSpecular"},
     });
 
     //Copy of the NRD enum, as it uses uint8 and Falcor GUI uses uint32
@@ -156,9 +168,7 @@ protected:
     float2 mPrevCameraJitter;
 
     // Additional classic Falcor compute pass and resources for packing radiance and hitT for NRD.
-    ref<ComputePass> mpPackRadiancePassRelax;
-    ref<ComputePass> mpPackRadiancePassReblur;
-    ref<ComputePass> mpPackHitDistOcclusionDiffuse;
+    ref<ComputePass> mpPackRadiancePass;
 };
 
 FALCOR_ENUM_REGISTER(NRDPassBase::DenoisingMethod);
