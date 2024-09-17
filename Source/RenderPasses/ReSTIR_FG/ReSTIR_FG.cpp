@@ -74,6 +74,24 @@ namespace
         {kOutputResidualRadiance,       "gOutResidualRadiance",     "Output residual color (transmission/delta)", true /*optional*/, ResourceFormat::RGBA32Float},
     };
 
+    //Properties for Render Graph
+    const std::string kPropsPhotonBufferSizeG = "PhotonBufferSizeGlobal";
+    const std::string kPropsPhotonBufferSizeC = "PhotonBufferSizeCaustic";
+    const std::string kPropsAnalyticEmissiveRatio = "AnalyticEmissiveRatio";
+    const std::string kPropsPhotonBouncesG = "PhotonBouncesGlobal";
+    const std::string kPropsPhotonBouncesC = "PhotonBouncesCaustic";
+    const std::string kPropsPhotonRadiusG = "PhotonRadiusGlobal";
+    const std::string kPropsPhotonRadiusC = "PhotonRadiusCaustic";
+    const std::string kPropsEnableStochCollect = "EnableStochCollect";
+    const std::string kPropsStochCollectK = "StochCollectK";
+    const std::string kPropsEnablePhotonCullingG = "EnablePhotonCullingGlobal";
+    const std::string kPropsEnablePhotonCullingC = "EnablePhotonCullingCaustic";
+    const std::string kPropsCullingRad = "CullingRadius";
+    const std::string kPropsCullingBits = "CullingBits";
+    const std::string kPropsCausticCollectionMode = "CausticCollectionMode";
+    const std::string kPropsCausticResamplingMode = "CausticResamplingMode";
+
+    //UI Dropdowns
     const Gui::DropdownList kResamplingModeList{
         {(uint)ReSTIR_FG::ResamplingMode::Temporal, "Temporal"},
         {(uint)ReSTIR_FG::ResamplingMode::Spatial, "Spatial"},
@@ -129,15 +147,80 @@ ReSTIR_FG::ReSTIR_FG(ref<Device> pDevice, const Properties& props)
         throw RuntimeError("ReSTIR_FG: Raytracing Tier 1.1 is not supported by the current device");
     }
 
-    //TODO Handle Properties
+    //Handle Properties
+    parseProperties(props);
 
     // Create sample generator.
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
 }
 
+void ReSTIR_FG::parseProperties(const Properties& props)
+{
+    for (const auto& [key, value] : props)
+    {
+        if (key == kPropsPhotonBufferSizeG)
+            mNumMaxPhotonsUI.x = value;
+        else if (key == kPropsPhotonBufferSizeC)
+            mNumMaxPhotonsUI.y = value;
+        else if (key == kPropsAnalyticEmissiveRatio)
+            mPhotonAnalyticRatio = value;
+        else if (key == kPropsPhotonBouncesG)
+            mPhotonMaxBounces = value;
+        else if (key == kPropsPhotonBouncesC)
+            mMaxCausticBounces = value;
+        else if (key == kPropsPhotonRadiusG)
+        {
+            mPhotonCollectionRadiusStart.x = value;
+            mRadiusSetOverProperties = true;
+        }
+        else if (key == kPropsPhotonRadiusC)
+        {
+            mPhotonCollectionRadiusStart.y = value;
+            mRadiusSetOverProperties = true;
+        }
+        else if (key == kPropsEnableStochCollect)
+            mUseStochasticCollect = value;
+        else if (key == kPropsStochCollectK)
+            mStochasticCollectNumPhotons = value;
+        else if (key == kPropsEnablePhotonCullingG)
+            mUsePhotonCulling = value;
+        else if (key == kPropsEnablePhotonCullingC)
+            mUseCausticCulling = value;
+        else if (key == kPropsCullingRad)
+            mCullingCellRadius = value;
+        else if (key == kPropsCullingBits)
+            mCullingHashBufferSizeBits = value;
+        else if (key == kPropsCausticCollectionMode)
+            (uint&)mCausticCollectMode = value;
+        else if (key == kPropsCausticResamplingMode)
+            (uint&)mCausticResamplingMode = value;
+        else
+            logWarning("Unknown property '{}' in ReSTIR_FG properties.", key);
+
+        mNumMaxPhotons = mNumMaxPhotonsUI; //copy UI value
+    }
+}
 Properties ReSTIR_FG::getProperties() const
 {
-    return Properties();
+    Properties props = Properties();
+
+    props[kPropsPhotonBufferSizeG] = mNumMaxPhotonsUI.x;
+    props[kPropsPhotonBufferSizeC] = mNumMaxPhotonsUI.y;
+    props[kPropsAnalyticEmissiveRatio] = mPhotonAnalyticRatio;
+    props[kPropsPhotonBouncesG] = mPhotonMaxBounces;
+    props[kPropsPhotonBouncesC] = mMaxCausticBounces;
+    props[kPropsPhotonRadiusG] = mPhotonCollectionRadiusStart.x;
+    props[kPropsPhotonRadiusC] = mPhotonCollectionRadiusStart.y;
+    props[kPropsEnableStochCollect] = mUseStochasticCollect;
+    props[kPropsStochCollectK] = mStochasticCollectNumPhotons;
+    props[kPropsEnablePhotonCullingG] = mUsePhotonCulling;
+    props[kPropsEnablePhotonCullingC] = mUseCausticCulling;
+    props[kPropsCullingRad] = mCullingCellRadius;
+    props[kPropsCullingBits] = mCullingHashBufferSizeBits;
+    props[kPropsCausticCollectionMode] = (uint)mCausticCollectMode;
+    props[kPropsCausticResamplingMode] = (uint)mCausticResamplingMode;
+
+    return props;
 }
 
 RenderPassReflection ReSTIR_FG::reflect(const CompileData& compileData)
@@ -448,7 +531,7 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                     changed |= causticGroup.dropdown("Resampling Mode", kCausticResamplingModeList, (uint&)mCausticResamplingMode);
                     if (auto reservoirGroup = causticGroup.group("Photon Resampling Settings"))
                     {
-                        changed |= reservoirGroup.var("Confidence Cap", mCausticResamplingConfidenceCap, 1u, 120u, 1u);
+                        changed |= reservoirGroup.var("Confidence Cap Caustic", mCausticResamplingConfidenceCap, 1u, 120u, 1u);
                         if (mCausticResamplingMode == ResamplingMode::SpartioTemporal)
                         {
                             changed |= reservoirGroup.var("Spatial Samples", mCausticResamplingSpatialSamples, 1u, 8u, 1u);
@@ -642,15 +725,23 @@ void ReSTIR_FG::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
 
         prepareRayTracingShaders(pRenderContext);
 
-        //Expermental approximate Radius
-        float startRadius = sceneExtend;
-        if (sceneExtend < 50.f)
-            startRadius *= 0.0015f;
+        //Experimental approximate Radius
+        if (mRadiusSetOverProperties)
+        {
+            mPhotonCollectRadius = mPhotonCollectionRadiusStart;
+            mRadiusSetOverProperties = false;
+        }
         else
-            startRadius *= 0.00075f;
-        
-        mPhotonCollectionRadiusStart = float2(startRadius, startRadius / 4.0f);
-        mPhotonCollectRadius = mPhotonCollectionRadiusStart;
+        {
+            float startRadius = sceneExtend;
+            if (sceneExtend < 50.f)
+                startRadius *= 0.0015f;
+            else
+                startRadius *= 0.00075f;
+
+            mPhotonCollectionRadiusStart = float2(startRadius, startRadius / 4.0f);
+            mPhotonCollectRadius = mPhotonCollectionRadiusStart;
+        }
     }
 }
 
@@ -1444,7 +1535,6 @@ void ReSTIR_FG::collectPhotons(RenderContext* pRenderContext, const RenderData& 
      var[nameBuf]["gFrameCount"] = mFrameCount;
      var[nameBuf]["gPhotonRadius"] = mPhotonCollectRadius;
      var[nameBuf]["gAttenuationRadius"] = mSampleRadiusAttenuation;
-     var[nameBuf]["gPhotonWeight"] = 1.f / (float(M_PI) * mPhotonCollectRadius * mPhotonCollectRadius);
      var[nameBuf]["gCollectCaustic"] = true;
      var[nameBuf]["gCollectFG"] = true;
      //Set Temporal Constant Buffer if necessary
