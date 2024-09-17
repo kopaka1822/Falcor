@@ -249,7 +249,7 @@ struct GBufferRT
             float4 prevPosH = mul(gScene.camera.data.prevViewProjMatNoJitter, float4(prevPosW, 1.f));
 
             motionVector = calcMotionVector(pixelPos, prevPosH, frameDim) + float2(gScene.camera.data.jitterX, -gScene.camera.data.jitterY); // Remove camera jitter from motion vector
-            //motionVectorW = float4(prevPosW - sd.posW, 0.f);
+            motionVectorW = float4(prevPosW - sd.posW, 0.f);
            
 
             // Compute disocclusion.
@@ -258,7 +258,7 @@ struct GBufferRT
             disocclusion = prevPosH.w - curPosH.w;
 
             //2.5D motion vector
-            motionVectorW = float4(motionVector,disocclusion, 0.f);
+            //motionVectorW = float4(motionVector,disocclusion, 0.f);
         }
 
         // Create material instance and query its properties.
