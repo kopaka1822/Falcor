@@ -58,7 +58,20 @@ namespace
     // Pack radiance settings.
     const char kMaxIntensity[] = "maxIntensity";
 
-    // ReLAX diffuse/specular settings. TODO settings specialization
+    //Relax settings TODO add more
+    const std::string kPropsRelaxAntilagAccelerationAmount = "RelaxAntilagAccelerationAmount";
+    const std::string kPropsRelaxAntilagSpatialSigmaScale = "RelaxAntilagSpatialSigmaScale";
+    const std::string kPropsRelaxAntilagTemporalSigmaScale = "RelaxAntilagTemporalSigmaScale";
+    const std::string kPropsRelaxAntilagResetAmount = "RelaxAntilagResetAmount";
+    const std::string kPropsRelaxDiffusePrepassBlurRadius = "RelaxDiffusePrepassBlurRadius";
+    const std::string kPropsRelaxSpecularPrepassBlurRadius = "RelaxSpecularPrepassBlurRadius";
+    const std::string kPropsRelaxDiffuseMaxAccumulatedFrameNum = "RelaxDiffuseMaxAccumulatedFrameNum";
+    const std::string kPropsRelaxSpecularMaxAccumulatedFrameNum = "RelaxSpecularMaxAccumulatedFrameNum";
+    const std::string kPropsRelaxEnableAntiFirefly = "RelaxEnableAntiFirefly";
+
+    //Reblur settings TODO add
+
+    //Sigma settings TODO
 
     const Gui::DropdownList kDropdownNormal = {
         {(uint)NRDPassBase::DenoisingMethod::RelaxDiffuseSpecular, "RelaxDiffuseSpecular"},
@@ -84,7 +97,7 @@ NRDPassBase::NRDPassBase(ref<Device> pDevice, const Properties& props)
 
     mRecreateDenoiser = true;
 
-    // Override some defaults coming from the NRD SDK.
+    // Overwrite some defaults coming from the NRD SDK.
     mRelaxSettings.antilagSettings.accelerationAmount = 0.3f;
     mRelaxSettings.antilagSettings.spatialSigmaScale = 4.0f;
     mRelaxSettings.antilagSettings.temporalSigmaScale = 0.2f;
@@ -101,28 +114,46 @@ NRDPassBase::NRDPassBase(ref<Device> pDevice, const Properties& props)
     // Deserialize pass from dictionary.
     for (const auto& [key, value] : props)
     {
-        if (key == kEnabled) mEnabled = value;
-        else if (key == kMethod) mDenoisingMethod = value;
-        else if (key == kOutputSize) mOutputSizeSelection = value;
+        if (key == kEnabled)
+            mEnabled = value;
+        else if (key == kMethod)
+            mDenoisingMethod = value;
+        else if (key == kOutputSize)
+            mOutputSizeSelection = value;
 
         // Common settings.
-        else if (key == kWorldSpaceMotion) mWorldSpaceMotion = value;
-        else if (key == kDisocclusionThreshold) mDisocclusionThreshold = value;
+        else if (key == kWorldSpaceMotion)
+            mWorldSpaceMotion = value;
+        else if (key == kDisocclusionThreshold)
+            mDisocclusionThreshold = value;
 
         // Pack radiance settings.
-        else if (key == kMaxIntensity) mMaxIntensity = value;
+        else if (key == kMaxIntensity)
+            mMaxIntensity = value;
 
-        // ReLAX diffuse/specular settings.
-        else if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
-        {
-            /*TODO
-            if (key == kDiffusePrepassBlurRadius) mRelaxDiffuseSpecularSettings.diffusePrepassBlurRadius = value;
-            else
-            {
-                logWarning("Unknown property '{}' in NRD properties.", key);
-            }
-            */
-        }
+        // ReLAX settings
+        else if (key == kPropsRelaxAntilagAccelerationAmount)
+            mRelaxSettings.antilagSettings.accelerationAmount = value;
+        else if (key == kPropsRelaxAntilagSpatialSigmaScale)
+            mRelaxSettings.antilagSettings.spatialSigmaScale = value;
+        else if (key == kPropsRelaxAntilagTemporalSigmaScale)
+            mRelaxSettings.antilagSettings.temporalSigmaScale = value;
+        else if (key == kPropsRelaxAntilagResetAmount)
+            mRelaxSettings.antilagSettings.resetAmount = value;
+        else if (key == kPropsRelaxDiffusePrepassBlurRadius)
+            mRelaxSettings.diffusePrepassBlurRadius = value;
+        else if (key == kPropsRelaxSpecularPrepassBlurRadius)
+            mRelaxSettings.specularPrepassBlurRadius = value;
+        else if (key == kPropsRelaxDiffuseMaxAccumulatedFrameNum)
+            mRelaxSettings.diffuseMaxAccumulatedFrameNum = value;
+        else if (key == kPropsRelaxSpecularMaxAccumulatedFrameNum)
+            mRelaxSettings.specularMaxAccumulatedFrameNum = value;
+        else if (key == kPropsRelaxEnableAntiFirefly)
+            mRelaxSettings.enableAntiFirefly = value;
+
+        //Reblur settings TODO
+
+        //Sigma settings TODO
         else
         {
             logWarning("Unknown property '{}' in NRD properties.", key);
@@ -145,12 +176,16 @@ Properties NRDPassBase::getProperties() const
     // Pack radiance settings.
     props[kMaxIntensity] = mMaxIntensity;
 
-    // ReLAX diffuse/specular settings.
-    if (mDenoisingMethod == DenoisingMethod::RelaxDiffuseSpecular || mDenoisingMethod == DenoisingMethod::ReblurDiffuseSpecular)
-    {
-        /* TODO
-        */
-    }
+    // ReLAX settings
+    props[kPropsRelaxAntilagAccelerationAmount] = mRelaxSettings.antilagSettings.accelerationAmount;
+    props[kPropsRelaxAntilagSpatialSigmaScale] = mRelaxSettings.antilagSettings.spatialSigmaScale;
+    props[kPropsRelaxAntilagTemporalSigmaScale] = mRelaxSettings.antilagSettings.temporalSigmaScale;
+    props[kPropsRelaxAntilagResetAmount] = mRelaxSettings.antilagSettings.resetAmount;
+    props[kPropsRelaxDiffusePrepassBlurRadius] = mRelaxSettings.diffusePrepassBlurRadius;
+    props[kPropsRelaxSpecularPrepassBlurRadius] = mRelaxSettings.specularPrepassBlurRadius;
+    props[kPropsRelaxDiffuseMaxAccumulatedFrameNum] = mRelaxSettings.diffuseMaxAccumulatedFrameNum;
+    props[kPropsRelaxSpecularMaxAccumulatedFrameNum] = mRelaxSettings.specularMaxAccumulatedFrameNum;
+    props[kPropsRelaxEnableAntiFirefly] = mRelaxSettings.enableAntiFirefly;
 
     return props;
 }
