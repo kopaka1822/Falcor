@@ -72,18 +72,23 @@ void rayGen()
 
     // view space normal of current pixel
     float3 faceNormal = normalize(gFaceNormalTex[svPos]);
+    // face forward
+    if (dot(faceNormal, wPos.xyz - gCamera.data.posW) > 0)
+    {
+        faceNormal = -faceNormal;
+    }
 
     // determine tangent space
     float3 bitangent = getTangentVector(faceNormal);
     float3 tangent = cross(bitangent, faceNormal);
 
     // Init sample generator
-    SampleGenerator sg = SampleGenerator(svPos, frameIndex);
+    SampleGenerator sg = SampleGenerator(svPos, frameIndex % 30u);
 
     RayDesc ray;
     ray.Origin = wPos.xyz;
     ray.Origin += faceNormal * gData.normalScale; // push origin in the direction of the face normal to avoid self intersection
-    ray.TMin = 0.001;
+    ray.TMin = 0.00;
     ray.TMax = gData.radius;
 
     RayData rayData;

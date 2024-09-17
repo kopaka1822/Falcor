@@ -140,6 +140,9 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_Target
         return 1.0;
 
     float3 normalW = gNormal[int2(svPos.xy)].xyz;
+    // face forward normal
+    if (dot(normalW, posW.xyz - gScene.camera.getPosition()) > 0)
+        normalW = -normalW;
     
     LightData light = gScene.getLight(gLightIndex);
     RayDesc ray;
