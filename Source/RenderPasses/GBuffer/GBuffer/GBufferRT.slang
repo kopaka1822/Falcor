@@ -250,11 +250,15 @@ struct GBufferRT
 
             motionVector = calcMotionVector(pixelPos, prevPosH, frameDim) + float2(gScene.camera.data.jitterX, -gScene.camera.data.jitterY); // Remove camera jitter from motion vector
             motionVectorW = float4(prevPosW - sd.posW, 0.f);
+           
 
             // Compute disocclusion.
             // Do the occlusion masking in linearZ space
             float4 curPosH = mul(gScene.camera.data.viewProjMatNoJitter, float4(sd.posW, 1.f));
             disocclusion = prevPosH.w - curPosH.w;
+
+            //2.5D motion vector
+            //motionVectorW = float4(motionVector,disocclusion, 0.f);
         }
 
         // Create material instance and query its properties.

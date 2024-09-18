@@ -50,6 +50,8 @@ namespace
     const std::string kOutputSpecularRadiance = "specularRadiance";
     const std::string kOutputDiffuseReflectance = "diffuseReflectance";
     const std::string kOutputSpecularReflectance = "specularReflectance";
+    const std::string kOutputPenumbra = "penumbra";
+    const std::string kOutputUnshadowed = "unshadowed";
 
     const ChannelList kOutputChannels = {
         {kOutputColor, "gOutColor", "Output Color (linear)", true /*optional*/, ResourceFormat::RGBA16Float},
@@ -58,6 +60,8 @@ namespace
         {kOutputSpecularRadiance, "gOutSpecularRadiance", "Output demodulated specular color (linear)", true /*optional*/, ResourceFormat::RGBA16Float},
         {kOutputDiffuseReflectance, "gOutDiffuseReflectance", "Output primary surface diffuse reflectance", true /*optional*/, ResourceFormat::RGBA16Float},
         {kOutputSpecularReflectance, "gOutSpecularReflectance", "Output primary surface specular reflectance", true /*optional*/,ResourceFormat::RGBA16Float},
+        {kOutputPenumbra, "gOutPenumbra", "Penumbra output for NRD", true /*optional*/,   ResourceFormat::R16Float},
+        {kOutputUnshadowed, "gOutUnshadowed", "Unshadowed output", true /*optional*/, ResourceFormat::RGBA16Float},
     };
 
 } //Namespace
@@ -103,6 +107,10 @@ void RayTracedSoftShadows::execute(RenderContext* pRenderContext, const RenderDa
         dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
         dict[Falcor::kRenderPassEnableNRD] = mEnableNRD ? NRDEnableFlags::NRDEnabled : NRDEnableFlags::NRDDisabled;
         mOptionsChanged = false;
+    }
+    else
+    {
+        dict[Falcor::kRenderPassEnableNRD] = NRDEnableFlags::None; //Empty flags
     }
 
     // Clear Outputs Lamda
@@ -318,7 +326,7 @@ void RayTracedSoftShadows::setScene(RenderContext* pRenderContext, const ref<Sce
 
         if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
         {
-            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("", "anyHit"));
+            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
         }
 
         mSoftShadowPip.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());

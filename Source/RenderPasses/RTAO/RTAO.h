@@ -28,43 +28,43 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
-#include "RenderGraph/RenderPassHelpers.h"
+#include "RTAOData.slang"
 
 using namespace Falcor;
 
-class ModulateIllumination : public RenderPass
+class RTAO : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(ModulateIllumination, "ModulateIllumination", "Modulate illumination pass.");
+    FALCOR_PLUGIN_CLASS(RTAO, "RTAO", "Ray Traced AO (noisy)");
 
-    static ref<ModulateIllumination> create(ref<Device> pDevice, const Properties& props) { return make_ref<ModulateIllumination>(pDevice, props); }
+    static ref<RTAO> create(ref<Device> pDevice, const Properties& dict) { return make_ref<RTAO>(pDevice, dict); }
 
-    ModulateIllumination(ref<Device> pDevice, const Properties& props);
+    RTAO(ref<Device> pDevice, const Properties& dict);
 
     virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
+    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
+    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
+    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    uint2                      mFrameDim = { 0, 0 };
-    RenderPassHelpers::IOSize  mOutputSizeSelection = RenderPassHelpers::IOSize::Default; ///< Selected output size.
 
-    ref<ComputePass>        mpModulateIlluminationPass;
+    ref<Texture> genSamplesTexture(uint size) const;
 
-    bool                    mUseEmission = true;
-    bool                    mUseDiffuseReflectance = true;
-    bool                    mUseDiffuseRadiance = true;
-    bool                    mUseSpecularReflectance = true;
-    bool                    mUseSpecularRadiance = true;
-    bool                    mUseDeltaReflectionEmission = true;
-    bool                    mUseDeltaReflectionReflectance = true;
-    bool                    mUseDeltaReflectionRadiance = true;
-    bool                    mUseDeltaTransmissionEmission = true;
-    bool                    mUseDeltaTransmissionReflectance = true;
-    bool                    mUseDeltaTransmissionRadiance = true;
-    bool                    mUseResidualRadiance = true;
-    bool                    mUseDebug = true;
-    bool                    mInputInYCoCg = false;
+    ref<RtProgram> mRayProgram;
+    ref<RtProgramVars> mRayVars;
+
+    ref<Scene> mpScene;
+    ref<SampleGenerator> mpSampleGenerator;
+
+    bool mEnabled = true;
+
+    ref<Texture> mpSamplesTex;
+    uint frameIndex = 0;
+
+    RTAOData mData;
+    bool mDirty = true;
 };

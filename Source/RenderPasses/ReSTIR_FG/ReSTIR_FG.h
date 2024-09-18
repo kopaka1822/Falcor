@@ -95,6 +95,9 @@ public:
     };
 
 private:
+    /** Parse incoming properties
+    */
+    void parseProperties(const Properties& props);
     /** Prepares the samplers etc needed for lighting. Returns true if lighting has changed
      */
     bool prepareLighting(RenderContext* pRenderContext);
@@ -248,6 +251,7 @@ private:
     float mASBuildBufferPhotonOverestimate = 1.15f;
     float2 mPhotonCollectionRadiusStart = float2(0.020f, 0.005f);
     float2 mPhotonCollectRadius = mPhotonCollectionRadiusStart;     // Radius for collection
+    bool mRadiusSetOverProperties = false;                      //True if radius was set with properties
     float mPhotonFirstHitGuard = 0.3f;                          //Phontons that traveled less than this distance are stored with a reduced probability
     float mPhotonFirstHitGuardStoreProb = 0.1f;                 //Probability for a photon to be stored if it traveled under a minimal distance
     bool mChangePhotonLightBufferSize = false;
@@ -263,7 +267,7 @@ private:
     ResamplingMode mCausticResamplingMode = ResamplingMode::SpartioTemporal;
     uint mCausticResamplingConfidenceCap = 20;
     uint mCausticResamplingSpatialSamples = 1;
-    float mCausticResamplingSpatialRadius = 4.f;
+    float mCausticResamplingSpatialRadius = 3.f;
     bool mCausticResamplingForFGDirect = true;
 
     bool mUseStochasticCollect = true;                     //Stochastic collect using reservoir sampling.
