@@ -62,6 +62,31 @@ namespace
     const Gui::DropdownList kAVSMDropdownK = {
         {4, "4"},{8, "8"},{12, "12"},{16, "16"},{20, "20"}, {24, "24"},{28, "28"}, {32, "32"},
     };
+
+    std::vector<float> kGraphTestX = {0.0f, 0.2f, 0.4f, 0.7f, 1.f};
+    std::vector<float> kGraphTestY = {1.0f, 0.8f, 0.5f, 0.25f, 0.1f}; 
+
+    //UI Graph
+    // Colorblind friendly palette.
+    const std::vector<uint32_t> kColorPalette = {
+        IM_COL32(0x00, 0x49, 0x49, 0xff),
+        IM_COL32(0x00, 0x92, 0x92, 0xff),
+        IM_COL32(0xff, 0x6d, 0xb6, 0xff),
+        IM_COL32(0xff, 0xb6, 0xdb, 0xff),
+        IM_COL32(0x49, 0x00, 0x92, 0xff),
+        IM_COL32(0x00, 0x6d, 0xdb, 0xff),
+        IM_COL32(0xb6, 0x6d, 0xff, 0xff),
+        IM_COL32(0x6d, 0xb6, 0xff, 0xff),
+        IM_COL32(0xb6, 0xdb, 0xff, 0xff),
+        IM_COL32(0x92, 0x00, 0x00, 0xff),
+        // Yellow-ish colors don't work well with the highlight color.
+        // IM_COL32(0x92, 0x49, 0x00, 0xff),
+        // IM_COL32(0xdb, 0x6d, 0x00, 0xff),
+        IM_COL32(0x24, 0xff, 0x24, 0xff),
+        IM_COL32(0xff, 0xff, 0x6d, 0xff),
+    };
+
+    const uint32_t kHighlightColor = IM_COL32(0xff, 0x7f, 0x00, 0xcf);
 }
 
 
@@ -78,7 +103,7 @@ TransparencyPathTracer::TransparencyPathTracer(ref<Device> pDevice, const Proper
     samplerDesc.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
     samplerDesc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpPointSampler = Sampler::create(mpDevice, samplerDesc);
-    FALCOR_ASSERT(mpShadowSamplerPoint);
+    FALCOR_ASSERT(mpPointSampler);
 }
 
 Properties TransparencyPathTracer::getProperties() const
@@ -362,6 +387,105 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(targetDim, 1));
 }
 
+void drawCircleFilled(const ImVec2& p, float radius, uint32_t color = 0xffffffff, const ImVec2& offset = ImVec2(0.f, 0.f))
+{
+    ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+    cursorPos = ImVec2(cursorPos.x + offset.x, cursorPos.y + offset.y);
+    ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(cursorPos.x + p.x, cursorPos.y + p.y), radius, color);
+}
+
+void drawLine(const ImVec2& p1, const ImVec2& p2, float thickness,uint32_t color = 0xffffffff, const ImVec2& offset = ImVec2(0.f,0.f))
+{
+    ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+    cursorPos = ImVec2(cursorPos.x + offset.x,cursorPos.y + offset.y) ;
+    ImGui::GetWindowDrawList()->AddLine(
+        ImVec2(cursorPos.x + p1.x, cursorPos.y + p1.y), ImVec2(cursorPos.x + p2.x, cursorPos.y + p2.y), color, thickness
+    );
+};
+
+void drawRectangle(const ImVec2& p1, const ImVec2& size, float thickness = 1.f ,uint32_t color = 0xffffffff) {
+    ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+    ImGui::GetWindowDrawList()->AddRect(
+        ImVec2(cursorPos.x + p1.x, cursorPos.y + p1.y), ImVec2(cursorPos.x + p1.x + size.x, cursorPos.y + p1.y + size.y), color, 0.f, 0, thickness
+    );
+}
+
+void TransparencyPathTracer::renderDebugGraph(const ImVec2& size) {
+    const ImVec2 graphOffset = ImVec2(18.f, 18.f);
+    const ImVec2 graphOffset2 = ImVec2(35.f, 55.f); // Somehow right bottom needs a bigger offset
+    const ImVec2 graphSize = ImVec2(size.x - (graphOffset.x + graphOffset2.x), size.y - (graphOffset.y + graphOffset2.y));
+    ImVec2 mousePos = ImGui::GetMousePos();
+    ImVec2 screenPos = ImGui::GetCursorScreenPos();
+    mousePos.x -= screenPos.x;
+    mousePos.y -= screenPos.y;
+
+    const float recThick = mGraphUISettings.borderThickness;
+    //TODO improve background and border
+    //Draw border
+    drawRectangle(
+        ImVec2(graphOffset.x - recThick, graphOffset.y - recThick), ImVec2(graphSize.x + recThick * 2, graphSize.y + recThick * 2),
+        recThick
+    ); 
+
+    const size_t numElements = kGraphTestX.size();
+    //Draw the graph lines as either step or linear function
+    if (mGraphUISettings.asStepFuction)
+    {
+        for (size_t i = 0; i < numElements - 1; i++)
+        {
+            ImVec2 a = ImVec2(kGraphTestX[i] * graphSize.x, (1.f - kGraphTestY[i]) * graphSize.y);
+            ImVec2 b = ImVec2(kGraphTestX[i + 1] * graphSize.x, (1.f - kGraphTestY[i]) * graphSize.y);
+            ImVec2 c = ImVec2(kGraphTestX[i + 1] * graphSize.x, (1.f - kGraphTestY[i + 1]) * graphSize.y);
+            drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[0], graphOffset);
+            drawLine(b, c, mGraphUISettings.lineThickness, kColorPalette[0], graphOffset);
+        }
+    }
+    else // linear function
+    {
+        for (size_t i = 0; i < numElements - 1; i++)
+        {
+            ImVec2 a = ImVec2(kGraphTestX[i] * graphSize.x, (1.f - kGraphTestY[i]) * graphSize.y);
+            ImVec2 b = ImVec2(kGraphTestX[i + 1] * graphSize.x, (1.f - kGraphTestY[i + 1]) * graphSize.y);
+            drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[0], graphOffset);
+        }
+    }
+
+    //For point highlighting
+    std::optional<float> highlightValueD;
+    std::optional<float> highlightValueT;
+    int highlightIndex = -1;
+    //Draw the points
+    for (size_t i = 0; i < numElements; i++)
+    {
+        ImVec2 el = ImVec2(kGraphTestX[i] * graphSize.x, (1.f - kGraphTestY[i]) * graphSize.y);
+        el.x += graphOffset.x;
+        el.y += graphOffset.y;
+        drawCircleFilled(el, mGraphUISettings.radiusSize, kColorPalette[1]);
+       
+        //Check if the mouse hovers over the point
+        const float rad = mGraphUISettings.radiusSize;
+        if (mousePos.x >= el.x - rad && mousePos.x < el.x + rad && mousePos.y >= el.y - rad && mousePos.y < el.y + rad)
+        {
+            highlightIndex = i;
+            highlightValueD = kGraphTestX[i];
+            highlightValueT = kGraphTestY[i];
+        }
+    }
+    //Draw highligh circle
+    if (highlightIndex >= 0)
+    {
+        ImVec2 el = ImVec2(kGraphTestX[highlightIndex] * graphSize.x, (1.f - kGraphTestY[highlightIndex]) * graphSize.y);
+        drawCircleFilled(el, mGraphUISettings.radiusSize, kHighlightColor, graphOffset);
+    }
+    ImGui::Dummy(size);
+    if (ImGui::IsItemHovered() && highlightValueD && highlightValueT)
+    {
+        ImGui::BeginTooltip();
+        ImGui::Text("Depth: %.3f\n Transmittance:%.1f%%", *highlightValueD, *highlightValueT * 100.f);
+        ImGui::EndTooltip();
+    }
+}
+
 void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
 {
     bool dirty = false;
@@ -412,6 +536,39 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
             );
             group.checkbox("Use PCF", mAVSMUsePCF); //TODO add other kernels
             group.tooltip("Enable 2x2 PCF using gather");
+        }
+    }
+
+    static bool graphOpenedFirstTime = true;
+    static bool graphOpen = false;
+    if (!graphOpen)
+        graphOpen |= widget.button("Open Transmittance Graph");
+    if (graphOpen)
+    {
+        if (graphOpenedFirstTime)
+        {
+            ImGui::SetNextWindowSize(ImVec2(300.f, 300.f));
+            graphOpenedFirstTime = false;
+        }
+        
+        ImGui::Begin("Test", &graphOpen);
+        renderDebugGraph(ImGui::GetWindowSize());
+        ImGui::End();
+    }
+
+    if (graphOpen)
+    {
+        if (auto group = widget.group("Graph Settings", true))
+        {
+            //TODO legend
+            group.text("Legend:");
+
+            group.separator();
+            group.text("Settings");
+            group.checkbox("As step function", mGraphUISettings.asStepFuction);
+            group.var("Point Radius", mGraphUISettings.radiusSize, 1.f, 128.f, 0.1f);
+            group.var("Line Thickness", mGraphUISettings.lineThickness, 1.f, 128.f, 0.1f);
+            group.var("Border Thickness", mGraphUISettings.borderThickness, 1.f, 128.f, 0.1f);
         }
     }
 

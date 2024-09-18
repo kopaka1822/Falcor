@@ -67,6 +67,7 @@ private:
     void generateAVSM(RenderContext* pRenderCotext, const RenderData& renderData);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void prepareVars();
+    void renderDebugGraph(const ImVec2& size);
 
 
     // Internal state
@@ -105,7 +106,17 @@ private:
     std::vector<ref<Texture>> mAVSMDepths;        //Depths for the avsm
     std::vector<ref<Texture>> mAVSMTransmittance;    //Trancemittance for each point of the avsm
 
-     
+    //Settings for Tranmittance UI Graph
+    struct
+    {
+        std::unordered_map < std::string, std::vector<float2>> functions;
+        float radiusSize = 4.f;
+        float borderThickness = 3.f;
+        float lineThickness = 5.f;
+        bool asStepFuction = false;
+
+    } mGraphUISettings;
+
 
     // Ray tracing program.
     struct RayTracingPipeline
