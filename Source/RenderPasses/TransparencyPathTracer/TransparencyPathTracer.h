@@ -47,7 +47,7 @@ public:
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
-    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
+    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override;
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
@@ -68,6 +68,7 @@ private:
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void prepareVars();
     void renderDebugGraph(const ImVec2& size);
+    void generateDebugRefFunction(RenderContext* pRenderContext, const RenderData& renderData);
 
 
     // Internal state
@@ -106,17 +107,28 @@ private:
     std::vector<ref<Texture>> mAVSMDepths;        //Depths for the avsm
     std::vector<ref<Texture>> mAVSMTransmittance;    //Trancemittance for each point of the avsm
 
-    //Settings for Tranmittance UI Graph
+    //Settings and Data for Tranmittance UI Graph
     struct
     {
-        std::unordered_map < std::string, std::vector<float2>> functions;
         float radiusSize = 4.f;
         float borderThickness = 3.f;
         float lineThickness = 5.f;
         bool asStepFuction = false;
-
+        uint selectedLight = 0;             //Selected light for the vis function
+        int2 selectedPixel = int2(-1, -1);  //Selected (Camera) pixel
+        bool selectPixelButton = false;     //True if the pixel can be selected with a button press
+        bool mouseDown = false;
+        bool genBuffers = false;            //True if buffers should be filled
+        uint numberFunctions = 2;           //Number of functions (fixed at 2)
     } mGraphUISettings;
 
+    struct GraphFunctionData
+    {
+        std::string name;
+        std::vector<float2> cpuData;
+        ref<Buffer> pPointsBuffer;
+    };
+    std::vector<GraphFunctionData> mGraphFunctionDatas;
 
     // Ray tracing program.
     struct RayTracingPipeline
@@ -128,4 +140,5 @@ private:
 
     RayTracingPipeline mTracer;
     RayTracingPipeline mGenAVSMPip; //Volumetric Adaptive SM
+    RayTracingPipeline mDebugGetRefFunction;
 };

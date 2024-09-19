@@ -40,14 +40,17 @@ namespace
     const std::string kShaderFolder = "RenderPasses/TransparencyPathTracer/";
     const std::string kShaderFile = kShaderFolder + "TransparencyPathTracer.rt.slang";
     const std::string kShaderAVSMRay = kShaderFolder + "GenAdaptiveVolumetricSM.rt.slang";
+    const std::string kShaderGenDebugRefFunction = kShaderFolder + "GenDebugRefFunction.rt.slang";
 
     //RT shader constant settings
     const uint kMaxPayloadSizeBytes = 20u;
     const uint kMaxRecursionDepth = 1u;
     const uint kMaxPayloadSizeAVSMPerK = 8u;
 
+    const std::string kInputVBuffer = "vbuffer";
+
     const ChannelList kInputChannels = {
-        {"vbuffer", "gVBuffer", "Visibility buffer in packed format"},
+        {kInputVBuffer, "gVBuffer", "Visibility buffer in packed format"},
         {"viewW", "gViewW", "World-space view direction (xyz float format)", true /* optional */},
     };
 
@@ -87,7 +90,8 @@ namespace
     };
 
     const uint32_t kHighlightColor = IM_COL32(0xff, 0x7f, 0x00, 0xcf);
-}
+    const uint32_t kTransparentWhiteColor = IM_COL32(0xff, 0xff, 0xff, 76);
+    }
 
 
 TransparencyPathTracer::TransparencyPathTracer(ref<Device> pDevice, const Properties& props)
@@ -153,7 +157,9 @@ void TransparencyPathTracer::execute(RenderContext* pRenderContext, const Render
 
     generateAVSM(pRenderContext, renderData);
 
-    traceScene(pRenderContext, renderData);  
+    traceScene(pRenderContext, renderData);
+
+    generateDebugRefFunction(pRenderContext, renderData);
 
     mFrameCount++;
 }
@@ -276,7 +282,6 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
     mGenAVSMPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
     mGenAVSMPip.pProgram->addDefine("AVSM_USE_TRIANGLE_AREA", mAVSMUseRectArea ? "1" : "0");
 
-
     //Create Program Vars
     if (!mGenAVSMPip.pVars)
     {
@@ -387,6 +392,109 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(targetDim, 1));
 }
 
+void TransparencyPathTracer::generateDebugRefFunction(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    static const uint elements = 256;
+    //Early return
+    if (!mGraphUISettings.genBuffers)
+        return;
+
+    // Create Debug buffers
+    if (mGraphFunctionDatas.size() != mGraphUISettings.numberFunctions)
+    {
+        if (!mGraphFunctionDatas.empty())
+            mGraphFunctionDatas.clear();
+
+        mGraphFunctionDatas.resize(mGraphUISettings.numberFunctions);
+        const size_t maxElements = elements * 8; // 256 (elements) x 2 (depth,opacity/transmittance) x 4 (element size)
+        std::vector<float> initData(elements * 2, 1.0);
+        for (uint i = 0; i < mGraphUISettings.numberFunctions; i++)
+        {
+            //Name
+            if (i == 0)
+                mGraphFunctionDatas[i].name = "Reference";
+            else
+                mGraphFunctionDatas[i].name = "Function" + std::to_string(i);
+
+            //Create GPU buffers
+            /*
+            mGraphFunctionDatas[i].pPointsBuffer = Buffer::create(
+                mpDevice, maxElements, ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None,
+                initData.data()
+            );*/
+            mGraphFunctionDatas[i].pPointsBuffer = Buffer::createStructured(
+                mpDevice, sizeof(float), elements * 2, ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, initData.data(), false
+            );
+            mGraphFunctionDatas[i].pPointsBuffer->setName("GraphDataBuffer_" + mGraphFunctionDatas[i].name);
+
+            //Create Vector
+            mGraphFunctionDatas[i].cpuData.resize(elements);
+        }
+    }
+
+    //Create the ray tracing program
+    if (!mDebugGetRefFunction.pProgram)
+    {
+        RtProgram::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderGenDebugRefFunction);
+        desc.setMaxPayloadSize(16u);
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1);
+
+        mDebugGetRefFunction.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        auto& sbt = mDebugGetRefFunction.pBindingTable;
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setMiss(0, desc.addMiss("miss"));
+
+        if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
+        {
+            sbt->setHitGroup(
+                0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit")
+            );
+        }
+
+        mDebugGetRefFunction.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
+    }
+
+    // Create Program Vars
+    if (!mDebugGetRefFunction.pVars)
+    {
+        mDebugGetRefFunction.pProgram->setTypeConformances(mpScene->getTypeConformances());
+        mDebugGetRefFunction.pVars = RtProgramVars::create(mpDevice, mDebugGetRefFunction.pProgram, mDebugGetRefFunction.pBindingTable);
+    }
+
+    FALCOR_ASSERT(mGraphUISettings.selectedLight < mShadowMapMVP.size());
+    auto var = mDebugGetRefFunction.pVars->getRootVar();
+    var["CB"]["gSelectedPixel"] = mGraphUISettings.selectedPixel;
+    var["CB"]["gNear"] = mNearFar.x;
+    var["CB"]["gFar"] = mNearFar.y;
+    var["CB"]["gSMRes"] = mSMSize;
+    var["CB"]["gLightPos"] = mpScene->getLight(mGraphUISettings.selectedLight)->getData().posW;
+    var["CB"]["gViewProj"] = mShadowMapMVP[mGraphUISettings.selectedLight].viewProjection;
+    var["CB"]["gInvViewProj"] = mShadowMapMVP[mGraphUISettings.selectedLight].invViewProjection;
+
+    var["gVBuffer"] = renderData[kInputVBuffer]->asTexture(); //VBuffer to convert selected pixel to shadow map pixel
+    var["gFuncData"] = mGraphFunctionDatas[0].pPointsBuffer;
+
+    mpScene->raytrace(pRenderContext, mDebugGetRefFunction.pProgram.get(), mDebugGetRefFunction.pVars, uint3(1,1, 1));
+
+    //TODO flush and copy the data to the cpu
+    const float2* pBuf = static_cast<const float2*>(mGraphFunctionDatas[0].pPointsBuffer->map(Buffer::MapType::Read));
+    FALCOR_ASSERT(pBuf);
+    std::memcpy(mGraphFunctionDatas[0].cpuData.data(), pBuf, elements);
+    mGraphFunctionDatas[0].pPointsBuffer->unmap();
+
+    mGraphUISettings.genBuffers = false;
+}
+
+void drawText(const ImVec2& p, std::string text, uint32_t color = 0xffffffff) {
+    ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+    ImGui::GetWindowDrawList()->AddText(
+        ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(cursorPos.x + p.x, cursorPos.y + p.y), color, text.c_str()
+    );
+}
+
 void drawCircleFilled(const ImVec2& p, float radius, uint32_t color = 0xffffffff, const ImVec2& offset = ImVec2(0.f, 0.f))
 {
     ImVec2 cursorPos = ImGui::GetCursorScreenPos();
@@ -410,8 +518,35 @@ void drawRectangle(const ImVec2& p1, const ImVec2& size, float thickness = 1.f ,
     );
 }
 
+void drawBackground(const ImVec2& graphOffset, const ImVec2& graphSize, const ImVec2& size, float borderThickness)
+{
+    const float textOffset = 9.f;
+    // Draw border
+    drawLine(ImVec2(graphOffset.x, 0.f), ImVec2(graphOffset.x, graphOffset.y + graphSize.y), borderThickness);
+    drawLine(ImVec2(graphOffset.x, graphOffset.y + graphSize.y), ImVec2(size.x, graphOffset.y + graphSize.y), borderThickness);
+    // Transparency lines and text
+    float textPosY = graphOffset.y - textOffset;
+    uint steps = 5;
+    float stepSize = 1.0f / steps;
+    float transparency = 1.f;
+    for (uint i = 0; i < steps; i++)
+    {
+        float heightOffset = graphSize.y * (stepSize * i);
+        std::string text = std::to_string(transparency);
+        text = text.substr(0, text.find(".") + 3);
+        drawText(ImVec2(0.f, textPosY + heightOffset), text);
+        drawLine(
+            ImVec2(graphOffset.x, graphOffset.y + heightOffset), ImVec2(graphOffset.x + graphSize.x, graphOffset.y + heightOffset),
+            borderThickness / 2.f, kTransparentWhiteColor
+        );
+        transparency -= stepSize;
+    }
+    drawText(ImVec2(0.f, textPosY + graphSize.y), "0.0");
+}
+
 void TransparencyPathTracer::renderDebugGraph(const ImVec2& size) {
-    const ImVec2 graphOffset = ImVec2(18.f, 18.f);
+
+    const ImVec2 graphOffset = ImVec2(35.f, 18.f);
     const ImVec2 graphOffset2 = ImVec2(35.f, 55.f); // Somehow right bottom needs a bigger offset
     const ImVec2 graphSize = ImVec2(size.x - (graphOffset.x + graphOffset2.x), size.y - (graphOffset.y + graphOffset2.y));
     ImVec2 mousePos = ImGui::GetMousePos();
@@ -419,33 +554,39 @@ void TransparencyPathTracer::renderDebugGraph(const ImVec2& size) {
     mousePos.x -= screenPos.x;
     mousePos.y -= screenPos.y;
 
-    const float recThick = mGraphUISettings.borderThickness;
-    //TODO improve background and border
-    //Draw border
-    drawRectangle(
-        ImVec2(graphOffset.x - recThick, graphOffset.y - recThick), ImVec2(graphSize.x + recThick * 2, graphSize.y + recThick * 2),
-        recThick
-    ); 
+    drawBackground(graphOffset, graphSize, size, mGraphUISettings.borderThickness);
 
-    const size_t numElements = kGraphTestX.size();
+    auto& graphVec = mGraphFunctionDatas[0].cpuData;
+
+    const size_t numElements = graphVec.size();
+    size_t lastElement = graphVec.size();
+    for (uint i = 0; i < graphVec.size(); i++)
+    {
+        if (graphVec[i].x >= 1.0)
+        {
+            lastElement = i;
+            break;
+        }
+    }
+
     //Draw the graph lines as either step or linear function
     if (mGraphUISettings.asStepFuction)
     {
-        for (size_t i = 0; i < numElements - 1; i++)
+        for (size_t i = 0; i < lastElement - 1; i++)
         {
-            ImVec2 a = ImVec2(kGraphTestX[i] * graphSize.x, (1.f - kGraphTestY[i]) * graphSize.y);
-            ImVec2 b = ImVec2(kGraphTestX[i + 1] * graphSize.x, (1.f - kGraphTestY[i]) * graphSize.y);
-            ImVec2 c = ImVec2(kGraphTestX[i + 1] * graphSize.x, (1.f - kGraphTestY[i + 1]) * graphSize.y);
+            ImVec2 a = ImVec2(graphVec[i].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
+            ImVec2 b = ImVec2(graphVec[i + 1].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
+            ImVec2 c = ImVec2(graphVec[i + 1].x * graphSize.x, (1.f - graphVec[i + 1].y) * graphSize.y);
             drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[0], graphOffset);
             drawLine(b, c, mGraphUISettings.lineThickness, kColorPalette[0], graphOffset);
         }
     }
     else // linear function
     {
-        for (size_t i = 0; i < numElements - 1; i++)
+        for (size_t i = 0; i < lastElement - 1; i++)
         {
-            ImVec2 a = ImVec2(kGraphTestX[i] * graphSize.x, (1.f - kGraphTestY[i]) * graphSize.y);
-            ImVec2 b = ImVec2(kGraphTestX[i + 1] * graphSize.x, (1.f - kGraphTestY[i + 1]) * graphSize.y);
+            ImVec2 a = ImVec2(graphVec[i].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
+            ImVec2 b = ImVec2(graphVec[i + 1].x * graphSize.x, (1.f - graphVec[i + 1].y) * graphSize.y);
             drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[0], graphOffset);
         }
     }
@@ -455,9 +596,9 @@ void TransparencyPathTracer::renderDebugGraph(const ImVec2& size) {
     std::optional<float> highlightValueT;
     int highlightIndex = -1;
     //Draw the points
-    for (size_t i = 0; i < numElements; i++)
+    for (size_t i = 0; i < lastElement; i++)
     {
-        ImVec2 el = ImVec2(kGraphTestX[i] * graphSize.x, (1.f - kGraphTestY[i]) * graphSize.y);
+        ImVec2 el = ImVec2(graphVec[i].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
         el.x += graphOffset.x;
         el.y += graphOffset.y;
         drawCircleFilled(el, mGraphUISettings.radiusSize, kColorPalette[1]);
@@ -467,21 +608,21 @@ void TransparencyPathTracer::renderDebugGraph(const ImVec2& size) {
         if (mousePos.x >= el.x - rad && mousePos.x < el.x + rad && mousePos.y >= el.y - rad && mousePos.y < el.y + rad)
         {
             highlightIndex = i;
-            highlightValueD = kGraphTestX[i];
-            highlightValueT = kGraphTestY[i];
+            highlightValueD = graphVec[i].x;
+            highlightValueT = graphVec[i].y;
         }
     }
     //Draw highligh circle
     if (highlightIndex >= 0)
     {
-        ImVec2 el = ImVec2(kGraphTestX[highlightIndex] * graphSize.x, (1.f - kGraphTestY[highlightIndex]) * graphSize.y);
+        ImVec2 el = ImVec2(graphVec[highlightIndex].x * graphSize.x, (1.f - graphVec[highlightIndex].y) * graphSize.y);
         drawCircleFilled(el, mGraphUISettings.radiusSize, kHighlightColor, graphOffset);
     }
     ImGui::Dummy(size);
     if (ImGui::IsItemHovered() && highlightValueD && highlightValueT)
     {
         ImGui::BeginTooltip();
-        ImGui::Text("Depth: %.3f\n Transmittance:%.1f%%", *highlightValueD, *highlightValueT * 100.f);
+        ImGui::Text("Depth: %.3f\nTransmittance:%.1f%%", *highlightValueD, *highlightValueT * 100.f);
         ImGui::EndTooltip();
     }
 }
@@ -543,7 +684,7 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
     static bool graphOpen = false;
     if (!graphOpen)
         graphOpen |= widget.button("Open Transmittance Graph");
-    if (graphOpen)
+    if (graphOpen && (!mGraphFunctionDatas.empty()))
     {
         if (graphOpenedFirstTime)
         {
@@ -560,7 +701,21 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("Graph Settings", true))
         {
-            //TODO legend
+            //TODO add mode for shadow map pixel select
+            if (mpScene && mpScene->getLightCount() > 0)
+                group.slider("Selected Light", mGraphUISettings.selectedLight, 0u, mpScene->getLightCount() - 1);
+
+            if (mGraphUISettings.selectedPixel.x >= 0 && mGraphUISettings.selectedPixel.y >= 0)
+                group.text("Selected Pixel :" + std::to_string(mGraphUISettings.selectedPixel.x) + "," + std::to_string(mGraphUISettings.selectedPixel.y));
+            else
+                group.text("Please select a pixel");
+
+            if (mGraphUISettings.selectPixelButton)
+                group.text("Press \"Left Click\" to select a pixel");
+            else
+                mGraphUISettings.selectPixelButton |= group.button("Select Pixel");
+
+            // TODO legend
             group.text("Legend:");
 
             group.separator();
@@ -621,6 +776,31 @@ void TransparencyPathTracer::setScene(RenderContext* pRenderContext, const ref<S
             mTracer.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
         }        
     }
+}
+
+bool TransparencyPathTracer::onMouseEvent(const MouseEvent& mouseEvent)
+{
+    static uint2 mouseScreenPos = uint2(0);
+
+    if (mGraphUISettings.selectPixelButton)
+    {
+        if (mouseEvent.type == MouseEvent::Type::Move)
+        {
+            mouseScreenPos = mouseEvent.screenPos;
+            return true;
+        }
+
+        if (mouseEvent.type == MouseEvent::Type::ButtonDown && mouseEvent.button == Input::MouseButton::Left)
+        {
+            mGraphUISettings.selectedPixel = mouseScreenPos;
+            mGraphUISettings.genBuffers = true;
+            mGraphUISettings.selectPixelButton = false;
+            mGraphUISettings.mouseDown = false;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void TransparencyPathTracer::prepareVars() {
