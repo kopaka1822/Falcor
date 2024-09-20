@@ -72,19 +72,16 @@ namespace
     //UI Graph
     // Colorblind friendly palette.
     const std::vector<uint32_t> kColorPalette = {
-        IM_COL32(0x00, 0x49, 0x49, 0xff),
-        IM_COL32(0x00, 0x92, 0x92, 0xff),
-        IM_COL32(0xff, 0x6d, 0xb6, 0xff),
-        IM_COL32(0xff, 0xb6, 0xdb, 0xff),
-        IM_COL32(0x49, 0x00, 0x92, 0xff),
+        IM_COL32(0x00, 0x49, 0x49, 0xff), //Darker Cyan
+        IM_COL32(0x00, 0x92, 0x92, 0xff), //Bright Cyan
+        IM_COL32(0x49, 0x00, 0x92, 125), // Dark Purple
+        IM_COL32(0x92, 0x4C, 0xD8, 0xff), //Bright Purple
+        
         IM_COL32(0x00, 0x6d, 0xdb, 0xff),
         IM_COL32(0xb6, 0x6d, 0xff, 0xff),
         IM_COL32(0x6d, 0xb6, 0xff, 0xff),
         IM_COL32(0xb6, 0xdb, 0xff, 0xff),
         IM_COL32(0x92, 0x00, 0x00, 0xff),
-        // Yellow-ish colors don't work well with the highlight color.
-        // IM_COL32(0x92, 0x49, 0x00, 0xff),
-        // IM_COL32(0xdb, 0x6d, 0x00, 0xff),
         IM_COL32(0x24, 0xff, 0x24, 0xff),
         IM_COL32(0xff, 0xff, 0x6d, 0xff),
     };
@@ -154,6 +151,8 @@ void TransparencyPathTracer::execute(RenderContext* pRenderContext, const Render
     {
         mpScene->getLightCollection(pRenderContext);
     }
+
+    prepareDebugBuffers(pRenderContext);
 
     generateAVSM(pRenderContext, renderData);
 
@@ -353,6 +352,8 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     // Set constants.
     auto var = mTracer.pVars->getRootVar();
     var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gOutputGraphDebug"] = mGraphUISettings.genBuffers;
+    var["CB"]["gDebugSelectedPixel"] = mGraphUISettings.selectedPixel;
     
     //Shadow Map
     
@@ -384,6 +385,15 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     for (auto channel : kOutputChannels)
         bind(channel);
 
+    //Bind graph debug buffers
+    if (mGraphFunctionDatas.size() >= 2)
+    {
+        for (uint i = 0; i < mGraphFunctionDatas[1].pointsBuffers.size(); i++)
+        {
+            var["gGraphBuffer"][i] = mGraphFunctionDatas[1].pointsBuffers[i];
+        }
+    }
+
     // Get dimensions of ray dispatch.
     const uint2 targetDim = renderData.getDefaultTextureDims();
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
@@ -392,45 +402,59 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(targetDim, 1));
 }
 
-void TransparencyPathTracer::generateDebugRefFunction(RenderContext* pRenderContext, const RenderData& renderData)
-{
-    static const uint elements = 256;
-    //Early return
+void TransparencyPathTracer::prepareDebugBuffers(RenderContext* pRenderContext) {
+    // Early return
     if (!mGraphUISettings.genBuffers)
         return;
 
-    // Create Debug buffers
+    const uint numLights = mpScene->getLightCount();
+    // Create Graph Debug buffers
     if (mGraphFunctionDatas.size() != mGraphUISettings.numberFunctions)
     {
         if (!mGraphFunctionDatas.empty())
             mGraphFunctionDatas.clear();
 
         mGraphFunctionDatas.resize(mGraphUISettings.numberFunctions);
-        const size_t maxElements = elements * 8; // 256 (elements) x 2 (depth,opacity/transmittance) x 4 (element size)
-        std::vector<float> initData(elements * 2, 1.0);
+        const size_t maxElements = kGraphDataMaxSize * 8; // kGraphDataMaxSize (elements) x 2 (depth, transmittance) x 4 (element size)
+        std::vector<float2> initData(kGraphDataMaxSize, float2(1.f, 0.f));
         for (uint i = 0; i < mGraphUISettings.numberFunctions; i++)
         {
-            //Name
+            // Name
             if (i == 0)
                 mGraphFunctionDatas[i].name = "Reference";
             else
                 mGraphFunctionDatas[i].name = "Function" + std::to_string(i);
 
-            //Create GPU buffers
-            /*
-            mGraphFunctionDatas[i].pPointsBuffer = Buffer::create(
-                mpDevice, maxElements, ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None,
-                initData.data()
-            );*/
-            mGraphFunctionDatas[i].pPointsBuffer = Buffer::createStructured(
-                mpDevice, sizeof(float), elements * 2, ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, initData.data(), false
-            );
-            mGraphFunctionDatas[i].pPointsBuffer->setName("GraphDataBuffer_" + mGraphFunctionDatas[i].name);
+            // Create GPU buffers
+            mGraphFunctionDatas[i].pointsBuffers.resize(numLights);
+            for (uint j = 0; j < numLights; j++)
+            {
+                mGraphFunctionDatas[i].pointsBuffers[j] = Buffer::createStructured(
+                    mpDevice, sizeof(float), kGraphDataMaxSize * 2, ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None,
+                    initData.data(), false
+                );
+                mGraphFunctionDatas[i].pointsBuffers[j]->setName(
+                    "GraphDataBuffer_Light_" + std::to_string(j) + "_" + mGraphFunctionDatas[i].name
+                );
+            }
 
-            //Create Vector
-            mGraphFunctionDatas[i].cpuData.resize(elements);
+            // Create Vectors
+            mGraphFunctionDatas[i].cpuData.resize(numLights);
+            for (uint j = 0; j < numLights; j++)
+            {
+                std::fill(std::begin(mGraphFunctionDatas[i].cpuData[j]), std::end(mGraphFunctionDatas[i].cpuData[j]), float2(1.f, 0.f));
+            }
         }
     }
+}
+
+void TransparencyPathTracer::generateDebugRefFunction(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    //Early return
+    if (!mGraphUISettings.genBuffers)
+        return;
+
+    const uint numLights = mpScene->getLightCount();
 
     //Create the ray tracing program
     if (!mDebugGetRefFunction.pProgram)
@@ -454,7 +478,12 @@ void TransparencyPathTracer::generateDebugRefFunction(RenderContext* pRenderCont
             );
         }
 
-        mDebugGetRefFunction.pProgram = RtProgram::create(mpDevice, desc, mpScene->getSceneDefines());
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add("NUM_LIGHTS", std::to_string(mpScene->getLightCount()));
+        defines.add("MAX_ELEMENTS", std::to_string(kGraphDataMaxSize));
+
+        mDebugGetRefFunction.pProgram = RtProgram::create(mpDevice, desc, defines);
     }
 
     // Create Program Vars
@@ -464,26 +493,56 @@ void TransparencyPathTracer::generateDebugRefFunction(RenderContext* pRenderCont
         mDebugGetRefFunction.pVars = RtProgramVars::create(mpDevice, mDebugGetRefFunction.pProgram, mDebugGetRefFunction.pBindingTable);
     }
 
-    FALCOR_ASSERT(mGraphUISettings.selectedLight < mShadowMapMVP.size());
+    
     auto var = mDebugGetRefFunction.pVars->getRootVar();
     var["CB"]["gSelectedPixel"] = mGraphUISettings.selectedPixel;
     var["CB"]["gNear"] = mNearFar.x;
     var["CB"]["gFar"] = mNearFar.y;
     var["CB"]["gSMRes"] = mSMSize;
-    var["CB"]["gLightPos"] = mpScene->getLight(mGraphUISettings.selectedLight)->getData().posW;
-    var["CB"]["gViewProj"] = mShadowMapMVP[mGraphUISettings.selectedLight].viewProjection;
-    var["CB"]["gInvViewProj"] = mShadowMapMVP[mGraphUISettings.selectedLight].invViewProjection;
+    for (uint i = 0; i < numLights; i++)
+    {
+        FALCOR_ASSERT(i < mShadowMapMVP.size());
+        var["CB"]["gViewProj"][i] = mShadowMapMVP[i].viewProjection;
+        var["CB"]["gInvViewProj"][i] = mShadowMapMVP[i].invViewProjection;
+    }
 
     var["gVBuffer"] = renderData[kInputVBuffer]->asTexture(); //VBuffer to convert selected pixel to shadow map pixel
-    var["gFuncData"] = mGraphFunctionDatas[0].pPointsBuffer;
+    for (uint i=0; i<numLights; i++)
+        var["gFuncData"][i] = mGraphFunctionDatas[0].pointsBuffers[i];
 
-    mpScene->raytrace(pRenderContext, mDebugGetRefFunction.pProgram.get(), mDebugGetRefFunction.pVars, uint3(1,1, 1));
+    mpScene->raytrace(pRenderContext, mDebugGetRefFunction.pProgram.get(), mDebugGetRefFunction.pVars, uint3(numLights,1, 1));
 
-    //TODO flush and copy the data to the cpu
-    const float2* pBuf = static_cast<const float2*>(mGraphFunctionDatas[0].pPointsBuffer->map(Buffer::MapType::Read));
-    FALCOR_ASSERT(pBuf);
-    std::memcpy(mGraphFunctionDatas[0].cpuData.data(), pBuf, elements);
-    mGraphFunctionDatas[0].pPointsBuffer->unmap();
+    //Copy (ref) to cpu buffer
+    for (uint i = 0; i < numLights; i++)
+    {
+        const float2* pBuf = static_cast<const float2*>(mGraphFunctionDatas[0].pointsBuffers[i]->map(Buffer::MapType::Read));
+        FALCOR_ASSERT(pBuf);
+        std::memcpy(mGraphFunctionDatas[0].cpuData[i].data(), pBuf, kGraphDataMaxSize);
+        mGraphFunctionDatas[0].pointsBuffers[i]->unmap();
+    }
+
+    //Change the selected light index to the one with the most valid samples
+    uint mostValidSamples = 0;
+    for (uint i = 0; i < numLights; i++){
+        for (uint j = 0; j < kGraphDataMaxSize; j++) {
+            if (mGraphFunctionDatas[0].cpuData[i][j].x >= 1.0){
+                if (j > mostValidSamples){
+                    mostValidSamples = j;
+                    mGraphUISettings.selectedLight = i;
+                }
+                break;
+            }
+        }
+    }
+
+    //Copy (function) to cpu buffer
+    for (uint i = 0; i < numLights; i++)
+    {
+        const float2* pBuf = static_cast<const float2*>(mGraphFunctionDatas[1].pointsBuffers[i]->map(Buffer::MapType::Read));
+        FALCOR_ASSERT(pBuf);
+        std::memcpy(mGraphFunctionDatas[1].cpuData[i].data(), pBuf, kGraphDataMaxSize);
+        mGraphFunctionDatas[1].pointsBuffers[i]->unmap();
+    }
 
     mGraphUISettings.genBuffers = false;
 }
@@ -518,16 +577,17 @@ void drawRectangle(const ImVec2& p1, const ImVec2& size, float thickness = 1.f ,
     );
 }
 
-void drawBackground(const ImVec2& graphOffset, const ImVec2& graphSize, const ImVec2& size, float borderThickness)
+void drawBackground(const ImVec2& graphOffset, const ImVec2& graphSize, const ImVec2& size, float2 minMaxDepth , float borderThickness)
 {
-    const float textOffset = 9.f;
+    const float textOffset = 8.f;   //Y offset
+    const float textOffsetD = 25.f; //X offset for depths
     // Draw border
     drawLine(ImVec2(graphOffset.x, 0.f), ImVec2(graphOffset.x, graphOffset.y + graphSize.y), borderThickness);
     drawLine(ImVec2(graphOffset.x, graphOffset.y + graphSize.y), ImVec2(size.x, graphOffset.y + graphSize.y), borderThickness);
     // Transparency lines and text
     float textPosY = graphOffset.y - textOffset;
-    uint steps = 5;
-    float stepSize = 1.0f / steps;
+    const uint steps = 5;
+    const float stepSize = 1.0f / steps;
     float transparency = 1.f;
     for (uint i = 0; i < steps; i++)
     {
@@ -542,84 +602,177 @@ void drawBackground(const ImVec2& graphOffset, const ImVec2& graphSize, const Im
         transparency -= stepSize;
     }
     drawText(ImVec2(0.f, textPosY + graphSize.y), "0.0");
+
+    //Scaled depth line and text
+    textPosY = graphOffset.y + graphSize.y + textOffset * 2; //Fixed height
+    const float depthRange = minMaxDepth.y - minMaxDepth.x;
+    const float depthStep = stepSize * depthRange;
+    for (uint i = 0; i <= steps; i++)
+    {
+        float depth = minMaxDepth.x + depthStep * i;
+        std::string depthStr = std::to_string(depth);
+        depthStr = depthStr.substr(0, depthStr.find(".") + 4);
+        float xOffset = graphSize.x * stepSize * i;
+        drawText(ImVec2(graphOffset.x - textOffsetD + xOffset, textPosY), depthStr);
+        if (i > 0)
+        {
+            drawLine(
+                ImVec2(graphOffset.x + xOffset, graphOffset.y + graphSize.y), ImVec2(graphOffset.x + xOffset, graphOffset.y),
+                borderThickness / 2.f, kTransparentWhiteColor
+            );
+        }
+    }
 }
 
 void TransparencyPathTracer::renderDebugGraph(const ImVec2& size) {
-
-    const ImVec2 graphOffset = ImVec2(35.f, 18.f);
-    const ImVec2 graphOffset2 = ImVec2(35.f, 55.f); // Somehow right bottom needs a bigger offset
+    const ImVec2 graphOffset = ImVec2(40.f, 18.f);
+    const ImVec2 graphOffset2 = ImVec2(40.f, 75.f); // Somehow right and bottom needs a bigger offset
     const ImVec2 graphSize = ImVec2(size.x - (graphOffset.x + graphOffset2.x), size.y - (graphOffset.y + graphOffset2.y));
     ImVec2 mousePos = ImGui::GetMousePos();
     ImVec2 screenPos = ImGui::GetCursorScreenPos();
     mousePos.x -= screenPos.x;
     mousePos.y -= screenPos.y;
 
-    drawBackground(graphOffset, graphSize, size, mGraphUISettings.borderThickness);
+    //Find min and max depth for depth scaling
+    float minDepth = 1.f;
+    float maxDepth = 0.f;
 
-    auto& graphVec = mGraphFunctionDatas[0].cpuData;
-
-    const size_t numElements = graphVec.size();
-    size_t lastElement = graphVec.size();
-    for (uint i = 0; i < graphVec.size(); i++)
+    for (uint k = 0; k < mGraphFunctionDatas.size() && mGraphUISettings.enableDepthScaling; k++)
     {
-        if (graphVec[i].x >= 1.0)
+        auto& graphVec = mGraphFunctionDatas[k].cpuData[mGraphUISettings.selectedLight];
+        const int numElements = k > 0 ? mNumberAVSMSamples : graphVec.size();
+        for (int i = 0; i < numElements; i++)
         {
-            lastElement = i;
-            break;
+            if (graphVec[i].x >= 1.0)
+                break;
+            minDepth = math::min(minDepth, graphVec[i].x);
+            maxDepth = math::max(maxDepth, graphVec[i].x);
         }
     }
 
-    //Draw the graph lines as either step or linear function
-    if (mGraphUISettings.asStepFuction)
-    {
-        for (size_t i = 0; i < lastElement - 1; i++)
-        {
-            ImVec2 a = ImVec2(graphVec[i].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
-            ImVec2 b = ImVec2(graphVec[i + 1].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
-            ImVec2 c = ImVec2(graphVec[i + 1].x * graphSize.x, (1.f - graphVec[i + 1].y) * graphSize.y);
-            drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[0], graphOffset);
-            drawLine(b, c, mGraphUISettings.lineThickness, kColorPalette[0], graphOffset);
-        }
-    }
-    else // linear function
-    {
-        for (size_t i = 0; i < lastElement - 1; i++)
-        {
-            ImVec2 a = ImVec2(graphVec[i].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
-            ImVec2 b = ImVec2(graphVec[i + 1].x * graphSize.x, (1.f - graphVec[i + 1].y) * graphSize.y);
-            drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[0], graphOffset);
-        }
-    }
+    bool depthsValid = (minDepth > maxDepth);
+    minDepth = depthsValid ? 0.f : math::max(minDepth - mGraphUISettings.depthRangeOffset, 0.f);
+    maxDepth = depthsValid ? 1.f : math::min(maxDepth + mGraphUISettings.depthRangeOffset, 1.f);
 
-    //For point highlighting
+    drawBackground(graphOffset, graphSize, size, float2(minDepth, maxDepth), mGraphUISettings.borderThickness);
+
+    // For point highlighting
     std::optional<float> highlightValueD;
     std::optional<float> highlightValueT;
-    int highlightIndex = -1;
-    //Draw the points
-    for (size_t i = 0; i < lastElement; i++)
+
+    //Start loop over all functions
+    for (uint k = 0; k < mGraphFunctionDatas.size(); k++)
     {
-        ImVec2 el = ImVec2(graphVec[i].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
-        el.x += graphOffset.x;
-        el.y += graphOffset.y;
-        drawCircleFilled(el, mGraphUISettings.radiusSize, kColorPalette[1]);
-       
-        //Check if the mouse hovers over the point
-        const float rad = mGraphUISettings.radiusSize;
-        if (mousePos.x >= el.x - rad && mousePos.x < el.x + rad && mousePos.y >= el.y - rad && mousePos.y < el.y + rad)
+        const uint colorIndex = k * 2;
+        if (!mGraphFunctionDatas[k].show)
+            continue;
+
+        auto& origGraphVec = mGraphFunctionDatas[k].cpuData[mGraphUISettings.selectedLight];
+
+        //Get last valid element for loop
+        const int numElements = k > 0 ? mNumberAVSMSamples : origGraphVec.size();
+        int lastElement = numElements;
+        for (int i = 0; i < numElements; i++)
         {
-            highlightIndex = i;
-            highlightValueD = graphVec[i].x;
-            highlightValueT = graphVec[i].y;
+            if (origGraphVec[i].x >= 1.0)
+            {
+                lastElement = i;
+                break;
+            }
+        }
+
+        //Nothing to render, abort
+        if (lastElement == 0)
+            continue;
+
+        //Create a copy of the vector with scaled depths
+        std::vector<float2> graphVec(lastElement);
+        float depthRange = maxDepth - minDepth;
+        for (int i = 0; i < lastElement; i++)
+            graphVec[i] = float2((origGraphVec[i].x - minDepth) / depthRange, origGraphVec[i].y);
+
+        // Connection from left side to element (same for both modes)
+        if (graphVec[0].x > 0 && (lastElement != 0))
+        {
+            ImVec2 a = ImVec2(0.f, 0.f);
+            ImVec2 b = ImVec2(graphVec[0].x * graphSize.x, 0.f);
+            ImVec2 c = ImVec2(graphVec[0].x * graphSize.x, (1.f - graphVec[0].y) * graphSize.y);
+            drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[colorIndex], graphOffset);
+            drawLine(b, c, mGraphUISettings.lineThickness, kColorPalette[colorIndex], graphOffset);
+        }
+        // Draw the graph lines as either step or linear function
+        if (mGraphUISettings.asStepFuction)
+        {
+            for (int i = 0; i < lastElement - 1; i++)
+            {
+                ImVec2 a = ImVec2(graphVec[i].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
+                ImVec2 b = ImVec2(graphVec[i + 1].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
+                ImVec2 c = ImVec2(graphVec[i + 1].x * graphSize.x, (1.f - graphVec[i + 1].y) * graphSize.y);
+                drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[colorIndex], graphOffset);
+                drawLine(b, c, mGraphUISettings.lineThickness, kColorPalette[colorIndex], graphOffset);
+            }
+        }
+        else // linear function
+        {
+            for (int i = 0; i < lastElement - 2; i++)
+            {
+                ImVec2 a = ImVec2(graphVec[i].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
+                ImVec2 b = ImVec2(graphVec[i + 1].x * graphSize.x, (1.f - graphVec[i + 1].y) * graphSize.y);
+                drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[colorIndex], graphOffset);
+            }
+            //Last element can be a step function if the last element has 0 transparency (is solid)
+            int idx = lastElement - 2;
+            if (graphVec[lastElement - 1].y > 0 && idx > 0) //Linear
+            {
+                ImVec2 a = ImVec2(graphVec[idx].x * graphSize.x, (1.f - graphVec[idx].y) * graphSize.y);
+                ImVec2 b = ImVec2(graphVec[idx + 1].x * graphSize.x, (1.f - graphVec[idx + 1].y) * graphSize.y);
+                drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[colorIndex], graphOffset);
+            }
+            else if (idx > 0) //Step
+            {
+                ImVec2 a = ImVec2(graphVec[idx].x * graphSize.x, (1.f - graphVec[idx].y) * graphSize.y);
+                ImVec2 b = ImVec2(graphVec[idx + 1].x * graphSize.x, (1.f - graphVec[idx].y) * graphSize.y);
+                ImVec2 c = ImVec2(graphVec[idx + 1].x * graphSize.x, (1.f - graphVec[idx + 1].y) * graphSize.y);
+                drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[colorIndex], graphOffset);
+                drawLine(b, c, mGraphUISettings.lineThickness, kColorPalette[colorIndex], graphOffset);
+            }
+        }
+        // Draw to right side if transparency is not zero (same for both modes)
+        if ((lastElement > 0) && graphVec[lastElement - 1].y > 0)
+        {
+            ImVec2 a = ImVec2(graphVec[lastElement - 1].x * graphSize.x, (1.f - graphVec[lastElement - 1].y) * graphSize.y);
+            ImVec2 b = ImVec2(graphSize.x, (1.f - graphVec[lastElement - 1].y) * graphSize.y);
+            drawLine(a, b, mGraphUISettings.lineThickness, kColorPalette[colorIndex], graphOffset);
+        }
+
+        // Draw the sample points
+        int highlightIndex = -1;
+        for (size_t i = 0; i < lastElement; i++)
+        {
+            ImVec2 el = ImVec2(graphVec[i].x * graphSize.x, (1.f - graphVec[i].y) * graphSize.y);
+            el.x += graphOffset.x;
+            el.y += graphOffset.y;
+            drawCircleFilled(el, mGraphUISettings.radiusSize, kColorPalette[colorIndex + 1]);
+
+            // Check if the mouse hovers over the point
+            const float rad = mGraphUISettings.radiusSize;
+            if (mousePos.x >= el.x - rad && mousePos.x < el.x + rad && mousePos.y >= el.y - rad && mousePos.y < el.y + rad)
+            {
+                highlightIndex = i;
+                highlightValueD = origGraphVec[i].x; //unscaled depths
+                highlightValueT = graphVec[i].y;
+            }
+        }
+        // Draw highligh circle
+        if (highlightIndex >= 0)
+        {
+            ImVec2 el = ImVec2(graphVec[highlightIndex].x * graphSize.x, (1.f - graphVec[highlightIndex].y) * graphSize.y);
+            drawCircleFilled(el, mGraphUISettings.radiusSize, kHighlightColor, graphOffset);
         }
     }
-    //Draw highligh circle
-    if (highlightIndex >= 0)
-    {
-        ImVec2 el = ImVec2(graphVec[highlightIndex].x * graphSize.x, (1.f - graphVec[highlightIndex].y) * graphSize.y);
-        drawCircleFilled(el, mGraphUISettings.radiusSize, kHighlightColor, graphOffset);
-    }
-    ImGui::Dummy(size);
-    if (ImGui::IsItemHovered() && highlightValueD && highlightValueT)
+
+    //Info for selected point
+    if (highlightValueD && highlightValueT)
     {
         ImGui::BeginTooltip();
         ImGui::Text("Depth: %.3f\nTransmittance:%.1f%%", *highlightValueD, *highlightValueT * 100.f);
@@ -681,51 +834,91 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
     }
 
     static bool graphOpenedFirstTime = true;
-    static bool graphOpen = false;
-    if (!graphOpen)
-        graphOpen |= widget.button("Open Transmittance Graph");
-    if (graphOpen && (!mGraphFunctionDatas.empty()))
+    
+    if (mGraphUISettings.graphOpen && (!mGraphFunctionDatas.empty()))
     {
         if (graphOpenedFirstTime)
         {
-            ImGui::SetNextWindowSize(ImVec2(300.f, 300.f));
+            //This is set for full HD
+            ImGui::SetNextWindowSize(ImVec2(1450.f, 900.f));
+            ImGui::SetNextWindowPos(ImVec2(400.f, 125.f)); 
             graphOpenedFirstTime = false;
         }
         
-        ImGui::Begin("Test", &graphOpen);
+        ImGui::Begin("Transmittance Function", &mGraphUISettings.graphOpen);
         renderDebugGraph(ImGui::GetWindowSize());
         ImGui::End();
     }
 
-    if (graphOpen)
+    
+    if (auto group = widget.group("Graph Settings", true))
     {
-        if (auto group = widget.group("Graph Settings", true))
+        if (mGraphUISettings.selectedPixel.x >= 0 && mGraphUISettings.selectedPixel.y >= 0 && !mGraphUISettings.selectPixelButton)
         {
-            //TODO add mode for shadow map pixel select
-            if (mpScene && mpScene->getLightCount() > 0)
-                group.slider("Selected Light", mGraphUISettings.selectedLight, 0u, mpScene->getLightCount() - 1);
+            group.text(
+                "Selected Pixel :" + std::to_string(mGraphUISettings.selectedPixel.x) + "," +
+                std::to_string(mGraphUISettings.selectedPixel.y)
+            );
+        }
 
-            if (mGraphUISettings.selectedPixel.x >= 0 && mGraphUISettings.selectedPixel.y >= 0)
-                group.text("Selected Pixel :" + std::to_string(mGraphUISettings.selectedPixel.x) + "," + std::to_string(mGraphUISettings.selectedPixel.y));
+        if (!mGraphUISettings.graphOpen)
+        {
+            bool buttonInSameLine = false;
+            if (mGraphUISettings.selectedPixel.x >= 0 && mGraphUISettings.selectedPixel.y >= 0 && !mGraphUISettings.selectPixelButton)
+            {
+                bool recreate = group.button("Recreate");
+                bool reopen = group.button("Reopen",true);
+                mGraphUISettings.genBuffers |= recreate;
+                mGraphUISettings.graphOpen |= recreate | reopen;
+                buttonInSameLine = true;
+            }
             else
+            {
                 group.text("Please select a pixel");
+            }
 
             if (mGraphUISettings.selectPixelButton)
                 group.text("Press \"Left Click\" to select a pixel");
             else
-                mGraphUISettings.selectPixelButton |= group.button("Select Pixel");
+                mGraphUISettings.selectPixelButton |= group.button("Select Pixel", buttonInSameLine);
+                
+        }
 
-            // TODO legend
-            group.text("Legend:");
+        if (mGraphUISettings.graphOpen)
+        {
+            if (mpScene && mpScene->getLightCount() > 0)
+                group.slider("Selected Light", mGraphUISettings.selectedLight, 0u, mpScene->getLightCount() - 1);
+
+            //Legend
+            // Get color
+            auto convertColorF4 = [&](const uint32_t& imColor) {
+                float4 color = float4(0.f);
+                color.r = (imColor & 0xFF) / 255.f;
+                color.g = ((imColor>>8) & 0xFF) / 255.f;
+                color.b = ((imColor>>16) & 0xFF) / 255.f;
+                color.a = ((imColor>>24) & 0xFF) / 255.f;
+                return color;
+            };
+            group.text("Graphs:");
+            group.checkbox("Reference", mGraphFunctionDatas[0].show);
+            group.rect(float2(20.f), convertColorF4(kColorPalette[0]), true,true);
+            group.dummy("", float2(0.f));
+            group.checkbox("AVSM", mGraphFunctionDatas[1].show);
+            group.rect(float2(20.f), convertColorF4(kColorPalette[2]), true, true);
+            group.dummy("", float2(0.f));
 
             group.separator();
             group.text("Settings");
             group.checkbox("As step function", mGraphUISettings.asStepFuction);
+            group.checkbox("Scale Depth Range", mGraphUISettings.enableDepthScaling);
+            if (mGraphUISettings.enableDepthScaling)
+                group.var("Depth Scaling Offset", mGraphUISettings.depthRangeOffset, 0.f, 1.f, 0.001f);
             group.var("Point Radius", mGraphUISettings.radiusSize, 1.f, 128.f, 0.1f);
             group.var("Line Thickness", mGraphUISettings.lineThickness, 1.f, 128.f, 0.1f);
             group.var("Border Thickness", mGraphUISettings.borderThickness, 1.f, 128.f, 0.1f);
         }
     }
+    
 
     mOptionsChanged |= dirty;
 }
@@ -794,6 +987,7 @@ bool TransparencyPathTracer::onMouseEvent(const MouseEvent& mouseEvent)
         {
             mGraphUISettings.selectedPixel = mouseScreenPos;
             mGraphUISettings.genBuffers = true;
+            mGraphUISettings.graphOpen = true;
             mGraphUISettings.selectPixelButton = false;
             mGraphUISettings.mouseDown = false;
             return true;

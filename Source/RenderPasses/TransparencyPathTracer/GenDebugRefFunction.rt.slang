@@ -6,7 +6,13 @@ import Scene.Intersection;
 import Utils.Math.MathHelpers;
 import Utils.Geometry.GeometryHelpers;
 
+#ifndef MAX_ELEMENTS
 #define MAX_ELEMENTS 256
+#endif
+
+#ifndef NUM_LIGHTS
+#define NUM_LIGHTS 1
+#endif
 
 /** Payload for shadow ray.
 */
@@ -31,14 +37,14 @@ cbuffer CB
     uint2       gSelectedPixel; //Currently selected camera pixel
     float       gNear;          // SM near
     float       gFar;           // SM far
-    uint        gSMRes;         // Shadow map resolution
-    float3      gLightPos;      // World position of current light
-    float4x4    gViewProj;      // View Projection for current light
-    float4x4    gInvViewProj;   // Inverse view for current light
+    uint        gSMRes;          // Shadow map resolution
+    uint3       _pad;           //Padding
+    float4x4 gViewProj[NUM_LIGHTS];    // View Projection for current light
+    float4x4 gInvViewProj[NUM_LIGHTS];   // Inverse view for current light
 }
 
 Texture2D<PackedHitInfo> gVBuffer;
-RWBuffer<float> gFuncData;
+RWBuffer<float> gFuncData[NUM_LIGHTS];
 
 static const float kMinOpacity = 1e-7;
 
@@ -85,6 +91,7 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
 [shader("closesthit")]
 void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
+    const uint lightIdx = DispatchRaysIndex().x;
     TriangleHit triangleHit;
     triangleHit.instanceID = getGeometryInstanceID();
     triangleHit.primitiveIndex = PrimitiveIndex();
@@ -96,7 +103,7 @@ void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes att
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -WorldRayDirection(), lod);
 
     rayData.currentTransmittance = rayData.totalTransmittance * (1.0 - sd.opacity);
-    float4 posH = mul(gViewProj, float4(sd.posW, 1.f));
+    float4 posH = mul(gViewProj[lightIdx], float4(sd.posW, 1.f));
     rayData.depth = (posH.w - gNear) / (gFar - gNear); // Normalized depth
     rayData.dist = RayTCurrent();
 }
@@ -107,15 +114,14 @@ void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes att
 [shader("raygeneration")]
 void rayGen()
 {
-    if (any(DispatchRaysIndex().xy != 0))
-        return;
+    const uint lightIdx = DispatchRaysIndex().x;
 
     // Get current position
     HitInfo hit = HitInfo(gVBuffer[gSelectedPixel]);
     const TriangleHit triangleHit = hit.getTriangleHit();
     VertexData v = gScene.getVertexData(triangleHit);
 
-    float4 shadowPos = mul(gViewProj, float4(v.posW, 1));
+    float4 shadowPos = mul(gViewProj[lightIdx], float4(v.posW, 1));
     shadowPos.xyz /= shadowPos.w;
 
     shadowPos.y *= -1;                                    // Flip
@@ -130,17 +136,25 @@ void rayGen()
     relFramePos = relFramePos * 2.0 - 1.0; // From [0,1] to [-1,1]
     relFramePos.y *= -1.f;
 
+    //Abort early if outside of shadow map
+    bool useRayTracing = true;
+    if (any(relFramePos < -1.0) || any(relFramePos > 1.0))
+        useRayTracing = false;
+
+    LightData lightData = gScene.getLight(lightIdx);
+    float3 lightPosW = lightData.posW;
+
     RayDesc ray;
 
-    float4 posWPixelNear = mul(gInvViewProj, float4(relFramePos, 0.f, 1.f));
-    float4 posWPixelFar = mul(gInvViewProj, float4(relFramePos, 1.f, 1.f));
+    float4 posWPixelNear = mul(gInvViewProj[lightIdx], float4(relFramePos, 0.f, 1.f));
+    float4 posWPixelFar = mul(gInvViewProj[lightIdx], float4(relFramePos, 1.f, 1.f));
 
     posWPixelNear.xyz /= posWPixelNear.w;
-    float3 toPoint = posWPixelNear.xyz - gLightPos;
+    float3 toPoint = posWPixelNear.xyz - lightPosW;
 
     ray.TMin = length(toPoint);                                        // Real near for the pixel
-    ray.TMax = distance(gLightPos, posWPixelFar.xyz / posWPixelFar.w); // Real far for the pixel
-    ray.Origin = gLightPos;
+    ray.TMax = distance(lightPosW, posWPixelFar.xyz / posWPixelFar.w); // Real far for the pixel
+    ray.Origin = lightPosW;
     ray.Direction = normalize(toPoint); // World direction
 
     RayData rayData = RayData();
@@ -151,16 +165,18 @@ void rayGen()
         rayData.currentTransmittance = 0.0;
 
         //Trace ray
-        uint rayFlags = 0;
-        TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+        if(useRayTracing){
+            uint rayFlags = 0;
+            TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
+            if (rayData.currentTransmittance < kMinOpacity || rayData.dist < 0)
+                useRayTracing = false;
+        }
+        
         uint index = i * 2;
-        gFuncData[index] = rayData.depth;
-        gFuncData[index + 1] = rayData.currentTransmittance; 
+        gFuncData[lightIdx][index] = rayData.depth;
+        gFuncData[lightIdx][index + 1] = rayData.currentTransmittance; 
         ray.TMin = rayData.dist;
-
-        if (rayData.currentTransmittance < kMinOpacity || rayData.dist < 0)
-            break;
 
         rayData.totalTransmittance = rayData.currentTransmittance;
     }

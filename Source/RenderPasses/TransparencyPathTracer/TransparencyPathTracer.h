@@ -68,6 +68,7 @@ private:
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void prepareVars();
     void renderDebugGraph(const ImVec2& size);
+    void prepareDebugBuffers(RenderContext* pRenderContext);
     void generateDebugRefFunction(RenderContext* pRenderContext, const RenderData& renderData);
 
 
@@ -113,6 +114,9 @@ private:
         float radiusSize = 4.f;
         float borderThickness = 3.f;
         float lineThickness = 5.f;
+        float depthRangeOffset = 0.01f;     //Offset for depth scaling
+        bool enableDepthScaling = true;     //Enables depth range scaling to the relevant part of the graph
+        bool graphOpen = false;         
         bool asStepFuction = false;
         uint selectedLight = 0;             //Selected light for the vis function
         int2 selectedPixel = int2(-1, -1);  //Selected (Camera) pixel
@@ -122,11 +126,13 @@ private:
         uint numberFunctions = 2;           //Number of functions (fixed at 2)
     } mGraphUISettings;
 
+    static const uint kGraphDataMaxSize = 256;
     struct GraphFunctionData
     {
-        std::string name;
-        std::vector<float2> cpuData;
-        ref<Buffer> pPointsBuffer;
+        std::string name = "";
+        bool show = true; 
+        std::vector<std::array<float2, kGraphDataMaxSize>> cpuData;
+        std::vector <ref<Buffer>> pointsBuffers;
     };
     std::vector<GraphFunctionData> mGraphFunctionDatas;
 

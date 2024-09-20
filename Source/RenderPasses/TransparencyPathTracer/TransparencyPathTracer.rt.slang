@@ -52,6 +52,8 @@ import SharedTypes;
 cbuffer CB
 {
     uint        gFrameCount;        // Frame count since scene was loaded.
+    bool        gOutputGraphDebug;  // Write selected pixel in debug graph output
+    int2       gDebugSelectedPixel; //Selected pixel for debug output
 }
 
 cbuffer SMCB
@@ -77,6 +79,7 @@ Texture2D<float4> gAVSMTransmittance[COUNT_SM];
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
+RWBuffer<float> gGraphBuffer[COUNT_LIGHTS]; //Optional; Debug
 
 // Sampler
 SamplerState gPointSampler;
@@ -695,6 +698,49 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
     return outColor;
 }
 
+void writeToDebugGraph(uint2 pixel){
+    if(!all(pixel == gDebugSelectedPixel))
+        return;
+
+    const HitInfo hit = HitInfo(gVBuffer[pixel]);
+
+    if(!hit.isValid())
+        return;
+
+    //Get world position
+    const TriangleHit triangleHit = hit.getTriangleHit();
+    VertexData v = gScene.getVertexData(triangleHit);
+    const float3 posW = v.posW;
+
+    //Loop through every light
+    const uint lightCount = gScene.getLightCount();
+
+    for(uint i=0; i<lightCount; i++){
+        float3 shadowPos = getShadowUVAndLightDist(i, posW);
+        //Skip if outside
+        if (any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
+            continue;
+
+        //Get depths and transmittance
+        for (uint j = 0; j < AVSM_K_4; j++) {
+            uint texIdx = i * AVSM_K_4 + j;
+            uint arrIdx = j * 8; //4 elements, 2 components
+
+            float4 depthTex = gAVSMDepths[texIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
+            float4 transmittanceTex = gAVSMTransmittance[texIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
+
+            gGraphBuffer[i][arrIdx] = depthTex[0];
+            gGraphBuffer[i][arrIdx + 1] = transmittanceTex[0];
+            gGraphBuffer[i][arrIdx + 2] = depthTex[1];
+            gGraphBuffer[i][arrIdx + 3] = transmittanceTex[1];
+            gGraphBuffer[i][arrIdx + 4] = depthTex[2];
+            gGraphBuffer[i][arrIdx + 5] = transmittanceTex[2];
+            gGraphBuffer[i][arrIdx + 6] = depthTex[3];
+            gGraphBuffer[i][arrIdx + 7] = transmittanceTex[3];
+        }
+    }
+}
+
 //
 // Shader entry points for miss shaders.
 //
@@ -768,6 +814,9 @@ void rayGen()
     uint2 frameDim = DispatchRaysDimensions().xy;
 
     float3 color = tracePath(pixel, frameDim);
+
+    if(gOutputGraphDebug)
+        writeToDebugGraph(pixel);
 
     gOutputColor[pixel] = float4(color, 1.f);
 }
