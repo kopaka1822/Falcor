@@ -15,6 +15,7 @@ def render_graph_RTAO():
     g.create_pass('DepthPass', 'DepthPass', {'depthFormat': 'D32Float', 'useAlphaTest': True, 'cullMode': 'Back'})
     g.create_pass('Ambient', 'ImageEquation', {'formula': 'I0[xy].xxxw', 'format': 'RGBA8UnormSrgb'})
     g.create_pass('PathBenchmark', 'PathBenchmark', {})
+    g.create_pass('FXAA', 'FXAA', {'qualityLevel': 3})
     g.add_edge('RTAO.ambient', 'NRD.diffuseHitDist')
     g.add_edge('GBufferRT.normWRoughnessMaterialID', 'NRD.normWRoughnessMaterialID')
     g.add_edge('GBufferRT.posW', 'RTAO.wPos')
@@ -34,8 +35,11 @@ def render_graph_RTAO():
     g.add_edge('NRD.filteredDiffuseOcclusion', 'DiffuseAmbient.I0')
     g.add_edge('NRD.filteredDiffuseOcclusion', 'Ambient.I0')
     g.add_edge('TAA0', 'PathBenchmark')
+    g.add_edge('DiffuseAmbient.out', 'FXAA.colorIn')
+    g.add_edge('FXAA', 'PathBenchmark')
     g.mark_output('TAA0.colorOut')
     g.mark_output('Ambient.out')
+    g.mark_output('FXAA.colorOut')
     return g
 
 RTAO = render_graph_RTAO()

@@ -66,8 +66,7 @@ void FXAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
     mpFbo->attachColorTarget(pColorOut, 0);
 
     auto var = mpPass->getRootVar();
-    //var["PerFrameCB"]["gQualityLevel"] = mControls.qualityLevel; // Bind quality level
-    // TODO FXAA_PRESET 0-5
+    mpPass->addDefine("FXAA_PRESET", std::to_string(getQualityLevel()));
     var["gTexColor"] = pColorIn;
     var["gSampler"] = mpLinearSampler;
 
@@ -78,5 +77,5 @@ void FXAA::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Enabled", mEnabled);
     if (!mEnabled) return;
-    widget.var("Quality Level", mControls.qualityLevel, 0, 3, 1); // Assuming quality levels from 0 to 3
+    widget.var("Quality Level", mControls.qualityLevel, 0, 5, 1); // Assuming quality levels from 0 to 3
 }

@@ -100,7 +100,7 @@ SamplerState gSampler;
 /*--------------------------------------------------------------------------*/
 #define FxaaToFloat3(a) FxaaFloat3((a), (a), (a))
 /*--------------------------------------------------------------------------*/
-float4 FxaaTexLod0(FxaaTex tex, float2 pos) {
+float4 FxaaTexLod0( float2 pos) {
     #if FXAA_GLSL_120
         return texture2DLod(tex, pos.xy, 0.0);
     #endif
@@ -111,11 +111,11 @@ float4 FxaaTexLod0(FxaaTex tex, float2 pos) {
         return tex2Dlod(tex, float4(pos.xy, 0.0, 0.0)); 
     #endif
     #if FXAA_HLSL_4
-        return tex.tex.SampleLevel(tex.smpl, pos.xy, 0.0);
+        return gTexColor.SampleLevel(gSampler, pos.xy, 0.0);
     #endif
 }
 /*--------------------------------------------------------------------------*/
-float4 FxaaTexGrad(FxaaTex tex, float2 pos, float2 grad) {
+float4 FxaaTexGrad( float2 pos, float2 grad) {
     #if FXAA_GLSL_120
         return texture2DGrad(tex, pos.xy, grad, grad);
     #endif
@@ -126,24 +126,11 @@ float4 FxaaTexGrad(FxaaTex tex, float2 pos, float2 grad) {
         return tex2Dgrad(tex, pos.xy, grad, grad); 
     #endif
     #if FXAA_HLSL_4
-        return tex.tex.SampleGrad(tex.smpl, pos.xy, grad, grad);
+        return gTexColor.SampleGrad(gSampler, pos.xy, grad, grad);
     #endif
 }
 /*--------------------------------------------------------------------------*/
-float4 FxaaTexOff(FxaaTex tex, float2 pos, int2 off, float2 rcpFrame) {
-    #if FXAA_GLSL_120
-        return texture2DLodOffset(tex, pos.xy, 0.0, off.xy);
-    #endif
-    #if FXAA_GLSL_130
-        return textureLodOffset(tex, pos.xy, 0.0, off.xy);
-    #endif
-    #if FXAA_HLSL_3
-        return tex2Dlod(tex, float4(pos.xy + (off * rcpFrame), 0, 0)); 
-    #endif
-    #if FXAA_HLSL_4
-        return tex.tex.SampleLevel(tex.smpl, pos.xy, 0.0, off.xy);
-    #endif
-}
+#define FxaaTexOff(pos, off, rcpFrame) gTexColor.SampleLevel(gSampler, pos, 0.0, off)
 
 /*============================================================================
                                  SRGB KNOBS
@@ -371,7 +358,7 @@ float3 FxaaPixelShader(
 //  xy -> actual texture position {0.0 to 1.0}
 float2 pos,
 // Input texture.
-FxaaTex tex,
+
 // RCPFRAME SHOULD PIXEL SHADER CONSTANTS!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 // {1.0/frameWidth, 1.0/frameHeight}
 float2 rcpFrame) {
@@ -394,11 +381,11 @@ then the shader early exits (no visible aliasing).
 This threshold is clamped at a minimum value ("FXAA_EDGE_THRESHOLD_MIN")
 to avoid processing in really dark areas.    
 ----------------------------------------------------------------------------*/
-    float3 rgbN = FxaaTexOff(tex, pos.xy, FxaaInt2( 0,-1), rcpFrame).xyz;
-    float3 rgbW = FxaaTexOff(tex, pos.xy, FxaaInt2(-1, 0), rcpFrame).xyz;
-    float3 rgbM = FxaaTexOff(tex, pos.xy, FxaaInt2( 0, 0), rcpFrame).xyz;
-    float3 rgbE = FxaaTexOff(tex, pos.xy, FxaaInt2( 1, 0), rcpFrame).xyz;
-    float3 rgbS = FxaaTexOff(tex, pos.xy, FxaaInt2( 0, 1), rcpFrame).xyz;
+    float3 rgbN = FxaaTexOff(pos.xy, FxaaInt2( 0,-1), rcpFrame).xyz;
+    float3 rgbW = FxaaTexOff(pos.xy, FxaaInt2(-1, 0), rcpFrame).xyz;
+    float3 rgbM = FxaaTexOff(pos.xy, FxaaInt2( 0, 0), rcpFrame).xyz;
+    float3 rgbE = FxaaTexOff(pos.xy, FxaaInt2( 1, 0), rcpFrame).xyz;
+    float3 rgbS = FxaaTexOff(pos.xy, FxaaInt2( 0, 1), rcpFrame).xyz;
     float lumaN = FxaaLuma(rgbN);
     float lumaW = FxaaLuma(rgbW);
     float lumaM = FxaaLuma(rgbM);
@@ -479,10 +466,10 @@ This full box pattern has higher quality than other options.
 Note following this block, both vertical and horizontal cases
 flow in parallel (reusing the horizontal variables).
 ----------------------------------------------------------------------------*/
-    float3 rgbNW = FxaaTexOff(tex, pos.xy, FxaaInt2(-1,-1), rcpFrame).xyz;
-    float3 rgbNE = FxaaTexOff(tex, pos.xy, FxaaInt2( 1,-1), rcpFrame).xyz;
-    float3 rgbSW = FxaaTexOff(tex, pos.xy, FxaaInt2(-1, 1), rcpFrame).xyz;
-    float3 rgbSE = FxaaTexOff(tex, pos.xy, FxaaInt2( 1, 1), rcpFrame).xyz;
+    float3 rgbNW = FxaaTexOff(pos.xy, FxaaInt2(-1,-1), rcpFrame).xyz;
+    float3 rgbNE = FxaaTexOff(pos.xy, FxaaInt2( 1,-1), rcpFrame).xyz;
+    float3 rgbSW = FxaaTexOff(pos.xy, FxaaInt2(-1, 1), rcpFrame).xyz;
+    float3 rgbSE = FxaaTexOff(pos.xy, FxaaInt2( 1, 1), rcpFrame).xyz;
     #if (FXAA_SUBPIX_FASTER == 0) && (FXAA_SUBPIX > 0)
         rgbL += (rgbNW + rgbNE + rgbSW + rgbSE);
         rgbL *= FxaaToFloat3(1.0/9.0);
@@ -589,14 +576,14 @@ via anisotropic filtering with specified texture gradients.
     for(int i = 0; i < FXAA_SEARCH_STEPS; i++) {
         #if FXAA_SEARCH_ACCELERATION == 1
             if(!doneN) lumaEndN = 
-                FxaaLuma(FxaaTexLod0(tex, posN.xy).xyz);
+                FxaaLuma(FxaaTexLod0(posN.xy).xyz);
             if(!doneP) lumaEndP = 
-                FxaaLuma(FxaaTexLod0(tex, posP.xy).xyz);
+                FxaaLuma(FxaaTexLod0(posP.xy).xyz);
         #else
             if(!doneN) lumaEndN = 
-                FxaaLuma(FxaaTexGrad(tex, posN.xy, offNP).xyz);
+                FxaaLuma(FxaaTexGrad(posN.xy, offNP).xyz);
             if(!doneP) lumaEndP = 
-                FxaaLuma(FxaaTexGrad(tex, posP.xy, offNP).xyz);
+                FxaaLuma(FxaaTexGrad(posP.xy, offNP).xyz);
         #endif
         doneN = doneN || (abs(lumaEndN - lumaN) >= gradientN);
         doneP = doneP || (abs(lumaEndP - lumaN) >= gradientN);
@@ -770,7 +757,7 @@ Position on span is used to compute sub-pixel filter offset using simple ramp,
                       FxaaFloat3(0.2, 0.6, 1.0),  oy));
         return FxaaFilterReturn(FxaaFloat3(lumaO, lumaO, lumaO));
     #endif
-    float3 rgbF = FxaaTexLod0(tex, FxaaFloat2(
+    float3 rgbF = FxaaTexLod0(FxaaFloat2(
         pos.x + (horzSpan ? 0.0 : subPixelOffset),
         pos.y + (horzSpan ? subPixelOffset : 0.0))).xyz;
     #if FXAA_SUBPIX == 0
@@ -787,6 +774,5 @@ float4 main(float2 texC: TEXCOORD) : SV_TARGET0
 {
     float2 frameDim;
     gTexColor.GetDimensions(frameDim.x, frameDim.y);
-    const FxaaTex fxtex = { gSampler, gTexColor };
-    return float4(FxaaPixelShader(texC, fxtex, FxaaFloat2(1.0 / frameDim.x, 1.0 / frameDim.y)), 1.0);
+    return float4(FxaaPixelShader(texC, FxaaFloat2(1.0 / frameDim.x, 1.0 / frameDim.y)), 1.0);
 }
