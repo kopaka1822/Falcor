@@ -64,7 +64,9 @@ private:
     };
 
 
+    void updateSMMatrices(RenderContext* pRenderContext, const RenderData& renderData);
     void generateAVSM(RenderContext* pRenderCotext, const RenderData& renderData);
+    void generateReservoirSM(RenderContext* pRenderContext, const RenderData& renderData);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void prepareVars();
     void renderDebugGraph(const ImVec2& size);
@@ -90,7 +92,7 @@ private:
     bool mOptionsChanged = false;
     ref<Sampler> mpPointSampler;
 
-    //Configuration DeepSM
+    //Configuration DeepSM (approximation as AVSM)
     bool mUseAVSM = true;
     bool mAVSMRebuildProgram = false;
     bool mAVSMTexResChanged = false;

@@ -146,6 +146,8 @@ void TransparencyPathTracer::execute(RenderContext* pRenderContext, const Render
         return;
     }
 
+    bool sceneHasAnalyticLights = !mpScene->getLights().empty();
+
     // Request the light collection if emissive lights are enabled.
     if (mpScene->getRenderSettings().useEmissiveLights)
     {
@@ -154,13 +156,45 @@ void TransparencyPathTracer::execute(RenderContext* pRenderContext, const Render
 
     prepareDebugBuffers(pRenderContext);
 
-    generateAVSM(pRenderContext, renderData);
+    if (sceneHasAnalyticLights)
+    {
+        updateSMMatrices(pRenderContext, renderData);
+
+        generateAVSM(pRenderContext, renderData);
+
+        generateReservoirSM(pRenderContext, renderData);
+    }
+    
 
     traceScene(pRenderContext, renderData);
 
     generateDebugRefFunction(pRenderContext, renderData);
 
     mFrameCount++;
+}
+
+void TransparencyPathTracer::updateSMMatrices(RenderContext* pRenderContext, const RenderData& renderData) {
+    auto& lights = mpScene->getLights();
+    // Check if resize is neccessary
+    bool rebuildAll = false;
+    if (mShadowMapMVP.size() != lights.size())
+    {
+        mShadowMapMVP.resize(lights.size());
+        rebuildAll = true;
+    }
+
+    // Update matrices
+    for (uint i = 0; i < lights.size(); i++)
+    {
+        auto changes = lights[i]->getChanges();
+        bool rebuild = is_set(changes, Light::Changes::Position) || is_set(changes, Light::Changes::Direction) ||
+                       is_set(changes, Light::Changes::SurfaceArea);
+        rebuild |= rebuildAll;
+        if (rebuild)
+        {
+            mShadowMapMVP[i].calculate(lights[i], mNearFar);
+        }
+    }
 }
 
 void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -210,39 +244,7 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
         mGenAVSMPip.pProgram = RtProgram::create(mpDevice, desc, defines);
     }
 
-    // Get Analytic light data
     auto& lights = mpScene->getLights();
-    // Nothing to do if there are no lights
-    if (lights.size() == 0)
-        return;
-
-    //Check if resize is neccessary
-    bool rebuildAll = false;
-    if (mShadowMapMVP.size() != lights.size())
-    {
-        mShadowMapMVP.resize(lights.size());
-        rebuildAll = true;
-    }
-
-    //Destroy resources if pass is not enabled or a resize is necessary
-    if (rebuildAll) //TODO add global bool
-    {
-        mAVSMDepths.clear();
-        mAVSMTransmittance.clear();
-    }
-
-    //Update matrices
-    for (uint i = 0; i < lights.size(); i++)
-    {
-        auto changes = lights[i]->getChanges();
-        bool rebuild = is_set(changes, Light::Changes::Position) || is_set(changes, Light::Changes::Direction) ||
-                       is_set(changes, Light::Changes::SurfaceArea);
-        rebuild |= rebuildAll;
-        if (rebuild)
-        {
-            mShadowMapMVP[i].calculate(lights[i], mNearFar);
-        }
-    }
 
     // Create / Destroy resources
     //TODO MIPS and check formats
@@ -319,6 +321,12 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
         // Spawn the rays.
         mpScene->raytrace(pRenderContext, mGenAVSMPip.pProgram.get(), mGenAVSMPip.pVars, uint3(targetDim, 1));
     }
+}
+
+void TransparencyPathTracer::generateReservoirSM(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "Generate ReservoirSM");
+
+
 }
 
 void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const RenderData& renderData) {
