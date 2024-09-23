@@ -12,8 +12,18 @@ import Utils.Geometry.GeometryHelpers;
 
 #define AVSM_NUM_TEX AVSM_K/4
 
-#ifndef AVSM_USE_TRIANGLE_AREA
-#define AVSM_USE_TRIANGLE_AREA 1
+#ifndef AVSM_UNDERESTIMATE
+#define AVSM_UNDERESTIMATE 1
+#endif
+
+#define AVSM_REJECTION_TRIANGLE_AREA 0
+#define AVSM_REJECTION_RECTANGLE_AREA 1
+#define AVSM_REJECTION_HEIGHT 2
+#define AVSM_REJECTION_HEIGHT_AND_HEURISTIC 3
+
+
+#ifndef AVSM_REJECTION_MODE
+#define AVSM_REJECTION_MODE AVSM_REJECTION_TRIANGLE_AREA
 #endif
 
 /** Payload for shadow ray.
@@ -162,7 +172,7 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
     // Check if last point is invalid or transmittance is zero
     uint removeIndex = AVSM_K;
 // Check which element has the smalles tri area
-    #if AVSM_USE_TRIANGLE_AREA
+    #if AVSM_REJECTION_MODE == AVSM_REJECTION_TRIANGLE_AREA
         if (tmpDepths[AVSM_K] >= 0) {
             float minArea = 1.0; //1 should be max possible area
             [unroll]
@@ -174,7 +184,7 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
                 }
             }
         }
-    #else
+    #elif AVSM_REJECTION_MODE == AVSM_REJECTION_RECTANGLE_AREA
         if (tmpDepths[AVSM_K] >= 0) {
             float minArea = 1.0;
             [unroll]
@@ -189,15 +199,41 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
                 }
             }
         }
+    #elif  AVSM_REJECTION_MODE == AVSM_REJECTION_HEIGHT//Heights
+        if (tmpDepths[AVSM_K] >= 0) {
+            float minTransmittanceDiff = 1.0;
+            [unroll]
+            for (uint i = 1; i < AVSM_K + 1; i++) {
+                float diff = tmpTransmittance[i - 1] - tmpTransmittance[i];
+                if (diff < minTransmittanceDiff) {
+                    minTransmittanceDiff = diff;
+                    removeIndex = i;
+                }
+            }
+        }
+    #else // Height with error heuristic
+        if (tmpDepths[AVSM_K] >= 0) {
+            float minTransmittanceDiff = 1.0;
+            [unroll]
+            for (uint i = 1; i < AVSM_K + 1; i++) {
+                float diff = tmpTransmittance[i - 1] - tmpTransmittance[i];
+                diff *= diff;
+                diff /= max(tmpTransmittance[i-1], 0.01);
+                if (diff < minTransmittanceDiff) {
+                    minTransmittanceDiff = diff;
+                    removeIndex = i;
+                }
+            }
+        }
     #endif
 
     // Copy to payload
     for (uint i = 0; i < AVSM_K; i++) {
-        uint idxD = i < removeIndex ? i : i + 1;
-        uint idxT = i < removeIndex ? i : i + 1;
-    #if !AVSM_USE_TRIANGLE_AREA
-        if (i + 1 == removeIndex)
-            idxT = removeIndex;
+        const uint idxD = i < removeIndex ? i : i + 1;
+    #if AVSM_UNDERESTIMATE
+        const uint idxT = i < (removeIndex-1) ? i : i + 1;
+    #else
+        const uint idxT = idxD;
     #endif
         rayData.depths[i] = tmpDepths[idxD];
         rayData.transmittances[i] = tmpTransmittance[idxT];

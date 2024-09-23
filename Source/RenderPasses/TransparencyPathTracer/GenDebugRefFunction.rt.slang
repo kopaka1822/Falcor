@@ -46,6 +46,8 @@ cbuffer CB
 Texture2D<PackedHitInfo> gVBuffer;
 RWBuffer<float> gFuncData[NUM_LIGHTS];
 
+static const float kDepthBias = AVSM_DEPTH_BIAS;
+static const float kNormalBias = AVSM_NORMAL_DEPTH_BIAS;
 static const float kMinOpacity = 1e-7;
 
 /** Setup ShadingData based on loaded vertex/material attributes for a hit point.
@@ -105,6 +107,9 @@ void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes att
     rayData.currentTransmittance = rayData.totalTransmittance * (1.0 - sd.opacity);
     float4 posH = mul(gViewProj[lightIdx], float4(sd.posW, 1.f));
     rayData.depth = (posH.w - gNear) / (gFar - gNear); // Normalized depth
+     //Add bias to depth
+    float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
+    rayData.depth = saturate(rayData.depth + kDepthBias + normalBias);
     rayData.dist = RayTCurrent();
 }
 
@@ -169,7 +174,7 @@ void rayGen()
             uint rayFlags = 0;
             TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
-            if (rayData.currentTransmittance < kMinOpacity || rayData.dist < 0)
+            if (rayData.currentTransmittance <= 0 || rayData.dist < 0)
                 useRayTracing = false;
         }
         

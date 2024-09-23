@@ -96,7 +96,8 @@ private:
     bool mAVSMTexResChanged = false;
     bool mAVSMUsePCF = false;
     bool mAVSMUseInterpolation = false;
-    bool mAVSMUseRectArea = false;
+    bool mAVSMUnderestimateArea = false;
+    uint mAVSMRejectionMode = 0;    //Triangle Area | Rectange Area | Heights
     uint mSMSize = 512;
     float2 mNearFar = float2(1.f, 30.f);
     float mDepthBias = 1e-6f;
@@ -115,6 +116,7 @@ private:
         float borderThickness = 3.f;
         float lineThickness = 5.f;
         float depthRangeOffset = 0.01f;     //Offset for depth scaling
+        bool addDepthBias = true;
         bool enableDepthScaling = true;     //Enables depth range scaling to the relevant part of the graph
         bool graphOpen = false;         
         bool asStepFuction = false;

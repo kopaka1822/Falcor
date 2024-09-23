@@ -66,8 +66,8 @@ namespace
         {4, "4"},{8, "8"},{12, "12"},{16, "16"},{20, "20"}, {24, "24"},{28, "28"}, {32, "32"},
     };
 
-    std::vector<float> kGraphTestX = {0.0f, 0.2f, 0.4f, 0.7f, 1.f};
-    std::vector<float> kGraphTestY = {1.0f, 0.8f, 0.5f, 0.25f, 0.1f}; 
+    const Gui::DropdownList kAVSMRejectionMode = {{0, "TriangleArea"}, {1, "RectangeArea"}, {2, "Height"}, {3, "HeightErrorHeuristic"}
+    };
 
     //UI Graph
     // Colorblind friendly palette.
@@ -279,7 +279,8 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
     // Defines
     mGenAVSMPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
     mGenAVSMPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
-    mGenAVSMPip.pProgram->addDefine("AVSM_USE_TRIANGLE_AREA", mAVSMUseRectArea ? "1" : "0");
+    mGenAVSMPip.pProgram->addDefine("AVSM_UNDERESTIMATE", mAVSMUnderestimateArea ? "1" : "0");
+    mGenAVSMPip.pProgram->addDefine("AVSM_REJECTION_MODE", std::to_string(mAVSMRejectionMode));
 
     //Create Program Vars
     if (!mGenAVSMPip.pVars)
@@ -415,7 +416,7 @@ void TransparencyPathTracer::prepareDebugBuffers(RenderContext* pRenderContext) 
             mGraphFunctionDatas.clear();
 
         mGraphFunctionDatas.resize(mGraphUISettings.numberFunctions);
-        const size_t maxElements = kGraphDataMaxSize * 8; // kGraphDataMaxSize (elements) x 2 (depth, transmittance) x 4 (element size)
+        const size_t maxElements = kGraphDataMaxSize * sizeof(float2);
         std::vector<float2> initData(kGraphDataMaxSize, float2(1.f, 0.f));
         for (uint i = 0; i < mGraphUISettings.numberFunctions; i++)
         {
@@ -486,6 +487,10 @@ void TransparencyPathTracer::generateDebugRefFunction(RenderContext* pRenderCont
         mDebugGetRefFunction.pProgram = RtProgram::create(mpDevice, desc, defines);
     }
 
+    //Runtime defs
+    mDebugGetRefFunction.pProgram->addDefine("AVSM_DEPTH_BIAS", mGraphUISettings.addDepthBias ? std::to_string(mDepthBias) : "0.0");
+    mDebugGetRefFunction.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", mGraphUISettings.addDepthBias ? std::to_string(mNormalDepthBias) : "0.0");
+
     // Create Program Vars
     if (!mDebugGetRefFunction.pVars)
     {
@@ -517,7 +522,7 @@ void TransparencyPathTracer::generateDebugRefFunction(RenderContext* pRenderCont
     {
         const float2* pBuf = static_cast<const float2*>(mGraphFunctionDatas[0].pointsBuffers[i]->map(Buffer::MapType::Read));
         FALCOR_ASSERT(pBuf);
-        std::memcpy(mGraphFunctionDatas[0].cpuData[i].data(), pBuf, kGraphDataMaxSize);
+        std::memcpy(mGraphFunctionDatas[0].cpuData[i].data(), pBuf, kGraphDataMaxSize * sizeof(float2));
         mGraphFunctionDatas[0].pointsBuffers[i]->unmap();
     }
 
@@ -540,9 +545,12 @@ void TransparencyPathTracer::generateDebugRefFunction(RenderContext* pRenderCont
     {
         const float2* pBuf = static_cast<const float2*>(mGraphFunctionDatas[1].pointsBuffers[i]->map(Buffer::MapType::Read));
         FALCOR_ASSERT(pBuf);
-        std::memcpy(mGraphFunctionDatas[1].cpuData[i].data(), pBuf, kGraphDataMaxSize);
+        std::memcpy(mGraphFunctionDatas[1].cpuData[i].data(), pBuf, kGraphDataMaxSize * sizeof(float2));
         mGraphFunctionDatas[1].pointsBuffers[i]->unmap();
     }
+
+    //Copy step function setting
+    mGraphUISettings.asStepFuction = !mAVSMUseInterpolation;
 
     mGraphUISettings.genBuffers = false;
 }
@@ -823,11 +831,15 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
             group.tooltip("Bias that is added depending on the normal");
             group.checkbox("Use Interpolation", mAVSMUseInterpolation);
             group.tooltip("Use interpolation for the evaluation.");
-            group.checkbox("Use Rect Area Rejection", mAVSMUseRectArea);
+            group.dropdown("AVSM Rejection Mode", kAVSMRejectionMode, mAVSMRejectionMode);
             group.tooltip(
-                "Uses Rectange Area rejection from Adaptive Transparency with underestimation instead of the triangle rejection of the "
-                "original paper."
+                "Triangle Area: First and last point is fix. Uses 3 neighboring points for the triangle area \n"
+                "Rectangle Area: First point is fix. Uses two neighboring points for the rectangle area \n"
+                "Height: Uses the height difference between two points"
             );
+            group.checkbox("Underestimate Rejection", mAVSMUnderestimateArea);
+            group.tooltip("Enables underestimation where the lowest transparacy is taken when a sample is removed");
+
             group.checkbox("Use PCF", mAVSMUsePCF); //TODO add other kernels
             group.tooltip("Enable 2x2 PCF using gather");
         }
@@ -851,7 +863,7 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
     }
 
     
-    if (auto group = widget.group("Graph Settings", true))
+    if (auto group = widget.group("Graph Settings"))
     {
         if (mGraphUISettings.selectedPixel.x >= 0 && mGraphUISettings.selectedPixel.y >= 0 && !mGraphUISettings.selectPixelButton)
         {
@@ -908,15 +920,16 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
             group.dummy("", float2(0.f));
 
             group.separator();
-            group.text("Settings");
-            group.checkbox("As step function", mGraphUISettings.asStepFuction);
-            group.checkbox("Scale Depth Range", mGraphUISettings.enableDepthScaling);
-            if (mGraphUISettings.enableDepthScaling)
-                group.var("Depth Scaling Offset", mGraphUISettings.depthRangeOffset, 0.f, 1.f, 0.001f);
-            group.var("Point Radius", mGraphUISettings.radiusSize, 1.f, 128.f, 0.1f);
-            group.var("Line Thickness", mGraphUISettings.lineThickness, 1.f, 128.f, 0.1f);
-            group.var("Border Thickness", mGraphUISettings.borderThickness, 1.f, 128.f, 0.1f);
         }
+        group.text("Settings");
+        group.checkbox("As step function", mGraphUISettings.asStepFuction);
+        group.checkbox("Add depth bias to ref", mGraphUISettings.addDepthBias);
+        group.checkbox("Scale Depth Range", mGraphUISettings.enableDepthScaling);
+        if (mGraphUISettings.enableDepthScaling)
+            group.var("Depth Scaling Offset", mGraphUISettings.depthRangeOffset, 0.f, 1.f, 0.001f);
+        group.var("Point Radius", mGraphUISettings.radiusSize, 1.f, 128.f, 0.1f);
+        group.var("Line Thickness", mGraphUISettings.lineThickness, 1.f, 128.f, 0.1f);
+        group.var("Border Thickness", mGraphUISettings.borderThickness, 1.f, 128.f, 0.1f);
     }
     
 
