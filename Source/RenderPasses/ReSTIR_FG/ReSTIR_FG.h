@@ -280,7 +280,7 @@ private:
     float mCullingCellRadius = 0.1f;                                //Radius used for the culling cells
 
     const uint kDynamicPhotonDispatchInitValue = 500224; // Start with 500 thousand photons
-    bool mUseDynamicePhotonDispatchCount = true;  // Dynamically change the number of photons to fit the max photon number
+    bool mUseDynamicPhotonDispatchCount = true;  // Dynamically change the number of photons to fit the max photon number
     uint mPhotonDynamicDispatchMax = 2000000;     // Max value for dynamically dispatched photons
     float mPhotonDynamicGuardPercentage = 0.08f;  // Determines how much space of the buffer is used to guard against buffer overflows
     float mPhotonDynamicChangePercentage = 0.04f; // The percentage the buffer is increased/decreased per frame

@@ -90,6 +90,8 @@ namespace
     const std::string kPropsCullingBits = "CullingBits";
     const std::string kPropsCausticCollectionMode = "CausticCollectionMode";
     const std::string kPropsCausticResamplingMode = "CausticResamplingMode";
+    const std::string kPropsEnableDynamicDispatch = "EnableDynamicDispatch";
+    const std::string kPropsNumDispatchedPhotons = "NumDispatchedPhotons";
 
     //UI Dropdowns
     const Gui::DropdownList kResamplingModeList{
@@ -194,6 +196,10 @@ void ReSTIR_FG::parseProperties(const Properties& props)
             (uint&)mCausticCollectMode = value;
         else if (key == kPropsCausticResamplingMode)
             (uint&)mCausticResamplingMode = value;
+        else if (key == kPropsEnableDynamicDispatch)
+            mUseDynamicPhotonDispatchCount = value;
+        else if (key == kPropsNumDispatchedPhotons)
+            mNumDispatchedPhotons = value;
         else
             logWarning("Unknown property '{}' in ReSTIR_FG properties.", key);
 
@@ -219,6 +225,8 @@ Properties ReSTIR_FG::getProperties() const
     props[kPropsCullingBits] = mCullingHashBufferSizeBits;
     props[kPropsCausticCollectionMode] = (uint)mCausticCollectMode;
     props[kPropsCausticResamplingMode] = (uint)mCausticResamplingMode;
+    props[kPropsEnableDynamicDispatch] = mUseDynamicPhotonDispatchCount;
+    props[kPropsNumDispatchedPhotons] = mNumDispatchedPhotons;
 
     return props;
 }
@@ -400,7 +408,7 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
     {
         if (auto group = widget.group("PhotonMapper"))
         {
-            if (mUseDynamicePhotonDispatchCount)
+            if (mUseDynamicPhotonDispatchCount)
             {
                 group.text("Dispatched Photons: " + std::to_string(mNumDispatchedPhotons));
             }
@@ -426,9 +434,9 @@ void ReSTIR_FG::renderUI(Gui::Widgets& widget)
                     groupGen.tooltip("Analytic photon distribution ratio in a mixed light case. E.g. 0.3 -> 30% analytic, 70% emissive");
                 }
 
-                changed |= groupGen.checkbox("Enable dynamic photon dispatch", mUseDynamicePhotonDispatchCount);
+                changed |= groupGen.checkbox("Enable dynamic photon dispatch", mUseDynamicPhotonDispatchCount);
                 groupGen.tooltip("Changed the number of dispatched photons dynamically. Tries to fill the photon buffer");
-                if (mUseDynamicePhotonDispatchCount)
+                if (mUseDynamicPhotonDispatchCount)
                 {
                     if (auto groupDynChange = groupGen.group("DynamicDispatchOptions"))
                     {
@@ -1477,7 +1485,7 @@ void ReSTIR_FG::handlePhotonCounter(RenderContext* pRenderContext)
      mpPhotonCounterCPU[mFrameCount % kPhotonCounterCount]->unmap();
 
      // Change Photon dispatch count dynamically.
-     if (mUseDynamicePhotonDispatchCount)
+     if (mUseDynamicPhotonDispatchCount)
      {
         // Only use global photons for the dynamic dispatch count
         uint globalPhotonCount = mCurrentPhotonCount[0];
