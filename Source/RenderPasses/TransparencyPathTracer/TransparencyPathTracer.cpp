@@ -41,6 +41,7 @@ namespace
     const std::string kShaderFile = kShaderFolder + "TransparencyPathTracer.rt.slang";
     const std::string kShaderAVSMRay = kShaderFolder + "GenAdaptiveVolumetricSM.rt.slang";
     const std::string kShaderGenDebugRefFunction = kShaderFolder + "GenDebugRefFunction.rt.slang";
+    const std::string kShaderResSMRay = kShaderFolder + "GenReservoirSM.rt.slang";
 
     //RT shader constant settings
     const uint kMaxPayloadSizeBytes = 20u;
@@ -76,8 +77,7 @@ namespace
         IM_COL32(0x00, 0x92, 0x92, 0xff), //Bright Cyan
         IM_COL32(0x49, 0x00, 0x92, 125), // Dark Purple
         IM_COL32(0x92, 0x4C, 0xD8, 0xff), //Bright Purple
-        
-        IM_COL32(0x00, 0x6d, 0xdb, 0xff),
+        IM_COL32(0x00, 0x6d, 0xdb, 125),
         IM_COL32(0xb6, 0x6d, 0xff, 0xff),
         IM_COL32(0x6d, 0xb6, 0xff, 0xff),
         IM_COL32(0xb6, 0xdb, 0xff, 0xff),
@@ -170,7 +170,11 @@ void TransparencyPathTracer::execute(RenderContext* pRenderContext, const Render
 
     generateDebugRefFunction(pRenderContext, renderData);
 
-    mFrameCount++;
+    if (!mDebugFrameCount)
+        mFrameCount++;
+
+    mAVSMRebuildProgram = false;
+    mAVSMTexResChanged = false;
 }
 
 void TransparencyPathTracer::updateSMMatrices(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -208,14 +212,12 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
 
         mTracer.pVars.reset(); //Recompile tracer program
         mAVSMTexResChanged = true; //Trigger texture reiinit
-        mAVSMRebuildProgram = false;
     }
 
     if (mAVSMTexResChanged)
     {
         mAVSMDepths.clear();
         mAVSMTransmittance.clear();
-        mAVSMTexResChanged = false;
     }
 
     // Create AVSM trace program
@@ -277,6 +279,9 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
         }
     }
     
+    //Abort if disabled
+    if (!mGenAVSM)
+        return;
 
     // Defines
     mGenAVSMPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
@@ -325,8 +330,133 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
 
 void TransparencyPathTracer::generateReservoirSM(RenderContext* pRenderContext, const RenderData& renderData) {
     FALCOR_PROFILE(pRenderContext, "Generate ReservoirSM");
+    if (mAVSMRebuildProgram)
+    {
+        mGenResSMPip.pProgram.reset();
+        mGenResSMPip.pBindingTable.reset();
+        mGenResSMPip.pVars.reset();
 
+        mTracer.pVars.reset();     // Recompile tracer program
+        mAVSMTexResChanged = true; // Trigger texture reiinit
+        
+    }
 
+    if (mAVSMTexResChanged)
+    {
+        mResDepths.clear();
+        mResTransmittance.clear();
+    }
+
+    // Create AVSM trace program
+    if (!mGenResSMPip.pProgram)
+    {
+        RtProgram::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderResSMRay);
+        desc.setMaxPayloadSize(kMaxPayloadSizeAVSMPerK * mNumberAVSMSamples + 24); //+18 cause of the sampleGen (16) and confidence weight (4) + align(4)
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1u);
+
+        mGenResSMPip.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        auto& sbt = mGenResSMPip.pBindingTable;
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setMiss(0, desc.addMiss("miss"));
+
+        if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
+        {
+            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("", "anyHit"));
+        }
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add("AVSM_K", std::to_string(mNumberAVSMSamples));
+        defines.add(mpSampleGenerator->getDefines());
+
+        mGenResSMPip.pProgram = RtProgram::create(mpDevice, desc, defines);
+    }
+
+    auto& lights = mpScene->getLights();
+
+    // Create / Destroy resources
+    // TODO MIPS and check formats
+    {
+        uint numTextures = lights.size() * (mNumberAVSMSamples / 4);
+        if (mResDepths.empty())
+        {
+            mResDepths.resize(numTextures);
+            for (uint i = 0; i < numTextures; i++)
+            {
+                mResDepths[i] = Texture::create2D(
+                    mpDevice, mSMSize, mSMSize, ResourceFormat::RGBA32Float, 1u, 1u, nullptr,
+                    ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+                );
+                mResDepths[i]->setName("ResSMDepth_" + std::to_string(i));
+            }
+        }
+
+        if (mResTransmittance.empty())
+        {
+            mResTransmittance.resize(numTextures);
+            for (uint i = 0; i < numTextures; i++)
+            {
+                mResTransmittance[i] = Texture::create2D(
+                    mpDevice, mSMSize, mSMSize, ResourceFormat::RGBA8Unorm, 1u, 1u, nullptr,
+                    ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+                );
+                mResTransmittance[i]->setName("ResSMTransmittance_" + std::to_string(i));
+            }
+        }
+    }
+
+    //Abort early if disabled
+    if (!mGenResSM)
+        return;
+
+     // Defines
+    mGenResSMPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
+    mGenResSMPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
+    mGenResSMPip.pProgram->addDefine("AVSM_UNDERESTIMATE", mAVSMUnderestimateArea ? "1" : "0");
+    mGenResSMPip.pProgram->addDefine("AVSM_REJECTION_MODE", std::to_string(mAVSMRejectionMode));
+
+    // Create Program Vars
+    if (!mGenResSMPip.pVars)
+    {
+        mGenResSMPip.pProgram->setTypeConformances(mpScene->getTypeConformances());
+        mGenResSMPip.pVars = RtProgramVars::create(mpDevice, mGenResSMPip.pProgram, mGenResSMPip.pBindingTable);
+        mpSampleGenerator->setShaderData(mGenResSMPip.pVars->getRootVar());
+    }
+
+    FALCOR_ASSERT(mGenResSMPip.pVars);
+
+    // Trace the pass for every light
+    for (uint i = 0; i < lights.size(); i++)
+    {
+        if (!lights[i]->isActive())
+            break;
+        FALCOR_PROFILE(pRenderContext, lights[i]->getName());
+        // Bind Utility
+        auto var = mGenResSMPip.pVars->getRootVar();
+        var["CB"]["gFrameCount"] = mFrameCount;
+        var["CB"]["gLightPos"] = mShadowMapMVP[i].pos;
+        var["CB"]["gNear"] = mNearFar.x;
+        var["CB"]["gFar"] = mNearFar.y;
+        var["CB"]["gViewProj"] = mShadowMapMVP[i].viewProjection;
+        var["CB"]["gInvViewProj"] = mShadowMapMVP[i].invViewProjection;
+
+        for (uint j = 0; j < mNumberAVSMSamples / 4; j++)
+        {
+            uint idx = i * (mNumberAVSMSamples / 4) + j;
+            var["gResDepths"][j] = mResDepths[idx];
+            var["gResTransmittance"][j] = mResTransmittance[idx];
+        }
+
+        // Get dimensions of ray dispatch.
+        const uint2 targetDim = uint2(mSMSize);
+        FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+
+        // Spawn the rays.
+        mpScene->raytrace(pRenderContext, mGenResSMPip.pProgram.get(), mGenResSMPip.pVars, uint3(targetDim, 1));
+    }
 }
 
 void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -345,7 +475,7 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     mTracer.pProgram->addDefine("LIGHT_SAMPLE_MODE", std::to_string((uint)mLightSampleMode));
     mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE_FOR_ALPHA", mUseRussianRouletteForAlpha ? "1" : "0");
     mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE_PATH", mUseRussianRoulettePath ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_AVSM", mUseAVSM ? "1" : "0");
+    mTracer.pProgram->addDefine("SHADOW_EVAL_MODE", std::to_string((uint)mShadowEvaluationMode));
     mTracer.pProgram->addDefine("USE_AVSM_PCF", mAVSMUsePCF ? "1" : "0");
     mTracer.pProgram->addDefine("USE_AVSM_INTERPOLATION", mAVSMUseInterpolation ? "1" : "0");
 
@@ -377,6 +507,8 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     {
         var["gAVSMDepths"][i] = mAVSMDepths[i];
         var["gAVSMTransmittance"][i] = mAVSMTransmittance[i];
+        var["gResDepths"][i] = mResDepths[i];
+        var["gResTransmittance"][i] = mResTransmittance[i];
     }
 
     var["gPointSampler"] = mpPointSampler;
@@ -418,21 +550,17 @@ void TransparencyPathTracer::prepareDebugBuffers(RenderContext* pRenderContext) 
 
     const uint numLights = mpScene->getLightCount();
     // Create Graph Debug buffers
-    if (mGraphFunctionDatas.size() != mGraphUISettings.numberFunctions)
+    if (mGraphFunctionDatas[0].pointsBuffers.empty())
     {
-        if (!mGraphFunctionDatas.empty())
-            mGraphFunctionDatas.clear();
-
-        mGraphFunctionDatas.resize(mGraphUISettings.numberFunctions);
         const size_t maxElements = kGraphDataMaxSize * sizeof(float2);
         std::vector<float2> initData(kGraphDataMaxSize, float2(1.f, 0.f));
-        for (uint i = 0; i < mGraphUISettings.numberFunctions; i++)
+        for (uint i = 0; i < mGraphFunctionDatas.size(); i++)
         {
             // Name
             if (i == 0)
                 mGraphFunctionDatas[i].name = "Reference";
             else
-                mGraphFunctionDatas[i].name = "Function" + std::to_string(i);
+                mGraphFunctionDatas[i].name = "ShadowMap";
 
             // Create GPU buffers
             mGraphFunctionDatas[i].pointsBuffers.resize(numLights);
@@ -677,22 +805,30 @@ void TransparencyPathTracer::renderDebugGraph(const ImVec2& size) {
     std::optional<float> highlightValueT;
 
     //Start loop over all functions
-    for (uint k = 0; k < mGraphFunctionDatas.size(); k++)
+    for (int k = 0; k < kGraphMaxFunctions; k++)
     {
-        const uint colorIndex = k * 2;
-        if (!mGraphFunctionDatas[k].show)
+        const int colorIndex = k * 2;
+        const int graphDataIdx = k > 0 ? 1 : 0;
+        const int functionIdx = std::max(k - 1,0);      //Only valid if k>0
+        if (((mGraphFunctionDatas[graphDataIdx].show >> functionIdx) & 0b1) == 0)
             continue;
 
-        auto& origGraphVec = mGraphFunctionDatas[k].cpuData[mGraphUISettings.selectedLight];
+        auto& origGraphVec = mGraphFunctionDatas[graphDataIdx].cpuData[mGraphUISettings.selectedLight];
+        const int indexOffset = functionIdx * mNumberAVSMSamples; //offset for k > 1
 
         //Get last valid element for loop
         const int numElements = k > 0 ? mNumberAVSMSamples : origGraphVec.size();
         int lastElement = numElements;
         for (int i = 0; i < numElements; i++)
         {
-            if (origGraphVec[i].x >= 1.0)
+            if (origGraphVec[i + indexOffset].x >= 1.0)
             {
                 lastElement = i;
+                break;
+            }
+            else if (origGraphVec[i + indexOffset].y <= 0)
+            {
+                lastElement = i + 1;
                 break;
             }
         }
@@ -705,7 +841,7 @@ void TransparencyPathTracer::renderDebugGraph(const ImVec2& size) {
         std::vector<float2> graphVec(lastElement);
         float depthRange = maxDepth - minDepth;
         for (int i = 0; i < lastElement; i++)
-            graphVec[i] = float2((origGraphVec[i].x - minDepth) / depthRange, origGraphVec[i].y);
+            graphVec[i] = float2((origGraphVec[i + indexOffset].x - minDepth) / depthRange, origGraphVec[i + indexOffset].y);
 
         // Connection from left side to element (same for both modes)
         if (graphVec[0].x > 0 && (lastElement != 0))
@@ -775,7 +911,7 @@ void TransparencyPathTracer::renderDebugGraph(const ImVec2& size) {
             if (mousePos.x >= el.x - rad && mousePos.x < el.x + rad && mousePos.y >= el.y - rad && mousePos.y < el.y + rad)
             {
                 highlightIndex = i;
-                highlightValueD = origGraphVec[i].x; //unscaled depths
+                highlightValueD = origGraphVec[i + indexOffset].x; //unscaled depths
                 highlightValueT = graphVec[i].y;
             }
         }
@@ -825,33 +961,34 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
     dirty |= widget.checkbox("Use importance sampling", mUseImportanceSampling);
     widget.tooltip("Use importance sampling for materials", true);
 
-    dirty |= widget.checkbox("Use Adaptive Volumetric Shadow Maps", mUseAVSM);
-    if (mUseAVSM)
-    {
-        if (auto group = widget.group("Adaptive Volumetric Shadow Maps Settings"))
-        {
-            mAVSMRebuildProgram |= group.dropdown("K", kAVSMDropdownK, mNumberAVSMSamples);
-            mAVSMTexResChanged |= group.dropdown("Resolution", kSMResolutionDropdown, mSMSize);
-            group.var("Near/Far", mNearFar, 0.000001f, FLT_MAX, 0.000001f, false, "%.6f");
-            group.var("Depth Bias", mDepthBias, 0.f, FLT_MAX, 0.0000001f, false, "%.7f");
-            group.tooltip("Constant bias that is added to the depth");
-            group.var("Normal Depth Bias", mNormalDepthBias, 0.f, FLT_MAX, 0.0000001f, false, "%.7f");
-            group.tooltip("Bias that is added depending on the normal");
-            group.checkbox("Use Interpolation", mAVSMUseInterpolation);
-            group.tooltip("Use interpolation for the evaluation.");
-            group.dropdown("AVSM Rejection Mode", kAVSMRejectionMode, mAVSMRejectionMode);
-            group.tooltip(
-                "Triangle Area: First and last point is fix. Uses 3 neighboring points for the triangle area \n"
-                "Rectangle Area: First point is fix. Uses two neighboring points for the rectangle area \n"
-                "Height: Uses the height difference between two points"
-            );
-            group.checkbox("Underestimate Rejection", mAVSMUnderestimateArea);
-            group.tooltip("Enables underestimation where the lowest transparacy is taken when a sample is removed");
+    dirty |= widget.checkbox("Generate Adaptive Volumetric Shadow Maps (AVSM)", mGenAVSM);
+    dirty |= widget.checkbox("Generate Reservoir Shadow Maps", mGenResSM);
+    dirty |= widget.dropdown("Shadow Render Mode", mShadowEvaluationMode);
 
-            group.checkbox("Use PCF", mAVSMUsePCF); //TODO add other kernels
-            group.tooltip("Enable 2x2 PCF using gather");
-        }
+    if (auto group = widget.group("Deep Shadow Maps Settings"))
+    {
+        mAVSMRebuildProgram |= group.dropdown("K", kAVSMDropdownK, mNumberAVSMSamples);
+        mAVSMTexResChanged |= group.dropdown("Resolution", kSMResolutionDropdown, mSMSize);
+        group.var("Near/Far", mNearFar, 0.000001f, FLT_MAX, 0.000001f, false, "%.6f");
+        group.var("Depth Bias", mDepthBias, 0.f, FLT_MAX, 0.0000001f, false, "%.7f");
+        group.tooltip("Constant bias that is added to the depth");
+        group.var("Normal Depth Bias", mNormalDepthBias, 0.f, FLT_MAX, 0.0000001f, false, "%.7f");
+        group.tooltip("Bias that is added depending on the normal");
+        group.checkbox("Use Interpolation", mAVSMUseInterpolation);
+        group.tooltip("Use interpolation for the evaluation.");
+        group.dropdown("AVSM Rejection Mode", kAVSMRejectionMode, mAVSMRejectionMode);
+        group.tooltip(
+            "Triangle Area: First and last point is fix. Uses 3 neighboring points for the triangle area \n"
+            "Rectangle Area: First point is fix. Uses two neighboring points for the rectangle area \n"
+            "Height: Uses the height difference between two points"
+        );
+        group.checkbox("Underestimate Rejection", mAVSMUnderestimateArea);
+        group.tooltip("Enables underestimation where the lowest transparacy is taken when a sample is removed");
+
+        group.checkbox("Use PCF", mAVSMUsePCF); //TODO add other kernels
+        group.tooltip("Enable 2x2 PCF using gather");
     }
+    
 
     static bool graphOpenedFirstTime = true;
     
@@ -898,7 +1035,7 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
             }
 
             if (mGraphUISettings.selectPixelButton)
-                group.text("Press \"Left Click\" to select a pixel");
+                group.text("Press \"Right Click\" to select a pixel");
             else
                 mGraphUISettings.selectPixelButton |= group.button("Select Pixel", buttonInSameLine);
                 
@@ -919,13 +1056,34 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
                 color.a = ((imColor>>24) & 0xFF) / 255.f;
                 return color;
             };
+            //Create tmp bools for checkbox
+            bool showChanged = false;
+            bool showRef = mGraphFunctionDatas[0].show & 0b1;
+            bool showAVSM = mGraphFunctionDatas[1].show & 0b1;
+            bool showResSM = mGraphFunctionDatas[1].show >> 1 & 0b1;
             group.text("Graphs:");
-            group.checkbox("Reference", mGraphFunctionDatas[0].show);
+            showChanged |= group.checkbox("Reference", showRef);
             group.rect(float2(20.f), convertColorF4(kColorPalette[0]), true,true);
             group.dummy("", float2(0.f));
-            group.checkbox("AVSM", mGraphFunctionDatas[1].show);
+            showChanged |= group.checkbox("AVSM", showAVSM);
             group.rect(float2(20.f), convertColorF4(kColorPalette[2]), true, true);
             group.dummy("", float2(0.f));
+            showChanged |= group.checkbox("ResSM", showResSM);
+            group.rect(float2(20.f), convertColorF4(kColorPalette[4]), true, true);
+            group.dummy("", float2(0.f));
+
+            //Write back into the bitmask
+            if (showChanged)
+            {
+                //Clear and set the n th bit of data. bit should either be 0 or 1
+                auto clearAndSetBit = [](uint& data, uint n, uint bit) {
+                    data = (data & ~(1u << n)) | (bit << n);
+                };
+                clearAndSetBit(mGraphFunctionDatas[0].show, 0, showRef ? 1 : 0);
+                clearAndSetBit(mGraphFunctionDatas[1].show, 0, showAVSM ? 1 : 0);
+                clearAndSetBit(mGraphFunctionDatas[1].show, 1, showResSM ? 1 : 0);
+            }
+            
 
             group.separator();
         }
@@ -939,7 +1097,19 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
         group.var("Line Thickness", mGraphUISettings.lineThickness, 1.f, 128.f, 0.1f);
         group.var("Border Thickness", mGraphUISettings.borderThickness, 1.f, 128.f, 0.1f);
     }
-    
+
+    //Debug options
+    if (auto group = widget.group("Debug Options"))
+    {
+        bool changedFramecount = group.checkbox("Set fixed frame count", mDebugFrameCount);
+        if (mDebugFrameCount)
+        {
+            if (changedFramecount)
+                mFrameCount = 0;
+            group.var("Frame Count", mFrameCount, 0u, UINT_MAX);
+        }
+
+    }
 
     mOptionsChanged |= dirty;
 }
@@ -1004,14 +1174,14 @@ bool TransparencyPathTracer::onMouseEvent(const MouseEvent& mouseEvent)
             return true;
         }
 
-        if (mouseEvent.type == MouseEvent::Type::ButtonDown && mouseEvent.button == Input::MouseButton::Left)
+        if (mouseEvent.type == MouseEvent::Type::ButtonDown && mouseEvent.button == Input::MouseButton::Right)
         {
             mGraphUISettings.selectedPixel = mouseScreenPos;
             mGraphUISettings.genBuffers = true;
             mGraphUISettings.graphOpen = true;
             mGraphUISettings.selectPixelButton = false;
             mGraphUISettings.mouseDown = false;
-            return true;
+            return false;
         }
     }
 

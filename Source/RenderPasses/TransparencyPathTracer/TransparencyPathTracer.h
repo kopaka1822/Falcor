@@ -27,6 +27,7 @@
  **************************************************************************/
 #pragma once
 #include "Falcor.h"
+#include "Core/Enum.h"
 #include "RenderGraph/RenderPass.h"
 #include "SharedTypes.slang"
 
@@ -49,6 +50,19 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override;
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
+
+    enum class ShadowEvalMode : uint
+    {
+        RayTracing = 0u,
+        AVSM = 1u,
+        ResSM = 2u,
+    };
+
+    FALCOR_ENUM_INFO(ShadowEvalMode,{
+        {ShadowEvalMode::RayTracing, "RayTracing"},
+        {ShadowEvalMode::AVSM, "AVSM"},
+        {ShadowEvalMode::ResSM, "ResSM"},
+    });
 
 private:
     struct LightMVP
@@ -86,14 +100,17 @@ private:
     bool mUseImportanceSampling = true; ///< Use importance sampling for materials.
     bool mUseRussianRoulettePath = false;   ///< Russian Roulett to abort the path early
     bool mUseRussianRouletteForAlpha = false; ///< Use Russian Roulette for transparent materials
+    ShadowEvalMode mShadowEvaluationMode = ShadowEvalMode::ResSM;
 
     // Runtime data Tracer
     uint mFrameCount = 0; ///< Frame count since scene was loaded.
+    bool mDebugFrameCount = false;
     bool mOptionsChanged = false;
     ref<Sampler> mpPointSampler;
 
-    //Configuration DeepSM (approximation as AVSM)
-    bool mUseAVSM = true;
+    //Configuration Shadow Map
+    bool mGenAVSM = true;
+    bool mGenResSM = true;
     bool mAVSMRebuildProgram = false;
     bool mAVSMTexResChanged = false;
     bool mAVSMUsePCF = false;
@@ -110,6 +127,8 @@ private:
     std::vector<LightMVP> mShadowMapMVP;
     std::vector<ref<Texture>> mAVSMDepths;        //Depths for the avsm
     std::vector<ref<Texture>> mAVSMTransmittance;    //Trancemittance for each point of the avsm
+    std::vector<ref<Texture>> mResDepths;           //Depths for ResEVSM
+    std::vector<ref<Texture>> mResTransmittance;    //Transmittance for ResEVSM
 
     //Settings and Data for Tranmittance UI Graph
     struct
@@ -127,18 +146,18 @@ private:
         bool selectPixelButton = false;     //True if the pixel can be selected with a button press
         bool mouseDown = false;
         bool genBuffers = false;            //True if buffers should be filled
-        uint numberFunctions = 2;           //Number of functions (fixed at 2)
     } mGraphUISettings;
 
+    static const uint kGraphMaxFunctions = 3; //Ref, AVSM, ResSM
     static const uint kGraphDataMaxSize = 256;
     struct GraphFunctionData
     {
         std::string name = "";
-        bool show = true; 
+        uint show = 0b11111111; 
         std::vector<std::array<float2, kGraphDataMaxSize>> cpuData;
         std::vector <ref<Buffer>> pointsBuffers;
     };
-    std::vector<GraphFunctionData> mGraphFunctionDatas;
+    std::array<GraphFunctionData, 2> mGraphFunctionDatas;
 
     // Ray tracing program.
     struct RayTracingPipeline
@@ -150,5 +169,8 @@ private:
 
     RayTracingPipeline mTracer;
     RayTracingPipeline mGenAVSMPip; //Volumetric Adaptive SM
+    RayTracingPipeline mGenResSMPip;    //Stochastic Reservoir baised SM
     RayTracingPipeline mDebugGetRefFunction;
 };
+
+FALCOR_ENUM_REGISTER(TransparencyPathTracer::ShadowEvalMode);

@@ -5,6 +5,7 @@ target_sources(TransparencyPathTracer PRIVATE
     TransparencyPathTracer.h
     TransparencyPathTracer.rt.slang
     GenAdaptiveVolumetricSM.rt.slang
+	GenReservoirSM.rt.slang
 	GenDebugRefFunction.rt.slang
     SharedTypes.slang
 )
