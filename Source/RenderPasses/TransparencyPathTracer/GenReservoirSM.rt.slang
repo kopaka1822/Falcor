@@ -181,67 +181,9 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
 
     //Remove random element
     if (tmpDepths[AVSM_K] >= 0) {
-        removeIndex = uint(float(AVSM_K-1) * sampleNext1D(rayData.sg));
+        removeIndex = 1+uint(float(AVSM_K-2) * sampleNext1D(rayData.sg));
     }
-
-// Check which element has the smalles tri area
-/*
-    #if AVSM_REJECTION_MODE == AVSM_REJECTION_TRIANGLE_AREA
-        if (tmpDepths[AVSM_K] >= 0) {
-            float minArea = 1.0; //1 should be max possible area
-            [unroll]
-            for (uint i = 1; i < AVSM_K; i++) {
-                float triArea = areaTriangle(float2(tmpDepths[i - 1], tmpTransmittance[i - 1]), float2(tmpDepths[i], tmpTransmittance[i]), float2(tmpDepths[i + 1], tmpTransmittance[i + 1]));
-                if (triArea < minArea) {
-                    minArea = triArea;
-                    removeIndex = i;
-                }
-            }
-        }
-    #elif AVSM_REJECTION_MODE == AVSM_REJECTION_RECTANGLE_AREA
-        if (tmpDepths[AVSM_K] >= 0) {
-            float minArea = 1.0;
-            [unroll]
-            for (uint i = 1; i < AVSM_K + 1; i++) {
-                float2 A = float2(tmpDepths[i - 1], tmpTransmittance[i - 1]);
-                float2 B = float2(tmpDepths[i], tmpTransmittance[i]);
-                float2 lenWidth = float2(B.x - A.x, A.y - B.y);
-                float recArea = lenWidth.x * lenWidth.y;
-                if (recArea < minArea) {
-                    minArea = recArea;
-                    removeIndex = i;
-                }
-            }
-        }
-    #elif  AVSM_REJECTION_MODE == AVSM_REJECTION_HEIGHT//Heights
-        if (tmpDepths[AVSM_K] >= 0) {
-            float minTransmittanceDiff = 1.0;
-            [unroll]
-            for (uint i = 1; i < AVSM_K + 1; i++) {
-                float diff = tmpTransmittance[i - 1] - tmpTransmittance[i];
-                if (diff < minTransmittanceDiff) {
-                    minTransmittanceDiff = diff;
-                    removeIndex = i;
-                }
-            }
-        }
-    #else // Height with error heuristic
-        if (tmpDepths[AVSM_K] >= 0) {
-            float minTransmittanceDiff = 1.0;
-            [unroll]
-            for (uint i = 1; i < AVSM_K + 1; i++) {
-                float diff = tmpTransmittance[i - 1] - tmpTransmittance[i];
-                diff *= diff;
-                diff /= max(tmpTransmittance[i-1], 0.01);
-                if (diff < minTransmittanceDiff) {
-                    minTransmittanceDiff = diff;
-                    removeIndex = i;
-                }
-            }
-        }
-    #endif
-    */
-
+    
     // Copy to payload
     #if AVSM_UNDERESTIMATE
         uint transmittanceOffset = uint(sampleNext1D(rayData.sg) + 0.5); // random between 0 and 1
@@ -309,7 +251,7 @@ void rayGen()
 
     uint flags = RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
     //uint flags = RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
-    TraceRay(gScene.rtAccel, flags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+    TraceRay(gScene.rtAccel, flags, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
     // Fill undefined points
     float fillDepth = 1;

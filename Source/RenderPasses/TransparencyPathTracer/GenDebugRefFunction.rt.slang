@@ -172,7 +172,7 @@ void rayGen()
         //Trace ray
         if(useRayTracing){
             uint rayFlags = 0;
-            TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+            TraceRay(gScene.rtAccel, rayFlags, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
             if (rayData.currentTransmittance <= 0 || rayData.dist < 0)
                 useRayTracing = false;
