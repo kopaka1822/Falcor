@@ -31,19 +31,20 @@ import Utils.Sampling.SampleGenerator;
 */
 struct RayData
 {
-    float depths[AVSM_K];
-    float transmittances[AVSM_K];
-    uint c; // confidence weight
-    uint _pad;
-    SampleGenerator sg; // 16b
+    float firstDepth;
+    float lastDepth;
+    float transmittanceStart;
+    float transmittanceAverage;
+    float transmittanceEnd;
+    uint count;
     
-
     __init() {
-        this.c = 0;
-        for (uint i = 0; i < AVSM_K; i++) {
-            this.depths[i] = -1.0;
-            this.transmittances[i] = 1;
-        }
+        this.count = 0;
+        this.firstDepth = 0;
+        this.lastDepth = 1;
+        this.transmittanceStart = 1;
+        this.transmittanceAverage = 1;
+        this.transmittanceEnd = 1;
     }
 };
 
@@ -60,6 +61,7 @@ cbuffer CB
 
 RWTexture2D<float4> gResDepths[AVSM_NUM_TEX];
 RWTexture2D<float4> gResTransmittance[AVSM_NUM_TEX];
+RWTexture2D<float4> gResCount[AVSM_NUM_TEX];
 
 static const float kDepthBias = AVSM_DEPTH_BIAS;
 static const float kNormalBias = AVSM_NORMAL_DEPTH_BIAS;
@@ -106,118 +108,9 @@ void miss(inout RayData rayData)
 [shader("anyhit")]
 void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
-    // Get shading data
-    TriangleHit triangleHit;
-    triangleHit.instanceID = getGeometryInstanceID();
-    triangleHit.primitiveIndex = PrimitiveIndex();
-    triangleHit.barycentrics = attribs.barycentrics;
-
-    VertexData v = gScene.getVertexData(triangleHit);
-    uint materialID = gScene.getMaterialID(triangleHit.instanceID);
-    let lod = ExplicitLodTextureSampler(0.f);
-    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -WorldRayDirection(), lod);
-
-    // Abort if opacity is too low
-    if (sd.opacity < kMinOpacity) {
-        IgnoreHit();
-        return;
-    }
-    
-    //Get depth
-    float4 posH = mul(gViewProj, float4(sd.posW, 1.f));
-    float depth = (posH.w - gNear) / (gFar - gNear); // Normalized depth
-    const float transmittance = (1.0 - sd.opacity);
-    float currentTransmittance = transmittance;
-
-    //Add bias to depth
-    float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
-    depth = saturate(depth + kDepthBias + normalBias);
-
-    float tmpDepths[AVSM_K + 1];
-    float tmpTransmittance[AVSM_K + 1];
-    float lastTransmittance = 1.0;
-    bool currentWasSwapped = false;
-
-    for (int i = 0; i < AVSM_K; i++) {
-        if (lastTransmittance <= kMinOpacity)
-        {
-            tmpDepths[i] = -1.0;
-            tmpTransmittance[i] = 0;
-        }else if (currentWasSwapped)
-        {
-            tmpDepths[i] = rayData.depths[i - 1];
-            tmpTransmittance[i] = rayData.transmittances[i - 1] * transmittance;
-            lastTransmittance = tmpTransmittance[i];
-        } else
-        {
-            if (depth < rayData.depths[i] || rayData.depths[i] < 0) {
-                tmpDepths[i] = depth;
-                currentTransmittance = transmittance * lastTransmittance;
-                tmpTransmittance[i] = currentTransmittance;
-                currentWasSwapped = true;
-            } else {
-                tmpDepths[i] = rayData.depths[i];
-                tmpTransmittance[i] = rayData.transmittances[i];
-                lastTransmittance = rayData.transmittances[i];
-            }
-        }
-    }
-    // Last Element
-    if (lastTransmittance <= kMinOpacity)
-    {
-        tmpDepths[AVSM_K] = -1.0;
-        tmpTransmittance[AVSM_K] = 0;
-    }
-    else if (currentWasSwapped) {
-        tmpDepths[AVSM_K] = rayData.depths[AVSM_K - 1];
-        tmpTransmittance[AVSM_K] = rayData.transmittances[AVSM_K - 1] * transmittance;
-    } else {
-        tmpDepths[AVSM_K] = depth;
-        tmpTransmittance[AVSM_K] = lastTransmittance * transmittance;
-    }
-
-    // Check if last point is invalid or transmittance is zero
-    uint removeIndex = AVSM_K;
-
-    //Remove random element
-    if (tmpDepths[AVSM_K] >= 0) {
-        removeIndex = 1+uint(float(AVSM_K-2) * sampleNext1D(rayData.sg));
-    }
-    
-    // Copy to payload
-    #if AVSM_UNDERESTIMATE
-        uint transmittanceOffset = uint(sampleNext1D(rayData.sg) + 0.5); // random between 0 and 1
-    #endif
-    for (uint i = 0; i < AVSM_K; i++) {
-        const uint idxD = i < removeIndex ? i : i + 1;
-    #if AVSM_UNDERESTIMATE
-        const uint idxT = i < (removeIndex - transmittanceOffset) ? i : i + 1;
-    #else
-        const uint idxT = idxD;
-    #endif
-        rayData.depths[i] = tmpDepths[idxD];
-        rayData.transmittances[i] = tmpTransmittance[idxT];
-    }
-
-    //Commit RayTMax if current element has 0 transmittance
-    if (transmittance <= kMinOpacity)
-        return;
-    else
-        IgnoreHit();   
+    //TODO write
 }
 
-/*
-[shader("closesthit")]
-void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
-{
-    float3 posW = WorldRayOrigin() + WorldRayDirection() * RayTCurrent(); //Get the current world positon
-    float4 posH = mul(gViewProj, float4(posW, 1.f));
-    if(gCalcNearFar)
-        rayData.depth = posH.w;
-    else
-        rayData.depth = (posH.w - gNear) / (gFar - gNear);   //Linear depth in [0,1]
-}
-*/
 //
 // Shader entry point for ray generation shader.
 //
@@ -233,25 +126,53 @@ void rayGen()
     relFramePos = relFramePos * 2.0 - 1.0; // From [0,1] to [-1,1]
     relFramePos.y *= -1.f;
 
-    RayDesc ray;
+    //Get min max depth for the current used area
+    float minDepth = 0.0;
+    float maxDepth = 1.0;
+    //TODO fetch from last frame
+    float depthStep = (maxDepth - minDepth) / float(AVSM_K); 
 
+    RayDesc ray;
     float4 posWPixelNear = mul(gInvViewProj, float4(relFramePos, 0.f, 1.f));
     float4 posWPixelFar = mul(gInvViewProj, float4(relFramePos, 1.f, 1.f));
 
     posWPixelNear.xyz /= posWPixelNear.w;
-    float3 toPoint = posWPixelNear.xyz - gLightPos;
+    float3 toNear = posWPixelNear.xyz - gLightPos;
+    float distToNear = length(toNear); 
+    float fullRayDistance = distance(gLightPos, posWPixelFar.xyz / posWPixelFar.w) - distToNear;
 
-    ray.TMin = length(toPoint);                                        // Real near for the pixel
-    ray.TMax = distance(gLightPos, posWPixelFar.xyz / posWPixelFar.w); // Real far for the pixel
+    ray.TMin = distToNear;                                        // Always start at depth 0
+    ray.TMax = distToNear + fullRayDistance * (minDepth + depthStep); //Trace first step
     ray.Origin = gLightPos;
-    ray.Direction = normalize(toPoint); // World direction
+    ray.Direction = normalize(toNear); // World direction
     
     RayData rayData = RayData();
-    rayData.sg = SampleGenerator(pixel, gFrameCount * 2 + 8);
+    //rayData.sg = SampleGenerator(pixel, gFrameCount * 2 + 8)
 
     uint flags = RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
     //uint flags = RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
-    TraceRay(gScene.rtAccel, flags, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+    float maxDepth = 0;
+    float minTransmittance = 1;
+
+    for(uint i=0 ; i<AVSM_K; i++){
+        
+        TraceRay(gScene.rtAccel, flags, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+        
+        maxDepth = max(maxDepth, rayData.lastDepth);
+        minTransmittance = min(minTransmittance, rayData.transmittanceEnd);
+
+        //Update steps
+        ray.TMin = ray.TMax + 1e-10;
+        if(i == AVSM_K-2){
+            ray.TMax = distToNear + fullRayDistance;
+        }else{
+            ray.TMax += fullRayDistance * depthStep;
+        }
+        
+    }
+
+
+    
 
     // Fill undefined points
     float fillDepth = 1;
