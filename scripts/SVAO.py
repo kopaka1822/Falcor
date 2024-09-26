@@ -29,6 +29,7 @@ def render_graph_SVAO():
     g.create_pass('LinearizeDepth0', 'LinearizeDepth', {'depthFormat': 'R32Float'})
     g.create_pass('RayMinMaxLength', 'RayMinMaxLength', {})
     g.create_pass('DiffuseDLSS', 'DLSSPass', {'enabled': True, 'outputSize': 'Default', 'profile': 'Balanced', 'motionVectorScale': 'Relative', 'isHDR': True, 'sharpness': 0.0, 'exposure': 0.0})
+    g.create_pass('DepthPeelingRT', 'DepthPeelingRT', {'CullMode': 'Back', 'AlphaTest': True, 'Jitter': False, 'GuardBand': 0, 'MaxCount': 8})
     g.add_edge('GBufferRaster.posW', 'RayShadow.posW')
     g.add_edge('GBufferRaster.normW', 'RayShadow.normalW')
     g.add_edge('GBufferRaster.depth', 'LinearizeDepth.depth')
@@ -73,13 +74,13 @@ def render_graph_SVAO():
     g.add_edge('GBufferRaster.mvec', 'DiffuseDLSS.mvec')
     g.add_edge('GBufferRaster.depth', 'DiffuseDLSS.depth')
     g.add_edge('DiffuseRef.out', 'DiffuseDLSS.color')
+    g.add_edge('LinearizeDepth.linearDepth', 'DepthPeelingRT.linearZ')
     g.mark_output('AmbientRef.out')
     g.mark_output('DiffuseRef.out')
     g.mark_output('AmbientTAA.colorOut')
     g.mark_output('DiffuseTAA.colorOut')
-    #g.mark_output('SVAO.internalRayMax')
-    #g.mark_output('AccumulatePass.output')
     g.mark_output('DiffuseDLSS.output')
+    g.mark_output('DepthPeelingRT.depthOut')
     return g
 
 SVAO = render_graph_SVAO()

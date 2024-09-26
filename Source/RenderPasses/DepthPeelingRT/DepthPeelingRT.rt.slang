@@ -1,0 +1,137 @@
+import Scene.Raytracing;
+import Rendering.Materials.TexLODHelpers;
+import Rendering.Materials.TexLODTypes;
+import Utils.Math.PackedFormats;
+
+#include "../StochasticDepthMapRT/Jitter.slangh"
+
+RWTexture2D<float> depthOutTex;
+Texture2D<float> depthInTex;
+SamplerState S; // point sampler
+
+// Hash function from "Improved Alpha Testing Using Hashed Sampling"
+float hash(float2 v)
+{
+    return frac(1.0e4 * sin(17.0 * v.x + 0.1 * v.y) * (0.1 + abs(sin(13.0 * v.y + v.x))));
+}
+
+// 3D hash function from "Improved Alpha Testing Using Hashed Sampling"
+float hash3D(float3 v)
+{
+    return hash(float2(hash(v.xy), v.z));
+}
+
+// 4D hash function based on the 3D hash function
+float hash4D(float4 v)
+{
+    return hash(float2(hash3D(v.xyz), v.w));
+}
+
+float RayToViewDepth(float3 rayDir, float rayT)
+{
+    float cosTheta = dot(normalize(gScene.camera.data.cameraW), rayDir);
+    return rayT * cosTheta;
+}
+
+float ViewDepthToRay(float3 rayDir, float viewDepth)
+{
+    float cosTheta = dot(normalize(gScene.camera.data.cameraW), rayDir);
+    return viewDepth / cosTheta;
+}
+
+RayDesc initRayDesc(int2 pixel, int2 dim)
+{
+    dim = dim - 2 * GUARD_BAND; // remove guard band
+    int2 signedPixel = pixel - GUARD_BAND; // pixel can be negative or bigger than dim, but thats fine for the ray direction
+    RayDesc ray = gScene.camera.computeRayPinhole(signedPixel, dim).toRayDesc();
+    ray.Direction = normalize(gScene.camera.computeNonNormalizedRayDirPinhole(signedPixel, dim, randomJitter(pixel)));
+    
+    //float epsilon = 0.1 * gScene.camera.data.nearZ; // small ray offset
+    float epsilon = gScene.camera.data.nearZ; // small ray offset
+    float depth = 0.0;
+    if (all(signedPixel >= 0) && all(signedPixel < dim)) // use frame buffer depth if pixel is inside frame buffer
+        depth = depthInTex.SampleLevel(S, (signedPixel + randomJitter(pixel) + 0.5) / dim, 0);
+
+    ray.TMin = ViewDepthToRay(ray.Direction, depth) + epsilon; // start after first known hit
+    // TODO set tmax based on radius cutoff
+    
+    return ray;
+}
+
+// Note: using lods (ray cones) is about 20% faster than sampling lod 0 (no lod)
+ExplicitRayConesLodTextureSampler computeLod(VertexData v, float3 rayDir)
+{
+    RayCone rc = RayCone(0.0, RAY_CONE_SPREAD);
+    rc = rc.propagateDistance(RayTCurrent());
+    float lambda = rc.computeLOD(v.coneTexLODValue, rayDir, v.faceNormalW);
+    return ExplicitRayConesLodTextureSampler(lambda);
+}
+
+
+struct RayData // cannot be compressed to half floats => no diff in rendering time + insufficient visual quality
+{
+    float depth;
+    uint count; // number of processed samples
+};
+
+[shader("anyhit")]
+void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
+{
+    rayData.count += 1;
+#if USE_ALPHA_TEST
+    { // ALPHA test
+
+        const uint materialID = gScene.getMaterialID(getGeometryInstanceID());
+        bool alphaTest = gScene.materials.materialData[materialID].header.getAlphaMode() == AlphaMode::Mask;
+        
+        // needs alpha testing?
+        if (alphaTest)
+        {
+            TriangleHit hit;
+            hit.instanceID = getGeometryInstanceID();
+            hit.primitiveIndex = PrimitiveIndex();
+            hit.barycentrics = attribs.barycentrics;
+            
+            const VertexData v = gScene.getVertexData(hit);
+            if (gScene.materials.alphaTest(v, materialID, computeLod(v, WorldRayDirection())))
+            {
+                IgnoreHit();
+            }
+        }
+    }
+#endif
+    if (rayData.count > MAX_COUNT)
+        AcceptHitAndEndSearch();
+    //rayData.depth = RayTCurrent(); // will be done in anyhit
+}
+
+[shader("miss")]
+void miss(inout RayData rayData)
+{
+}
+
+[shader("closesthit")]
+void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
+{
+    rayData.depth = RayTCurrent();
+}
+
+[shader("raygeneration")]
+void rayGen()
+{
+    uint2 svPos = DispatchRaysIndex().xy;
+    RayDesc ray = initRayDesc(svPos, DispatchRaysDimensions().xy);
+    
+    RayData rayData;
+    rayData.count = 0;
+    rayData.depth = 0;
+    
+    TraceRay(
+        gScene.rtAccel,
+        CULL_MODE_RAY_FLAG | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES,
+        0xff /* instanceInclusionMask */, 0 /* hitIdx */, 1 /*ray type count*/, 0 /* missIdx */,
+        ray, rayData
+    );
+    
+    depthOutTex[svPos] = RayToViewDepth(ray.Direction, rayData.depth);
+}

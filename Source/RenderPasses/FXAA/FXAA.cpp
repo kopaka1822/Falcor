@@ -29,6 +29,7 @@ FXAA::FXAA(ref<Device> pDevice, const Properties& props)
     mpFbo = Fbo::create(mpDevice);
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear);
+    samplerDesc.setMaxAnisotropy(8); // needed for search acceleration
     mpLinearSampler = Sampler::create(mpDevice, samplerDesc);
 
     for (const auto& [key, value] : props)
