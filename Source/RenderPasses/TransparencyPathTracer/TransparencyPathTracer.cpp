@@ -41,7 +41,7 @@ namespace
     const std::string kShaderFile = kShaderFolder + "TransparencyPathTracer.rt.slang";
     const std::string kShaderAVSMRay = kShaderFolder + "GenAdaptiveVolumetricSM.rt.slang";
     const std::string kShaderGenDebugRefFunction = kShaderFolder + "GenDebugRefFunction.rt.slang";
-    const std::string kShaderResSMRay = kShaderFolder + "GenReservoirSM.rt.slang";
+    const std::string kShaderStochSMRay = kShaderFolder + "GenReservoirSM.rt.slang";
 
     //RT shader constant settings
     const uint kMaxPayloadSizeBytes = 20u;
@@ -332,9 +332,9 @@ void TransparencyPathTracer::generateReservoirSM(RenderContext* pRenderContext, 
     FALCOR_PROFILE(pRenderContext, "Generate ReservoirSM");
     if (mAVSMRebuildProgram)
     {
-        mGenResSMPip.pProgram.reset();
-        mGenResSMPip.pBindingTable.reset();
-        mGenResSMPip.pVars.reset();
+        mGenStochSMPip.pProgram.reset();
+        mGenStochSMPip.pBindingTable.reset();
+        mGenStochSMPip.pVars.reset();
 
         mTracer.pVars.reset();     // Recompile tracer program
         mAVSMTexResChanged = true; // Trigger texture reiinit
@@ -343,22 +343,22 @@ void TransparencyPathTracer::generateReservoirSM(RenderContext* pRenderContext, 
 
     if (mAVSMTexResChanged)
     {
-        mResDepths.clear();
-        mResTransmittance.clear();
+        mStochDepths.clear();
+        mStochTransmittance.clear();
     }
 
     // Create AVSM trace program
-    if (!mGenResSMPip.pProgram)
+    if (!mGenStochSMPip.pProgram)
     {
         RtProgram::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kShaderResSMRay);
+        desc.addShaderLibrary(kShaderStochSMRay);
         desc.setMaxPayloadSize(kMaxPayloadSizeAVSMPerK * mNumberAVSMSamples + 24); //+18 cause of the sampleGen (16) and confidence weight (4) + align(4)
         desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
         desc.setMaxTraceRecursionDepth(1u);
 
-        mGenResSMPip.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
-        auto& sbt = mGenResSMPip.pBindingTable;
+        mGenStochSMPip.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        auto& sbt = mGenStochSMPip.pBindingTable;
         sbt->setRayGen(desc.addRayGen("rayGen"));
         sbt->setMiss(0, desc.addMiss("miss"));
 
@@ -372,7 +372,7 @@ void TransparencyPathTracer::generateReservoirSM(RenderContext* pRenderContext, 
         defines.add("AVSM_K", std::to_string(mNumberAVSMSamples));
         defines.add(mpSampleGenerator->getDefines());
 
-        mGenResSMPip.pProgram = RtProgram::create(mpDevice, desc, defines);
+        mGenStochSMPip.pProgram = RtProgram::create(mpDevice, desc, defines);
     }
 
     auto& lights = mpScene->getLights();
@@ -381,52 +381,52 @@ void TransparencyPathTracer::generateReservoirSM(RenderContext* pRenderContext, 
     // TODO MIPS and check formats
     {
         uint numTextures = lights.size() * (mNumberAVSMSamples / 4);
-        if (mResDepths.empty())
+        if (mStochDepths.empty())
         {
-            mResDepths.resize(numTextures);
+            mStochDepths.resize(numTextures);
             for (uint i = 0; i < numTextures; i++)
             {
-                mResDepths[i] = Texture::create2D(
+                mStochDepths[i] = Texture::create2D(
                     mpDevice, mSMSize, mSMSize, ResourceFormat::RGBA32Float, 1u, 1u, nullptr,
                     ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
                 );
-                mResDepths[i]->setName("ResSMDepth_" + std::to_string(i));
+                mStochDepths[i]->setName("StochSMDepth_" + std::to_string(i));
             }
         }
 
-        if (mResTransmittance.empty())
+        if (mStochTransmittance.empty())
         {
-            mResTransmittance.resize(numTextures);
+            mStochTransmittance.resize(numTextures);
             for (uint i = 0; i < numTextures; i++)
             {
-                mResTransmittance[i] = Texture::create2D(
+                mStochTransmittance[i] = Texture::create2D(
                     mpDevice, mSMSize, mSMSize, ResourceFormat::RGBA8Unorm, 1u, 1u, nullptr,
                     ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
                 );
-                mResTransmittance[i]->setName("ResSMTransmittance_" + std::to_string(i));
+                mStochTransmittance[i]->setName("StochSMTransmittance_" + std::to_string(i));
             }
         }
     }
 
     //Abort early if disabled
-    if (!mGenResSM)
+    if (!mGenStochSM)
         return;
 
      // Defines
-    mGenResSMPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
-    mGenResSMPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
-    mGenResSMPip.pProgram->addDefine("AVSM_UNDERESTIMATE", mAVSMUnderestimateArea ? "1" : "0");
-    mGenResSMPip.pProgram->addDefine("AVSM_REJECTION_MODE", std::to_string(mAVSMRejectionMode));
+    mGenStochSMPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
+    mGenStochSMPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
+    mGenStochSMPip.pProgram->addDefine("AVSM_UNDERESTIMATE", mAVSMUnderestimateArea ? "1" : "0");
+    mGenStochSMPip.pProgram->addDefine("AVSM_REJECTION_MODE", std::to_string(mAVSMRejectionMode));
 
     // Create Program Vars
-    if (!mGenResSMPip.pVars)
+    if (!mGenStochSMPip.pVars)
     {
-        mGenResSMPip.pProgram->setTypeConformances(mpScene->getTypeConformances());
-        mGenResSMPip.pVars = RtProgramVars::create(mpDevice, mGenResSMPip.pProgram, mGenResSMPip.pBindingTable);
-        mpSampleGenerator->setShaderData(mGenResSMPip.pVars->getRootVar());
+        mGenStochSMPip.pProgram->setTypeConformances(mpScene->getTypeConformances());
+        mGenStochSMPip.pVars = RtProgramVars::create(mpDevice, mGenStochSMPip.pProgram, mGenStochSMPip.pBindingTable);
+        mpSampleGenerator->setShaderData(mGenStochSMPip.pVars->getRootVar());
     }
 
-    FALCOR_ASSERT(mGenResSMPip.pVars);
+    FALCOR_ASSERT(mGenStochSMPip.pVars);
 
     // Trace the pass for every light
     for (uint i = 0; i < lights.size(); i++)
@@ -435,7 +435,7 @@ void TransparencyPathTracer::generateReservoirSM(RenderContext* pRenderContext, 
             break;
         FALCOR_PROFILE(pRenderContext, lights[i]->getName());
         // Bind Utility
-        auto var = mGenResSMPip.pVars->getRootVar();
+        auto var = mGenStochSMPip.pVars->getRootVar();
         var["CB"]["gFrameCount"] = mFrameCount;
         var["CB"]["gLightPos"] = mShadowMapMVP[i].pos;
         var["CB"]["gNear"] = mNearFar.x;
@@ -446,8 +446,8 @@ void TransparencyPathTracer::generateReservoirSM(RenderContext* pRenderContext, 
         for (uint j = 0; j < mNumberAVSMSamples / 4; j++)
         {
             uint idx = i * (mNumberAVSMSamples / 4) + j;
-            var["gResDepths"][j] = mResDepths[idx];
-            var["gResTransmittance"][j] = mResTransmittance[idx];
+            var["gStochDepths"][j] = mStochDepths[idx];
+            var["gStochTransmittance"][j] = mStochTransmittance[idx];
         }
 
         // Get dimensions of ray dispatch.
@@ -455,7 +455,7 @@ void TransparencyPathTracer::generateReservoirSM(RenderContext* pRenderContext, 
         FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
 
         // Spawn the rays.
-        mpScene->raytrace(pRenderContext, mGenResSMPip.pProgram.get(), mGenResSMPip.pVars, uint3(targetDim, 1));
+        mpScene->raytrace(pRenderContext, mGenStochSMPip.pProgram.get(), mGenStochSMPip.pVars, uint3(targetDim, 1));
     }
 }
 
@@ -507,8 +507,8 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     {
         var["gAVSMDepths"][i] = mAVSMDepths[i];
         var["gAVSMTransmittance"][i] = mAVSMTransmittance[i];
-        var["gResDepths"][i] = mResDepths[i];
-        var["gResTransmittance"][i] = mResTransmittance[i];
+        var["gStochDepths"][i] = mStochDepths[i];
+        var["gStochTransmittance"][i] = mStochTransmittance[i];
     }
 
     var["gPointSampler"] = mpPointSampler;
@@ -962,7 +962,7 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
     widget.tooltip("Use importance sampling for materials", true);
 
     dirty |= widget.checkbox("Generate Adaptive Volumetric Shadow Maps (AVSM)", mGenAVSM);
-    dirty |= widget.checkbox("Generate Reservoir Shadow Maps", mGenResSM);
+    dirty |= widget.checkbox("Generate Stochastic Shadow Maps", mGenStochSM);
     dirty |= widget.dropdown("Shadow Render Mode", mShadowEvaluationMode);
 
     if (auto group = widget.group("Deep Shadow Maps Settings"))
@@ -1060,7 +1060,7 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
             bool showChanged = false;
             bool showRef = mGraphFunctionDatas[0].show & 0b1;
             bool showAVSM = mGraphFunctionDatas[1].show & 0b1;
-            bool showResSM = mGraphFunctionDatas[1].show >> 1 & 0b1;
+            bool showStochSM = mGraphFunctionDatas[1].show >> 1 & 0b1;
             group.text("Graphs:");
             showChanged |= group.checkbox("Reference", showRef);
             group.rect(float2(20.f), convertColorF4(kColorPalette[0]), true,true);
@@ -1068,7 +1068,7 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
             showChanged |= group.checkbox("AVSM", showAVSM);
             group.rect(float2(20.f), convertColorF4(kColorPalette[2]), true, true);
             group.dummy("", float2(0.f));
-            showChanged |= group.checkbox("ResSM", showResSM);
+            showChanged |= group.checkbox("StochSM", showStochSM);
             group.rect(float2(20.f), convertColorF4(kColorPalette[4]), true, true);
             group.dummy("", float2(0.f));
 
@@ -1081,7 +1081,7 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
                 };
                 clearAndSetBit(mGraphFunctionDatas[0].show, 0, showRef ? 1 : 0);
                 clearAndSetBit(mGraphFunctionDatas[1].show, 0, showAVSM ? 1 : 0);
-                clearAndSetBit(mGraphFunctionDatas[1].show, 1, showResSM ? 1 : 0);
+                clearAndSetBit(mGraphFunctionDatas[1].show, 1, showStochSM ? 1 : 0);
             }
             
 

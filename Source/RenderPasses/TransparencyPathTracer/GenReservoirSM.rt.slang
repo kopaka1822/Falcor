@@ -31,20 +31,13 @@ import Utils.Sampling.SampleGenerator;
 */
 struct RayData
 {
-    float firstDepth;
-    float lastDepth;
-    float transmittanceStart;
-    float transmittanceAverage;
-    float transmittanceEnd;
-    uint count;
-    
+    float minDepth;
+    float accumulatedVisibility;
+    SampleGenerator sg;
+
     __init() {
-        this.count = 0;
-        this.firstDepth = 0;
-        this.lastDepth = 1;
-        this.transmittanceStart = 1;
-        this.transmittanceAverage = 1;
-        this.transmittanceEnd = 1;
+        minDepth = 1.0;
+        accumulatedVisibility = 0.0;
     }
 };
 
@@ -59,14 +52,30 @@ cbuffer CB
     float4x4    gInvViewProj;   // Inverse view projection
 }
 
-RWTexture2D<float4> gResDepths[AVSM_NUM_TEX];
-RWTexture2D<float4> gResTransmittance[AVSM_NUM_TEX];
-RWTexture2D<float4> gResCount[AVSM_NUM_TEX];
+RWTexture2D<float4> gStochDepths[AVSM_NUM_TEX];
+RWTexture2D<float4> gStochTransmittance[AVSM_NUM_TEX];
 
 static const float kDepthBias = AVSM_DEPTH_BIAS;
 static const float kNormalBias = AVSM_NORMAL_DEPTH_BIAS;
 static const float kMinOpacity = 1e-7;
 
+// https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ne-d3d11-d3d11_standard_multisample_quality_levels?redirectedfrom=MSDN
+#if AVSM_K == 4
+static const float2 kMSAAPattern[4] = { float2(-0.125, 0.375), float2(0.375, -0.125), float2(-0.375, 0.125), float2(0.125, 0.375)
+                                      };
+#elif AVSM_K == 8
+static const float2 kMSAAPattern[8] = { float2(0.0625, -0.1875),  float2(-0.0625, 0.1875), float2(0.3125, 0.0625), float2(-0.1875, -0.3125),
+                                        float2(-0.3125, 0.3125), float2(-0.4375, -0.0625), float2(0.1875, 0.4375),   float2(0.4375, -0.4375)
+                                      };
+#elif AVSM_K == 16
+static const float2 kMSAAPattern[16] = { float2(0.0625, 0.0625),  float2(-0.0625, -0.1875), float2(-0.1875, 0.125),  float2(0.25, -0.0625),
+                                         float2(-0.3125, -0.125), float2(0.125, 0.3125), float2(0.3125, 0.1875),  float2(0.1875, -0.3125),sss
+                                         float2(-0.125, 0.375), float2(0.0, -0.4375),    float2(-0.25, 0.375), float2(-0.375, 0.25),
+                                         float2(-0.5, 0.0), float2(0.4375, -0.25),   float2(0.375, 0.4375), float2(-0.4375, -0.5)
+                                       };
+#else
+#error Invalid K for this pass!
+#endif
 /** Setup ShadingData based on loaded vertex/material attributes for a hit point.
     \param[in] hit Hit information.
     \param[in] rayOrigin Ray origin.
@@ -85,15 +94,6 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextu
     return sd;
 }
 
-//Area of a triangle with three points as input
-float areaTriangle(const float2 A,const float2 B,const float2 C) {
-    float2 b = B - A;
-    float2 c = C - A;
-    float dotBC = dot(b, c);
-    float area = sqrt(dot(b, b) * dot(c, c) - (dotBC * dotBC)); // Area parallelogram
-    return area * 0.5; 
-}
-
 //Shaders
 [shader("miss")]
 void miss(inout RayData rayData)
@@ -108,7 +108,38 @@ void miss(inout RayData rayData)
 [shader("anyhit")]
 void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
-    //TODO write
+    // Get shading data
+    TriangleHit triangleHit;
+    triangleHit.instanceID = getGeometryInstanceID();
+    triangleHit.primitiveIndex = PrimitiveIndex();
+    triangleHit.barycentrics = attribs.barycentrics;
+
+    VertexData v = gScene.getVertexData(triangleHit);
+    uint materialID = gScene.getMaterialID(triangleHit.instanceID);
+    let lod = ExplicitLodTextureSampler(0.f);
+    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -WorldRayDirection(), lod);
+
+    // Abort if opacity is too low
+    if (sd.opacity < kMinOpacity) {
+        IgnoreHit();
+        return;
+    }
+
+    const float transmittance = (1.0 - sd.opacity);
+    rayData.accumulatedVisibility *= transmittance;
+    float rand = sampleNext1D(rayData.sg);
+    //Hit is accepted
+    if (rand >= transmittance) {
+        // Get depth
+        float4 posH = mul(gViewProj, float4(sd.posW, 1.f));
+        float depth = (posH.w - gNear) / (gFar - gNear); // Normalized depth
+
+        // Add bias to depth
+        float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
+        depth = saturate(depth + kDepthBias + normalBias);
+        rayData.minDepth = min(depth, rayData.minDepth);
+    }
+    IgnoreHit();
 }
 
 //
@@ -120,79 +151,70 @@ void rayGen()
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
 
-    float2 pixelSample = pixel + 0.5;
+    float depthSamples[AVSM_K];
+    float accumVisibility[AVSM_K];
 
-    float2 relFramePos = pixelSample / frameDim;
-    relFramePos = relFramePos * 2.0 - 1.0; // From [0,1] to [-1,1]
-    relFramePos.y *= -1.f;
-
-    //Get min max depth for the current used area
-    float minDepth = 0.0;
-    float maxDepth = 1.0;
-    //TODO fetch from last frame
-    float depthStep = (maxDepth - minDepth) / float(AVSM_K); 
-
-    RayDesc ray;
-    float4 posWPixelNear = mul(gInvViewProj, float4(relFramePos, 0.f, 1.f));
-    float4 posWPixelFar = mul(gInvViewProj, float4(relFramePos, 1.f, 1.f));
-
-    posWPixelNear.xyz /= posWPixelNear.w;
-    float3 toNear = posWPixelNear.xyz - gLightPos;
-    float distToNear = length(toNear); 
-    float fullRayDistance = distance(gLightPos, posWPixelFar.xyz / posWPixelFar.w) - distToNear;
-
-    ray.TMin = distToNear;                                        // Always start at depth 0
-    ray.TMax = distToNear + fullRayDistance * (minDepth + depthStep); //Trace first step
-    ray.Origin = gLightPos;
-    ray.Direction = normalize(toNear); // World direction
-    
     RayData rayData = RayData();
-    //rayData.sg = SampleGenerator(pixel, gFrameCount * 2 + 8)
+    rayData.sg = SampleGenerator(pixel, gFrameCount * 2 + 8);
 
-    uint flags = RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
-    //uint flags = RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
-    float maxDepth = 0;
-    float minTransmittance = 1;
-
-    for(uint i=0 ; i<AVSM_K; i++){
-        
-        TraceRay(gScene.rtAccel, flags, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
-        
-        maxDepth = max(maxDepth, rayData.lastDepth);
-        minTransmittance = min(minTransmittance, rayData.transmittanceEnd);
-
-        //Update steps
-        ray.TMin = ray.TMax + 1e-10;
-        if(i == AVSM_K-2){
-            ray.TMax = distToNear + fullRayDistance;
-        }else{
-            ray.TMax += fullRayDistance * depthStep;
-        }
-        
-    }
-
-
-    
-
-    // Fill undefined points
-    float fillDepth = 1;
-    float fillTransmittance = 1;
-    
-    [unroll]
     for (uint i = 0; i < AVSM_K; i++) {
-        if (rayData.depths[i] < 0) {
-            rayData.depths[i] = fillDepth;
-            rayData.transmittances[i] = fillTransmittance;
-        }
-        fillDepth = rayData.depths[i];
-        fillTransmittance = rayData.transmittances[i];
+        float2 pixelSample = pixel + 0.5 + kMSAAPattern[i];
+
+        float2 relFramePos = pixelSample / frameDim;
+        relFramePos = relFramePos * 2.0 - 1.0; // From [0,1] to [-1,1]
+        relFramePos.y *= -1.f;
+
+        
+        float4 posWPixelNear = mul(gInvViewProj, float4(relFramePos, 0.f, 1.f));
+        float4 posWPixelFar = mul(gInvViewProj, float4(relFramePos, 1.f, 1.f));
+
+        posWPixelNear.xyz /= posWPixelNear.w;
+        float3 toNear = posWPixelNear.xyz - gLightPos;
+
+        RayDesc ray;
+        ray.TMin = length(toNear);;                                             // Always start at depth 0
+        ray.TMax = distance(gLightPos, posWPixelFar.xyz / posWPixelFar.w); // Real far for the pixel
+        ray.Origin = gLightPos;
+        ray.Direction = normalize(toNear); // World direction
+
+        uint flags = RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
+        // uint flags = RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
+
+        TraceRay(gScene.rtAccel, flags, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+
+        depthSamples[i] = rayData.minDepth;
+        accumVisibility[i] = rayData.accumulatedVisibility;
+
+        rayData.minDepth = 1.0;
+        rayData.accumulatedVisibility = 0.0;
     }
+
+    //calc transmittance and write back
+
+    // Sort by depth (bubblesort for now)
+    for (int n = AVSM_K; n > 1; n--) {
+        for (int i = 0; i < n - 1; i++) {
+            if (depthSamples[i] > depthSamples[i + 1]) {
+                float2 tmp = float2(depthSamples[i], accumVisibility[i]);
+                depthSamples[i] = depthSamples[i + 1];
+                accumVisibility[i] = accumVisibility[i + 1];
+                depthSamples[i + 1] = tmp.x;
+                accumVisibility[i + 1] = tmp.y;
+            }
+        }
+    }
+
+
     // Write to textures
     for (uint i = 0; i < AVSM_NUM_TEX; i++) {
         uint payIdx = i * 4;
-        float4 depths = float4(rayData.depths[payIdx], rayData.depths[payIdx + 1], rayData.depths[payIdx + 2], rayData.depths[payIdx + 3]);
-        gResDepths[i][pixel] = depths;
-        float4 transmittance = float4(rayData.transmittances[payIdx], rayData.transmittances[payIdx + 1], rayData.transmittances[payIdx + 2], rayData.transmittances[payIdx + 3]);
-        gResTransmittance[i][pixel] = float4(transmittance);
+        float4 depths = float4(depthSamples[payIdx], depthSamples[payIdx + 1], depthSamples[payIdx + 2], depthSamples[payIdx + 3]);
+        gStochDepths[i][pixel] = depths;
+        float4 transmittance;
+        for (uint j = 0; j < 4; j++) {
+            transmittance[j] = (1.0 - accumVisibility[payIdx + j]) * (float(1 + payIdx + j) / AVSM_K);
+            transmittance[j] = 1.0 - transmittance[j];
+        }
+        gStochTransmittance[i][pixel] = transmittance;
     }
 }

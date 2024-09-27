@@ -52,7 +52,7 @@ import SharedTypes;
 //Shadow Eval Modes
 #define SHADOW_EVAL_MODE_RAYTRACING 0
 #define SHADOW_EVAL_MODE_AVSM 1
-#define SHADOW_EVAL_MODE_ResSM 0
+#define SHADOW_EVAL_MODE_StochSM 0
 
 #ifndef SHADOW_EVAL_MODE
 #define SHADOW_EVAL_MODE SHADOW_EVAL_MODE_RAYTRACING
@@ -85,8 +85,8 @@ Texture2D<float4> gViewW; // Optional
 // Optional
 Texture2D<float4> gAVSMDepths[COUNT_SM];
 Texture2D<float4> gAVSMTransmittance[COUNT_SM];
-Texture2D<float4> gResDepths[COUNT_SM];
-Texture2D<float4> gResTransmittance[COUNT_SM];
+Texture2D<float4> gStochDepths[COUNT_SM];
+Texture2D<float4> gStochTransmittance[COUNT_SM];
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -463,10 +463,10 @@ float evalReservoirSM(uint lightIdx, float3 posW) {
             uint texIdx = lightIdx * AVSM_K_4 + i;
             uint arrIdx = i * 4;
 
-            float4 depthsSamplesR = gResDepths[texIdx].GatherRed(gPointSampler, gatherUV.xy);
-            float4 depthsSamplesG = gResDepths[texIdx].GatherGreen(gPointSampler, gatherUV.xy);
-            float4 depthsSamplesB = gResDepths[texIdx].GatherBlue(gPointSampler, gatherUV.xy);
-            float4 depthsSamplesA = gResDepths[texIdx].GatherAlpha(gPointSampler, gatherUV.xy);
+            float4 depthsSamplesR = gStochDepths[texIdx].GatherRed(gPointSampler, gatherUV.xy);
+            float4 depthsSamplesG = gStochDepths[texIdx].GatherGreen(gPointSampler, gatherUV.xy);
+            float4 depthsSamplesB = gStochDepths[texIdx].GatherBlue(gPointSampler, gatherUV.xy);
+            float4 depthsSamplesA = gStochDepths[texIdx].GatherAlpha(gPointSampler, gatherUV.xy);
 
             depths0[arrIdx] = depthsSamplesR[0];
             depths0[arrIdx + 1] = depthsSamplesG[0];
@@ -485,10 +485,10 @@ float evalReservoirSM(uint lightIdx, float3 posW) {
             depths3[arrIdx + 2] = depthsSamplesB[3];
             depths3[arrIdx + 3] = depthsSamplesA[3];
 
-            float4 transmittanceSamplesR = gResTransmittance[texIdx].GatherRed(gPointSampler, gatherUV.xy);
-            float4 transmittanceSamplesG = gResTransmittance[texIdx].GatherGreen(gPointSampler, gatherUV.xy);
-            float4 transmittanceSamplesB = gResTransmittance[texIdx].GatherBlue(gPointSampler, gatherUV.xy);
-            float4 transmittanceSamplesA = gResTransmittance[texIdx].GatherAlpha(gPointSampler, gatherUV.xy);
+            float4 transmittanceSamplesR = gStochTransmittance[texIdx].GatherRed(gPointSampler, gatherUV.xy);
+            float4 transmittanceSamplesG = gStochTransmittance[texIdx].GatherGreen(gPointSampler, gatherUV.xy);
+            float4 transmittanceSamplesB = gStochTransmittance[texIdx].GatherBlue(gPointSampler, gatherUV.xy);
+            float4 transmittanceSamplesA = gStochTransmittance[texIdx].GatherAlpha(gPointSampler, gatherUV.xy);
 
             transmittance0[arrIdx] = transmittanceSamplesR[0];
             transmittance0[arrIdx + 1] = transmittanceSamplesG[0];
@@ -521,13 +521,13 @@ float evalReservoirSM(uint lightIdx, float3 posW) {
             uint texIdx = lightIdx * AVSM_K_4 + i;
             uint arrIdx = i * 4;
 
-            float4 depthTex = gResDepths[texIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
+            float4 depthTex = gStochDepths[texIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
             depths[arrIdx] = depthTex[0];
             depths[arrIdx + 1] = depthTex[1];
             depths[arrIdx + 2] = depthTex[2];
             depths[arrIdx + 3] = depthTex[3];
 
-            float4 transmittanceTex = gResTransmittance[texIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
+            float4 transmittanceTex = gStochTransmittance[texIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
             transmittance[arrIdx] = transmittanceTex[0];
             transmittance[arrIdx + 1] = transmittanceTex[1];
             transmittance[arrIdx + 2] = transmittanceTex[2];
@@ -858,8 +858,8 @@ void writeToDebugGraph(uint2 pixel){
             uint texIdx = i * AVSM_K_4 + j;
             uint arrIdx = j * 8; // 4 elements, 2 components
 
-            float4 depthTex = gResDepths[texIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
-            float4 transmittanceTex = gResTransmittance[texIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
+            float4 depthTex = gStochDepths[texIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
+            float4 transmittanceTex = gStochTransmittance[texIdx].SampleLevel(gPointSampler, shadowPos.xy, 0);
             writeToDebugBuffer(i, arrIdx + (AVSM_K_4 * 8), depthTex, transmittanceTex);
         }
     }

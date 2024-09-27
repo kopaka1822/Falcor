@@ -55,13 +55,13 @@ public:
     {
         RayTracing = 0u,
         AVSM = 1u,
-        ResSM = 2u,
+        StochSM = 2u,
     };
 
     FALCOR_ENUM_INFO(ShadowEvalMode,{
         {ShadowEvalMode::RayTracing, "RayTracing"},
         {ShadowEvalMode::AVSM, "AVSM"},
-        {ShadowEvalMode::ResSM, "ResSM"},
+        {ShadowEvalMode::StochSM, "StochSM"},
     });
 
 private:
@@ -100,7 +100,7 @@ private:
     bool mUseImportanceSampling = true; ///< Use importance sampling for materials.
     bool mUseRussianRoulettePath = false;   ///< Russian Roulett to abort the path early
     bool mUseRussianRouletteForAlpha = false; ///< Use Russian Roulette for transparent materials
-    ShadowEvalMode mShadowEvaluationMode = ShadowEvalMode::ResSM;
+    ShadowEvalMode mShadowEvaluationMode = ShadowEvalMode::AVSM;
 
     // Runtime data Tracer
     uint mFrameCount = 0; ///< Frame count since scene was loaded.
@@ -110,7 +110,7 @@ private:
 
     //Configuration Shadow Map
     bool mGenAVSM = true;
-    bool mGenResSM = true;
+    bool mGenStochSM = true;
     bool mAVSMRebuildProgram = false;
     bool mAVSMTexResChanged = false;
     bool mAVSMUsePCF = false;
@@ -127,8 +127,8 @@ private:
     std::vector<LightMVP> mShadowMapMVP;
     std::vector<ref<Texture>> mAVSMDepths;        //Depths for the avsm
     std::vector<ref<Texture>> mAVSMTransmittance;    //Trancemittance for each point of the avsm
-    std::vector<ref<Texture>> mResDepths;           //Depths for ResEVSM
-    std::vector<ref<Texture>> mResTransmittance;    //Transmittance for ResEVSM
+    std::vector<ref<Texture>> mStochDepths;           //Depths for ResEVSM
+    std::vector<ref<Texture>> mStochTransmittance;    //Transmittance for ResEVSM
 
     //Settings and Data for Tranmittance UI Graph
     struct
@@ -148,7 +148,7 @@ private:
         bool genBuffers = false;            //True if buffers should be filled
     } mGraphUISettings;
 
-    static const uint kGraphMaxFunctions = 3; //Ref, AVSM, ResSM
+    static const uint kGraphMaxFunctions = 3; //Ref, AVSM, StochSM
     static const uint kGraphDataMaxSize = 256;
     struct GraphFunctionData
     {
@@ -169,7 +169,7 @@ private:
 
     RayTracingPipeline mTracer;
     RayTracingPipeline mGenAVSMPip; //Volumetric Adaptive SM
-    RayTracingPipeline mGenResSMPip;    //Stochastic Reservoir baised SM
+    RayTracingPipeline mGenStochSMPip;    //Stochastic Reservoir baised SM
     RayTracingPipeline mDebugGetRefFunction;
 };
 
