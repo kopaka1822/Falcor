@@ -9,6 +9,11 @@ RWTexture2D<float> depthOutTex;
 Texture2D<float> depthInTex;
 SamplerState S; // point sampler
 
+cbuffer PerFrameCB
+{
+    float maxDepth; // based on radius cutoff
+};
+
 // Hash function from "Improved Alpha Testing Using Hashed Sampling"
 float hash(float2 v)
 {
@@ -53,7 +58,7 @@ RayDesc initRayDesc(int2 pixel, int2 dim)
         depth = depthInTex.SampleLevel(S, (signedPixel + randomJitter(pixel) + 0.5) / dim, 0);
 
     ray.TMin = ViewDepthToRay(ray.Direction, depth) + epsilon; // start after first known hit
-    // TODO set tmax based on radius cutoff
+    ray.TMax = ViewDepthToRay(ray.Direction, maxDepth);
     
     return ray;
 }

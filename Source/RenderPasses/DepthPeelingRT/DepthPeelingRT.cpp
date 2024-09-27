@@ -124,8 +124,12 @@ void DepthPeelingRT::execute(RenderContext* pRenderContext, const RenderData& re
         vars["S"] = Sampler::create(mpDevice, Sampler::Desc().setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point));
     }
 
+    auto maxDepth = renderData.getDictionary().getValue("MAX_DEPTH", std::numeric_limits<float>::max());
+    maxDepth = std::min(maxDepth, mpScene->getCamera()->getFarPlane());
+    mRayVars->getRootVar()["PerFrameCB"]["maxDepth"] = maxDepth;
     mRayVars->getRootVar()["depthInTex"] = pDepthIn;
     mRayVars->getRootVar()["depthOutTex"] = pDepthOut;
+    
 
     mpScene->raytrace(pRenderContext, mpRayProgram.get(), mRayVars, uint3(pDepthOut->getWidth(), pDepthOut->getHeight(), 1));
 }

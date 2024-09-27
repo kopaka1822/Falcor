@@ -351,6 +351,11 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     ref<Texture> pRtDualDepth;
     if(mPrimaryDepthMode == DepthMode::RaytracedDualDepth)
     {
+        // calc max depth
+        auto cam = pCamera->getData();
+        float maxDepth = (mData.radius * cam.focalLength * pAoDst->getWidth()) / (cam.frameWidth * mData.ssRadiusCutoff);
+        mpDualDepthGraph->getPassesDictionary()["MAX_DEPTH"] = maxDepth;
+
         // acquire raytraced depth
         mpDualDepthGraph->setInput("DepthPeelingRT.linearZ", pDepth);
         mpDualDepthGraph->execute(pRenderContext);
