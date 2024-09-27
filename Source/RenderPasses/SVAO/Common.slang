@@ -21,6 +21,8 @@ import Utils.Math.PackedFormats;
 // raytraced
 #define DEPTH_MODE_RAYTRACING 3
 
+#define DEPTH_MODE_RAYTRACED_DUAL_DEPTH 4
+
 #define sd_map_t float2
 
 #define STOCHASTIC_DEPTH_RASTER 0
@@ -32,6 +34,8 @@ import Utils.Math.PackedFormats;
 #define STOCHASTIC_DEPTH_MAP Texture2DArray<float4>
 //#define LOAD_STOCHASTIC_SAMPLE(tex, xy, i) tex.Load(int4(xy, i, /*mipmap*/0))
 #endif
+
+Texture2D<float> gRtDualDepth;
 
 // area where the halo effect remains constant at 0.0
 #define CONST_RADIUS ((1.0 + gData.thickness) * data.radius - sphereStart)

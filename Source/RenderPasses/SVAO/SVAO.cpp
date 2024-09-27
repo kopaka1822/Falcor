@@ -187,6 +187,20 @@ void SVAO::compile(RenderContext* pRenderContext, const CompileData& compileData
     mpStochasticDepthGraph->markOutput("StochasticDepthMap.stochasticDepth");
     mpStochasticDepthGraph->setScene(mpScene);
     mStochLastSize = uint2(0);
+
+    // create ray traced dual depth graph
+    Properties dddict;
+    dddict["CullMode"] = RasterizerState::CullMode::Back;
+    dddict["AlphaTest"] = mAlphaTest;
+    dddict["Jitter"] = mStochMapJitter;
+    dddict["GuardBand"] = getExtraGuardBand();
+    dddict["MaxCount"] = mStochMaxCount;
+    mpDualDepthGraph = RenderGraph::create(mpDevice, "Dual Depth");
+    ref<RenderPass> pDualDepthPass = RenderPass::create("DepthPeelingRT", mpDevice, dddict);
+
+    mpDualDepthGraph->addPass(pDualDepthPass, "DepthPeelingRT");
+    mpDualDepthGraph->markOutput("DepthPeelingRT.depthOut");
+    mpDualDepthGraph->setScene(mpScene);
 }
 
 void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -322,7 +336,26 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto& dict = renderData.getDictionary();
     auto guardBand = dict.getValue("guardBand", 0);
 
+    // adjust low resolution render graphs
+    auto stochSize = getStochMapSize(uint2(pAoDst->getWidth(), pAoDst->getHeight()));
 
+    if (any(mStochLastSize != stochSize))
+    {
+        auto stochFbo = Fbo::create2D(mpDevice, stochSize.x, stochSize.y, ResourceFormat::R32Float);
+
+        mpStochasticDepthGraph->onResize(stochFbo.get());
+        mpDualDepthGraph->onResize(stochFbo.get());
+        mStochLastSize = stochSize;
+    }
+
+    ref<Texture> pRtDualDepth;
+    if(mPrimaryDepthMode == DepthMode::RaytracedDualDepth)
+    {
+        // acquire raytraced depth
+        mpDualDepthGraph->setInput("DepthPeelingRT.linearZ", pDepth);
+        mpDualDepthGraph->execute(pRenderContext);
+        pRtDualDepth = mpDualDepthGraph->getOutput("DepthPeelingRT.depthOut")->asTexture();
+    }
 
     {
         FALCOR_PROFILE(pRenderContext, "AO 1");
@@ -344,6 +377,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         computeVars["PerFrameCB"]["guardBand"] = guardBand;
         computeVars["gAO1"] = pAoDst;
         computeVars["gStencil"] = pAoMask;
+        computeVars["gRtDualDepth"] = pRtDualDepth;
         uint2 nThreads = renderData.getDefaultTextureDims() - uint2(2 * guardBand);
         // nThreads needs to be 32 aligned because of the interleaving trick in the shader (improves texture read performance)
         nThreads = ((nThreads + 31u) / 32u) * 32u;
@@ -373,16 +407,6 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         }
         mpStochasticDepthGraph->setInput("StochasticDepthMap.rayMin", pInternalRayMin);
         mpStochasticDepthGraph->setInput("StochasticDepthMap.rayMax", pInternalRayMax);
-        //mpStochasticDepthGraph->setInput("StochasticDepthMap.stencilMask", pAccessStencil);
-        auto stochSize = getStochMapSize(uint2(pAoDst->getWidth(), pAoDst->getHeight()));
-
-        if(any(mStochLastSize != stochSize))
-        {
-            auto stochFbo = Fbo::create2D(mpDevice, stochSize.x, stochSize.y, ResourceFormat::R32Float);
-            
-            mpStochasticDepthGraph->onResize(stochFbo.get());
-            mStochLastSize = stochSize;
-        }
 
         // force clear if we want to cache (otherwise old results will be inside since the texture is never cleared)
         mpStochasticDepthGraph->getPassesDictionary()["SD_CLEAR"] = mCacheSDMap;
@@ -461,6 +485,7 @@ void SVAO::renderUI(Gui::Widgets& widget)
     {
         { (uint32_t)DepthMode::SingleDepth, "SingleDepth" },
         { (uint32_t)DepthMode::DualDepth, "DualDepth" },
+        {(uint32_t)DepthMode::RaytracedDualDepth, "RaytracedDualDepth"}
     };
 
     const Gui::DropdownList kSecondaryDepthModeDropdown =
@@ -517,22 +542,52 @@ void SVAO::renderUI(Gui::Widgets& widget)
     if (widget.dropdown("Primary Depth Mode", kPrimaryDepthModeDropdown, primaryDepthMode)) {
         mPrimaryDepthMode = (DepthMode)primaryDepthMode;
         reset = true;
-    }
-    
-    widget.separator();
-
-    uint32_t secondaryDepthMode = (uint32_t)mSecondaryDepthMode;
-    if (widget.dropdown("Secondary Depth Mode", kSecondaryDepthModeDropdown, secondaryDepthMode)) {
-        mSecondaryDepthMode = (DepthMode)secondaryDepthMode;
-        
-        // overwrite cull mode based on secondary depth
-        mCullMode = RasterizerState::CullMode::Back; // slightly faster for real-time
-        if (mSecondaryDepthMode == DepthMode::Raytraced)
-            mCullMode = RasterizerState::CullMode::None; // standart for reference image
-
-        reset = true;
+        if (mPrimaryDepthMode == DepthMode::RaytracedDualDepth)
+            mSecondaryDepthMode = DepthMode::SingleDepth;
     }
 
+    if (mPrimaryDepthMode == DepthMode::RaytracedDualDepth)
+    {
+        // shares some settings with the secondary depth mode
+        if (widget.dropdown("Resolution", kStochMapDivisor, mStochMapDivisor))
+            reset = true;
+
+        if (widget.checkbox("SD-Map Jitter Sample Positions", mStochMapJitter))
+            reset = true;
+
+        bool extraGuard = mStochMapGuardBand > 0;
+        if (widget.checkbox("SD Guard Band", extraGuard))
+        {
+            if (extraGuard)
+                mStochMapGuardBand = mData.ssMaxRadius;
+            else
+                mStochMapGuardBand = 0;
+            reset = true;
+        }
+
+
+        //if (widget.var("SD-Map Extra Guard Band", mStochMapGuardBand, 0, 1024))
+        //    reset = true;
+        widget.tooltip("Independent extra guard band for the stochastic depth map that allows pixels to be ray traced that are outside of the screen.");
+    }
+
+    if(mPrimaryDepthMode != DepthMode::RaytracedDualDepth)
+    {
+        widget.separator();
+
+        uint32_t secondaryDepthMode = (uint32_t)mSecondaryDepthMode;
+        if (widget.dropdown("Secondary Depth Mode", kSecondaryDepthModeDropdown, secondaryDepthMode)) {
+            mSecondaryDepthMode = (DepthMode)secondaryDepthMode;
+
+            // overwrite cull mode based on secondary depth
+            mCullMode = RasterizerState::CullMode::Back; // slightly faster for real-time
+            if (mSecondaryDepthMode == DepthMode::Raytraced)
+                mCullMode = RasterizerState::CullMode::None; // standart for reference image
+
+            reset = true;
+        }
+    }
+   
     if (mSecondaryDepthMode == DepthMode::StochasticDepth)
     {
         uint32_t stochasticImpl = (uint32_t)mStochasticDepthImpl;

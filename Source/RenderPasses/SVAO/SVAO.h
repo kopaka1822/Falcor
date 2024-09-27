@@ -80,6 +80,7 @@ private:
     ref<Scene> mpScene;
 
     ref<RenderGraph> mpStochasticDepthGraph;
+    ref<RenderGraph> mpDualDepthGraph;
 
     // 2nd pass
     ref<ComputePass> mpComputePass2;

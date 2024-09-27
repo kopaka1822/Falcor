@@ -8,6 +8,7 @@ namespace Falcor
         DualDepth,
         StochasticDepth,
         Raytraced,
+        RaytracedDualDepth,
     };
 
     FALCOR_ENUM_INFO(
@@ -17,6 +18,7 @@ namespace Falcor
             {DepthMode::DualDepth, "DualDepth"},
             {DepthMode::StochasticDepth, "StochasticDepth"},
             {DepthMode::Raytraced, "Raytraced"},
+            {DepthMode::RaytracedDualDepth, "RaytracedDualDepth"}
         }
     );
 
