@@ -503,9 +503,22 @@ struct SampleAOData
     {
         if (!requireRay(data))
             return; // not needed
-        
-        float3 samplePosV = calcSamplePosV(data, rasterSamplePosUV, gDepthTex2);
-        addSample(data, samplePosV, init);
+
+        if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
+        {
+            float3 samplePosV = calcSamplePosV(data, rasterSamplePosUV, gDepthTex2);
+            addSample(data, samplePosV, init);
+        }
+        if (PRIMARY_DEPTH_MODE == DEPTH_MODE_RAYTRACED_DUAL_DEPTH)
+        {
+            int2 pixelCoord = UVToSDPixel(samplePosUV);
+            
+            // calc uv space position based on primary frame buffer size
+            float2 sdSampleUV = (pixelCoord - gData.sdGuard + randomJitter(pixelCoord)) / gData.lowResolution;
+            float linearSampleDepth = gRtDualDepth[pixelCoord];
+            float3 samplePosV = UVToViewSpace(sdSampleUV, linearSampleDepth);
+            addSample(data, samplePosV, !isInScreen);
+        }
     }
 };
 

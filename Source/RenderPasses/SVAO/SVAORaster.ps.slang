@@ -66,7 +66,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
             }
         
             s.evalPrimaryVisibility(data);
-            if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL)
+            if (PRIMARY_DEPTH_MODE == DEPTH_MODE_DUAL || PRIMARY_DEPTH_MODE == DEPTH_MODE_RAYTRACED_DUAL_DEPTH)
                 s.evalDualVisibility(data);
 
             // always add computed visibility from raster
