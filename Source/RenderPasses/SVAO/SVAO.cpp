@@ -569,6 +569,11 @@ void SVAO::renderUI(Gui::Widgets& widget)
         //if (widget.var("SD-Map Extra Guard Band", mStochMapGuardBand, 0, 1024))
         //    reset = true;
         widget.tooltip("Independent extra guard band for the stochastic depth map that allows pixels to be ray traced that are outside of the screen.");
+
+        if (widget.var("MAX_COUNT", mStochMaxCount, 1))
+        {
+            reset = true;
+        }
     }
 
     if(mPrimaryDepthMode != DepthMode::RaytracedDualDepth)

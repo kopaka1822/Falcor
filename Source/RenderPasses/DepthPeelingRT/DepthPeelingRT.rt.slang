@@ -78,6 +78,8 @@ struct RayData // cannot be compressed to half floats => no diff in rendering ti
 void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
     rayData.count += 1;
+    if (rayData.count > MAX_COUNT)
+        AcceptHitAndEndSearch(); // this saves a lot of time in alpha test dense regions (50% of time for emerald square)
 #if USE_ALPHA_TEST
     { // ALPHA test
 
@@ -100,8 +102,6 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
         }
     }
 #endif
-    if (rayData.count > MAX_COUNT)
-        AcceptHitAndEndSearch();
     //rayData.depth = RayTCurrent(); // will be done in anyhit
 }
 
@@ -132,6 +132,8 @@ void rayGen()
         0xff /* instanceInclusionMask */, 0 /* hitIdx */, 1 /*ray type count*/, 0 /* missIdx */,
         ray, rayData
     );
-    
+
+    if (rayData.count > MAX_COUNT)
+        rayData.depth = 0.0; // invalid depth (ray was abortet)
     depthOutTex[svPos] = RayToViewDepth(ray.Direction, rayData.depth);
 }
