@@ -56,12 +56,14 @@ public:
         RayTracing = 0u,
         AVSM = 1u,
         StochSM = 2u,
+        TmpStochSM = 3u,
     };
 
     FALCOR_ENUM_INFO(ShadowEvalMode,{
         {ShadowEvalMode::RayTracing, "RayTracing"},
         {ShadowEvalMode::AVSM, "AVSM"},
         {ShadowEvalMode::StochSM, "StochSM"},
+        {ShadowEvalMode::TmpStochSM, "TmpStochSM"}
     });
 
 private:
@@ -80,7 +82,8 @@ private:
 
     void updateSMMatrices(RenderContext* pRenderContext, const RenderData& renderData);
     void generateAVSM(RenderContext* pRenderCotext, const RenderData& renderData);
-    void generateReservoirSM(RenderContext* pRenderContext, const RenderData& renderData);
+    void generateStochasticSM(RenderContext* pRenderContext, const RenderData& renderData);
+    void generateTmpStochSM(RenderContext* pRenderContext, const RenderData& renderData);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void prepareVars();
     void renderDebugGraph(const ImVec2& size);
@@ -111,6 +114,7 @@ private:
     //Configuration Shadow Map
     bool mGenAVSM = true;
     bool mGenStochSM = true;
+    bool mGenTmpStochSM = true;
     bool mAVSMRebuildProgram = false;
     bool mAVSMTexResChanged = false;
     bool mAVSMUsePCF = false;
@@ -118,7 +122,7 @@ private:
     bool mAVSMUnderestimateArea = false;
     uint mAVSMRejectionMode = 0;    //Triangle Area | Rectange Area | Heights
     uint mSMSize = 512;
-    float2 mNearFar = float2(1.f, 30.f);
+    float2 mNearFar = float2(1.f, 40.f);
     float mDepthBias = 1e-6f;
     float mNormalDepthBias = 1e-2f;
     uint mNumberAVSMSamples = 8;    //< k for AVSM
@@ -127,8 +131,10 @@ private:
     std::vector<LightMVP> mShadowMapMVP;
     std::vector<ref<Texture>> mAVSMDepths;        //Depths for the avsm
     std::vector<ref<Texture>> mAVSMTransmittance;    //Trancemittance for each point of the avsm
-    std::vector<ref<Texture>> mStochDepths;           //Depths for ResEVSM
-    std::vector<ref<Texture>> mStochTransmittance;    //Transmittance for ResEVSM
+    std::vector<ref<Texture>> mStochDepths;           //Depths for Stochastic SM
+    std::vector<ref<Texture>> mStochTransmittance;    //Transmittance for Stochstic SM
+    std::vector<ref<Texture>> mTmpStochDepths;        // Depths for Temporal stochastic SM
+    std::vector<ref<Texture>> mTmpStochTransmittance; // Transmittance for Temporal stochastic SM
 
     //Settings and Data for Tranmittance UI Graph
     struct
@@ -169,7 +175,8 @@ private:
 
     RayTracingPipeline mTracer;
     RayTracingPipeline mGenAVSMPip; //Volumetric Adaptive SM
-    RayTracingPipeline mGenStochSMPip;    //Stochastic Reservoir baised SM
+    RayTracingPipeline mGenStochSMPip;    //Stochastic baised SM
+    RayTracingPipeline mGenTmpStochSMPip;   //Temporal Stochastic baised SM
     RayTracingPipeline mDebugGetRefFunction;
 };
 

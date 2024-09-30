@@ -41,7 +41,8 @@ namespace
     const std::string kShaderFile = kShaderFolder + "TransparencyPathTracer.rt.slang";
     const std::string kShaderAVSMRay = kShaderFolder + "GenAdaptiveVolumetricSM.rt.slang";
     const std::string kShaderGenDebugRefFunction = kShaderFolder + "GenDebugRefFunction.rt.slang";
-    const std::string kShaderStochSMRay = kShaderFolder + "GenReservoirSM.rt.slang";
+    const std::string kShaderStochSMRay = kShaderFolder + "GenStochasticSM.rt.slang";
+    const std::string kShaderTemporalStochSMRay = kShaderFolder + "GenTmpStochSM.rt.slang";
 
     //RT shader constant settings
     const uint kMaxPayloadSizeBytes = 20u;
@@ -162,7 +163,9 @@ void TransparencyPathTracer::execute(RenderContext* pRenderContext, const Render
 
         generateAVSM(pRenderContext, renderData);
 
-        generateReservoirSM(pRenderContext, renderData);
+        generateStochasticSM(pRenderContext, renderData);
+
+        generateTmpStochSM(pRenderContext, renderData);
     }
     
 
@@ -328,8 +331,8 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
     }
 }
 
-void TransparencyPathTracer::generateReservoirSM(RenderContext* pRenderContext, const RenderData& renderData) {
-    FALCOR_PROFILE(pRenderContext, "Generate ReservoirSM");
+void TransparencyPathTracer::generateStochasticSM(RenderContext* pRenderContext, const RenderData& renderData) {
+    FALCOR_PROFILE(pRenderContext, "Generate Stochastic SM");
     if (mAVSMRebuildProgram)
     {
         mGenStochSMPip.pProgram.reset();
@@ -459,6 +462,138 @@ void TransparencyPathTracer::generateReservoirSM(RenderContext* pRenderContext, 
     }
 }
 
+void TransparencyPathTracer::generateTmpStochSM(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    FALCOR_PROFILE(pRenderContext, "Generate Temporal Stochastic SM");
+    if (mAVSMRebuildProgram)
+    {
+        mGenTmpStochSMPip.pProgram.reset();
+        mGenTmpStochSMPip.pBindingTable.reset();
+        mGenTmpStochSMPip.pVars.reset();
+
+        mTracer.pVars.reset();     // Recompile tracer program
+        mAVSMTexResChanged = true; // Trigger texture reiinit
+    }
+
+    if (mAVSMTexResChanged)
+    {
+        mTmpStochDepths.clear();
+        mTmpStochTransmittance.clear();
+    }
+
+    // Create AVSM trace program
+    if (!mGenTmpStochSMPip.pProgram)
+    {
+        RtProgram::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderTemporalStochSMRay);
+        desc.setMaxPayloadSize(kMaxPayloadSizeAVSMPerK * mNumberAVSMSamples + 24); //+18 cause of the sampleGen (16) and confidence weight
+                                                                                   //(4) + align(4)
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1u);
+
+        mGenTmpStochSMPip.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        auto& sbt = mGenTmpStochSMPip.pBindingTable;
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setMiss(0, desc.addMiss("miss"));
+
+        if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
+        {
+            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("", "anyHit"));
+        }
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add("AVSM_K", std::to_string(mNumberAVSMSamples));
+        defines.add(mpSampleGenerator->getDefines());
+
+        mGenTmpStochSMPip.pProgram = RtProgram::create(mpDevice, desc, defines);
+    }
+
+    auto& lights = mpScene->getLights();
+
+    // Create / Destroy resources
+    // TODO MIPS and check formats
+    {
+        uint numTextures = lights.size() * (mNumberAVSMSamples / 4);
+        if (mTmpStochDepths.empty())
+        {
+            mTmpStochDepths.resize(numTextures);
+            for (uint i = 0; i < numTextures; i++)
+            {
+                mTmpStochDepths[i] = Texture::create2D(
+                    mpDevice, mSMSize, mSMSize, ResourceFormat::RGBA32Float, 1u, 1u, nullptr,
+                    ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+                );
+                mTmpStochDepths[i]->setName("TmpStochSMDepth_" + std::to_string(i));
+            }
+        }
+
+        if (mTmpStochTransmittance.empty())
+        {
+            mTmpStochTransmittance.resize(numTextures);
+            for (uint i = 0; i < numTextures; i++)
+            {
+                mTmpStochTransmittance[i] = Texture::create2D(
+                    mpDevice, mSMSize, mSMSize, ResourceFormat::RGBA8Unorm, 1u, 1u, nullptr,
+                    ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+                );
+                mTmpStochTransmittance[i]->setName("TmpStochSMTransmittance_" + std::to_string(i));
+            }
+        }
+    }
+
+    // Abort early if disabled
+    if (!mGenStochSM)
+        return;
+
+    // Defines
+    mGenTmpStochSMPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
+    mGenTmpStochSMPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
+    mGenTmpStochSMPip.pProgram->addDefine("AVSM_UNDERESTIMATE", mAVSMUnderestimateArea ? "1" : "0");
+    mGenTmpStochSMPip.pProgram->addDefine("AVSM_REJECTION_MODE", std::to_string(mAVSMRejectionMode));
+
+    // Create Program Vars
+    if (!mGenTmpStochSMPip.pVars)
+    {
+        mGenTmpStochSMPip.pProgram->setTypeConformances(mpScene->getTypeConformances());
+        mGenTmpStochSMPip.pVars = RtProgramVars::create(mpDevice, mGenTmpStochSMPip.pProgram, mGenTmpStochSMPip.pBindingTable);
+        mpSampleGenerator->setShaderData(mGenTmpStochSMPip.pVars->getRootVar());
+    }
+
+    FALCOR_ASSERT(mGenTmpStochSMPip.pVars);
+
+    // Trace the pass for every light
+    for (uint i = 0; i < lights.size(); i++)
+    {
+        if (!lights[i]->isActive())
+            break;
+        FALCOR_PROFILE(pRenderContext, lights[i]->getName());
+        // Bind Utility
+        auto var = mGenTmpStochSMPip.pVars->getRootVar();
+        var["CB"]["gFrameCount"] = mFrameCount;
+        var["CB"]["gLightPos"] = mShadowMapMVP[i].pos;
+        var["CB"]["gNear"] = mNearFar.x;
+        var["CB"]["gFar"] = mNearFar.y;
+        var["CB"]["gViewProj"] = mShadowMapMVP[i].viewProjection;
+        var["CB"]["gInvViewProj"] = mShadowMapMVP[i].invViewProjection;
+
+        for (uint j = 0; j < mNumberAVSMSamples / 4; j++)
+        {
+            uint idx = i * (mNumberAVSMSamples / 4) + j;
+            var["gStochDepths"][j] = mTmpStochDepths[idx];
+            var["gStochTransmittance"][j] = mTmpStochTransmittance[idx];
+        }
+
+        // Get dimensions of ray dispatch.
+        const uint2 targetDim = uint2(mSMSize);
+        FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+
+        // Spawn the rays.
+        mpScene->raytrace(pRenderContext, mGenTmpStochSMPip.pProgram.get(), mGenTmpStochSMPip.pVars, uint3(targetDim, 1));
+    }
+}
+
 void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const RenderData& renderData) {
     FALCOR_PROFILE(pRenderContext, "Trace Scene");
     auto& lights = mpScene->getLights();
@@ -509,6 +644,8 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
         var["gAVSMTransmittance"][i] = mAVSMTransmittance[i];
         var["gStochDepths"][i] = mStochDepths[i];
         var["gStochTransmittance"][i] = mStochTransmittance[i];
+        var["gTmpStochDepths"][i] = mTmpStochDepths[i];
+        var["gTmpStochTransmittance"][i] = mTmpStochTransmittance[i];
     }
 
     var["gPointSampler"] = mpPointSampler;
@@ -963,6 +1100,7 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
 
     dirty |= widget.checkbox("Generate Adaptive Volumetric Shadow Maps (AVSM)", mGenAVSM);
     dirty |= widget.checkbox("Generate Stochastic Shadow Maps", mGenStochSM);
+    dirty |= widget.checkbox("Generate (Test) Shadow Maps", mGenTmpStochSM);
     dirty |= widget.dropdown("Shadow Render Mode", mShadowEvaluationMode);
 
     if (auto group = widget.group("Deep Shadow Maps Settings"))
