@@ -5,6 +5,7 @@ import Scene.Raytracing;
 import Scene.Intersection;
 import Utils.Math.MathHelpers;
 import Utils.Geometry.GeometryHelpers;
+import Utils.Sampling.SampleGenerator;
 
 #ifndef AVSM_K
 #define AVSM_K 4
@@ -32,6 +33,7 @@ struct RayData
 {
     float depths[AVSM_K];
     float transmittances[AVSM_K];
+    SampleGenerator sg; 
 
     __init() {
         for (uint i = 0; i < AVSM_K; i++) {
@@ -46,7 +48,8 @@ cbuffer CB
     float3      gLightPos;     // Current Light Position
     float       gNear;
     float       gFar;
-    uint3       _pad;
+    uint        gFrameCount;
+    uint2       _pad;
     float4x4    gViewProj;      // View Projection for current light
     float4x4    gInvViewProj;   // Inverse view projection
 }
@@ -174,7 +177,25 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
 // Check which element has the smalles tri area
     #if AVSM_REJECTION_MODE == AVSM_REJECTION_TRIANGLE_AREA
         if (tmpDepths[AVSM_K] >= 0) {
-            float minArea = 1.0; //1 should be max possible area
+            /*
+            removeIndex = AVSM_K - 1;
+            float minArea = 1.0; // 1 should be max possible area
+            float sumArea = 0.0;
+            for (uint i = 1; i < AVSM_K; i++) {
+                sumArea += 1.0 / areaTriangle(float2(tmpDepths[i - 1], tmpTransmittance[i - 1]), float2(tmpDepths[i], tmpTransmittance[i]), float2(tmpDepths[i + 1], tmpTransmittance[i + 1]));
+            }
+            float removeWeight = sumArea * sampleNext1D(rayData.sg);
+            sumArea = 0.0;
+            for (uint i = 1; i < AVSM_K; i++) {
+                sumArea += 1.0 / areaTriangle(float2(tmpDepths[i - 1], tmpTransmittance[i - 1]), float2(tmpDepths[i], tmpTransmittance[i]), float2(tmpDepths[i + 1], tmpTransmittance[i + 1]));
+                if (sumArea >= removeWeight) {
+                    removeIndex = i;
+                    break;
+                }
+            }
+            */
+            
+            float minArea = 1.0; // 1 should be max possible area
             [unroll]
             for (uint i = 1; i < AVSM_K; i++) {
                 float triArea = areaTriangle(float2(tmpDepths[i - 1], tmpTransmittance[i - 1]), float2(tmpDepths[i], tmpTransmittance[i]), float2(tmpDepths[i + 1], tmpTransmittance[i + 1]));
@@ -183,6 +204,7 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
                     removeIndex = i;
                 }
             }
+            
         }
     #elif AVSM_REJECTION_MODE == AVSM_REJECTION_RECTANGLE_AREA
         if (tmpDepths[AVSM_K] >= 0) {
@@ -287,6 +309,7 @@ void rayGen()
     ray.Direction = normalize(toPoint); // World direction
 
     RayData rayData = RayData();
+    rayData.sg = SampleGenerator(pixel, gFrameCount * 2 + 8);
 
     uint flags = RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
     //uint flags = RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object

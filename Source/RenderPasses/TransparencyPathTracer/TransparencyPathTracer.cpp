@@ -228,7 +228,7 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
         RtProgram::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kShaderAVSMRay);
-        desc.setMaxPayloadSize(kMaxPayloadSizeAVSMPerK * mNumberAVSMSamples);
+        desc.setMaxPayloadSize(kMaxPayloadSizeAVSMPerK * mNumberAVSMSamples + 16);
         desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
         desc.setMaxTraceRecursionDepth(1u);
 
@@ -245,6 +245,7 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
         DefineList defines;
         defines.add(mpScene->getSceneDefines());
         defines.add("AVSM_K", std::to_string(mNumberAVSMSamples));
+        defines.add(mpSampleGenerator->getDefines());
 
         mGenAVSMPip.pProgram = RtProgram::create(mpDevice, desc, defines);
     }
@@ -297,6 +298,7 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
     {
         mGenAVSMPip.pProgram->setTypeConformances(mpScene->getTypeConformances());
         mGenAVSMPip.pVars = RtProgramVars::create(mpDevice, mGenAVSMPip.pProgram, mGenAVSMPip.pBindingTable);
+        mpSampleGenerator->setShaderData(mGenAVSMPip.pVars->getRootVar());
     }
         
     FALCOR_ASSERT(mGenAVSMPip.pVars);
@@ -312,6 +314,7 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
         var["CB"]["gLightPos"] = mShadowMapMVP[i].pos;
         var["CB"]["gNear"] = mNearFar.x;
         var["CB"]["gFar"] = mNearFar.y;
+        var["CB"]["gFrameCount"] = mFrameCount;
         var["CB"]["gViewProj"] = mShadowMapMVP[i].viewProjection;
         var["CB"]["gInvViewProj"] = mShadowMapMVP[i].invViewProjection;
 
