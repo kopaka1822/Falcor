@@ -1767,6 +1767,7 @@ namespace Falcor
         using meshList = std::vector<MeshID>;
         std::unordered_map<NodeID, meshList> nodeToMeshList;
         meshList staticMeshes;
+        meshList staticDoubleSided;
         meshList staticDisplacedMeshes;
         meshList dynamicDisplacedMeshes;
         size_t nonInstancedMeshCount = 0;
@@ -1782,9 +1783,11 @@ namespace Falcor
             // Mark displaced meshes.
             const auto& pMaterial = mSceneData.pMaterials->getMaterial(mesh.materialId);
             if (pMaterial->isDisplaced()) mesh.isDisplaced = true;
+            if (pMaterial->isDoubleSided()) mesh.isDoubleSided = true;
 
             if (mesh.isStatic && mesh.isDisplaced) staticDisplacedMeshes.push_back(meshID);
-            else if (mesh.isStatic) staticMeshes.push_back(meshID);
+            else if (mesh.isStatic && mesh.isDoubleSided) staticDoubleSided.push_back(meshID);
+            else if(mesh.isStatic) staticMeshes.push_back(meshID);
             else if (!mesh.isStatic && mesh.isDisplaced) dynamicDisplacedMeshes.push_back(meshID);
             else nodeToMeshList[nodeID].push_back(meshID);
             nonInstancedMeshCount++;
@@ -1793,7 +1796,7 @@ namespace Falcor
         // Validate that mesh counts add up.
         size_t nonInstancedDynamicMeshCount = 0;
         for (const auto& it : nodeToMeshList) nonInstancedDynamicMeshCount += it.second.size();
-        FALCOR_ASSERT(staticMeshes.size() + staticDisplacedMeshes.size() + dynamicDisplacedMeshes.size() + nonInstancedDynamicMeshCount == nonInstancedMeshCount);
+        FALCOR_ASSERT(staticMeshes.size() + staticDoubleSided.size() + staticDisplacedMeshes.size() + dynamicDisplacedMeshes.size() + nonInstancedDynamicMeshCount == nonInstancedMeshCount);
 
         // Classify instanced meshes.
         // The instanced meshes are grouped based on their lists of instances.
@@ -1835,6 +1838,7 @@ namespace Falcor
             (instancedMeshes.size() + displacedInstancedMeshes.size()) != instancedMeshCount) throw RuntimeError("Error in instanced mesh grouping logic");
 
         logInfo("Found {} static non-instanced meshes, arranged in 1 mesh group.", staticMeshes.size());
+        logInfo("Found {} static double sided non-instanced meshes, arranged in 1 mesh group.", staticDoubleSided.size());
         logInfo("Found {} displaced non-instanced meshes, arranged in 1 mesh group.", staticDisplacedMeshes.size());
         logInfo("Found {} dynamic non-instanced meshes, arranged in {} mesh groups.", nonInstancedDynamicMeshCount, nodeToMeshList.size());
         logInfo("Found {} instanced meshes, arranged in {} mesh groups.", instancedMeshCount, instancesToMeshList.size());
@@ -1857,6 +1861,11 @@ namespace Falcor
         if (!staticMeshes.empty())
         {
             addMeshes(staticMeshes, true, false, is_set(mFlags, Flags::RTDontMergeStatic));
+        }
+
+        if(!staticDoubleSided.empty())
+        {
+            addMeshes(staticDoubleSided, true, false, is_set(mFlags, Flags::RTDontMergeStatic));
         }
 
         // Non-instanced dynamic meshes were sorted above so just copy each list.

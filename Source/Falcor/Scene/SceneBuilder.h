@@ -695,6 +695,7 @@ namespace Falcor
             std::vector<uint32_t> indexData;    ///< Vertex indices in either 32-bit or 16-bit format packed tightly, or empty if non-indexed.
             std::vector<StaticVertexData> staticData;
             std::vector<SkinningVertexData> skinningData;
+            bool isDoubleSided = false;             ///< True if mesh material is double-sided (disable culling).
 
             uint32_t getTriangleCount() const
             {
