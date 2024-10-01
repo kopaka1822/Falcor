@@ -487,7 +487,7 @@ void TransparencyPathTracer::generateTmpStochSM(RenderContext* pRenderContext, c
         RtProgram::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kShaderTemporalStochSMRay);
-        desc.setMaxPayloadSize(kMaxPayloadSizeAVSMPerK * mNumberAVSMSamples + 24); //+18 cause of the sampleGen (16) and confidence weight
+        desc.setMaxPayloadSize(kMaxPayloadSizeAVSMPerK * mNumberAVSMSamples + 32); //+18 cause of the sampleGen (16) and confidence weight
                                                                                    //(4) + align(4)
         desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
         desc.setMaxTraceRecursionDepth(1u);

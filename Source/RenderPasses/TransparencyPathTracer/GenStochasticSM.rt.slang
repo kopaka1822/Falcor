@@ -37,7 +37,7 @@ struct RayData
 
     __init() {
         minDepth = 1.0;
-        accumulatedVisibility = 0.0;
+        accumulatedVisibility = 1.0;
     }
 };
 
@@ -69,7 +69,7 @@ static const float2 kMSAAPattern[8] = { float2(0.0625, -0.1875),  float2(-0.0625
                                       };
 #elif AVSM_K == 16
 static const float2 kMSAAPattern[16] = { float2(0.0625, 0.0625),  float2(-0.0625, -0.1875), float2(-0.1875, 0.125),  float2(0.25, -0.0625),
-                                         float2(-0.3125, -0.125), float2(0.125, 0.3125), float2(0.3125, 0.1875),  float2(0.1875, -0.3125),sss
+                                         float2(-0.3125, -0.125), float2(0.125, 0.3125), float2(0.3125, 0.1875),  float2(0.1875, -0.3125),
                                          float2(-0.125, 0.375), float2(0.0, -0.4375),    float2(-0.25, 0.375), float2(-0.375, 0.25),
                                          float2(-0.5, 0.0), float2(0.4375, -0.25),   float2(0.375, 0.4375), float2(-0.4375, -0.5)
                                        };
@@ -137,7 +137,11 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
         // Add bias to depth
         float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
         depth = saturate(depth + kDepthBias + normalBias);
-        rayData.minDepth = min(depth, rayData.minDepth);
+        if (depth < rayData.minDepth) {
+            rayData.minDepth = depth;
+            return;
+        }
+        //rayData.minDepth = min(depth, rayData.minDepth);
     }
     IgnoreHit();
 }
@@ -186,7 +190,7 @@ void rayGen()
         accumVisibility[i] = rayData.accumulatedVisibility;
 
         rayData.minDepth = 1.0;
-        rayData.accumulatedVisibility = 0.0;
+        rayData.accumulatedVisibility = 1.0;
     }
 
     //calc transmittance and write back
@@ -212,8 +216,7 @@ void rayGen()
         gStochDepths[i][pixel] = depths;
         float4 transmittance;
         for (uint j = 0; j < 4; j++) {
-            transmittance[j] = (1.0 - accumVisibility[payIdx + j]) * (float(1 + payIdx + j) / AVSM_K);
-            transmittance[j] = 1.0 - transmittance[j];
+            transmittance[j] = 1.0 - (float(1 + payIdx + j) / AVSM_K);
         }
         gStochTransmittance[i][pixel] = transmittance;
     }
