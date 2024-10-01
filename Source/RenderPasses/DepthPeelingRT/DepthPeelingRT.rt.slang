@@ -14,24 +14,6 @@ cbuffer PerFrameCB
     float maxDepth; // based on radius cutoff
 };
 
-// Hash function from "Improved Alpha Testing Using Hashed Sampling"
-float hash(float2 v)
-{
-    return frac(1.0e4 * sin(17.0 * v.x + 0.1 * v.y) * (0.1 + abs(sin(13.0 * v.y + v.x))));
-}
-
-// 3D hash function from "Improved Alpha Testing Using Hashed Sampling"
-float hash3D(float3 v)
-{
-    return hash(float2(hash(v.xy), v.z));
-}
-
-// 4D hash function based on the 3D hash function
-float hash4D(float4 v)
-{
-    return hash(float2(hash3D(v.xyz), v.w));
-}
-
 float RayToViewDepth(float3 rayDir, float rayT)
 {
     float cosTheta = dot(normalize(gScene.camera.data.cameraW), rayDir);
@@ -107,7 +89,7 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
         }
     }
 #endif
-    //rayData.depth = RayTCurrent(); // will be done in anyhit
+    //rayData.depth = RayTCurrent(); // will be done in closesthit
 }
 
 [shader("miss")]
@@ -119,6 +101,7 @@ void miss(inout RayData rayData)
 void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
     rayData.depth = RayTCurrent();
+    //if()
 }
 
 [shader("raygeneration")]
@@ -130,7 +113,7 @@ void rayGen()
     RayData rayData;
     rayData.count = 0;
     rayData.depth = 0;
-    
+
     TraceRay(
         gScene.rtAccel,
         CULL_MODE_RAY_FLAG | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES,
@@ -139,6 +122,6 @@ void rayGen()
     );
 
     if (rayData.count > MAX_COUNT)
-        rayData.depth = 0.0; // invalid depth (ray was abortet)
+        rayData.depth = 0.0; // invalid depth (ray was aborted)
     depthOutTex[svPos] = RayToViewDepth(ray.Direction, rayData.depth);
 }

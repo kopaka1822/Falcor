@@ -106,7 +106,7 @@ void DepthPeelingRT::execute(RenderContext* pRenderContext, const RenderData& re
         RtProgram::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kRayShader);
-        desc.setMaxPayloadSize(4 * sizeof(float)); // TODO adjust payload size
+        desc.setMaxPayloadSize(2 * sizeof(float));
         desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
         desc.setMaxTraceRecursionDepth(1);
         desc.addTypeConformances(mpScene->getTypeConformances());
