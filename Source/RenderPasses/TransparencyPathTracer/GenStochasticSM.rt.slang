@@ -27,17 +27,19 @@ import Utils.Sampling.SampleGenerator;
 #define AVSM_REJECTION_MODE AVSM_REJECTION_TRIANGLE_AREA
 #endif
 
+#define USE_ACCUMULATED_VIS 0  //Less noisy, but slower and adds bias
+
 /** Payload for shadow ray.
 */
 struct RayData
 {
     float minDepth;
-    float accumulatedVisibility;
+    float rayVisibility;
     SampleGenerator sg;
 
     __init() {
         minDepth = 1.0;
-        accumulatedVisibility = 1.0;
+        rayVisibility = 1.0;
     }
 };
 
@@ -126,7 +128,7 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
     }
 
     const float transmittance = (1.0 - sd.opacity);
-    rayData.accumulatedVisibility *= transmittance;
+    rayData.rayVisibility *= transmittance;
     float rand = sampleNext1D(rayData.sg);
     //Hit is accepted
     if (rand >= transmittance) {
@@ -139,9 +141,10 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
         depth = saturate(depth + kDepthBias + normalBias);
         if (depth < rayData.minDepth) {
             rayData.minDepth = depth;
-            return;
+            #if !USE_ACCUMULATED_VIS
+                return;
+            #endif
         }
-        //rayData.minDepth = min(depth, rayData.minDepth);
     }
     IgnoreHit();
 }
@@ -156,7 +159,9 @@ void rayGen()
     uint2 frameDim = DispatchRaysDimensions().xy;
 
     float depthSamples[AVSM_K];
-    float accumVisibility[AVSM_K];
+    //float accumVisibility[AVSM_K];
+    float averageVisibilityOnRay = 0.0;
+    uint validDepthSamples = 0;
 
     RayData rayData = RayData();
     rayData.sg = SampleGenerator(pixel, gFrameCount * 2 + 8);
@@ -187,27 +192,27 @@ void rayGen()
         TraceRay(gScene.rtAccel, flags, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
         depthSamples[i] = rayData.minDepth;
-        accumVisibility[i] = rayData.accumulatedVisibility;
+        // accumVisibility[i] = rayData.rayVisibility;
+        if (rayData.minDepth < 1.0) {
+            validDepthSamples++;
+            averageVisibilityOnRay += rayData.rayVisibility;
+        }
 
         rayData.minDepth = 1.0;
-        rayData.accumulatedVisibility = 1.0;
+        rayData.rayVisibility = 1.0;
     }
-
-    //calc transmittance and write back
+    averageVisibilityOnRay /= max(validDepthSamples,1);
 
     // Sort by depth (bubblesort for now)
     for (int n = AVSM_K; n > 1; n--) {
         for (int i = 0; i < n - 1; i++) {
             if (depthSamples[i] > depthSamples[i + 1]) {
-                float2 tmp = float2(depthSamples[i], accumVisibility[i]);
+                float tmp = depthSamples[i];
                 depthSamples[i] = depthSamples[i + 1];
-                accumVisibility[i] = accumVisibility[i + 1];
-                depthSamples[i + 1] = tmp.x;
-                accumVisibility[i + 1] = tmp.y;
+                depthSamples[i + 1] = tmp;
             }
         }
     }
-
 
     // Write to textures
     for (uint i = 0; i < AVSM_NUM_TEX; i++) {
@@ -216,7 +221,11 @@ void rayGen()
         gStochDepths[i][pixel] = depths;
         float4 transmittance;
         for (uint j = 0; j < 4; j++) {
+        #if USE_ACCUMULATED_VIS
+            transmittance[j] = 1.0 - ((1.0 - averageVisibilityOnRay) / validDepthSamples) * (payIdx + j + 1);
+        #else
             transmittance[j] = 1.0 - (float(1 + payIdx + j) / AVSM_K);
+        #endif
         }
         gStochTransmittance[i][pixel] = transmittance;
     }

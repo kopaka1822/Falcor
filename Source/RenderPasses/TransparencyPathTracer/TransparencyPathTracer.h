@@ -124,7 +124,7 @@ private:
     uint mSMSize = 512;
     float2 mNearFar = float2(1.f, 40.f);
     float mDepthBias = 1e-6f;
-    float mNormalDepthBias = 1e-2f;
+    float mNormalDepthBias = 1e-3f;
     uint mNumberAVSMSamples = 8;    //< k for AVSM
 
     //Runtime Data DeepSM
