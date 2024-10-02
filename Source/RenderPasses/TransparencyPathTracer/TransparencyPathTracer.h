@@ -119,8 +119,9 @@ private:
     bool mAVSMTexResChanged = false;
     bool mAVSMUsePCF = false;
     bool mAVSMUseInterpolation = false;
+    bool mAVSMUseRandomVariant = false; //Enables random rejection weithed with the mode
     bool mAVSMUnderestimateArea = false;
-    uint mAVSMRejectionMode = 0;    //Triangle Area | Rectange Area | Heights
+    uint mAVSMRejectionMode = 0;    //Triangle Area | Rectange Area | Heights | Height Heuristic
     uint mSMSize = 512;
     float2 mNearFar = float2(1.f, 40.f);
     float mDepthBias = 1e-6f;

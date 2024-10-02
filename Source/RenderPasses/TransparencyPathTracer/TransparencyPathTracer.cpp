@@ -292,6 +292,7 @@ void TransparencyPathTracer::generateAVSM(RenderContext* pRenderContext, const R
     mGenAVSMPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
     mGenAVSMPip.pProgram->addDefine("AVSM_UNDERESTIMATE", mAVSMUnderestimateArea ? "1" : "0");
     mGenAVSMPip.pProgram->addDefine("AVSM_REJECTION_MODE", std::to_string(mAVSMRejectionMode));
+    mGenAVSMPip.pProgram->addDefine("USE_RANDOM_VARIANT", mAVSMUseRandomVariant ? "1" : "0");
 
     //Create Program Vars
     if (!mGenAVSMPip.pVars)
@@ -1117,14 +1118,19 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
         group.tooltip("Bias that is added depending on the normal");
         group.checkbox("Use Interpolation", mAVSMUseInterpolation);
         group.tooltip("Use interpolation for the evaluation.");
-        group.dropdown("AVSM Rejection Mode", kAVSMRejectionMode, mAVSMRejectionMode);
+        bool modeChanged = group.dropdown("AVSM Rejection Mode", kAVSMRejectionMode, mAVSMRejectionMode);
         group.tooltip(
             "Triangle Area: First and last point is fix. Uses 3 neighboring points for the triangle area \n"
             "Rectangle Area: First point is fix. Uses two neighboring points for the rectangle area \n"
-            "Height: Uses the height difference between two points"
+            "Height: Uses the height difference between two points \n"
+            "Height Error Heuristic: Height mode but additionally weights the height with the expected error"
         );
+        if (modeChanged)
+            mAVSMUnderestimateArea = mAVSMRejectionMode > 0;
         group.checkbox("Underestimate Rejection", mAVSMUnderestimateArea);
         group.tooltip("Enables underestimation where the lowest transparacy is taken when a sample is removed");
+        group.checkbox("Enable random rejection", mAVSMUseRandomVariant);
+        group.tooltip("Enables random rejection based on the rejection mode weights");
 
         group.checkbox("Use PCF", mAVSMUsePCF); //TODO add other kernels
         group.tooltip("Enable 2x2 PCF using gather");

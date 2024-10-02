@@ -27,13 +27,19 @@ import Utils.Sampling.SampleGenerator;
 #define AVSM_REJECTION_MODE AVSM_REJECTION_TRIANGLE_AREA
 #endif
 
+#ifndef USE_RANDOM_VARIANT
+#define USE_RANDOM_VARIANT 0
+#endif
+
 /** Payload for shadow ray.
 */
 struct RayData
 {
     float depths[AVSM_K];
     float transmittances[AVSM_K];
-    SampleGenerator sg; 
+    #if USE_RANDOM_VARIANT
+        SampleGenerator sg; 
+    #endif
 
     __init() {
         for (uint i = 0; i < AVSM_K; i++) {
@@ -177,10 +183,10 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
 // Check which element has the smalles tri area
     #if AVSM_REJECTION_MODE == AVSM_REJECTION_TRIANGLE_AREA
         if (tmpDepths[AVSM_K] >= 0) {
-            /*
+            #if USE_RANDOM_VARIANT
             removeIndex = AVSM_K - 1;
-            float minArea = 1.0; // 1 should be max possible area
             float sumArea = 0.0;
+            [unroll]
             for (uint i = 1; i < AVSM_K; i++) {
                 sumArea += 1.0 / areaTriangle(float2(tmpDepths[i - 1], tmpTransmittance[i - 1]), float2(tmpDepths[i], tmpTransmittance[i]), float2(tmpDepths[i + 1], tmpTransmittance[i + 1]));
             }
@@ -193,8 +199,7 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
                     break;
                 }
             }
-            */
-            
+            #else //USE_RANDOM_VARIANT
             float minArea = 1.0; // 1 should be max possible area
             [unroll]
             for (uint i = 1; i < AVSM_K; i++) {
@@ -204,10 +209,32 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
                     removeIndex = i;
                 }
             }
-            
+            #endif //USE_RANDOM_VARIANT
         }
     #elif AVSM_REJECTION_MODE == AVSM_REJECTION_RECTANGLE_AREA
         if (tmpDepths[AVSM_K] >= 0) {
+            #if USE_RANDOM_VARIANT
+            float sumArea = 0.0;
+            [unroll]
+            for (uint i = 1; i < AVSM_K + 1; i++) {
+                float2 A = float2(tmpDepths[i - 1], tmpTransmittance[i - 1]);
+                float2 B = float2(tmpDepths[i], tmpTransmittance[i]);
+                float2 lenWidth = float2(B.x - A.x, A.y - B.y);
+                sumArea += 1.0 / (lenWidth.x * lenWidth.y);
+            }
+            float removeWeight = sumArea * sampleNext1D(rayData.sg);
+            sumArea = 0.0;
+            for (uint i = 1; i < AVSM_K; i++) {
+                float2 A = float2(tmpDepths[i - 1], tmpTransmittance[i - 1]);
+                float2 B = float2(tmpDepths[i], tmpTransmittance[i]);
+                float2 lenWidth = float2(B.x - A.x, A.y - B.y);
+                sumArea += 1.0 / (lenWidth.x * lenWidth.y);
+                if (sumArea >= removeWeight) {
+                    removeIndex = i;
+                    break;
+                }
+            }
+            #else //USE_RANDOM_VARIANT
             float minArea = 1.0;
             [unroll]
             for (uint i = 1; i < AVSM_K + 1; i++) {
@@ -220,9 +247,26 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
                     removeIndex = i;
                 }
             }
+            #endif //USE_RANDOM_VARIANT
         }
     #elif  AVSM_REJECTION_MODE == AVSM_REJECTION_HEIGHT//Heights
         if (tmpDepths[AVSM_K] >= 0) {
+            #if USE_RANDOM_VARIANT
+            float sumWeights = 0.0;
+            [unroll]
+            for (uint i = 1; i < AVSM_K + 1; i++) {
+                sumWeights += 1.0/ (tmpTransmittance[i - 1] - tmpTransmittance[i]);
+            }
+            float removeWeight = sumWeights * sampleNext1D(rayData.sg);
+            sumWeights = 0.0;
+            for (uint i = 1; i < AVSM_K; i++) {
+                sumWeights += 1.0 / (tmpTransmittance[i - 1] - tmpTransmittance[i]);
+                if (sumWeights >= removeWeight) {
+                    removeIndex = i;
+                    break;
+                }
+            }
+            #else //USE_RANDOM_VARIANT
             float minTransmittanceDiff = 1.0;
             [unroll]
             for (uint i = 1; i < AVSM_K + 1; i++) {
@@ -232,9 +276,32 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
                     removeIndex = i;
                 }
             }
+            #endif //USE_RANDOM_VARIANT
         }
     #else // Height with error heuristic
         if (tmpDepths[AVSM_K] >= 0) {
+            #if USE_RANDOM_VARIANT
+            float sumWeights = 0.0;
+            [unroll]
+            for (uint i = 1; i < AVSM_K + 1; i++) {
+                float diff = tmpTransmittance[i - 1] - tmpTransmittance[i];
+                diff *= diff;
+                diff /= max(tmpTransmittance[i - 1], 0.01);
+                sumWeights += 1.0/ diff;
+            }
+            float removeWeight = sumWeights * sampleNext1D(rayData.sg);
+            sumWeights = 0.0;
+            for (uint i = 1; i < AVSM_K; i++) {
+                float diff = tmpTransmittance[i - 1] - tmpTransmittance[i];
+                diff *= diff;
+                diff /= max(tmpTransmittance[i - 1], 0.01);
+                sumWeights += 1.0 / diff;
+                if (sumWeights >= removeWeight) {
+                    removeIndex = i;
+                    break;
+                }
+            }
+            #else //USE_RANDOM_VARIANT
             float minTransmittanceDiff = 1.0;
             [unroll]
             for (uint i = 1; i < AVSM_K + 1; i++) {
@@ -246,6 +313,7 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
                     removeIndex = i;
                 }
             }
+            #endif
         }
     #endif
 
@@ -309,7 +377,9 @@ void rayGen()
     ray.Direction = normalize(toPoint); // World direction
 
     RayData rayData = RayData();
+    #if USE_RANDOM_VARIANT
     rayData.sg = SampleGenerator(pixel, gFrameCount * 2 + 8);
+    #endif
 
     uint flags = RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
     //uint flags = RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
