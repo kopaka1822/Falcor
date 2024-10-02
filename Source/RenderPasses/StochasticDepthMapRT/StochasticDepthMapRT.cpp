@@ -275,7 +275,8 @@ void StochasticDepthMapRT::execute(RenderContext* pRenderContext, const RenderDa
         defines.add("CULL_MODE_RAY_FLAG", RasterizerState::CullModeToRayFlag(mCullMode));
         defines.add("GUARD_BAND", std::to_string(mGuardBand));
         defines.add("MAX_COUNT", std::to_string(mMaxCount));
-
+        float maxDepth = renderData.getDictionary().getValue("MAX_DEPTH", std::numeric_limits<float>::max());
+        defines.add("MAX_DEPTH", std::to_string(maxDepth));
         // raster pass
         /* {
             Program::Desc desc;

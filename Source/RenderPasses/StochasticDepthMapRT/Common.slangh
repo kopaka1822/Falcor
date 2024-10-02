@@ -87,6 +87,9 @@ RayDesc initRayDesc(int2 pixel, int2 dim)
         if (iRayMax != 0u) // test if valid values
             ray.TMax = min(asfloat(iRayMax), ray.TMax);
     }
+
+    // max depth where ao is visible based on radius cutoff (Only required to improve rendering times without ray intervals)
+    ray.TMax = min(ray.TMax, ViewDepthToRay(ray.Direction, MAX_DEPTH));
     
     return ray;
 }

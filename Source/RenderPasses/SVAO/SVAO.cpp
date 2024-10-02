@@ -348,12 +348,13 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mStochLastSize = stochSize;
     }
 
+    // calc max depth (maximum distance where secondary AO will be applied based on the radius cutoff)
+    auto cam = pCamera->getData();
+    float maxDepth = (mData.radius * cam.focalLength * pAoDst->getWidth()) / (cam.frameWidth * mData.ssRadiusCutoff);
+
     ref<Texture> pRtDualDepth;
     if(mPrimaryDepthMode == DepthMode::RaytracedDualDepth)
     {
-        // calc max depth
-        auto cam = pCamera->getData();
-        float maxDepth = (mData.radius * cam.focalLength * pAoDst->getWidth()) / (cam.frameWidth * mData.ssRadiusCutoff);
         mpDualDepthGraph->getPassesDictionary()["MAX_DEPTH"] = maxDepth;
 
         // acquire raytraced depth
@@ -415,6 +416,7 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
         // force clear if we want to cache (otherwise old results will be inside since the texture is never cleared)
         mpStochasticDepthGraph->getPassesDictionary()["SD_CLEAR"] = mCacheSDMap;
+        mpStochasticDepthGraph->getPassesDictionary()["MAX_DEPTH"] = maxDepth;
 
         mpStochasticDepthGraph->execute(pRenderContext);
         pStochasticDepthMap = mpStochasticDepthGraph->getOutput("StochasticDepthMap.stochasticDepth")->asTexture();
