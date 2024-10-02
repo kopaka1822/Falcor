@@ -66,8 +66,9 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
 {
     rayData.count += 1;
     if (rayData.count > MAX_COUNT)
-        AcceptHitAndEndSearch(); // this saves a lot of time in alpha test dense regions (50% of time for emerald square)
-#if USE_ALPHA_TEST
+        return; // return without accepting hit
+        //AcceptHitAndEndSearch(); // this saves a lot of time in alpha test dense regions (50% of time for emerald square)
+    if (USE_ALPHA_TEST)
     { // ALPHA test
 
         const uint materialID = gScene.getMaterialID(getGeometryInstanceID());
@@ -88,7 +89,6 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
             }
         }
     }
-#endif
     //rayData.depth = RayTCurrent(); // will be done in closesthit
 }
 
@@ -121,7 +121,7 @@ void rayGen()
         ray, rayData
     );
 
-    if (rayData.count > MAX_COUNT)
-        rayData.depth = 0.0; // invalid depth (ray was aborted)
+    //if (rayData.count > MAX_COUNT)
+    //    rayData.depth = 0.0; // invalid depth (ray was aborted)
     depthOutTex[svPos] = RayToViewDepth(ray.Direction, rayData.depth);
 }

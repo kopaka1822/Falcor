@@ -39,6 +39,7 @@ namespace
     const std::string kDepth2 = "depth2";
     const std::string kNormals = "normals";
     const std::string kColor = "color";
+    const std::string kDebugDualDepth = "debugDualDepth";
 
     // ray bounds for the stochastic depth map RT
     const std::string kInternalRayMin = "internalRayMin";
@@ -137,6 +138,8 @@ RenderPassReflection SVAO::reflect(const CompileData& compileData)
     reflector.addOutput(kInternalRayMin, "internal ray min").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(internalMapsRes.x, internalMapsRes.y);
     reflector.addOutput(kInternalRayMax, "internal ray max").format(ResourceFormat::R32Int).bindFlags(ResourceBindFlags::AllColorViews).texture2D(internalMapsRes.x, internalMapsRes.y);
 
+    //reflector.addOutput(kDebugDualDepth, "debug dual depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(internalMapsRes.x, internalMapsRes.y);
+
     return reflector;
 }
 
@@ -219,6 +222,8 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     auto pInternalRayMin = renderData[kInternalRayMin]->asTexture();
     auto pInternalRayMax = renderData[kInternalRayMax]->asTexture();
+
+    auto pDebugDualDepth = renderData[kDebugDualDepth]->asTexture();
 
     if (!mEnabled)
     {
@@ -361,6 +366,9 @@ void SVAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpDualDepthGraph->setInput("DepthPeelingRT.linearZ", pDepth);
         mpDualDepthGraph->execute(pRenderContext);
         pRtDualDepth = mpDualDepthGraph->getOutput("DepthPeelingRT.depthOut")->asTexture();
+
+        // if debugging:
+        //pRenderContext->blit(pRtDualDepth->getSRV(), pDebugDualDepth->getRTV());
     }
 
     {
