@@ -1802,6 +1802,7 @@ namespace Falcor
         // The instanced meshes are grouped based on their lists of instances.
         // Meshes with an identical set of instances can be placed together in a BLAS.
         std::map<std::set<NodeID>, meshList> instancesToMeshList;
+        std::map<std::set<NodeID>, meshList> doubleSidedInstancesToMeshList;
         std::map<std::set<NodeID>, meshList> displacedInstancesToMeshList;
         size_t instancedMeshCount = 0;
 
@@ -1813,8 +1814,10 @@ namespace Falcor
             // Mark displaced meshes.
             const auto& pMaterial = mSceneData.pMaterials->getMaterial(mesh.materialId);
             if (pMaterial->isDisplaced()) mesh.isDisplaced = true;
+            if (pMaterial->isDoubleSided() || !pMaterial->isOpaque()) mesh.isDoubleSided = true;
 
             if (mesh.isDisplaced) displacedInstancesToMeshList[mesh.instances].push_back(meshID);
+            else if(mesh.isDoubleSided) doubleSidedInstancesToMeshList[mesh.instances].push_back(meshID);
             else instancesToMeshList[mesh.instances].push_back(meshID);
             instancedMeshCount++;
         }
@@ -1827,6 +1830,13 @@ namespace Falcor
             instancedMeshes.insert(it.second.begin(), it.second.end());
             instancedCount += it.second.size();
         }
+        std::set<MeshID> doubleSidedInstancedMeshes;
+        size_t doubleSidedInstancedCount = 0;
+        for(const auto& it : doubleSidedInstancesToMeshList)
+        {
+            doubleSidedInstancedMeshes.insert(it.second.begin(), it.second.end());
+            doubleSidedInstancedCount += it.second.size();
+        }
         std::set<MeshID> displacedInstancedMeshes;
         size_t displacedInstancedCount = 0;
         for (const auto& it : displacedInstancesToMeshList)
@@ -1834,8 +1844,8 @@ namespace Falcor
             displacedInstancedMeshes.insert(it.second.begin(), it.second.end());
             displacedInstancedCount += it.second.size();
         }
-        if ((instancedCount + displacedInstancedCount) != instancedMeshCount ||
-            (instancedMeshes.size() + displacedInstancedMeshes.size()) != instancedMeshCount) throw RuntimeError("Error in instanced mesh grouping logic");
+        if ((instancedCount + displacedInstancedCount + doubleSidedInstancedCount) != instancedMeshCount ||
+            (instancedMeshes.size() + displacedInstancedMeshes.size() + doubleSidedInstancedMeshes.size()) != instancedMeshCount) throw RuntimeError("Error in instanced mesh grouping logic");
 
         logInfo("Found {} static non-instanced meshes, arranged in 1 mesh group.", staticMeshes.size());
         logInfo("Found {} static double sided non-instanced meshes, arranged in 1 mesh group.", staticDoubleSided.size());
@@ -1877,7 +1887,6 @@ namespace Falcor
         // Instanced static and dynamic meshes are grouped based on instance lists.
         for (const auto& it : instancesToMeshList)
         {
-            // TODO make double sided pairs?
             addMeshes(it.second, false, false, false, is_set(mFlags, Flags::RTDontMergeInstanced));
         }
 
@@ -1891,6 +1900,11 @@ namespace Falcor
         if (!dynamicDisplacedMeshes.empty())
         {
             addMeshes(dynamicDisplacedMeshes, false, true, false, is_set(mFlags, Flags::RTDontMergeDynamic));
+        }
+
+        for(const auto& it : doubleSidedInstancesToMeshList)
+        {
+            addMeshes(it.second, false, false, true, is_set(mFlags, Flags::RTDontMergeInstanced));
         }
 
         // Instanced displaced meshes are grouped based on instance lists.
