@@ -3419,6 +3419,7 @@ namespace Falcor
         {
             const auto& meshList = mMeshGroups[i].meshList;
             const bool isStatic = mMeshGroups[i].isStatic;
+            const bool doubleSided = mMeshGroups[i].isDoubleSided;
 
             FALCOR_ASSERT(mBlasData[i].blasGroupIndex < mBlasGroups.size());
             const auto& pBlas = mBlasGroups[mBlasData[i].blasGroupIndex].pBlas;
@@ -3434,12 +3435,12 @@ namespace Falcor
             // We expect all meshes in a group to have identical triangle winding. Verify that assumption here.
             FALCOR_ASSERT(!meshList.empty());
             const bool frontFaceCW = mMeshDesc[meshList[0].get()].isFrontFaceCW();
-            bool doubleSided = getMaterial(MaterialID(mMeshDesc[meshList[0].get()].materialID))->isDoubleSided();
+            //bool doubleSided = getMaterial(MaterialID(mMeshDesc[meshList[0].get()].materialID))->isDoubleSided();
 
             for (size_t j = 1; j < meshList.size(); j++)
             {
-                const auto& mesh = mMeshDesc[meshList[j].get()];
-                doubleSided |= getMaterial(MaterialID(mMeshDesc[meshList[j].get()].materialID))->isDoubleSided();
+                //const auto& mesh = mMeshDesc[meshList[j].get()];
+                //doubleSided |= getMaterial(MaterialID(mMeshDesc[meshList[j].get()].materialID))->isDoubleSided();
                 FALCOR_ASSERT(mMeshDesc[meshList[j].get()].isFrontFaceCW() == frontFaceCW);
             }
 

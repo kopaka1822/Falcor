@@ -284,6 +284,7 @@ namespace Falcor
             std::vector<MeshID> meshList;       ///< List of meshId's that are part of the group.
             bool isStatic = false;              ///< True if group represents static non-instanced geometry.
             bool isDisplaced = false;           ///< True if group uses displacement mapping.
+            bool isDoubleSided = false;         ///< True if group is double-sided (disable culling).
         };
 
         /** Scene graph node.

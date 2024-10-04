@@ -1783,7 +1783,7 @@ namespace Falcor
             // Mark displaced meshes.
             const auto& pMaterial = mSceneData.pMaterials->getMaterial(mesh.materialId);
             if (pMaterial->isDisplaced()) mesh.isDisplaced = true;
-            if (pMaterial->isDoubleSided()) mesh.isDoubleSided = true;
+            if (pMaterial->isDoubleSided() || !pMaterial->isOpaque()) mesh.isDoubleSided = true;
 
             if (mesh.isStatic && mesh.isDisplaced) staticDisplacedMeshes.push_back(meshID);
             else if (mesh.isStatic && mesh.isDoubleSided) staticDoubleSided.push_back(meshID);
@@ -1845,57 +1845,58 @@ namespace Falcor
 
         // Build final result. Format is a list of Mesh ID's per mesh group.
 
-        auto addMeshes = [this](const meshList& meshes, bool isStatic, bool isDisplaced, bool splitGroup)
+        auto addMeshes = [this](const meshList& meshes, bool isStatic, bool isDisplaced, bool isDoubleSided, bool splitGroup)
         {
             if (!splitGroup)
             {
-                mMeshGroups.push_back({ meshes, isStatic, isDisplaced });
+                mMeshGroups.push_back({ meshes, isStatic, isDisplaced, isDoubleSided });
             }
             else
             {
-                for (const auto& meshID : meshes) mMeshGroups.push_back(MeshGroup{ meshList({ meshID }), isStatic, isDisplaced });
+                for (const auto& meshID : meshes) mMeshGroups.push_back(MeshGroup{ meshList({ meshID }), isStatic, isDisplaced, isDoubleSided });
             }
         };
 
         // All static non-instanced meshes go in a single group or individual groups depending on config.
         if (!staticMeshes.empty())
         {
-            addMeshes(staticMeshes, true, false, is_set(mFlags, Flags::RTDontMergeStatic));
+            addMeshes(staticMeshes, true, false, false, is_set(mFlags, Flags::RTDontMergeStatic));
         }
 
         if(!staticDoubleSided.empty())
         {
-            addMeshes(staticDoubleSided, true, false, is_set(mFlags, Flags::RTDontMergeStatic));
+            addMeshes(staticDoubleSided, true, false, true, is_set(mFlags, Flags::RTDontMergeStatic));
         }
 
         // Non-instanced dynamic meshes were sorted above so just copy each list.
         for (const auto& it : nodeToMeshList)
         {
-            addMeshes(it.second, false, false, is_set(mFlags, Flags::RTDontMergeDynamic));
+            addMeshes(it.second, false, false, false, is_set(mFlags, Flags::RTDontMergeDynamic));
         }
 
         // Instanced static and dynamic meshes are grouped based on instance lists.
         for (const auto& it : instancesToMeshList)
         {
-            addMeshes(it.second, false, false, is_set(mFlags, Flags::RTDontMergeInstanced));
+            // TODO make double sided pairs?
+            addMeshes(it.second, false, false, false, is_set(mFlags, Flags::RTDontMergeInstanced));
         }
 
         // All static displaced meshes go in a single group or individual groups depending on config.
         if (!staticDisplacedMeshes.empty())
         {
-            addMeshes(staticDisplacedMeshes, true, true, is_set(mFlags, Flags::RTDontMergeStatic));
+            addMeshes(staticDisplacedMeshes, true, true, false, is_set(mFlags, Flags::RTDontMergeStatic));
         }
 
         // All dynamic displaced meshes go in a single group or individual groups depending on config.
         if (!dynamicDisplacedMeshes.empty())
         {
-            addMeshes(dynamicDisplacedMeshes, false, true, is_set(mFlags, Flags::RTDontMergeDynamic));
+            addMeshes(dynamicDisplacedMeshes, false, true, false, is_set(mFlags, Flags::RTDontMergeDynamic));
         }
 
         // Instanced displaced meshes are grouped based on instance lists.
         for (const auto& it : displacedInstancesToMeshList)
         {
-            addMeshes(it.second, false, true, is_set(mFlags, Flags::RTDontMergeInstanced));
+            addMeshes(it.second, false, true, false, is_set(mFlags, Flags::RTDontMergeInstanced));
         }
     }
 
