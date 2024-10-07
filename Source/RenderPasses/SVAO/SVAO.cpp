@@ -792,7 +792,9 @@ uint2 SVAO::getStochMapSize(uint2 fullRes, bool includeGuard) const
 
 int SVAO::getExtraGuardBand() const
 {
-    if (mSecondaryDepthMode != DepthMode::StochasticDepth) return 0u;
-    if (mStochasticDepthImpl != StochasticDepthImpl::Ray) return 0u; // only for raytraced SD
+    bool use = false;
+    use = use || mSecondaryDepthMode == DepthMode::StochasticDepth && mStochasticDepthImpl == StochasticDepthImpl::Ray;
+    use = use || mPrimaryDepthMode == DepthMode::RaytracedDualDepth;
+    if (!use) return 0;
     return mStochMapGuardBand / mStochMapDivisor; // make this independent from divisor
 }
