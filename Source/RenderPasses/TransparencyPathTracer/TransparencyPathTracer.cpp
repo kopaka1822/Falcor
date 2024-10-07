@@ -530,6 +530,7 @@ void TransparencyPathTracer::generateTmpStochSM(RenderContext* pRenderContext, c
                     ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
                 );
                 mTmpStochDepths[i]->setName("TmpStochSMDepth_" + std::to_string(i));
+                pRenderContext->clearTexture(mTmpStochDepths[i].get(), float4(1));
             }
         }
 
@@ -543,6 +544,7 @@ void TransparencyPathTracer::generateTmpStochSM(RenderContext* pRenderContext, c
                     ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
                 );
                 mTmpStochTransmittance[i]->setName("TmpStochSMTransmittance_" + std::to_string(i));
+                pRenderContext->clearTexture(mTmpStochTransmittance[i].get(), float4(0));
             }
         }
     }

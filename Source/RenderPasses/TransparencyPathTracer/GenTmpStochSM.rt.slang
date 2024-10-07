@@ -35,20 +35,13 @@ struct RayData
 {
     float depths[AVSM_K];
     float transmittance[AVSM_K];
-    uint count;
-    float accumulatedVisibility;
-    float weight;
-    uint _pad;
+    float newDepthSample;
+    float newSampleOpacity;
     SampleGenerator sg;
 
     __init() {
-        for (uint i = 0; i < AVSM_K; i++) {
-            depths[i] = 1.0;
-            transmittance[i] = 1.0;
-        }
-        count = 0;
-        weight = 0.0;
-        accumulatedVisibility = 1.0;
+        newDepthSample = 1.0;
+        newSampleOpacity = 0.0;
     }
 };
 
@@ -138,39 +131,37 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
     }
 
     const float transmittance = (1.0 - sd.opacity);
-    rayData.accumulatedVisibility *= transmittance;
+    // Get depth
+    float4 posH = mul(gViewProj, float4(sd.posW, 1.f));
+    float depth = (posH.w - gNear) / (gFar - gNear); // Normalized depth
 
-    uint insertIndex = rayData.count;
+    // Add bias to depth
+    float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
+    depth = saturate(depth + kDepthBias + normalBias);
 
-    rayData.weight += sd.opacity;
-
-    //Get random index
-    if (insertIndex >= AVSM_K) {
-        /*
-        bool selectSample = (sampleNext1D(rayData.sg) * rayData.weight < sd.opacity);
-        if (selectSample)
-            insertIndex = uint(AVSM_K * sampleNext1D(rayData.sg));
-        */
-        insertIndex = uint((insertIndex + 1) * sampleNext1D(rayData.sg));
-    }
-        
-    if (insertIndex < AVSM_K) {
-        // Get depth
-        float4 posH = mul(gViewProj, float4(sd.posW, 1.f));
-        float depth = (posH.w - gNear) / (gFar - gNear); // Normalized depth
-
-        // Add bias to depth
-        float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
-        depth = saturate(depth + kDepthBias + normalBias);
-        rayData.depths[insertIndex] = depth;
-        rayData.transmittance[insertIndex] = transmittance;
+    bool isInList = false;
+    // Update transmittance of all points inside of the ray payload and check if the current depth is a candidate for replacement
+    for (uint i = 0; i < AVSM_K; i++) {
+        if (rayData.depths[i] >= depth - kMinOpacity) {
+            rayData.transmittance[i] *= transmittance;
+        }
+        // Check if the current depth sample is identical to one in the list
+        isInList |= rayData.depths[i] >= (depth - kMinOpacity) && rayData.depths[i] <= (depth + kMinOpacity);
     }
 
-    rayData.count++;
-    if (rayData.accumulatedVisibility < kMinOpacity)
-        return;
-    else
-        IgnoreHit();
+    //Randomly insert the element
+    if (!isInList) {
+        float rand = sampleNext1D(rayData.sg);
+        if (rand < sd.opacity || rayData.newDepthSample == 1.0) {
+            if (depth < rayData.newDepthSample) {
+                rayData.newDepthSample = depth;
+                rayData.newSampleOpacity = sd.opacity;
+            }
+        }
+    }
+
+    //TODO early abort? 
+    IgnoreHit();
 }
 
 //
@@ -185,7 +176,21 @@ void rayGen()
     RayData rayData = RayData();
     rayData.sg = SampleGenerator(pixel, gFrameCount * 2 + 8);
 
-    float2 pixelSample = pixel + 0.5; // + kMSAAPattern[gFrameCount % MSAA_SAMPLES];
+    // Load Depth Samples from last frame
+    uint numSamples = 0;
+    [unroll]
+    for (uint i = 0; i < AVSM_NUM_TEX; i++) {
+        uint payIdx = i * 4;
+        float4 depths = gStochDepths[i][pixel];
+        for (uint j = 0; j < 4; j++) {
+            rayData.depths[payIdx + j] = depths[j];
+            rayData.transmittance[payIdx + j] = 1.0;
+            if (depths[j] < 1.0)
+                numSamples++;                
+        }
+    }
+
+    float2 pixelSample = pixel + 0.5; //+ kMSAAPattern[gFrameCount % MSAA_SAMPLES];
 
     float2 relFramePos = pixelSample / frameDim;
     relFramePos = relFramePos * 2.0 - 1.0; // From [0,1] to [-1,1]
@@ -208,9 +213,9 @@ void rayGen()
 
     TraceRay(gScene.rtAccel, flags, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 
-    uint validSamples = min(rayData.count, AVSM_K);
     // Sort by depth (bubblesort for now)
-    for (int n = validSamples; n > 1; n--) {
+    /*
+    for (int n = AVSM_K; n > 1; n--) {
         for (int i = 0; i < n - 1; i++) {
             if (rayData.depths[i] > rayData.depths[i + 1]) {
                 float2 tmp = float2(rayData.depths[i], rayData.transmittance[i]);
@@ -221,24 +226,61 @@ void rayGen()
             }
         }
     }
+    */
+
+    // Insert new element
+    if (rayData.newDepthSample < 1.0) {
+        int insertIndex = numSamples;
+
+        // If full, replace a random element
+        
+        if (insertIndex >= AVSM_K) {
+            insertIndex = uint((AVSM_K+1)  * sampleNext1D(rayData.sg));
+        }
+        
+
+        //Insert
+        if (insertIndex < AVSM_K) {
+            rayData.depths[insertIndex] = rayData.newDepthSample;
+            //rayData.transmittance[insertIndex] = float(insertIndex + 1) / AVSM_K;
+
+            uint newIndex = insertIndex;
+            //TODO better sort Bubblesort
+            for (int n = AVSM_K; n > 1; n--) {
+                for (int i = 0; i < n - 1; i++) {
+                    if (rayData.depths[i] > rayData.depths[i + 1]) {
+                        if (i == newIndex)
+                            newIndex += 1;
+                        else if ((i + 1) == newIndex)
+                            newIndex -= 1;
+                        float2 tmp = float2(rayData.depths[i], rayData.transmittance[i]);
+                        rayData.depths[i] = rayData.depths[i + 1];
+                        rayData.transmittance[i] = rayData.transmittance[i + 1];
+                        rayData.depths[i + 1] = tmp.x;
+                        rayData.transmittance[i + 1] = tmp.y;
+                    }
+                }
+            }
+
+            // Approximate transmittance
+            if (newIndex == 0) {
+                rayData.transmittance[newIndex] = 1.0 - rayData.newSampleOpacity;
+            }
+            else if (newIndex == (AVSM_K - 1)) {
+                rayData.transmittance[newIndex] = rayData.transmittance[newIndex - 1] * (1.0 - rayData.newSampleOpacity);
+            } else {
+                rayData.transmittance[newIndex] = lerp(rayData.transmittance[newIndex - 1], rayData.transmittance[newIndex + 1], rayData.newSampleOpacity);
+            }
+            
+        }
+    }
 
     // Write to texture
-    float startTransmittance = 1.0;
     for (uint i = 0; i < AVSM_NUM_TEX; i++) {
         uint payIdx = i * 4;
         float4 depths = float4(rayData.depths[payIdx], rayData.depths[payIdx + 1], rayData.depths[payIdx + 2], rayData.depths[payIdx + 3]);
         gStochDepths[i][pixel] = depths;
-        float4 transmittance;
-        for (uint j = 0; j < 4; j++) {
-            if (rayData.count > AVSM_K) {
-                float tmpTransmittance = 1.0 - (float(1 + payIdx + j) / AVSM_K);
-                //tmpTransmittance *= (1.0 - rayData.transmittance[payIdx + j]) / rayData.weight;
-                transmittance[j] = tmpTransmittance;
-            } else {
-                startTransmittance *= rayData.transmittance[payIdx + j];
-                transmittance[j] = startTransmittance;
-            }            
-        }
+        float4 transmittance = float4(rayData.transmittance[payIdx], rayData.transmittance[payIdx + 1] ,rayData.transmittance[payIdx + 2], rayData.transmittance[payIdx + 3]); 
         gStochTransmittance[i][pixel] = transmittance;
     }
 }
