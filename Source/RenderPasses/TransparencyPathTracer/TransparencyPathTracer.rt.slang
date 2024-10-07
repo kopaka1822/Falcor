@@ -54,6 +54,7 @@ import SharedTypes;
 #define SHADOW_EVAL_MODE_AVSM 1
 #define SHADOW_EVAL_MODE_StochSM 2
 #define SHADOW_EVAL_MODE_TmpStochSM 3
+#define SHADOW_EVAL_MODE_Accel 4
 
 #ifndef SHADOW_EVAL_MODE
 #define SHADOW_EVAL_MODE SHADOW_EVAL_MODE_RAYTRACING
@@ -79,6 +80,10 @@ cbuffer ShadowVPs
     float4x4 gShadowMapVP[COUNT_LIGHTS];
 }
 
+struct AccelData {
+    float vis;
+}
+
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
@@ -90,6 +95,9 @@ Texture2D<float4> gStochDepths[COUNT_SM];
 Texture2D<float4> gStochTransmittance[COUNT_SM];
 Texture2D<float4> gTmpStochDepths[COUNT_SM];
 Texture2D<float4> gTmpStochTransmittance[COUNT_SM];
+
+RaytracingAccelerationStructure gShadowAS;
+StructuredBuffer<AccelData> gAccelShadowData;
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -143,6 +151,20 @@ struct TransparencyRayData {
     }
 }
 
+/** Payload for Accel Shadow
+ */
+struct AccelShadowRayData {
+    float visibility;
+    uint count;
+
+    __init() {
+        this.visibility = 0.0;
+        this.count = 0;
+    }
+}
+struct AccelShadowAttribs {
+    uint _pad;
+}
 /** Struct with data for the current path
 */
 struct PathData
@@ -644,6 +666,41 @@ float evalTmpStochSM(uint lightIdx, float3 posW) {
     return shadow;
 }
 
+float evalAccelShadow(uint lightIdx, float3 posW, float3 lightPosW) {
+    float4 shadowPos = mul(gShadowMapVP[lightIdx], float4(posW, 1));
+    shadowPos.xyz /= shadowPos.w;
+
+    shadowPos.y *= -1;                       // Flip
+    shadowPos.xy = shadowPos.xy * 0.5 + 0.5; // UV from [-1,1] to [0,1]
+    shadowPos.z = (shadowPos.w - gNear) / (gFar - gNear); // Linear distance
+
+    // Check if inside
+    /*
+    if (any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
+        return 0.0;
+    */
+
+    float2 shadowPixel = floor(shadowPos.xy * gSMSize) + 0.5;
+    float dist = distance(posW, lightPosW);
+    AccelShadowRayData rayData = AccelShadowRayData();
+    RayDesc ray;
+    ray.Origin = float3(shadowPixel.x, shadowPixel.y, shadowPos.w);
+    ray.Direction = float3(0,1,0);
+    ray.TMin = 0;
+    ray.TMax = 1e-10;
+
+    uint rayFlags = 0;
+    TraceRay(gShadowAS, rayFlags, 0xff /* instanceInclusionMask */, 2 /* hitIdx */, 1, 2 /* missIdx */, ray, rayData);
+
+    if (rayData.count == 0)
+        rayData.visibility = 1.0;
+
+    if (rayData.count > 1)
+        rayData.visibility /= rayData.count;
+
+    return rayData.visibility;
+}
+
 /** Samples a light index either uniform or with RIS (Good if a couple lights are used that dont overlap each other)
  */
 AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout SampleGenerator sg, out uint lightIndex, out float invPdf) {
@@ -721,8 +778,10 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
         shadow = evalAVSM(lightIndex, sd.posW);
     #elif SHADOW_EVAL_MODE == SHADOW_EVAL_MODE_StochSM
         shadow = evalStochasticSM(lightIndex, sd.posW);
-    #else //SHADOW_EVAL_MODE == SHADOW_EVAL_MODE_TmpStochSM
+    #elif SHADOW_EVAL_MODE == SHADOW_EVAL_MODE_TmpStochSM
         shadow = evalTmpStochSM(lightIndex, sd.posW);
+    #else // SHADOW_EVAL_MODE == SHADOW_EVAL_MODE_Accel
+        shadow = evalAccelShadow(lightIndex, sd.posW, ls.posW);
     #endif
     
     if (shadow <= 0) return float3(0.f);
@@ -987,6 +1046,12 @@ void shadowMiss(inout ShadowRayData rayData)
 
 }
 
+[shader("miss")]
+void shadowAccelMiss(inout AccelShadowRayData rayData)
+{
+
+}
+
 //
 // Shader entry points for TriangleMesh hit groups.
 //
@@ -1031,6 +1096,24 @@ void shadowAnyHit(inout ShadowRayData rayData, BuiltInTriangleIntersectionAttrib
         IgnoreHit();
     else
         AcceptHitAndEndSearch();
+}
+
+[shader("anyhit")]
+void shadowAccelAnyHit(inout AccelShadowRayData rayData: SV_RayPayload, AccelShadowAttribs attribs: SV_IntersectionAttributes)
+{
+    // Get data
+    const uint primIndex = PrimitiveIndex();
+    AccelData shadowData = gAccelShadowData[primIndex];
+    rayData.visibility += shadowData.vis;
+
+    rayData.count++;
+    IgnoreHit();
+}
+
+[shader("intersection")]
+void shadowAccelIntersection() {
+    AccelShadowAttribs attribs = {};
+    ReportHit(RayTCurrent(), 0, attribs);
 }
 
 //

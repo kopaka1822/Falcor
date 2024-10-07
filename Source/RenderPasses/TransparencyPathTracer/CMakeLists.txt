@@ -7,6 +7,7 @@ target_sources(TransparencyPathTracer PRIVATE
     GenAdaptiveVolumetricSM.rt.slang
 	GenStochasticSM.rt.slang
 	GenTmpStochSM.rt.slang
+	GenAccelShadow.rt.slang
 	GenDebugRefFunction.rt.slang
     SharedTypes.slang
 )

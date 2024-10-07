@@ -30,6 +30,7 @@
 #include "Core/Enum.h"
 #include "RenderGraph/RenderPass.h"
 #include "SharedTypes.slang"
+#include "Rendering/AccelerationStructure/CustomAccelerationStructure.h"
 
 using namespace Falcor;
 
@@ -57,13 +58,15 @@ public:
         AVSM = 1u,
         StochSM = 2u,
         TmpStochSM = 3u,
+        Accel = 4u,
     };
 
     FALCOR_ENUM_INFO(ShadowEvalMode,{
         {ShadowEvalMode::RayTracing, "RayTracing"},
         {ShadowEvalMode::AVSM, "AVSM"},
         {ShadowEvalMode::StochSM, "StochSM"},
-        {ShadowEvalMode::TmpStochSM, "TmpStochSM"}
+        {ShadowEvalMode::TmpStochSM, "TmpStochSM"},
+        {ShadowEvalMode::Accel, "Accel"}
     });
 
 private:
@@ -84,6 +87,7 @@ private:
     void generateAVSM(RenderContext* pRenderCotext, const RenderData& renderData);
     void generateStochasticSM(RenderContext* pRenderContext, const RenderData& renderData);
     void generateTmpStochSM(RenderContext* pRenderContext, const RenderData& renderData);
+    void generateAccelShadow(RenderContext* pRenderContext, const RenderData& renderData);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void prepareVars();
     void renderDebugGraph(const ImVec2& size);
@@ -115,6 +119,7 @@ private:
     bool mGenAVSM = true;
     bool mGenStochSM = true;
     bool mGenTmpStochSM = true;
+    bool mGenAccelShadow = true;
     bool mAVSMRebuildProgram = false;
     bool mAVSMTexResChanged = false;
     bool mAVSMUsePCF = false;
@@ -136,6 +141,10 @@ private:
     std::vector<ref<Texture>> mStochTransmittance;    //Transmittance for Stochstic SM
     std::vector<ref<Texture>> mTmpStochDepths;        // Depths for Temporal stochastic SM
     std::vector<ref<Texture>> mTmpStochTransmittance; // Transmittance for Temporal stochastic SM
+    std::vector<ref<Buffer>> mAccelShadowAABB;          //For Accel AABB points
+    std::vector<ref<Buffer>> mAccelShadowCounter;       //Counter for inserting points
+    std::vector<ref<Buffer>> mAccelShadowData;          //Transparency Data
+    std::unique_ptr<CustomAccelerationStructure> mpShadowAccelerationStrucure;   //AS
 
     //Settings and Data for Tranmittance UI Graph
     struct
@@ -178,6 +187,7 @@ private:
     RayTracingPipeline mGenAVSMPip; //Volumetric Adaptive SM
     RayTracingPipeline mGenStochSMPip;    //Stochastic baised SM
     RayTracingPipeline mGenTmpStochSMPip;   //Temporal Stochastic baised SM
+    RayTracingPipeline mGenAccelShadowPip;     //Acceleration structure based
     RayTracingPipeline mDebugGetRefFunction;
 };
 
