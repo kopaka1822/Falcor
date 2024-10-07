@@ -97,7 +97,7 @@ Texture2D<float4> gTmpStochDepths[COUNT_SM];
 Texture2D<float4> gTmpStochTransmittance[COUNT_SM];
 
 RaytracingAccelerationStructure gShadowAS;
-StructuredBuffer<AccelData> gAccelShadowData;
+StructuredBuffer<AccelData> gAccelShadowData[COUNT_LIGHTS];
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -690,7 +690,8 @@ float evalAccelShadow(uint lightIdx, float3 posW, float3 lightPosW) {
     ray.TMax = 1e-10;
 
     uint rayFlags = 0;
-    TraceRay(gShadowAS, rayFlags, 0xff /* instanceInclusionMask */, 2 /* hitIdx */, 1, 2 /* missIdx */, ray, rayData);
+    uint instanceMask = 1 << lightIdx;
+    TraceRay(gShadowAS, rayFlags, instanceMask /* instanceInclusionMask */, 2 /* hitIdx */, 1, 2 /* missIdx */, ray, rayData);
 
     if (rayData.count == 0)
         rayData.visibility = 1.0;
@@ -1102,8 +1103,7 @@ void shadowAnyHit(inout ShadowRayData rayData, BuiltInTriangleIntersectionAttrib
 void shadowAccelAnyHit(inout AccelShadowRayData rayData: SV_RayPayload, AccelShadowAttribs attribs: SV_IntersectionAttributes)
 {
     // Get data
-    const uint primIndex = PrimitiveIndex();
-    AccelData shadowData = gAccelShadowData[primIndex];
+    AccelData shadowData = gAccelShadowData[InstanceIndex()][PrimitiveIndex()];
     rayData.visibility += shadowData.vis;
 
     rayData.count++;

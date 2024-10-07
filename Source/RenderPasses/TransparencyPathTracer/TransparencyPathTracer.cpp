@@ -649,9 +649,11 @@ void TransparencyPathTracer::generateAccelShadow(RenderContext* pRenderContext, 
     {
         uint numBuffers = lights.size();
         const uint approxNumElementsPerPixel = 8u;
+
         if (mAccelShadowAABB.empty())
         {
             mAccelShadowAABB.resize(numBuffers);
+            mAccelShadowMaxNumPoints = mSMSize * mSMSize * approxNumElementsPerPixel;
             for (uint i = 0; i < numBuffers; i++)
             {
                 mAccelShadowAABB[i] = Buffer::createStructured(
@@ -664,13 +666,29 @@ void TransparencyPathTracer::generateAccelShadow(RenderContext* pRenderContext, 
         if (mAccelShadowCounter.empty())
         {
             mAccelShadowCounter.resize(numBuffers);
+            uint initData = 0;
             for (uint i = 0; i < numBuffers; i++)
             {
                 mAccelShadowCounter[i] = Buffer::createStructured(
-                    mpDevice, sizeof(uint), 1u,
-                    ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false
+                    mpDevice, sizeof(uint), 1u, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
+                    Buffer::CpuAccess::None, &initData, false
                 );
                 mAccelShadowCounter[i]->setName("AccelShadowAABBCounter_" + std::to_string(i));
+            }
+        }
+        if (mAccelShadowCounterCPU.empty())
+        {
+            mAccelShadowCounterCPU.resize(numBuffers);
+            mAccelShadowNumPoints.resize(numBuffers);
+            uint initData = 0;
+            for (uint i = 0; i < numBuffers; i++)
+            {
+                mAccelShadowCounterCPU[i] = Buffer::createStructured(
+                    mpDevice, sizeof(uint), 1u, ResourceBindFlags::UnorderedAccess,
+                    Buffer::CpuAccess::Read, &initData, false
+                );
+                mAccelShadowCounterCPU[i]->setName("AccelShadowAABBCounterCPU_" + std::to_string(i));
+                mAccelShadowNumPoints[i] = mSMSize * mSMSize * approxNumElementsPerPixel;
             }
         }
         if (mAccelShadowData.empty())
@@ -752,12 +770,24 @@ void TransparencyPathTracer::generateAccelShadow(RenderContext* pRenderContext, 
     std::vector<uint64_t> aabbCount;
     for (uint i = 0; i < lights.size(); i++)
     {
-        // aabbCount.push_back(753190u);
-        aabbCount.push_back(512 * 512 * 8);
+        uint numPoints = mAccelShadowUseCPUCounterOptimization
+                             ? std::min(uint(mAccelShadowNumPoints[i] * mAccelShadowOverestimation), mAccelShadowMaxNumPoints)
+                             : mAccelShadowMaxNumPoints;
+        aabbCount.push_back(numPoints);
     }
-        
-
     mpShadowAccelerationStrucure->update(pRenderContext, aabbCount);
+
+    //Handle photon counter
+    if (mAccelShadowUseCPUCounterOptimization)
+    {
+        for (uint i = 0; i < lights.size(); i++)
+        {
+            pRenderContext->copyBufferRegion(mAccelShadowCounterCPU[i].get(), 0, mAccelShadowCounter[i].get(), 0, sizeof(uint32_t));
+            void* data = mAccelShadowCounterCPU[i]->map(Buffer::MapType::Read);
+            std::memcpy(&mAccelShadowNumPoints[i], data, sizeof(uint));
+            mAccelShadowCounterCPU[i]->unmap();
+        }
+    }
 }
 
 void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const RenderData& renderData) {
@@ -803,7 +833,11 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     
     
     for (uint i = 0; i < lights.size(); i++)
+    {
         var["ShadowVPs"]["gShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
+        var["gAccelShadowData"][i] = mAccelShadowData[i];
+    }
+        
     for (uint i = 0; i < lights.size() * (mNumberAVSMSamples / 4); i++)
     {
         var["gAVSMDepths"][i] = mAVSMDepths[i];
@@ -815,7 +849,7 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     }
 
     mpShadowAccelerationStrucure->bindTlas(var, "gShadowAS");
-    var["gAccelShadowData"] = mAccelShadowData[0];
+    
 
     var["gPointSampler"] = mpPointSampler;
 
@@ -1300,7 +1334,20 @@ void TransparencyPathTracer::renderUI(Gui::Widgets& widget)
         group.checkbox("Use PCF", mAVSMUsePCF); //TODO add other kernels
         group.tooltip("Enable 2x2 PCF using gather");
     }
-    
+
+    if (mShadowEvaluationMode == ShadowEvalMode::Accel)
+    {
+        if (auto group = widget.group("Accel Shadow Settings"))
+        {
+            group.checkbox("Use CPU Counter optimization", mAccelShadowUseCPUCounterOptimization);
+            group.tooltip("Uses the CPU counter value from a previous frame (async) to estimate the acceleration structure build size.");
+            if (mAccelShadowUseCPUCounterOptimization)
+            {
+                group.var("CPU Counter overestimation", mAccelShadowOverestimation, 1.0f, 2.0f, 0.001f);
+            }
+
+        }
+    }
 
     static bool graphOpenedFirstTime = true;
     

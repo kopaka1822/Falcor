@@ -114,6 +114,8 @@ private:
     bool mDebugFrameCount = false;
     bool mOptionsChanged = false;
     ref<Sampler> mpPointSampler;
+    std::vector<uint> mAccelShadowNumPoints;
+    uint mAccelShadowMaxNumPoints = 0;
 
     //Configuration Shadow Map
     bool mGenAVSM = true;
@@ -133,6 +135,10 @@ private:
     float mNormalDepthBias = 1e-3f;
     uint mNumberAVSMSamples = 8;    //< k for AVSM
 
+    //Accel shadow settings
+    bool mAccelShadowUseCPUCounterOptimization = true;
+    float mAccelShadowOverestimation = 1.1f;
+
     //Runtime Data DeepSM
     std::vector<LightMVP> mShadowMapMVP;
     std::vector<ref<Texture>> mAVSMDepths;        //Depths for the avsm
@@ -143,6 +149,7 @@ private:
     std::vector<ref<Texture>> mTmpStochTransmittance; // Transmittance for Temporal stochastic SM
     std::vector<ref<Buffer>> mAccelShadowAABB;          //For Accel AABB points
     std::vector<ref<Buffer>> mAccelShadowCounter;       //Counter for inserting points
+    std::vector<ref<Buffer>> mAccelShadowCounterCPU;       //Counter for inserting points
     std::vector<ref<Buffer>> mAccelShadowData;          //Transparency Data
     std::unique_ptr<CustomAccelerationStructure> mpShadowAccelerationStrucure;   //AS
 
