@@ -1876,6 +1876,7 @@ namespace Falcor
                 pDefaultMaterial->setMetallic(0.f);
                 pDefaultMaterial->setIndexOfRefraction(1.5f);
                 pDefaultMaterial->setDoubleSided(true);
+                pDefaultMaterial->setCastShadow(true);
                 defaultMaterialMap[defaultColor] = pDefaultMaterial;
                 return pDefaultMaterial;
             }
@@ -1890,6 +1891,7 @@ namespace Falcor
                 pDefaultCurveMaterial->setBaseColor(float4(defaultColor, 1.f));
                 pDefaultCurveMaterial->setSpecularParams(float4(kDefaultCurveLongitudinalRoughness, kDefaultCurveAzimuthalRoughness, kDefaultScaleAngleDegree, 0.f));
                 pDefaultCurveMaterial->setIndexOfRefraction(kDefaultCurveIOR);
+                pDefaultCurveMaterial->setCastShadow(true);
                 defaultCurveMaterialMap[defaultColor] = pDefaultCurveMaterial;
                 return pDefaultCurveMaterial;
             }

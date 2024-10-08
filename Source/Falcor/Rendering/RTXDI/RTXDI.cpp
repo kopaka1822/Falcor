@@ -233,7 +233,7 @@ namespace Falcor
 #endif
     }
 
-    void RTXDI::update(RenderContext* pRenderContext, const ref<Texture>& pMotionVectors)
+    void RTXDI::update(RenderContext* pRenderContext, const ref<Texture>& pMotionVectors, const ref<Texture>& pViewDir, const ref<Texture>& pViewDirPrev)
     {
 #if FALCOR_HAS_RTXDI
         FALCOR_PROFILE(pRenderContext, "RTXDI::update");
@@ -254,23 +254,23 @@ namespace Falcor
         switch (mOptions.mode)
         {
         case Mode::NoResampling:
-            generateCandidates(pRenderContext, kCandidateReservoirID);
+            generateCandidates(pRenderContext, kCandidateReservoirID, pViewDir, pViewDirPrev);
             outputReservoirID = kCandidateReservoirID;
             break;
         case Mode::SpatialResampling:
-            generateCandidates(pRenderContext, kCandidateReservoirID);
-            testCandidateVisibility(pRenderContext, kCandidateReservoirID);
-            outputReservoirID = spatialResampling(pRenderContext, kCandidateReservoirID);
+            generateCandidates(pRenderContext, kCandidateReservoirID, pViewDir, pViewDirPrev);
+            testCandidateVisibility(pRenderContext, kCandidateReservoirID, pViewDir, pViewDirPrev);
+            outputReservoirID = spatialResampling(pRenderContext, kCandidateReservoirID, pViewDir, pViewDirPrev);
             break;
         case Mode::TemporalResampling:
-            generateCandidates(pRenderContext, kCandidateReservoirID);
-            testCandidateVisibility(pRenderContext, kCandidateReservoirID);
-            outputReservoirID = temporalResampling(pRenderContext, pMotionVectors, kCandidateReservoirID, mLastFrameReservoirID);
+            generateCandidates(pRenderContext, kCandidateReservoirID, pViewDir, pViewDirPrev);
+            testCandidateVisibility(pRenderContext, kCandidateReservoirID, pViewDir, pViewDirPrev);
+            outputReservoirID = temporalResampling(pRenderContext, pMotionVectors, kCandidateReservoirID, mLastFrameReservoirID, pViewDir, pViewDirPrev);
             break;
         case Mode::SpatiotemporalResampling:
-            generateCandidates(pRenderContext, kCandidateReservoirID);
-            testCandidateVisibility(pRenderContext, kCandidateReservoirID);
-            outputReservoirID = spatiotemporalResampling(pRenderContext, pMotionVectors, kCandidateReservoirID, mLastFrameReservoirID);
+            generateCandidates(pRenderContext, kCandidateReservoirID, pViewDir, pViewDirPrev);
+            testCandidateVisibility(pRenderContext, kCandidateReservoirID, pViewDir, pViewDirPrev);
+            outputReservoirID = spatiotemporalResampling(pRenderContext, pMotionVectors, kCandidateReservoirID, mLastFrameReservoirID, pViewDir, pViewDirPrev);
             break;
         }
 
@@ -281,7 +281,7 @@ namespace Falcor
 
 #if FALCOR_HAS_RTXDI
 
-    void RTXDI::setShaderDataInternal(const ShaderVar& rootVar, const ref<Texture>& pMotionVectors)
+    void RTXDI::setShaderDataInternal(const ShaderVar& rootVar, const ref<Texture>& pMotionVectors, const ref<Texture>& pViewDir, const ref<Texture>& pViewDirPrev)
     {
         auto var = rootVar["gRTXDI"];
 
@@ -326,6 +326,8 @@ namespace Falcor
         var["prevCameraV"] = mPrevCameraData.cameraV;
         var["prevCameraW"] = mPrevCameraData.cameraW;
         var["prevCameraJitter"] = float2(mPrevCameraData.jitterX, mPrevCameraData.jitterY);
+        //Use viewDir textures instead of camera generated view dirs
+        var["validViewTextures"] = (pViewDir != nullptr) && (pViewDirPrev != nullptr);
 
         // Setup textures and other buffers needed by the RTXDI bridge
         var["lightInfo"] = mpLightInfoBuffer;
@@ -335,6 +337,8 @@ namespace Falcor
         var["reservoirs"] = mpReservoirBuffer;
         var["neighborOffsets"] = mpNeighborOffsetsBuffer;
         var["motionVectors"] = pMotionVectors;
+        var["viewDir"] = pViewDir;
+        var["viewDirPrev"] = pViewDirPrev;
 
         // PDF textures for importance sampling. Some shaders need UAVs, some SRVs
         var["localLightPdfTexture"] = mpLocalLightPdfTexture;
@@ -550,7 +554,7 @@ namespace Falcor
         }
     }
 
-    void RTXDI::generateCandidates(RenderContext* pRenderContext, uint32_t outputReservoirID)
+    void RTXDI::generateCandidates(RenderContext* pRenderContext, uint32_t outputReservoirID, const ref<Texture>& pViewDir, const ref<Texture>& pViewDirPrev)
     {
         FALCOR_PROFILE(pRenderContext, "generateCandidates");
 
@@ -558,11 +562,11 @@ namespace Falcor
         mpPixelDebug->prepareProgram(mpGenerateCandidatesPass->getProgram(), var);
 
         var["CB"]["gOutputReservoirID"] = outputReservoirID;
-        setShaderDataInternal(var, nullptr);
+        setShaderDataInternal(var, nullptr, pViewDir, pViewDirPrev);
         mpGenerateCandidatesPass->execute(pRenderContext, mFrameDim.x, mFrameDim.y);
     }
 
-    void RTXDI::testCandidateVisibility(RenderContext* pRenderContext, uint32_t candidateReservoirID)
+    void RTXDI::testCandidateVisibility(RenderContext* pRenderContext, uint32_t candidateReservoirID, const ref<Texture>& pViewDir, const ref<Texture>& pViewDirPrev)
     {
         if (!mOptions.testCandidateVisibility) return;
 
@@ -570,11 +574,11 @@ namespace Falcor
 
         auto var = mpTestCandidateVisibilityPass->getRootVar();
         var["CB"]["gOutputReservoirID"] = candidateReservoirID;
-        setShaderDataInternal(var, nullptr);
+        setShaderDataInternal(var, nullptr, pViewDir, pViewDirPrev);
         mpTestCandidateVisibilityPass->execute(pRenderContext, mFrameDim.x, mFrameDim.y);
     }
 
-    uint32_t RTXDI::spatialResampling(RenderContext* pRenderContext, uint32_t inputReservoirID)
+    uint32_t RTXDI::spatialResampling(RenderContext* pRenderContext, uint32_t inputReservoirID, const ref<Texture>& pViewDir, const ref<Texture>& pViewDirPrev)
     {
         FALCOR_PROFILE(pRenderContext, "spatialResampling");
 
@@ -589,7 +593,7 @@ namespace Falcor
         {
             var["CB"]["gInputReservoirID"] = inputID;
             var["CB"]["gOutputReservoirID"] = outputID;
-            setShaderDataInternal(var, nullptr);
+            setShaderDataInternal(var, nullptr, pViewDir, pViewDirPrev);
             mpSpatialResamplingPass->execute(pRenderContext, mFrameDim.x, mFrameDim.y);
 
             // Ping pong our input and output buffers. (Generally between reservoirs 0 & 1).
@@ -601,7 +605,7 @@ namespace Falcor
     }
 
     uint32_t RTXDI::temporalResampling(RenderContext* pRenderContext, const ref<Texture>& pMotionVectors,
-        uint32_t candidateReservoirID, uint32_t lastFrameReservoirID)
+        uint32_t candidateReservoirID, uint32_t lastFrameReservoirID, const ref<Texture>& pViewDir, const ref<Texture>& pViewDirPrev)
     {
         FALCOR_PROFILE(pRenderContext, "temporalResampling");
 
@@ -614,14 +618,14 @@ namespace Falcor
         var["CB"]["gTemporalReservoirID"] = lastFrameReservoirID;
         var["CB"]["gInputReservoirID"] = candidateReservoirID;
         var["CB"]["gOutputReservoirID"] = outputReservoirID;
-        setShaderDataInternal(var, pMotionVectors);
+        setShaderDataInternal(var, pMotionVectors, pViewDir, pViewDirPrev);
         mpTemporalResamplingPass->execute(pRenderContext, mFrameDim.x, mFrameDim.y);
 
         return outputReservoirID;
     }
 
     uint32_t RTXDI::spatiotemporalResampling(RenderContext* pRenderContext, const ref<Texture>& pMotionVectors,
-        uint32_t candidateReservoirID, uint32_t lastFrameReservoirID)
+        uint32_t candidateReservoirID, uint32_t lastFrameReservoirID, const ref<Texture>& pViewDir, const ref<Texture>& pViewDirPrev)
     {
         FALCOR_PROFILE(pRenderContext, "spatiotemporalResampling");
 
@@ -634,7 +638,7 @@ namespace Falcor
         var["CB"]["gTemporalReservoirID"] = lastFrameReservoirID;
         var["CB"]["gInputReservoirID"] = candidateReservoirID;
         var["CB"]["gOutputReservoirID"] = outputReservoirID;
-        setShaderDataInternal(var, pMotionVectors);
+        setShaderDataInternal(var, pMotionVectors, pViewDir, pViewDirPrev);
         mpSpatiotemporalResamplingPass->execute(pRenderContext, mFrameDim.x, mFrameDim.y);
 
         return outputReservoirID;

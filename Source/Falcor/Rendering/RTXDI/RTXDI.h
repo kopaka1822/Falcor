@@ -140,7 +140,7 @@ namespace Falcor
             bool testCandidateVisibility = true;        ///< Test visibility on selected candidate sample before doing resampling.
 
             // Resampling options.
-            BiasCorrection biasCorrection = BiasCorrection::Basic; ///< Bias correction mode.
+            BiasCorrection biasCorrection = BiasCorrection::RayTraced; ///< Bias correction mode.
             float depthThreshold = 0.1f;                ///< Relative depth difference at which pixels are classified too far apart to be reused (0.1 = 10%).
             float normalThreshold = 0.5f;               ///< Cosine of the angle between normals, below which pixels are classified too far apart to be reused.
 
@@ -265,7 +265,7 @@ namespace Falcor
             \param[in] pRenderContext Render context.
             \param[in] pMotionVectors Motion vectors for temporal reprojection.
         */
-        void update(RenderContext* pRenderContext, const ref<Texture>& pMotionVectors);
+        void update(RenderContext* pRenderContext, const ref<Texture>& pMotionVectors, const ref<Texture>& pViewDir = nullptr, const ref<Texture>& pViewDirPrev = nullptr);
 
         /** Get the pixel debug component.
             \return Returns the pixel debug component.
@@ -375,15 +375,15 @@ namespace Falcor
 
         // Compute pass launches.
 
-        void setShaderDataInternal(const ShaderVar& rootVar, const ref<Texture>& pMotionVectors);
+        void setShaderDataInternal(const ShaderVar& rootVar, const ref<Texture>& pMotionVectors, const ref<Texture>& pViewDir = nullptr, const ref<Texture>& pViewDirPrev = nullptr);
         void updateLights(RenderContext* pRenderContext);
         void updateEnvLight(RenderContext* pRenderContext);
         void presampleLights(RenderContext* pRenderContext);
-        void generateCandidates(RenderContext* pRenderContext, uint32_t outputReservoirID);
-        void testCandidateVisibility(RenderContext* pRenderContext, uint32_t candidateReservoirID);
-        uint32_t spatialResampling(RenderContext* pRenderContext, uint32_t inputReservoirID);
-        uint32_t temporalResampling(RenderContext* pRenderContext, const ref<Texture>& pMotionVectors, uint32_t candidateReservoirID, uint32_t lastFrameReservoirID);
-        uint32_t spatiotemporalResampling(RenderContext* pRenderContext, const ref<Texture>& pMotionVectors, uint32_t candidateReservoirID, uint32_t lastFrameReservoirID);
+        void generateCandidates(RenderContext* pRenderContext, uint32_t outputReservoirID, const ref<Texture>& pViewDir = nullptr, const ref<Texture>& pViewDirPrev = nullptr);
+        void testCandidateVisibility(RenderContext* pRenderContext, uint32_t candidateReservoirID, const ref<Texture>& pViewDir = nullptr, const ref<Texture>& pViewDirPrev = nullptr);
+        uint32_t spatialResampling(RenderContext* pRenderContext, uint32_t inputReservoirID, const ref<Texture>& pViewDir = nullptr, const ref<Texture>& pViewDirPrev = nullptr);
+        uint32_t temporalResampling(RenderContext* pRenderContext, const ref<Texture>& pMotionVectors, uint32_t candidateReservoirID, uint32_t lastFrameReservoirID, const ref<Texture>& pViewDir = nullptr, const ref<Texture>& pViewDirPrev = nullptr);
+        uint32_t spatiotemporalResampling(RenderContext* pRenderContext, const ref<Texture>& pMotionVectors, uint32_t candidateReservoirID, uint32_t lastFrameReservoirID, const ref<Texture>& pViewDir = nullptr, const ref<Texture>& pViewDirPrev = nullptr);
 
         // Internal routines.
 

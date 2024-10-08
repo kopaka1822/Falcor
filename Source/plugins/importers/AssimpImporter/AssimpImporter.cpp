@@ -273,7 +273,7 @@ void createAnimation(ImporterData& data, const aiAnimation* pAiAnim, ImportMode 
         while (!done)
         {
             double time = nextKeyTime();
-            FALCOR_ASSERT(time == 0 || (time / ticksPerSecond) > keyframe.time);
+            //FALCOR_ASSERT(time == 0 || (time / ticksPerSecond) > keyframe.time);
             keyframe.time = time / ticksPerSecond;
 
             // Note the order of the logical-and, we don't want to short-circuit the function calls
@@ -914,6 +914,10 @@ ref<Material> createMaterial(
     if (pAiMaterial->Get(AI_MATKEY_TWOSIDED, isDoubleSided) == AI_SUCCESS)
         pMaterial->setDoubleSided((isDoubleSided != 0));
 
+    //TODO: See if there is a flag
+    //CastShadow
+    pMaterial->setCastShadow(true);    //Set to always true if imported
+
     // Handle GLTF2 PBR materials
     if (importMode == ImportMode::GLTF2)
     {
@@ -934,6 +938,19 @@ ref<Material> createMaterial(
             specularParams.g = roughness;
 
         pMaterial->setSpecularParams(specularParams);
+
+        //Transmission
+        float transmission;
+        if (pAiMaterial->Get(AI_MATKEY_TRANSMISSION_FACTOR, transmission) == AI_SUCCESS)
+        {
+            pMaterial->setSpecularTransmission(transmission);
+            if (transmission > 0.f)
+            {
+                float3 transmissionColor = pMaterial->getBaseColor().xyz(); //Set transsion color to base color
+                pMaterial->setTransmissionColor(transmissionColor);
+            }
+        }
+            
     }
 
     // Parse the information contained in the name

@@ -1,0 +1,223 @@
+#include "Scene/SceneDefines.slangh"
+#include "Utils/Math/MathConstants.slangh"
+
+import Scene.Raytracing;
+import Scene.Intersection;
+import Utils.Math.MathHelpers;
+import Utils.Geometry.GeometryHelpers;
+import Utils.Sampling.SampleGenerator;
+
+#ifndef AVSM_K
+#define AVSM_K 4
+#endif
+
+#define AVSM_NUM_TEX AVSM_K/4
+
+#define AVSM_REJECTION_TRIANGLE_AREA 0
+#define AVSM_REJECTION_RECTANGLE_AREA 1
+#define AVSM_REJECTION_HEIGHT 2
+#define AVSM_REJECTION_HEIGHT_AND_HEURISTIC 3
+
+#define USE_ACCUMULATED_VIS 0  //Less noisy, but slower and adds bias
+
+/** Payload for shadow ray.
+*/
+struct RayData
+{
+    float minDepth;
+    float rayVisibility;
+    SampleGenerator sg;
+
+    __init() {
+        minDepth = 1.0;
+        rayVisibility = 1.0;
+    }
+};
+
+cbuffer CB
+{
+    uint        gFrameCount;       //Current frame count
+    float3      gLightPos;     // Current Light Position
+    float       gNear;
+    float       gFar;
+    uint2       _pad;
+    float4x4    gViewProj;      // View Projection for current light
+    float4x4    gInvViewProj;   // Inverse view projection
+}
+
+RWTexture2D<float4> gStochDepths[AVSM_NUM_TEX];
+RWTexture2D<float4> gStochTransmittance[AVSM_NUM_TEX];
+
+static const float kDepthBias = AVSM_DEPTH_BIAS;
+static const float kNormalBias = AVSM_NORMAL_DEPTH_BIAS;
+static const float kMinOpacity = 1e-7;
+
+// https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ne-d3d11-d3d11_standard_multisample_quality_levels?redirectedfrom=MSDN
+#if AVSM_K == 4
+static const float2 kMSAAPattern[4] = { float2(-0.125, 0.375), float2(0.375, -0.125), float2(-0.375, 0.125), float2(0.125, 0.375)
+                                      };
+#elif AVSM_K == 8
+static const float2 kMSAAPattern[8] = { float2(0.0625, -0.1875),  float2(-0.0625, 0.1875), float2(0.3125, 0.0625), float2(-0.1875, -0.3125),
+                                        float2(-0.3125, 0.3125), float2(-0.4375, -0.0625), float2(0.1875, 0.4375),   float2(0.4375, -0.4375)
+                                      };
+#elif AVSM_K == 16
+static const float2 kMSAAPattern[16] = { float2(0.0625, 0.0625),  float2(-0.0625, -0.1875), float2(-0.1875, 0.125),  float2(0.25, -0.0625),
+                                         float2(-0.3125, -0.125), float2(0.125, 0.3125), float2(0.3125, 0.1875),  float2(0.1875, -0.3125),
+                                         float2(-0.125, 0.375), float2(0.0, -0.4375),    float2(-0.25, 0.375), float2(-0.375, 0.25),
+                                         float2(-0.5, 0.0), float2(0.4375, -0.25),   float2(0.375, 0.4375), float2(-0.4375, -0.5)
+                                       };
+#else
+#error Invalid K for this pass!
+#endif
+/** Setup ShadingData based on loaded vertex/material attributes for a hit point.
+    \param[in] hit Hit information.
+    \param[in] rayOrigin Ray origin.
+    \param[in] rayDir Normalized ray direction.
+    \param[in] lod Method for computing texture level-of-detail.
+    \return ShadingData struct.
+*/
+ShadingData loadShadingData(const HitInfo hit, const float3 rayDir, const ITextureSampler lod)
+{
+    const TriangleHit triangleHit = hit.getTriangleHit();
+    VertexData v = gScene.getVertexData(triangleHit);
+    uint materialID = gScene.getMaterialID(triangleHit.instanceID);
+
+    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -rayDir, lod);
+
+    return sd;
+}
+
+//Shaders
+[shader("miss")]
+void miss(inout RayData rayData)
+{
+    
+}
+
+//
+// Shader entry points for TriangleMesh hit groups.
+//
+
+[shader("anyhit")]
+void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
+{
+    // Get shading data
+    TriangleHit triangleHit;
+    triangleHit.instanceID = getGeometryInstanceID();
+    triangleHit.primitiveIndex = PrimitiveIndex();
+    triangleHit.barycentrics = attribs.barycentrics;
+
+    VertexData v = gScene.getVertexData(triangleHit);
+    uint materialID = gScene.getMaterialID(triangleHit.instanceID);
+    let lod = ExplicitLodTextureSampler(0.f);
+    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -WorldRayDirection(), lod);
+
+    // Abort if opacity is too low
+    if (sd.opacity < kMinOpacity) {
+        IgnoreHit();
+        return;
+    }
+
+    const float transmittance = (1.0 - sd.opacity);
+    rayData.rayVisibility *= transmittance;
+    float rand = sampleNext1D(rayData.sg);
+    //Hit is accepted
+    if (rand >= transmittance) {
+        // Get depth
+        float4 posH = mul(gViewProj, float4(sd.posW, 1.f));
+        float depth = (posH.w - gNear) / (gFar - gNear); // Normalized depth
+
+        // Add bias to depth
+        float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
+        depth = saturate(depth + kDepthBias + normalBias);
+        if (depth < rayData.minDepth) {
+            rayData.minDepth = depth;
+            #if !USE_ACCUMULATED_VIS
+                return;
+            #endif
+        }
+    }
+    IgnoreHit();
+}
+
+//
+// Shader entry point for ray generation shader.
+//
+[shader("raygeneration")]
+void rayGen()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 frameDim = DispatchRaysDimensions().xy;
+
+    float depthSamples[AVSM_K];
+    //float accumVisibility[AVSM_K];
+    float averageVisibilityOnRay = 0.0;
+    uint validDepthSamples = 0;
+
+    RayData rayData = RayData();
+    rayData.sg = SampleGenerator(pixel, gFrameCount * 2 + 8);
+
+    for (uint i = 0; i < AVSM_K; i++) {
+        float2 pixelSample = pixel + 0.5 + kMSAAPattern[i];
+
+        float2 relFramePos = pixelSample / frameDim;
+        relFramePos = relFramePos * 2.0 - 1.0; // From [0,1] to [-1,1]
+        relFramePos.y *= -1.f;
+
+        
+        float4 posWPixelNear = mul(gInvViewProj, float4(relFramePos, 0.f, 1.f));
+        float4 posWPixelFar = mul(gInvViewProj, float4(relFramePos, 1.f, 1.f));
+
+        posWPixelNear.xyz /= posWPixelNear.w;
+        float3 toNear = posWPixelNear.xyz - gLightPos;
+
+        RayDesc ray;
+        ray.TMin = length(toNear);;                                             // Always start at depth 0
+        ray.TMax = distance(gLightPos, posWPixelFar.xyz / posWPixelFar.w); // Real far for the pixel
+        ray.Origin = gLightPos;
+        ray.Direction = normalize(toNear); // World direction
+
+        uint flags = RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
+        // uint flags = RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER; // Call anyHit for every type of object
+
+        TraceRay(gScene.rtAccel, flags, kShadowRayInstanceMask /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
+
+        depthSamples[i] = rayData.minDepth;
+        // accumVisibility[i] = rayData.rayVisibility;
+        if (rayData.minDepth < 1.0) {
+            validDepthSamples++;
+            averageVisibilityOnRay += rayData.rayVisibility;
+        }
+
+        rayData.minDepth = 1.0;
+        rayData.rayVisibility = 1.0;
+    }
+    averageVisibilityOnRay /= max(validDepthSamples,1);
+
+    // Sort by depth (bubblesort for now)
+    for (int n = AVSM_K; n > 1; n--) {
+        for (int i = 0; i < n - 1; i++) {
+            if (depthSamples[i] > depthSamples[i + 1]) {
+                float tmp = depthSamples[i];
+                depthSamples[i] = depthSamples[i + 1];
+                depthSamples[i + 1] = tmp;
+            }
+        }
+    }
+
+    // Write to textures
+    for (uint i = 0; i < AVSM_NUM_TEX; i++) {
+        uint payIdx = i * 4;
+        float4 depths = float4(depthSamples[payIdx], depthSamples[payIdx + 1], depthSamples[payIdx + 2], depthSamples[payIdx + 3]);
+        gStochDepths[i][pixel] = depths;
+        float4 transmittance;
+        for (uint j = 0; j < 4; j++) {
+        #if USE_ACCUMULATED_VIS
+            transmittance[j] = 1.0 - ((1.0 - averageVisibilityOnRay) / validDepthSamples) * (payIdx + j + 1);
+        #else
+            transmittance[j] = 1.0 - (float(1 + payIdx + j) / AVSM_K);
+        #endif
+        }
+        gStochTransmittance[i][pixel] = transmittance;
+    }
+}

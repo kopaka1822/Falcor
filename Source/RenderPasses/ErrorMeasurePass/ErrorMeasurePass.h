@@ -40,16 +40,16 @@ public:
 
     enum class OutputId
     {
+        Difference,
         Source,
         Reference,
-        Difference,
         Count
     };
 
     FALCOR_ENUM_INFO(OutputId, {
+        {OutputId::Difference, "Difference"},
         { OutputId::Source, "Source" },
         { OutputId::Reference, "Reference" },
-        { OutputId::Difference, "Difference" },
     });
 
     static ref<ErrorMeasurePass> create(ref<Device> pDevice, const Properties& props) { return make_ref<ErrorMeasurePass>(pDevice, props); }
@@ -99,9 +99,10 @@ private:
     bool                    mComputeAverage = false;            ///< Compute the average of the RGB components when creating the difference image.
     bool                    mUseLoadedReference = false;        ///< If true, use loaded reference image instead of input.
     bool                    mReportRunningError = true;         ///< Use exponetial moving average (EMA) for the computed error.
+    bool                    mCalculatePerFrameError = false;    ///< If false, skips the parallel reduction pass.
     float                   mRunningErrorSigma = 0.995f;        ///< Coefficient used for the exponential moving average. Larger values mean slower response.
 
-    OutputId                mSelectedOutputId = OutputId::Source;
+    OutputId                mSelectedOutputId = OutputId::Difference;
 
     static const Gui::RadioButtonGroup sOutputSelectionButtons;
     static const Gui::RadioButtonGroup sOutputSelectionButtonsSourceOnly;

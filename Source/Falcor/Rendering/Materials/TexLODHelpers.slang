@@ -130,12 +130,13 @@ struct RayCone
 };
 
 /** Compute the triangle LOD value based on triangle vertices and texture coordinates, used by ray cones.
+    TODO this is wrong. The Texture resolution is missing to get the real LOD
     \param[in] vertices Triangle vertices.
     \param[in] txcoords Texture coordinates at triangle vertices.
     \param[in] worldMat 3x3 world matrix.
     \return Triangle LOD value.
 */
-float computeRayConeTriangleLODValue(float3 vertices[3], float2 txcoords[3], float3x3 worldMat)
+float computeRayConeTriangleLODValue(float3 verts[3], float2 txcoords[3], float3x3 worldMat)
 {
     float2 tx10 = txcoords[1] - txcoords[0];
     float2 tx20 = txcoords[2] - txcoords[0];
@@ -143,8 +144,8 @@ float computeRayConeTriangleLODValue(float3 vertices[3], float2 txcoords[3], flo
 
     // We need the area of the triangle, which is length(triangleNormal) in worldspace, and
     // could not figure out a way with fewer than two 3x3 mtx multiplies for ray cones.
-    float3 edge01 = mul(worldMat, vertices[1] - vertices[0]);
-    float3 edge02 = mul(worldMat, vertices[2] - vertices[0]);
+    float3 edge01 = mul(worldMat, verts[1] - verts[0]);
+    float3 edge02 = mul(worldMat, verts[2] - verts[0]);
 
     float3 triangleNormal = cross(edge01, edge02);              // In world space, by design.
     float Pa = length(triangleNormal);                          // Twice the area of the triangle.

@@ -182,10 +182,14 @@ namespace Falcor
                 << "Total rays (avg): " << std::fixed << std::setprecision(3) << mStats.avgTotalRays << "\n"
                 << "Visibility rays (avg): " << std::fixed << std::setprecision(3) << mStats.avgVisibilityRays << "\n"
                 << "ClosestHit rays (avg): " << std::fixed << std::setprecision(3) << mStats.avgClosestHitRays << "\n"
+                << "Visibility AnyHit invoc (avg): " << std::fixed << std::setprecision(3) << mStats.avgVisibilityAnyHitRays << "\n"
+                << "AnyHit invoc (avg): " << std::fixed << std::setprecision(3) << mStats.avgAnyHitRays << "\n"
                 << "Path vertices: " << mStats.pathVertices << "\n"
                 << "Total rays: " << mStats.totalRays << "\n"
                 << "Visibility rays: " << mStats.visibilityRays << "\n"
                 << "ClosestHit rays: " << mStats.closestHitRays << "\n"
+                << "Visibility AnyHit invocations: " << mStats.visibilityAnyHitRays << "\n"
+                << "AnyHit invocations: " << mStats.anyHitRays << "\n"
                 << "Volume lookups: " << mStats.volumeLookups << "\n"
                 << "Volume lookups (avg): " << mStats.avgVolumeLookups << "\n";
 
@@ -282,12 +286,16 @@ namespace Falcor
                 FALCOR_ASSERT(numPixels > 0);
 
                 mStats.visibilityRays = result[(uint32_t)PixelStatsRayType::Visibility].x;
+                mStats.visibilityAnyHitRays = result[(uint32_t)PixelStatsRayType::AnyHitVis].x;
                 mStats.closestHitRays = result[(uint32_t)PixelStatsRayType::ClosestHit].x;
+                mStats.anyHitRays = result[(uint32_t)PixelStatsRayType::AnyHit].x;
                 mStats.totalRays = mStats.visibilityRays + mStats.closestHitRays;
                 mStats.pathVertices = totalPathVertices;
                 mStats.volumeLookups = totalVolumeLookups;
                 mStats.avgVisibilityRays = (float)mStats.visibilityRays / numPixels;
+                mStats.avgVisibilityAnyHitRays = (float)mStats.visibilityAnyHitRays / numPixels;
                 mStats.avgClosestHitRays = (float)mStats.closestHitRays / numPixels;
+                mStats.avgAnyHitRays = (float)mStats.anyHitRays / numPixels;
                 mStats.avgTotalRays = (float)mStats.totalRays / numPixels;
                 mStats.avgPathLength = (float)totalPathLength / numPixels;
                 mStats.avgPathVertices = (float)totalPathVertices / numPixels;

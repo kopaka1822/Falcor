@@ -171,6 +171,14 @@ namespace Falcor
         */
         virtual bool isThinSurface() const { return mHeader.isThinSurface(); }
 
+        /** Set the thin surface flag.
+         */
+        virtual void setCastShadow(bool castShadow);
+
+        /** Returns true if the material is a thin surface.
+         */
+        virtual bool isCastShadow() const { return mHeader.isCastShadow(); }
+
         /** Set the alpha mode.
         */
         virtual void setAlphaMode(AlphaMode alphaMode);

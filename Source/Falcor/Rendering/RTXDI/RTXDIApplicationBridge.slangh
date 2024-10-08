@@ -91,25 +91,39 @@ RAB_LightSample RAB_EmptyLightSample()
 // G-buffer input and accessor functions.
 // ------------------------------------------------------------------------------------------------
 
-/** A copy of Falcor's Camera::computeRayPinhole() method that works for current/last frame.
+/** Get the view direction of current or previous frame. Modified to work with view direction textures
 */
 float3 computeRayDirection(uint2 pixel, bool previousFrame)
 {
-    const float2 jitter = previousFrame
+     //If textures are valid, load the view texture from the requested pixel
+    if (gRTXDI.validViewTextures)
+    {
+        float3 viewDir;
+        if (previousFrame)
+            viewDir = gRTXDI.viewDirPrev[pixel].xyz;
+        else
+            viewDir = gRTXDI.viewDir[pixel].xyz;
+
+        return normalize(-viewDir);
+    }
+    else
+    {
+        const float2 jitter = previousFrame
         ? float2(-gRTXDI.prevCameraJitter.x, gRTXDI.prevCameraJitter.y)
         : float2(-gScene.camera.data.jitterX, gScene.camera.data.jitterY);
 
-    // Compute sample position in screen space in [0,1] with origin at the top-left corner.
-    // The camera jitter offsets the sample by +-0.5 pixels from the pixel center.
-    const float2 p = (pixel + float2(0.5f, 0.5f)) / gRTXDI.frameDim + jitter;
-    const float2 ndc = float2(2, -2) * p + float2(-1, 1);
+        // Compute sample position in screen space in [0,1] with origin at the top-left corner.
+        // The camera jitter offsets the sample by +-0.5 pixels from the pixel center.
+        const float2 p = (pixel + float2(0.5f, 0.5f)) / gRTXDI.frameDim + jitter;
+        const float2 ndc = float2(2, -2) * p + float2(-1, 1);
 
-    const float3 cameraU = previousFrame ? gRTXDI.prevCameraU : gScene.camera.data.cameraU;
-    const float3 cameraV = previousFrame ? gRTXDI.prevCameraV : gScene.camera.data.cameraV;
-    const float3 cameraW = previousFrame ? gRTXDI.prevCameraW : gScene.camera.data.cameraW;
+        const float3 cameraU = previousFrame ? gRTXDI.prevCameraU : gScene.camera.data.cameraU;
+        const float3 cameraV = previousFrame ? gRTXDI.prevCameraV : gScene.camera.data.cameraV;
+        const float3 cameraW = previousFrame ? gRTXDI.prevCameraW : gScene.camera.data.cameraW;
 
-    // Compute the normalized ray direction assuming a pinhole camera.
-    return normalize(ndc.x * cameraU + ndc.y * cameraV + cameraW);
+        // Compute the normalized ray direction assuming a pinhole camera.
+        return normalize(ndc.x * cameraU + ndc.y * cameraV + cameraW);
+    }
 }
 
 /** Loads a surface from the current or previous G-buffer at the specified pixel position.

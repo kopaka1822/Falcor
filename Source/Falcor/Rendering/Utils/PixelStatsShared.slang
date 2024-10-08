@@ -33,7 +33,9 @@ BEGIN_NAMESPACE_FALCOR
 enum class PixelStatsRayType
 {
     Visibility = 0,
-    ClosestHit = 1,
+    AnyHitVis = 1,
+    ClosestHit = 2,
+    AnyHit = 3,
 
     Count
 };

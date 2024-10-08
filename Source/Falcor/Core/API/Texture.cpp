@@ -190,7 +190,7 @@ ref<Texture> Texture::createCube(
 {
     bindFlags = updateBindFlags(pDevice, bindFlags, pData != nullptr, mipLevels, format, "TextureCube");
     ref<Texture> pTexture =
-        ref<Texture>(new Texture(pDevice, width, height, 1, arraySize, mipLevels, 1, format, Type::TextureCube, bindFlags));
+        ref<Texture>(new Texture(pDevice, width, height, 1, arraySize * 6, mipLevels, 1, format, Type::TextureCube, bindFlags));
     pTexture->apiInit(pData, (mipLevels == kMaxPossible));
     return pTexture;
 }
@@ -564,7 +564,8 @@ void Texture::uploadInitData(RenderContext* pRenderContext, const void* pData, b
         // Upload just the first mip-level
         size_t arraySliceSize = mWidth * mHeight * getFormatBytesPerBlock(mFormat);
         const uint8_t* pSrc = (uint8_t*)pData;
-        uint32_t numFaces = (mType == Texture::Type::TextureCube) ? 6 : 1;
+        //uint32_t numFaces = (mType == Texture::Type::TextureCube) ? 6 : 1;
+        uint32_t numFaces = 1;
         for (uint32_t i = 0; i < mArraySize * numFaces; i++)
         {
             uint32_t subresource = getSubresourceIndex(i, 0);
@@ -584,17 +585,20 @@ void Texture::uploadInitData(RenderContext* pRenderContext, const void* pData, b
     }
 }
 
-void Texture::generateMips(RenderContext* pContext, bool minMaxMips)
+void Texture::generateMips(RenderContext* pContext, bool minMaxMips, int arraySlice, bool use2ChannelsMinMax)
 {
     if (mType != Type::Texture2D)
     {
         logWarning("Texture::generateMips() was only tested with Texture2Ds");
     }
 
+    uint texArrayStart = arraySlice >= 0 ? arraySlice : 0;
+    uint texArrayEnd = arraySlice >= 0 ? arraySlice + 1 : mArraySize;
+
     // #OPTME: should blit support arrays?
     for (uint32_t m = 0; m < mMipLevels - 1; m++)
     {
-        for (uint32_t a = 0; a < mArraySize; a++)
+        for (uint32_t a = texArrayStart; a < texArrayEnd; a++)
         {
             auto srv = getSRV(m, 1, a, 1);
             auto rtv = getRTV(m + 1, a, 1);
@@ -604,14 +608,24 @@ void Texture::generateMips(RenderContext* pContext, bool minMaxMips)
             }
             else
             {
-                const Sampler::ReductionMode redModes[] = {
-                    Sampler::ReductionMode::Standard, Sampler::ReductionMode::Min, Sampler::ReductionMode::Max,
-                    Sampler::ReductionMode::Standard};
+                std::array<Sampler::ReductionMode, 4> redModes;
+                if (use2ChannelsMinMax)
+                {
+                    redModes = {
+                        Sampler::ReductionMode::Min, Sampler::ReductionMode::Max, Sampler::ReductionMode::Standard,
+                        Sampler::ReductionMode::Standard};
+                }
+                else
+                {
+                    redModes = {
+                        Sampler::ReductionMode::Standard, Sampler::ReductionMode::Min, Sampler::ReductionMode::Max,
+                        Sampler::ReductionMode::Standard};
+                }
                 const float4 componentsTransform[] = {
                     float4(1.0f, 0.0f, 0.0f, 0.0f), float4(0.0f, 1.0f, 0.0f, 0.0f), float4(0.0f, 0.0f, 1.0f, 0.0f),
                     float4(0.0f, 0.0f, 0.0f, 1.0f)};
                 pContext->blit(
-                    srv, rtv, RenderContext::kMaxRect, RenderContext::kMaxRect, Sampler::Filter::Linear, redModes, componentsTransform
+                    srv, rtv, RenderContext::kMaxRect, RenderContext::kMaxRect, Sampler::Filter::Linear, redModes.data(), componentsTransform
                 );
             }
         }
@@ -711,7 +725,7 @@ void Texture::apiInit(const void* pData, bool autoGenMips)
     // array size
     if (mType == Texture::Type::TextureCube)
     {
-        desc.arraySize = mArraySize * 6;
+        desc.arraySize = mArraySize / 6;
     }
     else
     {

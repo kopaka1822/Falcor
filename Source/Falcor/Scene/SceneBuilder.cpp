@@ -911,6 +911,27 @@ namespace Falcor
         return nullptr;
     }
 
+    bool SceneBuilder::removeLight(const std::string& name)
+    {
+        bool foundLight = false;
+        //Search the light
+        uint it;
+        for (it = 0; it < mSceneData.lights.size(); it++)
+        {
+            auto& pLight = mSceneData.lights[it];
+            if (pLight->getName() == name)
+            {
+                foundLight = true;
+                break;
+            }
+        }
+
+        if (foundLight)
+            mSceneData.lights.erase(mSceneData.lights.begin() + it);
+
+        return foundLight;
+    }
+
     LightID SceneBuilder::addLight(const ref<Light>& pLight)
     {
         checkArgument(pLight != nullptr, "'pLight' is missing");
@@ -1767,6 +1788,7 @@ namespace Falcor
         using meshList = std::vector<MeshID>;
         std::unordered_map<NodeID, meshList> nodeToMeshList;
         meshList staticMeshes;
+        meshList staticNonShadowCastingMeshes;
         meshList staticDisplacedMeshes;
         meshList dynamicDisplacedMeshes;
         size_t nonInstancedMeshCount = 0;
@@ -1782,8 +1804,10 @@ namespace Falcor
             // Mark displaced meshes.
             const auto& pMaterial = mSceneData.pMaterials->getMaterial(mesh.materialId);
             if (pMaterial->isDisplaced()) mesh.isDisplaced = true;
+            if (!pMaterial->isCastShadow()) mesh.isCastShadow = false;
 
             if (mesh.isStatic && mesh.isDisplaced) staticDisplacedMeshes.push_back(meshID);
+            else if (mesh.isStatic && !mesh.isCastShadow) staticNonShadowCastingMeshes.push_back(meshID);
             else if (mesh.isStatic) staticMeshes.push_back(meshID);
             else if (!mesh.isStatic && mesh.isDisplaced) dynamicDisplacedMeshes.push_back(meshID);
             else nodeToMeshList[nodeID].push_back(meshID);
@@ -1793,12 +1817,13 @@ namespace Falcor
         // Validate that mesh counts add up.
         size_t nonInstancedDynamicMeshCount = 0;
         for (const auto& it : nodeToMeshList) nonInstancedDynamicMeshCount += it.second.size();
-        FALCOR_ASSERT(staticMeshes.size() + staticDisplacedMeshes.size() + dynamicDisplacedMeshes.size() + nonInstancedDynamicMeshCount == nonInstancedMeshCount);
+        FALCOR_ASSERT(staticMeshes.size() + staticNonShadowCastingMeshes.size() + staticDisplacedMeshes.size() + dynamicDisplacedMeshes.size() + nonInstancedDynamicMeshCount == nonInstancedMeshCount);
 
         // Classify instanced meshes.
         // The instanced meshes are grouped based on their lists of instances.
         // Meshes with an identical set of instances can be placed together in a BLAS.
         std::map<std::set<NodeID>, meshList> instancesToMeshList;
+        std::map<std::set<NodeID>, meshList> instancesToNonShadowCastingMeshList;
         std::map<std::set<NodeID>, meshList> displacedInstancesToMeshList;
         size_t instancedMeshCount = 0;
 
@@ -1810,8 +1835,12 @@ namespace Falcor
             // Mark displaced meshes.
             const auto& pMaterial = mSceneData.pMaterials->getMaterial(mesh.materialId);
             if (pMaterial->isDisplaced()) mesh.isDisplaced = true;
+            if (!pMaterial->isCastShadow())
+                mesh.isCastShadow = false;
 
             if (mesh.isDisplaced) displacedInstancesToMeshList[mesh.instances].push_back(meshID);
+            else if (!mesh.isCastShadow)
+                instancesToNonShadowCastingMeshList[mesh.instances].push_back(meshID);
             else instancesToMeshList[mesh.instances].push_back(meshID);
             instancedMeshCount++;
         }
@@ -1824,6 +1853,13 @@ namespace Falcor
             instancedMeshes.insert(it.second.begin(), it.second.end());
             instancedCount += it.second.size();
         }
+        std::set<MeshID> instancedNonShadowCastingMeshes;
+        size_t instancedNonShadowCastingCount = 0;
+        for (const auto& it : instancesToNonShadowCastingMeshList)
+        {
+            instancedNonShadowCastingMeshes.insert(it.second.begin(), it.second.end());
+            instancedNonShadowCastingCount += it.second.size();
+        }
         std::set<MeshID> displacedInstancedMeshes;
         size_t displacedInstancedCount = 0;
         for (const auto& it : displacedInstancesToMeshList)
@@ -1831,62 +1867,87 @@ namespace Falcor
             displacedInstancedMeshes.insert(it.second.begin(), it.second.end());
             displacedInstancedCount += it.second.size();
         }
-        if ((instancedCount + displacedInstancedCount) != instancedMeshCount ||
-            (instancedMeshes.size() + displacedInstancedMeshes.size()) != instancedMeshCount) throw RuntimeError("Error in instanced mesh grouping logic");
+        if ((instancedCount + instancedNonShadowCastingCount + displacedInstancedCount) != instancedMeshCount ||
+            (instancedMeshes.size() + instancedNonShadowCastingMeshes.size() + displacedInstancedMeshes.size()) != instancedMeshCount)
+            throw RuntimeError("Error in instanced mesh grouping logic");
 
         logInfo("Found {} static non-instanced meshes, arranged in 1 mesh group.", staticMeshes.size());
+        logInfo("Found {} static (non shadow throwable) non-instanced meshes, arranged in 1 mesh group.", staticNonShadowCastingMeshes.size());
         logInfo("Found {} displaced non-instanced meshes, arranged in 1 mesh group.", staticDisplacedMeshes.size());
         logInfo("Found {} dynamic non-instanced meshes, arranged in {} mesh groups.", nonInstancedDynamicMeshCount, nodeToMeshList.size());
         logInfo("Found {} instanced meshes, arranged in {} mesh groups.", instancedMeshCount, instancesToMeshList.size());
+        logInfo(
+            "Found {} (non shadow throwable) instanced meshes, arranged in {} mesh groups.", instancedNonShadowCastingCount,
+            instancesToNonShadowCastingMeshList.size()
+        );
 
         // Build final result. Format is a list of Mesh ID's per mesh group.
 
-        auto addMeshes = [this](const meshList& meshes, bool isStatic, bool isDisplaced, bool splitGroup)
+        auto addMeshes = [this](const meshList& meshes, bool splitGroup)
         {
             if (!splitGroup)
             {
-                mMeshGroups.push_back({ meshes, isStatic, isDisplaced });
+                //The group should contain the same
+                auto& mesh = mMeshes[meshes[0].get()];
+                mMeshGroups.push_back({meshes, mesh.isStatic, mesh.isDisplaced, mesh.isCastShadow});
             }
             else
             {
-                for (const auto& meshID : meshes) mMeshGroups.push_back(MeshGroup{ meshList({ meshID }), isStatic, isDisplaced });
+                for (const auto& meshID : meshes)
+                {
+                    auto& mesh = mMeshes[meshID.get()];
+                    mMeshGroups.push_back(MeshGroup{meshList({meshID}), mesh.isStatic, mesh.isDisplaced, mesh.isCastShadow});
+                }
+                
             }
         };
 
         // All static non-instanced meshes go in a single group or individual groups depending on config.
         if (!staticMeshes.empty())
         {
-            addMeshes(staticMeshes, true, false, is_set(mFlags, Flags::RTDontMergeStatic));
+            addMeshes(staticMeshes, is_set(mFlags, Flags::RTDontMergeStatic));
+        }
+
+        // All static non-instanced meshes go in a single group or individual groups depending on config.
+        if (!staticNonShadowCastingMeshes.empty())
+        {
+            addMeshes(staticNonShadowCastingMeshes, is_set(mFlags, Flags::RTDontMergeStatic));
         }
 
         // Non-instanced dynamic meshes were sorted above so just copy each list.
         for (const auto& it : nodeToMeshList)
         {
-            addMeshes(it.second, false, false, is_set(mFlags, Flags::RTDontMergeDynamic));
+            addMeshes(it.second, is_set(mFlags, Flags::RTDontMergeDynamic));
         }
 
         // Instanced static and dynamic meshes are grouped based on instance lists.
         for (const auto& it : instancesToMeshList)
         {
-            addMeshes(it.second, false, false, is_set(mFlags, Flags::RTDontMergeInstanced));
+            addMeshes(it.second,is_set(mFlags, Flags::RTDontMergeInstanced));
+        }
+
+        // Instanced static and dynamic meshes are grouped based on instance lists.
+        for (const auto& it : instancesToNonShadowCastingMeshList)
+        {
+            addMeshes(it.second, is_set(mFlags, Flags::RTDontMergeInstanced));
         }
 
         // All static displaced meshes go in a single group or individual groups depending on config.
         if (!staticDisplacedMeshes.empty())
         {
-            addMeshes(staticDisplacedMeshes, true, true, is_set(mFlags, Flags::RTDontMergeStatic));
+            addMeshes(staticDisplacedMeshes, is_set(mFlags, Flags::RTDontMergeStatic));
         }
 
         // All dynamic displaced meshes go in a single group or individual groups depending on config.
         if (!dynamicDisplacedMeshes.empty())
         {
-            addMeshes(dynamicDisplacedMeshes, false, true, is_set(mFlags, Flags::RTDontMergeDynamic));
+            addMeshes(dynamicDisplacedMeshes, is_set(mFlags, Flags::RTDontMergeDynamic));
         }
 
         // Instanced displaced meshes are grouped based on instance lists.
         for (const auto& it : displacedInstancesToMeshList)
         {
-            addMeshes(it.second, false, true, is_set(mFlags, Flags::RTDontMergeInstanced));
+            addMeshes(it.second, is_set(mFlags, Flags::RTDontMergeInstanced));
         }
     }
 
@@ -2599,6 +2660,7 @@ namespace Falcor
             meshFlags |= mesh.isFrontFaceCW ? (uint32_t)MeshFlags::IsFrontFaceCW : 0;
             meshFlags |= mesh.isDisplaced ? (uint32_t)MeshFlags::IsDisplaced : 0;
             meshFlags |= mesh.isAnimated ? (uint32_t)MeshFlags::IsAnimated : 0;
+            meshFlags |= mesh.isStatic ? (uint32_t)MeshFlags::IsStatic : 0;
             meshData[meshID].flags = meshFlags;
 
             if (mesh.use16BitIndices) mSceneData.has16BitIndices = true;
@@ -2888,6 +2950,7 @@ namespace Falcor
         sceneBuilder.def("getVolume", &SceneBuilder::getGridVolume, "name"_a); // PYTHONDEPRECATED
         sceneBuilder.def("addLight", &SceneBuilder::addLight, "light"_a);
         sceneBuilder.def("getLight", &SceneBuilder::getLight, "name"_a);
+        sceneBuilder.def("removeLight", &SceneBuilder::removeLight, "name"_a);
         sceneBuilder.def("loadLightProfile", &SceneBuilder::loadLightProfile, "filename"_a, "normalize"_a = true);
         sceneBuilder.def("addCamera", &SceneBuilder::addCamera, "camera"_a);
         sceneBuilder.def("addAnimation", &SceneBuilder::addAnimation, "animation"_a);

@@ -992,6 +992,9 @@ ref<Material> PreviewSurfaceConverter::convert(
     // For now, force all materials to be double-sided.
     pMaterial->setDoubleSided(true);
 
+    //This is a custom property, set to true for every material
+    pMaterial->setCastShadow(true);
+
     ref<Texture> baseColorTexture = loadTexture(spec.baseColor);
     ref<Texture> opacityTexture = loadTexture(spec.opacity);
     ref<Texture> roughnessTexture = loadTexture(spec.roughness);

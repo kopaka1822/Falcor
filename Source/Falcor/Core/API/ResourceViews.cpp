@@ -241,6 +241,7 @@ ref<RenderTargetView> RenderTargetView::create(
     desc.subresourceRange.mipLevelCount = 1;
     desc.subresourceRange.aspectMask = gfx::TextureAspect::Color;
     desc.renderTarget.shape = pTexture->getGfxTextureResource()->getDesc()->type;
+       
     FALCOR_GFX_CALL(pDevice->getGfxDevice()->createTextureView(pTexture->getGfxTextureResource(), desc, handle.writeRef()));
     return ref<RenderTargetView>(new RenderTargetView(pDevice, pTexture, handle, mipLevel, firstArraySlice, arraySize));
 }

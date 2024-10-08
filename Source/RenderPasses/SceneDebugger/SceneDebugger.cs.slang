@@ -182,6 +182,14 @@ struct SceneDebugger
         // Create material instance and query its properties.
         let mi = gScene.materials.getMaterialInstance(sd, lod);
         let bsdfProperties = mi.getProperties(sd);
+        const MaterialType materialType = sd.mtl.getMaterialType();
+        float metallic = -1.f;
+
+        if (materialType == MaterialType::Standard)
+        {
+            const BasicMaterialData md = gScene.materials.getBasicMaterialData(sd.materialID);
+            metallic = md.specular.b; // Blue component stores metallic in MetalRough mode.
+        }
 
         // Write pixel data for the selected pixel.
         if (all(pixel == params.selectedPixel))
@@ -269,6 +277,9 @@ struct SceneDebugger
             return remapVector(bsdfProperties.guideNormal);
         case SceneDebuggerMode::Roughness:
             return float3(bsdfProperties.roughness);
+        case SceneDebuggerMode::Metallic:
+            float3 metallicReturn = metallic >= 0 ? float3(metallic) : float3(1, 0, 0);
+            return float3(metallicReturn);
         case SceneDebuggerMode::FlatShaded:
         {
             // DEMO21:

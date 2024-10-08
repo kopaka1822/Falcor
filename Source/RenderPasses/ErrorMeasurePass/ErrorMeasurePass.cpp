@@ -51,7 +51,8 @@ namespace
     const std::string kReportRunningError = "ReportRunningError";
     const std::string kRunningErrorSigma = "RunningErrorSigma";
     const std::string kSelectedOutputId = "SelectedOutputId";
-}
+    const std::string kEnablePerFrameError = "EnablePerFrameError";
+    }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
@@ -60,15 +61,13 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 
 const Gui::RadioButtonGroup ErrorMeasurePass::sOutputSelectionButtons =
 {
+    {(uint32_t)OutputId::Difference, "Difference", true},
     { (uint32_t)OutputId::Source, "Source", true },
-    { (uint32_t)OutputId::Reference, "Reference", true },
-    { (uint32_t)OutputId::Difference, "Difference", true }
+    { (uint32_t)OutputId::Reference, "Reference", true }    
 };
 
 const Gui::RadioButtonGroup ErrorMeasurePass::sOutputSelectionButtonsSourceOnly =
-{
-    { (uint32_t)OutputId::Source, "Source", true }
-};
+{{(uint32_t)OutputId::Difference, "Difference", true}};
 
 ErrorMeasurePass::ErrorMeasurePass(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
@@ -84,6 +83,7 @@ ErrorMeasurePass::ErrorMeasurePass(ref<Device> pDevice, const Properties& props)
         else if (key == kReportRunningError) mReportRunningError = value;
         else if (key == kRunningErrorSigma) mRunningErrorSigma = value;
         else if (key == kSelectedOutputId) mSelectedOutputId = value;
+        else if (key == kEnablePerFrameError) mCalculatePerFrameError = value;
         else
         {
             logWarning("Unknown property '{}' in ErrorMeasurePass properties.", key);
@@ -110,6 +110,7 @@ Properties ErrorMeasurePass::getProperties() const
     props[kReportRunningError] = mReportRunningError;
     props[kRunningErrorSigma] = mRunningErrorSigma;
     props[kSelectedOutputId] = mSelectedOutputId;
+    props[kEnablePerFrameError] = mCalculatePerFrameError;
     return props;
 }
 
@@ -151,7 +152,8 @@ void ErrorMeasurePass::execute(RenderContext* pRenderContext, const RenderData& 
     }
 
     runDifferencePass(pRenderContext, renderData);
-    runReductionPasses(pRenderContext, renderData);
+    if (mCalculatePerFrameError)
+        runReductionPasses(pRenderContext, renderData);
 
     switch (mSelectedOutputId)
     {
@@ -253,7 +255,7 @@ void ErrorMeasurePass::renderUI(Gui::Widgets& widget)
 
     // Radio buttons to select the output.
     widget.text("Show:");
-    if (mMeasurements.valid)
+    if (true)
     {
         widget.radioButtons(sOutputSelectionButtons, reinterpret_cast<uint32_t&>(mSelectedOutputId));
         widget.tooltip("Press 'O' to change output mode; hold 'Shift' to reverse the cycling.\n\n"
@@ -290,6 +292,12 @@ void ErrorMeasurePass::renderUI(Gui::Widgets& widget)
     if (!mMeasurementsFilePath.empty())
     {
         widget.tooltip(mMeasurementsFilePath.string());
+    }
+
+    //Enable or disable error calculations
+    if (widget.checkbox("Enable Per Frame Error Calculations", mCalculatePerFrameError))
+    {
+        mMeasurements.valid = false;
     }
 
     // Print numerical error (scalar and RGB).

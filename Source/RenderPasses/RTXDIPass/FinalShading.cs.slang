@@ -31,6 +31,8 @@ import Rendering.Materials.IsotropicGGX;
 import Rendering.RTXDI.RTXDI;
 import Utils.Sampling.TinyUniformSampleGenerator;
 
+Texture2D<float4> gViewDir;
+RWTexture2D<float4> gViewDirPrev;
 RWTexture2D<float4> gColor;
 RWTexture2D<float4> gEmission;
 RWTexture2D<float4> gDiffuseIllumination;
@@ -65,7 +67,19 @@ struct FinalShading
 
         ShadingData sd;
         let lod = ExplicitLodTextureSampler(0.f); // TODO: Implement texture level-of-detail.
-        if (loadShadingData(pixel, frameDim, gScene.camera, vbuffer, lod, sd))
+        
+        //Get shading data. If the view dir texture is set use it instead of the scenes camera
+        bool validSurface;
+        float3 viewDir = float3(0.f);
+        if (is_valid(gViewDir))
+        {
+            viewDir = normalize(gViewDir[pixel].xyz);
+            validSurface = loadShadingData(pixel, frameDim, -viewDir, vbuffer, lod, sd);
+        }
+        else
+            validSurface = loadShadingData(pixel, frameDim, gScene.camera, vbuffer, lod, sd);
+
+        if (validSurface)
         {
             // Create material instance and query its properties.
             let hints = getMaterialInstanceHints();
@@ -142,6 +156,7 @@ struct FinalShading
         if (is_valid(gDiffuseIllumination)) gDiffuseIllumination[pixel] = float4(diffuseIllumination, hitT);
         if (is_valid(gSpecularReflectance)) gSpecularReflectance[pixel] = float4(specularReflectance, 1.f);
         if (is_valid(gSpecularIllumination)) gSpecularIllumination[pixel] = float4(specularIllumination, hitT);
+        if (is_valid(gViewDir)) gViewDirPrev[pixel] = float4(viewDir, 0.f);
     }
 };
 

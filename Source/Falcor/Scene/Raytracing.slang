@@ -34,6 +34,8 @@ cbuffer DxrPerFrame
     uint rayTypeCount;
 };
 
+static const uint kShadowRayInstanceMask = 0x01;
+
 /** Convenience wrapper for TraceRay() that sets the Scene parameters internally.
     \param[in] rayFlags Ray flags. Set to RAY_FLAG_NONE if not used.
     \param[in] instanceInclusionMask Instance inclusion mask. Set to 0xff if not needed.

@@ -29,6 +29,7 @@
 #include "SceneIDs.h"
 #include "SceneTypes.slang"
 #include "HitInfo.h"
+#include "FrustumCulling.h"
 #include "Animation/Animation.h"
 #include "Animation/AnimationController.h"
 #include "Displacement/DisplacementUpdateTask.slang"
@@ -47,6 +48,7 @@
 #include "Core/Object.h"
 #include "Core/API/VAO.h"
 #include "Core/API/RtAccelerationStructure.h"
+#include "Core/API/GpuFence.h"
 #include "Utils/Math/AABB.h"
 #include "Utils/Math/Rectangle.h"
 #include "Utils/Math/Vector.h"
@@ -284,6 +286,7 @@ namespace Falcor
             std::vector<MeshID> meshList;       ///< List of meshId's that are part of the group.
             bool isStatic = false;              ///< True if group represents static non-instanced geometry.
             bool isDisplaced = false;           ///< True if group uses displacement mapping.
+            bool isCastShadow = true;          ///< True if group mesh should cast shadows
         };
 
         /** Scene graph node.
@@ -960,8 +963,9 @@ namespace Falcor
             \param[in] pState Graphics state.
             \param[in] pVars Graphics vars.
             \param[in] cullMode Optional rasterizer cull mode. The default is to cull back-facing primitives.
+            \param[in] meshRenderMode Specifies which meshes should be rasterized
         */
-        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back);
+        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back, RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All, bool drawShadowThrowable = true );
 
         /** Render the scene using the rasterizer.
             This overload uses the supplied rasterizer states.
@@ -970,8 +974,62 @@ namespace Falcor
             \param[in] pVars Graphics vars.
             \param[in] pRasterizerStateCW Rasterizer state for meshes with clockwise triangle winding.
             \param[in] pRasterizerStateCCW Rasterizer state for meshes with counter-clockwise triangle winding. Can be the same as for clockwise.
+            \param[in] pRasterizerStateDS Rasterizer state for double sided meshes. Same as Cull mode None.
+            \param[in] meshRenderMode Specifies which meshes should be rasterized
         */
-        void rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW);
+        void rasterize(
+            RenderContext* pRenderContext,
+            GraphicsState* pState,
+            GraphicsVars* pVars,
+            const ref<RasterizerState>& pRasterizerStateCW,
+            const ref<RasterizerState>& pRasterizerStateCCW,
+            const ref<RasterizerState>& pRasterizerStateDS,
+            RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All,
+            bool drawShadowThrowable = true
+        );
+
+         /** Render the scene using the rasterizer and FrustumCulling
+           Note the rasterizer state bound to 'pState' is ignored.
+           If FrustumCulling is nullptr, it is created using the camera
+           \param[in] pRenderContext Render context.
+           \param[in] pState Graphics state.
+           \param[in] pVars Graphics vars.
+           \param[in] cullMode Optional rasterizer cull mode. The default is to cull back-facing primitives.
+           \param[in] meshRenderMode Specifies which meshes should be rasterized
+           \param[in] Frustum Culling Object. When null, it will be generated from the current selected camera
+       */
+        void rasterizeFrustumCulling(RenderContext* pRenderContext,
+                                     GraphicsState* pState,
+                                     GraphicsVars* pVars,
+                                     RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back,
+                                     RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All,
+                                     bool drawShadowThrowable = true,
+                                     ref<FrustumCulling> pFrustumCulling = nullptr
+        );
+
+        /** Render the scene using the rasterizer and frustumCulling
+            This overload uses the supplied rasterizer states.
+            \param[in] pRenderContext Render context.
+            \param[in] pState Graphics state.
+            \param[in] pVars Graphics vars.
+            \param[in] pRasterizerStateCW Rasterizer state for meshes with clockwise triangle winding.
+            \param[in] pRasterizerStateCCW Rasterizer state for meshes with counter-clockwise triangle winding. Can be the same as for clockwise.
+            \param[in] pRasterizerStateDS Rasterizer state for double sided meshes. Same as Cull mode None.
+            \param[in] meshRenderMode Specifies which meshes should be rasterized
+            \param[in] Frustum Culling Object. When null, it will be generated from the current selected camera
+        */
+        void rasterizeFrustumCulling(
+            RenderContext* pRenderContext,
+            GraphicsState* pState,
+            GraphicsVars* pVars,
+            const ref<RasterizerState>& pRasterizerStateCW,
+            const ref<RasterizerState>& pRasterizerStateCCW,
+            const ref<RasterizerState>& pRasterizerStateDS,
+            RasterizerState::MeshRenderMode meshRenderMode = RasterizerState::MeshRenderMode::All,
+            bool drawShadowThrowable = true,
+            ref<FrustumCulling> pFrustumCulling = nullptr
+        );
+
 
         /** Get the required raytracing maximum attribute size for this scene.
             Note: This depends on what types of geometry are used in the scene.
@@ -1065,6 +1123,10 @@ namespace Falcor
         */
         void toggleAnimations(bool animate);
 
+        /** Returns true if scene contains dynamic geometry
+        */
+        bool hasDynamicGeometry();
+
         /** Get the parameter block with all scene resources.
         */
         const ref<ParameterBlock>& getParameterBlock() const { return mpSceneBlock; }
@@ -1094,9 +1156,21 @@ namespace Falcor
         */
         NodeID getParentNodeID(NodeID nodeID) const;
 
+        /** Gets the Fence for GPU / CPU sync
+        */
+        const ref<GpuFence>& getFence() const { return mpFence; }
+
+        /** Gets the sync value last recorded by the fence in the update function
+        */
+        const uint getLastFrameFenceValue() const { return mFenceSyncLastFrame; }
+
         static void nullTracePass(RenderContext* pRenderContext, const uint2& dim);
 
         std::string getScript(const std::string& sceneVar);
+
+        /** Sets a forced geometry flag for the whole scene. Else RtGeometryFlags::Opaque is used for opaque materials and RtGeometryFlags::None for non-opaque.
+        */
+        void setRtASAdditionalGeometryFlag(RtGeometryFlags flags) { mAdditionalASGeometryFlags = flags; }
 
     private:
         friend class AnimationController;
@@ -1199,6 +1273,10 @@ namespace Falcor
         */
         bool updateAnimatable(Animatable& animatable, const AnimationController& controller, bool force = false);
 
+        /** Updates the fence. Should only be called once per frame after a flush
+        */
+        void signalFence(RenderContext* pRenderContext);
+
         UpdateFlags updateSelectedCamera(bool forceUpdate);
         UpdateFlags updateLights(bool forceUpdate);
         UpdateFlags updateGridVolumes(bool forceUpdate);
@@ -1228,6 +1306,9 @@ namespace Falcor
             ref<Buffer> pBuffer;            ///< Buffer holding the draw-indirect arguments.
             uint32_t count = 0;             ///< Number of draws.
             bool ccw = true;                ///< True if counterclockwise triangle winding.
+            bool ignoreWinding = false;     ///< Ignores winding and forces draws without culling (for transparent and double sided mats)
+            bool isDynamic = false;         ///< For Dynamic Meshes if they should be rendered seperatly
+            bool isCastShadow = true;      ///< True if the mesh should cast a shadow
             ResourceFormat ibFormat = ResourceFormat::Unknown;  ///< Index buffer format.
         };
 
@@ -1243,6 +1324,16 @@ namespace Falcor
         ref<Vao> mpMeshVao16Bit;                                    ///< VAO for drawing meshes with 16-bit vertex indices.
         ref<Vao> mpCurveVao;                                        ///< Vertex array object for the global curve vertex/index buffers.
         std::vector<DrawArgs> mDrawArgs;                            ///< List of draw arguments for rasterizing the meshes in the scene.
+
+        //Frustum Culling
+        std::vector<std::vector<uint>> mDrawArgsInstanceIDs;        ///< List of draw instance ids fitting to the mDrawArgs
+        ref<FrustumCulling> mpCameraCulling = nullptr;              ///< Culling for the camera
+        uint mFrustumCullingSelectedCamera = 0;                     ///< Selected Camera for Frustum Culling
+        bool mFrustumCullingUpdated = false;                        ///< Records if culling was updated this frame
+
+        //GPU CPU per frame sync
+        ref<GpuFence> mpFence;                                      ///< Fence for GPU/CPU sync. Will record the GPU Counter once per update
+        uint mFenceSyncLastFrame = 0;                               ///< Sync value for last frame
 
         // Triangle meshes
         std::vector<MeshDesc> mMeshDesc;                            ///< Copy of mesh data GPU buffer (mpMeshesBuffer).
@@ -1357,6 +1448,7 @@ namespace Falcor
         std::unique_ptr<AnimationController> mpAnimationController;
 
         // Raytracing data
+        RtGeometryFlags mAdditionalASGeometryFlags = RtGeometryFlags::None;  ///< Additional Geometry flag that is used for every pass
         UpdateMode mTlasUpdateMode = UpdateMode::Rebuild;   ///< How the TLAS should be updated when there are changes in the scene.
         UpdateMode mBlasUpdateMode = UpdateMode::Refit;     ///< How the BLAS should be updated when there are changes to meshes.
 

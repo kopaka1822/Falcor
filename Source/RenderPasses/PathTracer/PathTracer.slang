@@ -626,7 +626,7 @@ struct PathTracer
 
         float u = sampleNext1D(sg);
 
-        [unroll]
+        //[unroll]
         for (lightType = 0; lightType < 3; ++lightType)
         {
             if (u < p[lightType])

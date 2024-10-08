@@ -182,6 +182,9 @@ target_sources(Falcor PRIVATE
     RenderGraph/ResourceCache.cpp
     RenderGraph/ResourceCache.h
 
+	Rendering/AccelerationStructure/CustomAccelerationStructure.cpp
+    Rendering/AccelerationStructure/CustomAccelerationStructure.h
+
     Rendering/Lights/EmissiveLightSampler.cpp
     Rendering/Lights/EmissiveLightSampler.h
     Rendering/Lights/EmissiveLightSampler.slang
@@ -290,6 +293,21 @@ target_sources(Falcor PRIVATE
     Rendering/RTXDI/RTXDISetup.cs.slang
     Rendering/RTXDI/SurfaceData.slang
 
+	Rendering/ShadowMaps/GenerateShadowMap.3d.slang
+	Rendering/ShadowMaps/ReflectTypesForParameterBlock.cs.slang
+	Rendering/ShadowMaps/ShadowMap.cpp
+	Rendering/ShadowMaps/ShadowMap.h
+	Rendering/ShadowMaps/ShadowMap.slang
+	Rendering/ShadowMaps/ShadowMapHelpers.slang
+	Rendering/ShadowMaps/ShadowMapData.slang
+    Rendering/ShadowMaps/ShadowTestFunctions.slang
+	Rendering/ShadowMaps/Blur/SMGaussianBlur.cs.slang
+	Rendering/ShadowMaps/Blur/SMGaussianBlur.cpp
+	Rendering/ShadowMaps/Blur/SMGaussianBlur.h
+    Rendering/ShadowMaps/Oracle/ShadowMapOracle.cpp
+    Rendering/ShadowMaps/Oracle/ShadowMapOracle.h
+    Rendering/ShadowMaps/Oracle/ShadowMapOracle.slang
+
     Rendering/Utils/PixelStats.cpp
     Rendering/Utils/PixelStats.cs.slang
     Rendering/Utils/PixelStats.h
@@ -311,7 +329,9 @@ target_sources(Falcor PRIVATE
     RenderPasses/Shared/Denoising/NRDConstants.slang
     RenderPasses/Shared/Denoising/NRDData.slang
     RenderPasses/Shared/Denoising/NRDHelpers.slang
-
+    
+	Scene/FrustumCulling.cpp
+	Scene/FrustumCulling.h
     Scene/HitInfo.cpp
     Scene/HitInfo.h
     Scene/HitInfo.slang

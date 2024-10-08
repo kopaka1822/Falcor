@@ -41,12 +41,16 @@ namespace
     const std::string kInputVBuffer = "vbuffer";
     const std::string kInputTexGrads = "texGrads";
     const std::string kInputMotionVectors = "mvec";
+    const std::string kInputViewDir = "viewDir";
+    const std::string kInputPathLength = "pathLength";
 
     const Falcor::ChannelList kInputChannels =
     {
         { kInputVBuffer,            "gVBuffer",                 "Visibility buffer in packed format"                       },
         { kInputTexGrads,           "gTextureGrads",            "Texture gradients", true /* optional */                   },
         { kInputMotionVectors,      "gMotionVector",            "Motion vector buffer (float format)", true /* optional */ },
+        { kInputViewDir,            "gViewDir",                 "View Vector", true /* optional */ },
+        { kInputPathLength,         "gPathLength",              "Path Length from camera to hit point", true /* optional */ },
     };
 
     const Falcor::ChannelList kOutputChannels =
@@ -107,6 +111,13 @@ void RTXDIPass::execute(RenderContext* pRenderContext, const RenderData& renderD
 
     const auto& pVBuffer = renderData.getTexture(kInputVBuffer);
     const auto& pMotionVectors = renderData.getTexture(kInputMotionVectors);
+    const auto& pViewDir = renderData[kInputViewDir] ? renderData[kInputViewDir]->asTexture(): nullptr;
+    // Create a previous view direction texture if the view dir texture is set
+    if (pViewDir != nullptr && !mpViewDirPrev)
+    {
+        mpViewDirPrev = Texture::create2D(mpDevice, pViewDir->getWidth(), pViewDir->getHeight(), pViewDir->getFormat(), 1u, 1u, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        mpViewDirPrev->setName("RTXDI::PreviousViewDir");
+    }
 
     auto& dict = renderData.getDictionary();
 
@@ -124,9 +135,9 @@ void RTXDIPass::execute(RenderContext* pRenderContext, const RenderData& renderD
 
     mpRTXDI->beginFrame(pRenderContext, mFrameDim);
 
-    prepareSurfaceData(pRenderContext, pVBuffer);
+    prepareSurfaceData(pRenderContext, pVBuffer, renderData);
 
-    mpRTXDI->update(pRenderContext, pMotionVectors);
+    mpRTXDI->update(pRenderContext, pMotionVectors, pViewDir, mpViewDirPrev);
 
     finalShading(pRenderContext, pVBuffer, renderData);
 
@@ -178,12 +189,15 @@ void RTXDIPass::renderUI(Gui::Widgets& widget)
     }
 }
 
-void RTXDIPass::prepareSurfaceData(RenderContext* pRenderContext, const ref<Texture>& pVBuffer)
+void RTXDIPass::prepareSurfaceData(RenderContext* pRenderContext, const ref<Texture>& pVBuffer, const RenderData& renderData)
 {
     FALCOR_ASSERT(mpRTXDI);
     FALCOR_ASSERT(pVBuffer);
 
     FALCOR_PROFILE(pRenderContext, "prepareSurfaceData");
+
+    const auto& pViewDir = renderData[kInputViewDir] ? renderData[kInputViewDir]->asTexture() : nullptr;
+    const auto& pPathLength = renderData[kInputPathLength] ? renderData[kInputPathLength]->asTexture() : nullptr;
 
     if (!mpPrepareSurfaceDataPass)
     {
@@ -195,6 +209,7 @@ void RTXDIPass::prepareSurfaceData(RenderContext* pRenderContext, const ref<Text
         auto defines = mpScene->getSceneDefines();
         defines.add(mpRTXDI->getDefines());
         defines.add("GBUFFER_ADJUST_SHADING_NORMALS", mGBufferAdjustShadingNormals ? "1" : "0");
+        defines.add(getValidResourceDefines(kInputChannels, renderData));
 
         mpPrepareSurfaceDataPass = ComputePass::create(mpDevice, desc, defines, true);
     }
@@ -204,6 +219,8 @@ void RTXDIPass::prepareSurfaceData(RenderContext* pRenderContext, const ref<Text
     auto rootVar = mpPrepareSurfaceDataPass->getRootVar();
     rootVar["gScene"] = mpScene->getParameterBlock();
     mpRTXDI->setShaderData(rootVar);
+    rootVar["gPathLength"] = pPathLength;
+    rootVar["gViewDir"] = pViewDir;
 
     auto var = rootVar["gPrepareSurfaceData"];
     var["vbuffer"] = pVBuffer;
@@ -219,6 +236,8 @@ void RTXDIPass::finalShading(RenderContext* pRenderContext, const ref<Texture>& 
 
     FALCOR_PROFILE(pRenderContext, "finalShading");
 
+    const auto& pViewDir = renderData[kInputViewDir] ? renderData[kInputViewDir]->asTexture() : nullptr;
+
     if (!mpFinalShadingPass)
     {
         Program::Desc desc;
@@ -230,6 +249,7 @@ void RTXDIPass::finalShading(RenderContext* pRenderContext, const ref<Texture>& 
         defines.add(mpRTXDI->getDefines());
         defines.add("GBUFFER_ADJUST_SHADING_NORMALS", mGBufferAdjustShadingNormals ? "1" : "0");
         defines.add("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
+        defines.add(getValidResourceDefines(kInputChannels, renderData));
         defines.add(getValidResourceDefines(kOutputChannels, renderData));
 
         mpFinalShadingPass = ComputePass::create(mpDevice, desc, defines, true);
@@ -245,6 +265,9 @@ void RTXDIPass::finalShading(RenderContext* pRenderContext, const ref<Texture>& 
     auto rootVar = mpFinalShadingPass->getRootVar();
     rootVar["gScene"] = mpScene->getParameterBlock();
     mpRTXDI->setShaderData(rootVar);
+
+    rootVar["gViewDir"] = pViewDir;
+    rootVar["gViewDirPrev"] = mpViewDirPrev;
 
     auto var = rootVar["gFinalShading"];
     var["vbuffer"] = pVBuffer;

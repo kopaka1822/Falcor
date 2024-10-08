@@ -337,12 +337,31 @@ namespace Falcor
         return mpLightCollection;
     }
 
-    void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, RasterizerState::CullMode cullMode)
+    void Scene::rasterize(
+        RenderContext* pRenderContext,
+        GraphicsState* pState,
+        GraphicsVars* pVars,
+        RasterizerState::CullMode cullMode,
+        RasterizerState::MeshRenderMode meshRenderMode,
+        bool drawShadowCastable
+    )
     {
-        rasterize(pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode]);
+        rasterize(
+            pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode],
+            mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode, drawShadowCastable
+        );
     }
 
-    void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, GraphicsVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW)
+    void Scene::rasterize(
+        RenderContext* pRenderContext,
+        GraphicsState* pState,
+        GraphicsVars* pVars,
+        const ref<RasterizerState>& pRasterizerStateCW,
+        const ref<RasterizerState>& pRasterizerStateCCW,
+        const ref<RasterizerState>& pRasterizerStateDS,
+        RasterizerState::MeshRenderMode meshRenderMode,
+        bool drawShadowCastable
+    )
     {
         FALCOR_PROFILE(pRenderContext, "rasterizeScene");
 
@@ -355,11 +374,31 @@ namespace Falcor
         {
             FALCOR_ASSERT(draw.count > 0);
 
+            // Skip meshes that should not cast a shadow
+            if (!draw.isCastShadow && !drawShadowCastable)
+                continue;
+
+            //Skip static meshes if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic) && !draw.isDynamic)
+                continue;
+
+            // Skip dynamic meshes if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic) && draw.isDynamic)
+                continue;
+
+            //Skip non double sided if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipNonDoubleSided) && !draw.ignoreWinding)
+                continue;
+
             // Set state.
             pState->setVao(draw.ibFormat == ResourceFormat::R16Uint ? mpMeshVao16Bit : mpMeshVao);
 
-            if (draw.ccw) pState->setRasterizerState(pRasterizerStateCCW);
-            else pState->setRasterizerState(pRasterizerStateCW);
+            if (draw.ignoreWinding)
+                pState->setRasterizerState(pRasterizerStateDS);
+            else if (draw.ccw)
+                pState->setRasterizerState(pRasterizerStateCCW);
+            else
+                pState->setRasterizerState(pRasterizerStateCW);
 
             // Draw the primitives.
             if (isIndexed)
@@ -372,6 +411,226 @@ namespace Falcor
             }
         }
 
+        pState->setRasterizerState(pCurrentRS);
+    }
+
+     void Scene::rasterizeFrustumCulling(
+        RenderContext* pRenderContext,
+        GraphicsState* pState,
+        GraphicsVars* pVars,
+        RasterizerState::CullMode cullMode,
+        RasterizerState::MeshRenderMode meshRenderMode,
+        bool drawShadowCastable,
+        ref<FrustumCulling> pFrustumCulling
+    )
+    {
+        rasterizeFrustumCulling(
+            pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode],
+            mFrontCounterClockwiseRS[RasterizerState::CullMode::None], meshRenderMode,drawShadowCastable, pFrustumCulling
+        );
+    }
+
+    void Scene::rasterizeFrustumCulling(
+        RenderContext* pRenderContext,
+        GraphicsState* pState,
+        GraphicsVars* pVars,
+        const ref<RasterizerState>& pRasterizerStateCW,
+        const ref<RasterizerState>& pRasterizerStateCCW,
+        const ref<RasterizerState>& pRasterizerStateDS,
+        RasterizerState::MeshRenderMode meshRenderMode,
+        bool drawShadowCastable,
+        ref<FrustumCulling> pFrustumCulling
+    )
+    {
+        FALCOR_PROFILE(pRenderContext, "rasterizeScene");
+
+        pVars->setParameterBlock(kParameterBlockName, mpSceneBlock);
+
+        auto pCurrentRS = pState->getRasterizerState();
+        bool isIndexed = hasIndexBuffer();
+
+        bool updateDynamicGeomFrustum = true;
+
+        //If there was no called culling, use the camera one
+        if (!pFrustumCulling)
+        {
+            bool forceUpdate = mSelectedCamera != mFrustumCullingSelectedCamera;
+            if (forceUpdate)
+                mFrustumCullingSelectedCamera = mSelectedCamera;
+
+            const auto& camera = mCameras[mSelectedCamera];
+            if (!mpCameraCulling)
+            {
+                mpCameraCulling = make_ref<FrustumCulling>(camera);
+            }
+
+            pFrustumCulling = mpCameraCulling;
+
+            //Update the frustum only for the first rasterize pass
+            if (!mFrustumCullingUpdated || forceUpdate)
+            {
+                auto cameraChanges = camera->getChanges();
+                auto excluded = Camera::Changes::Jitter | Camera::Changes::History;
+                if (((cameraChanges & ~excluded) != Camera::Changes::None) || forceUpdate)
+                {
+                    pFrustumCulling->updateFrustum(camera);
+                }
+                updateDynamicGeomFrustum = true;
+                mFrustumCullingUpdated = true;
+            }
+        }
+        else //Custom culling is used
+        {
+            // TODO add handling for custom frustum culling
+            // For now we assume that every custom culling is called once
+            updateDynamicGeomFrustum = true;
+        }
+
+        //Initialize the draw buffers, with the mDrawArgs buffer as template
+        if (mDrawArgs.size() != pFrustumCulling->getDrawBufferSize())
+        {
+            std::vector<ref<Buffer>> drawBuffers;
+            std::vector<bool> hasDynamicGeometry;
+            for (const auto& draw : mDrawArgs)
+            {
+                drawBuffers.push_back(draw.pBuffer);
+                hasDynamicGeometry.push_back(draw.isDynamic);
+            }
+                
+            pFrustumCulling->createDrawBuffer(mpDevice, mpFence, pRenderContext, drawBuffers, hasDynamicGeometry);
+        }
+
+        // Create an custom draw argument buffer for this frame
+        const auto& globalMatrices = mpAnimationController->getGlobalMatrices();
+        auto& pDrawBuffers = pFrustumCulling->getDrawBuffers();
+        auto& pDrawBufferCounts = pFrustumCulling->getDrawCounts();
+
+        //Check if any buffer needs an update
+        bool needUpdate = false;
+        for (uint i = 0; i < mDrawArgs.size(); i++)
+            needUpdate |= !pFrustumCulling->isBufferValid(i);
+
+        if (needUpdate || (updateDynamicGeomFrustum && pFrustumCulling->hasDynamic()))
+            pFrustumCulling->startUpdate(mFenceSyncLastFrame);
+
+        for (uint i=0; i<mDrawArgs.size(); i++)
+        {
+            const auto& draw = mDrawArgs[i];
+            FALCOR_ASSERT(draw.count > 0);
+
+            //Skip meshes that should not cast a shadow
+            if (!draw.isCastShadow && !drawShadowCastable)
+                continue;
+
+            // Skip static meshes if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipStatic) && !draw.isDynamic)
+                continue;
+
+            // Skip dynamic meshes if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipDynamic) && draw.isDynamic)
+                continue;
+
+            // Skip non double sided if desired
+            if (is_set(meshRenderMode, RasterizerState::MeshRenderMode::SkipNonDoubleSided) && !draw.ignoreWinding)
+                continue;
+
+            bool bufferValid = pFrustumCulling->isBufferValid(i);
+
+            if (isIndexed && (!bufferValid || draw.isDynamic))
+            {
+                std::vector<DrawIndexedArguments> drawArguments;
+                std::vector<uint> passedDrawInstances;        //Draw instances used for dynamic geometry
+                for (auto& instanceID : mDrawArgsInstanceIDs[i])
+                {
+                    const auto& instance = mGeometryInstanceData[instanceID];
+                    const auto& worldMat = globalMatrices[instance.globalMatrixID];
+                    const AABB& meshBB = mMeshBBs[instance.geometryID];
+                    const auto& mesh = mMeshDesc[instance.geometryID];
+
+                    //If the mesh passes the culling test, add to draw buffer
+                    // TODO: Add a better/functioning precalculated BB for skinned meshes
+                    if (pFrustumCulling->isInFrustum(meshBB.transform(worldMat)) || mesh.isSkinned())
+                    {
+                        
+                        DrawIndexedArguments drawArg;
+                        drawArg.IndexCountPerInstance = mesh.indexCount;
+                        drawArg.InstanceCount = 1;
+                        drawArg.StartIndexLocation = mesh.ibOffset * (mesh.use16BitIndices() ? 2 : 1);
+                        drawArg.BaseVertexLocation = mesh.vbOffset;
+                        drawArg.StartInstanceLocation = instanceID;
+
+                        drawArguments.push_back(drawArg);
+                        passedDrawInstances.push_back(instanceID);
+                    }
+                }
+                //For dynamic check if we need to update the draw buffer
+                bool updateDrawBuffer = true;
+                if (draw.isDynamic)
+                    updateDrawBuffer = pFrustumCulling->checkDynamicInstances(i, passedDrawInstances);
+                    
+                if (updateDrawBuffer)
+                    pFrustumCulling->updateDrawBuffer(pRenderContext,i, drawArguments);
+            }
+            else if ((!bufferValid || draw.isDynamic))
+            {
+                std::vector<DrawArguments> drawArguments;
+                std::vector<uint> passedDrawInstances; // Draw instances used for dynamic geometry
+                for (auto& instanceID : mDrawArgsInstanceIDs[i])
+                {
+                    const auto& instance = mGeometryInstanceData[instanceID];
+                    const auto& worldMat = globalMatrices[instance.globalMatrixID];
+                    const AABB& meshBB = mMeshBBs[instance.geometryID];
+                    const auto& mesh = mMeshDesc[instance.geometryID];
+                    // If the mesh passes the culling test, add to draw buffer
+                    // TODO: Add a better/functioning precalculated BB for skinned meshes
+                    if (pFrustumCulling->isInFrustum(meshBB.transform(worldMat)) || mesh.isSkinned())
+                    {
+                        
+                        DrawArguments drawArg;
+                        drawArg.VertexCountPerInstance = mesh.vertexCount;
+                        drawArg.InstanceCount = 1;
+                        drawArg.StartVertexLocation = mesh.vbOffset;
+                        drawArg.StartInstanceLocation = instanceID;
+
+                        drawArguments.push_back(drawArg);
+                        passedDrawInstances.push_back(instanceID);
+                    }
+                }
+                // For dynamic check if we need to update the draw buffer
+                bool updateDrawBuffer = true;
+                if (draw.isDynamic)
+                    updateDrawBuffer = pFrustumCulling->checkDynamicInstances(i, passedDrawInstances);
+
+                if (updateDrawBuffer)
+                    pFrustumCulling->updateDrawBuffer(pRenderContext, i, drawArguments);
+            }
+
+            //Check if everything was culled
+            if (pDrawBufferCounts[i] == 0)
+                continue;
+
+            // Set state.
+            pState->setVao(draw.ibFormat == ResourceFormat::R16Uint ? mpMeshVao16Bit : mpMeshVao);
+
+            if (draw.ignoreWinding)
+                pState->setRasterizerState(pRasterizerStateDS);
+            else if (draw.ccw)
+                pState->setRasterizerState(pRasterizerStateCCW);
+            else
+                pState->setRasterizerState(pRasterizerStateCW);
+
+            // Draw the primitives.
+            if (isIndexed)
+            {
+                pRenderContext->drawIndexedIndirect(pState, pVars, pDrawBufferCounts[i], pDrawBuffers[i].get(), 0, nullptr, 0);
+            }
+            else
+            {
+                pRenderContext->drawIndirect(pState, pVars, pDrawBufferCounts[i], pDrawBuffers[i].get(), 0, nullptr, 0);
+            }
+        }
+
+        
         pState->setRasterizerState(pCurrentRS);
     }
 
@@ -1525,6 +1784,18 @@ namespace Falcor
         return false;
     }
 
+    void Scene::signalFence(RenderContext* pRenderContext)
+    {
+        //Create the Fence
+        if (!mpFence)
+        {
+            mpFence = GpuFence::create(mpDevice);
+            mpFence->breakStrongReferenceToDevice();
+        }
+
+        mFenceSyncLastFrame = mpFence->gpuSignal(pRenderContext->getLowLevelData()->getCommandQueue());
+    }
+
     Scene::UpdateFlags Scene::updateSelectedCamera(bool forceUpdate)
     {
         auto camera = mCameras[mSelectedCamera];
@@ -1817,6 +2088,9 @@ namespace Falcor
             updateGeometryInstances(false);
         }
 
+        //Signal Fence for this frame
+        signalFence(pRenderContext);
+
         // Update existing BLASes if skinned animation and/or procedural primitives moved.
         bool updateProcedural = is_set(mUpdates, UpdateFlags::CurvesMoved) || is_set(mUpdates, UpdateFlags::CustomPrimitivesMoved);
         bool blasUpdateRequired = is_set(mUpdates, UpdateFlags::MeshesChanged) || updateProcedural;
@@ -1853,6 +2127,8 @@ namespace Falcor
         // Validate assumption that scene defines didn't change.
         updateSceneDefines();
         checkInvariant(mSceneDefines == mPrevSceneDefines, "Scene defines changed unexpectedly");
+
+        mFrustumCullingUpdated = false;
 
         return mUpdates;
     }
@@ -2585,6 +2861,14 @@ namespace Falcor
         mpAnimationController->setEnabled(animate);
     }
 
+    bool Scene::hasDynamicGeometry() {
+        bool hasDynamic = false;
+        //Take the drawArgs to quickly check for dynamic geometry
+        for (const auto& drawArgs : mDrawArgs)
+            hasDynamic |= drawArgs.isDynamic;
+        return hasDynamic;
+    }
+
     void Scene::setBlasUpdateMode(UpdateMode mode)
     {
         if (mode != mBlasUpdateMode) mRebuildBlas = true;
@@ -2602,10 +2886,57 @@ namespace Falcor
         //
         // TODO: Update the draw args if a mesh undergoes animation that flips the winding.
 
+        //mGeometryInstanceData[desc.instanceID].globalMatrixID;
+
         mDrawArgs.clear();
+        mDrawArgsInstanceIDs.clear();
+
+        //Correctly mark animated geometry
+
+        //Create a set containing all nodes with animation data
+        std::set<uint32_t> animatedNodes;
+        for (const auto& animation : mpAnimationController->getAnimations())
+        {
+            uint nodeID = animation->getNodeID().get();
+            if (nodeID != NodeID::kInvalidID) {
+                animatedNodes.insert(nodeID);
+            } 
+        }
+        //Add all changed matrixes to the node map
+        for (uint node = 0; node < mpAnimationController->getGlobalMatrices().size(); node++)
+        {
+            NodeID nodeID = NodeID{node};
+            if (mpAnimationController->isMatrixChanged(nodeID))
+            {
+                if (node != NodeID::kInvalidID)
+                {
+                    animatedNodes.insert(node);
+                } 
+            }
+        }
+
+        for (const auto& instance : mGeometryInstanceData)
+        {
+            //Skip non triangles
+            if (instance.getType() != GeometryType::TriangleMesh)
+                continue;
+
+            const uint32_t instNodeID = instance.globalMatrixID;
+            auto& mesh = mMeshDesc[instance.geometryID];
+            //If node was found mark mesh as isAnimated
+            if (auto search = animatedNodes.find(instNodeID); search != animatedNodes.end())
+            {
+                //auto& mesh = mMeshDesc[instance.geometryID];
+                if(!mesh.isAnimated())
+                    mesh.flags |= (uint32_t)MeshFlags::IsAnimated;
+            }
+        }
 
         // Helper to create the draw-indirect buffer.
-        auto createDrawBuffer = [this](const auto& drawMeshes, bool ccw, ResourceFormat ibFormat = ResourceFormat::Unknown)
+        auto createDrawBuffer = [this](
+                                    const auto& drawMeshes, bool ccw, bool ignoreWinding, bool isDynamic, bool isCastShadow, const std::vector<uint>& instanceIDs,
+                                    ResourceFormat ibFormat = ResourceFormat::Unknown
+                                )
         {
             if (drawMeshes.size() > 0)
             {
@@ -2615,14 +2946,21 @@ namespace Falcor
                 FALCOR_ASSERT(drawMeshes.size() <= std::numeric_limits<uint32_t>::max());
                 draw.count = (uint32_t)drawMeshes.size();
                 draw.ccw = ccw;
+                draw.ignoreWinding = ignoreWinding;
+                draw.isDynamic = isDynamic;
+                draw.isCastShadow = isCastShadow;
                 draw.ibFormat = ibFormat;
+
                 mDrawArgs.push_back(draw);
+                mDrawArgsInstanceIDs.push_back(instanceIDs);
             }
         };
 
         if (hasIndexBuffer())
         {
-            std::vector<DrawIndexedArguments> drawClockwiseMeshes[2], drawCounterClockwiseMeshes[2];
+            //Objects with shadow ignore are always drawn without face culling
+            std::vector<DrawIndexedArguments> drawClockwiseMeshes[4], drawCounterClockwiseMeshes[4], drawDoubleSidedMeshes[8]; //0,1 static ; 2,3 dynamic; 4,5,6,7 non shadow casting
+            std::vector<uint> drawClockwiseMeshesIDs[4], drawCounterClockwiseMeshesIDs[4], drawDoubleSidedMeshesIDs[8];       //0,1 static ; 2,3 dynamic; 4,5,6,7 non shadow casting
 
             uint32_t instanceID = 0;
             for (const auto& instance : mGeometryInstanceData)
@@ -2631,26 +2969,62 @@ namespace Falcor
 
                 const auto& mesh = mMeshDesc[instance.geometryID];
                 bool use16Bit = mesh.use16BitIndices();
+                bool isDynamic = mesh.isAnimated() || mesh.isDynamic(); 
+                const auto mat = getMaterial(MaterialID::fromSlang(mesh.materialID));
+                bool isCastShadow = mat->isCastShadow();
 
                 DrawIndexedArguments draw;
                 draw.IndexCountPerInstance = mesh.indexCount;
                 draw.InstanceCount = 1;
                 draw.StartIndexLocation = mesh.ibOffset * (use16Bit ? 2 : 1);
                 draw.BaseVertexLocation = mesh.vbOffset;
-                draw.StartInstanceLocation = instanceID++;
+                draw.StartInstanceLocation = instanceID;
 
                 int i = use16Bit ? 0 : 1;
-                (instance.isWorldFrontFaceCW()) ? drawClockwiseMeshes[i].push_back(draw) : drawCounterClockwiseMeshes[i].push_back(draw);
+                i += isDynamic ? 2 : 0;
+                if (mat->isDoubleSided() || !mat->isOpaque() || !isCastShadow)
+                {
+                    //Offset the non shadowed materials
+                    if (!isCastShadow)
+                        i += 4;
+                    drawDoubleSidedMeshes[i].push_back(draw);
+                    drawDoubleSidedMeshesIDs[i].push_back(instanceID);
+                }
+                else if (instance.isWorldFrontFaceCW())
+                {
+                    drawClockwiseMeshes[i].push_back(draw);
+                    drawClockwiseMeshesIDs[i].push_back(instanceID);
+                }
+                else
+                {
+                    drawCounterClockwiseMeshes[i].push_back(draw);
+                    drawCounterClockwiseMeshesIDs[i].push_back(instanceID);
+                }
+
+                instanceID++;
             }
 
-            createDrawBuffer(drawClockwiseMeshes[0], false, ResourceFormat::R16Uint);
-            createDrawBuffer(drawClockwiseMeshes[1], false, ResourceFormat::R32Uint);
-            createDrawBuffer(drawCounterClockwiseMeshes[0], true, ResourceFormat::R16Uint);
-            createDrawBuffer(drawCounterClockwiseMeshes[1], true, ResourceFormat::R32Uint);
+            createDrawBuffer(drawClockwiseMeshes[0], false, false, false, true, drawClockwiseMeshesIDs[0], ResourceFormat::R16Uint);
+            createDrawBuffer(drawClockwiseMeshes[1], false, false, false, true, drawClockwiseMeshesIDs[1], ResourceFormat::R32Uint);
+            createDrawBuffer(drawClockwiseMeshes[2], false, false, true, true, drawClockwiseMeshesIDs[2], ResourceFormat::R16Uint);
+            createDrawBuffer(drawClockwiseMeshes[3], false, false, true, true, drawClockwiseMeshesIDs[3], ResourceFormat::R32Uint);
+            createDrawBuffer(drawCounterClockwiseMeshes[0], true, false, false, true, drawCounterClockwiseMeshesIDs[0], ResourceFormat::R16Uint);
+            createDrawBuffer(drawCounterClockwiseMeshes[1], true, false, false, true, drawCounterClockwiseMeshesIDs[1], ResourceFormat::R32Uint);
+            createDrawBuffer(drawCounterClockwiseMeshes[2], true, false, true, true, drawCounterClockwiseMeshesIDs[2], ResourceFormat::R16Uint);
+            createDrawBuffer(drawCounterClockwiseMeshes[3], true, false, true, true, drawCounterClockwiseMeshesIDs[3], ResourceFormat::R32Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[0], true, true, false, true, drawDoubleSidedMeshesIDs[0], ResourceFormat::R16Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[1], true, true, false, true, drawDoubleSidedMeshesIDs[1], ResourceFormat::R32Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[2], true, true, true, true, drawDoubleSidedMeshesIDs[2], ResourceFormat::R16Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[3], true, true, true, true, drawDoubleSidedMeshesIDs[3], ResourceFormat::R32Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[4], true, true, false, false, drawDoubleSidedMeshesIDs[4], ResourceFormat::R16Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[5], true, true, false, false, drawDoubleSidedMeshesIDs[5], ResourceFormat::R32Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[6], true, true, true, false, drawDoubleSidedMeshesIDs[6], ResourceFormat::R16Uint);
+            createDrawBuffer(drawDoubleSidedMeshes[7], true, true, true, false, drawDoubleSidedMeshesIDs[7], ResourceFormat::R32Uint);
         }
         else
         {
-            std::vector<DrawArguments> drawClockwiseMeshes, drawCounterClockwiseMeshes;
+            std::vector<DrawArguments> drawClockwiseMeshes[2], drawCounterClockwiseMeshes[2], drawDoubleSidedMeshes[4]; //0 Static; 1 Dynamic; 2,3 non shadow casting
+            std::vector<uint> drawClockwiseMeshesIDs[2], drawCounterClockwiseMeshesIDs[2], drawDoubleSidedMeshesIDs[4]; //0 Static; 1 Dynamic; 2,3 non shadow casting
 
             uint32_t instanceID = 0;
             for (const auto& instance : mGeometryInstanceData)
@@ -2659,18 +3033,45 @@ namespace Falcor
 
                 const auto& mesh = mMeshDesc[instance.geometryID];
                 FALCOR_ASSERT(mesh.indexCount == 0);
+                const auto mat = getMaterial(MaterialID::fromSlang(mesh.materialID));
+                bool isDynamic = mesh.isAnimated() || mesh.isDynamic(); 
+                bool isCastShadow = mat->isCastShadow();
 
                 DrawArguments draw;
                 draw.VertexCountPerInstance = mesh.vertexCount;
                 draw.InstanceCount = 1;
                 draw.StartVertexLocation = mesh.vbOffset;
-                draw.StartInstanceLocation = instanceID++;
+                draw.StartInstanceLocation = instanceID;
+                uint i = isDynamic ? 1 : 0;
+                
+                if (mat->isDoubleSided() || !mat->isOpaque() || !isCastShadow)
+                {
+                    if (!isCastShadow)
+                        i += 2;
+                    drawDoubleSidedMeshes[i].push_back(draw);
+                    drawDoubleSidedMeshesIDs[i].push_back(instanceID);
+                }
+                else if (instance.isWorldFrontFaceCW())
+                {
+                    drawClockwiseMeshes[i].push_back(draw);
+                    drawClockwiseMeshesIDs[i].push_back(instanceID);
+                }
+                else{
+                    drawCounterClockwiseMeshes[i].push_back(draw);
+                    drawCounterClockwiseMeshesIDs[i].push_back(instanceID);
+                }
 
-                (instance.isWorldFrontFaceCW()) ? drawClockwiseMeshes.push_back(draw) : drawCounterClockwiseMeshes.push_back(draw);
+                instanceID++;   
             }
 
-            createDrawBuffer(drawClockwiseMeshes, false);
-            createDrawBuffer(drawCounterClockwiseMeshes, true);
+            createDrawBuffer(drawClockwiseMeshes[0], false, false, false,true, drawClockwiseMeshesIDs[0]);
+            createDrawBuffer(drawClockwiseMeshes[1], false, false, true, true, drawClockwiseMeshesIDs[1]);
+            createDrawBuffer(drawCounterClockwiseMeshes[0], true, false, false, true, drawCounterClockwiseMeshesIDs[0]);
+            createDrawBuffer(drawCounterClockwiseMeshes[1], true, false, true, true, drawCounterClockwiseMeshesIDs[1]);
+            createDrawBuffer(drawDoubleSidedMeshes[0], true, true, false, true, drawDoubleSidedMeshesIDs[0]);
+            createDrawBuffer(drawDoubleSidedMeshes[1], true, true, true, true, drawDoubleSidedMeshesIDs[1]);
+            createDrawBuffer(drawDoubleSidedMeshes[2], true, true, false, true, drawDoubleSidedMeshesIDs[2]);
+            createDrawBuffer(drawDoubleSidedMeshes[3], true, true, true, true, drawDoubleSidedMeshesIDs[3]);
         }
     }
 
@@ -2774,6 +3175,7 @@ namespace Falcor
                         // If this is an opaque mesh, set the opaque flag
                         auto pMaterial = mpMaterials->getMaterial(MaterialID::fromSlang(mesh.materialID));
                         desc.flags = pMaterial->isOpaque() ? RtGeometryFlags::Opaque : RtGeometryFlags::None;
+                        desc.flags |= mAdditionalASGeometryFlags;
 
                         // Set the position data
                         desc.content.triangles.vertexData = pVb->getGpuAddress() + (mesh.vbOffset * pVbLayout->getStride());
@@ -3408,6 +3810,7 @@ namespace Falcor
         {
             const auto& meshList = mMeshGroups[i].meshList;
             const bool isStatic = mMeshGroups[i].isStatic;
+            const bool isCastShadow = mMeshGroups[i].isCastShadow;
 
             FALCOR_ASSERT(mBlasData[i].blasGroupIndex < mBlasGroups.size());
             const auto& pBlas = mBlasGroups[mBlasData[i].blasGroupIndex].pBlas;
@@ -3415,7 +3818,7 @@ namespace Falcor
 
             RtInstanceDesc desc = {};
             desc.accelerationStructure = pBlas->getGpuAddress() + mBlasData[i].blasByteOffset;
-            desc.instanceMask = 0xFF;
+            desc.instanceMask = isCastShadow ? 1 : 2;
             desc.instanceContributionToHitGroupIndex = perMeshHitEntry ? instanceContributionToHitGroupIndex : 0;
 
             instanceContributionToHitGroupIndex += rayTypeCount * (uint32_t)meshList.size();

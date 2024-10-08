@@ -70,6 +70,17 @@ public:
     };
 
     /**
+    * Mesh render mode
+    */
+    enum class MeshRenderMode : uint32_t
+    {
+        All = 0,                ///< Rasterize all meshes
+        SkipStatic = 1,         ///< Rasterize static meshes only
+        SkipDynamic = 2,        ///< Rasterize dynamic meshes 
+        SkipNonDoubleSided = 4, ///< Rasterizes only double Sided Meshes
+    };
+
+    /**
      * Rasterizer state descriptor
      */
     class FALCOR_API Desc
@@ -240,5 +251,6 @@ private:
 };
 
 FALCOR_ENUM_REGISTER(RasterizerState::CullMode);
+FALCOR_ENUM_CLASS_OPERATORS(RasterizerState::MeshRenderMode);
 
 } // namespace Falcor

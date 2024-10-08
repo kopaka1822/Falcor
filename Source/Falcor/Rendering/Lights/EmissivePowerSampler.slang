@@ -60,6 +60,7 @@ struct EmissivePowerSampler : IEmissiveLightSampler
     */
     bool sampleLight<S : ISampleGenerator>(const float3 posW, const float3 normalW, const bool upperHemisphere, inout S sg, out TriangleLightSample ls)
     {
+        ls = {};
         if (gScene.lightCollection.isEmpty()) return false;
 
         // Randomly pick a triangle out of the global list with uniform probability.

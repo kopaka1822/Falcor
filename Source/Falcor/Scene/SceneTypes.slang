@@ -147,6 +147,7 @@ enum class MeshFlags : uint32_t
     IsFrontFaceCW = 0x4,    ///< Front-facing side has clockwise winding in object space. Note that the winding in world space may be flipped due to the instance transform.
     IsDisplaced = 0x8,      ///< Mesh has displacement map.
     IsAnimated = 0x10,      ///< Mesh is affected by vertex-animations.
+    IsStatic = 0x20,        ///< Mesh has animations
 };
 
 /** Mesh data stored in 64B.
@@ -190,6 +191,11 @@ struct MeshDesc
     bool isDynamic() CONST_FUNCTION
     {
         return isSkinned() || isAnimated();
+    }
+
+    bool isStatic() CONST_FUNCTION
+    {
+        return (flags & (uint)MeshFlags::IsStatic) != 0;
     }
 
     bool isFrontFaceCW() CONST_FUNCTION

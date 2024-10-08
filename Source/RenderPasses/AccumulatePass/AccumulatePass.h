@@ -95,6 +95,7 @@ public:
 protected:
     void prepareAccumulation(RenderContext* pRenderContext, uint32_t width, uint32_t height);
     void accumulate(RenderContext* pRenderContext, const ref<Texture>& pSrc, const ref<Texture>& pDst);
+    void exportImage(RenderContext* pRenderContext, const ref<Texture>& pDst);
 
     // Internal state
     ref<Scene>                  mpScene;                        ///< The current scene (or nullptr if no scene).
@@ -120,6 +121,15 @@ protected:
     ResourceFormat              mOutputFormat = ResourceFormat::Unknown;                    ///< Output format (uses default when set to ResourceFormat::Unknown).
     RenderPassHelpers::IOSize   mOutputSizeSelection = RenderPassHelpers::IOSize::Default;  ///< Selected output size.
     uint2                       mFixedOutputSize = { 512, 512 };                            ///< Output size in pixels when 'Fixed' size is selected.
+
+    // Export
+    bool mUseExportImage = false; ///< Enable export of images
+    bool mStartExporting = false;
+    std::vector<int> mSkipItStart = {4000, 1800, 800, 400};
+    std::vector<uint> mSkipItCount = {100, 50, 10, 2};
+    std::string mFolderPathStr = "";
+    std::string mFileName = "img.";
+    std::string mExportError = "";
 };
 
 FALCOR_ENUM_REGISTER(AccumulatePass::Precision);
