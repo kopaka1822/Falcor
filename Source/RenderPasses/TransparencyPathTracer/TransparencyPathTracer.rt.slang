@@ -98,7 +98,8 @@ Texture2D<float4> gTmpStochDepths[COUNT_SM];
 Texture2D<float4> gTmpStochTransmittance[COUNT_SM];
 
 RaytracingAccelerationStructure gShadowAS;
-StructuredBuffer<float> gAccelShadowData[COUNT_LIGHTS];
+StructuredBuffer<AABB> gShadowAABBs[COUNT_LIGHTS];
+StructuredBuffer<float2> gAccelShadowData[COUNT_LIGHTS];
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -157,10 +158,13 @@ struct TransparencyRayData {
 struct AccelShadowRayData {
     float visibility;
     uint count;
+    float linZ;
+    uint _pad;
 
     __init() {
         this.visibility = 0.0;
         this.count = 0;
+        this.linZ = 0.0;
     }
 }
 struct AccelShadowAttribs {
@@ -685,6 +689,7 @@ float evalAccelShadow(uint lightIdx, float3 posW, float3 lightPosW) {
     float dist = -1.0 * mul(gShadowMapView[lightIdx], float4(posW, 1.0)).z;
 
     AccelShadowRayData rayData = AccelShadowRayData();
+    rayData.linZ = dist;
     rayData.visibility = 0.0;
     RayDesc ray;
     ray.Origin = float3(shadowPixel.x, shadowPixel.y, dist);
@@ -699,10 +704,6 @@ float evalAccelShadow(uint lightIdx, float3 posW, float3 lightPosW) {
     if (rayData.count == 0)
         rayData.visibility = 1.0;
 
-    /*
-    if (rayData.count > 1)
-        rayData.visibility /= rayData.count;
-    */
     return rayData.visibility;
 }
 
@@ -1107,8 +1108,15 @@ void shadowAnyHit(inout ShadowRayData rayData, BuiltInTriangleIntersectionAttrib
 void shadowAccelAnyHit(inout AccelShadowRayData rayData: SV_RayPayload, AccelShadowAttribs attribs: SV_IntersectionAttributes)
 {
     // Get data
-    float shadowData = gAccelShadowData[InstanceIndex()][PrimitiveIndex()];
-    rayData.visibility = max(rayData.visibility , shadowData);
+    AABB aabb = gShadowAABBs[InstanceIndex()][PrimitiveIndex()];
+    float2 rangeZ = float2(aabb.minPoint.z, aabb.maxPoint.z);
+    if (rayData.linZ > rangeZ.y || rayData.linZ < rangeZ.x)
+        IgnoreHit();
+
+    float2 shadowData = gAccelShadowData[InstanceIndex()][PrimitiveIndex()];
+    float t = saturate((rayData.linZ - rangeZ.x) / (rangeZ.y - rangeZ.x));
+    float vis = lerp(shadowData.x, shadowData.y, t);
+    rayData.visibility = max(rayData.visibility, vis);
 
     rayData.count++;
     IgnoreHit();

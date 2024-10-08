@@ -48,7 +48,7 @@ cbuffer CB
 
 RWStructuredBuffer<AABB> gAABB;
 RWBuffer<uint> gCounter;
-RWStructuredBuffer<float> gData;
+RWStructuredBuffer<float2> gData;
 
 static const float kDepthBias = AVSM_DEPTH_BIAS;
 static const float kNormalBias = AVSM_NORMAL_DEPTH_BIAS;
@@ -151,6 +151,7 @@ void rayGen()
     RayData rayData = RayData();
     bool useRayTracing = true;
     float lastMinDepth = 0.0;
+    float lastTransmittance = 1.0;
     // Loop to get all possible samples
     for (uint i = 0; (i < MAX_ELEMENTS) && useRayTracing ; i++) {
         rayData.depth = -1;
@@ -180,13 +181,14 @@ void rayGen()
                 return;
 
             gAABB[insertIdx] = AABB(minPoint, maxPoint);
-            gData[insertIdx] = rayData.totalTransmittance; // Transmittance last sample
+            gData[insertIdx] = float2(lastTransmittance , rayData.totalTransmittance); // Transmittance last sample
 
         }
         // Update for next iteration
         if (rayData.dist > 0) {
             ray.TMin = rayData.dist;
             lastMinDepth = rayData.depth;
+            lastTransmittance = rayData.totalTransmittance;
             rayData.totalTransmittance = rayData.currentTransmittance;
         }
            
@@ -203,6 +205,6 @@ void rayGen()
             return;
 
         gAABB[insertIdx] = AABB(minPoint, maxPoint);
-        gData[insertIdx] = rayData.totalTransmittance; // Transmittance last sample
+        gData[insertIdx] = float2(rayData.totalTransmittance, rayData.totalTransmittance); // Transmittance last sample
     }
 }

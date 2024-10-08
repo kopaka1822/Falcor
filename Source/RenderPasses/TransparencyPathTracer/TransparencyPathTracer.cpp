@@ -697,7 +697,7 @@ void TransparencyPathTracer::generateAccelShadow(RenderContext* pRenderContext, 
             for (uint i = 0; i < numBuffers; i++)
             {
                 mAccelShadowData[i] = Buffer::createStructured(
-                    mpDevice, sizeof(float), mSMSize * mSMSize * approxNumElementsPerPixel,
+                    mpDevice, sizeof(float2), mSMSize * mSMSize * approxNumElementsPerPixel,
                     ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false
                 );
                 mAccelShadowData[i]->setName("AccelShadowData" + std::to_string(i));
@@ -838,6 +838,7 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
         var["ShadowVPs"]["gShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
         var["ShadowView"]["gShadowMapView"][i] = mShadowMapMVP[i].view;
         var["gAccelShadowData"][i] = mAccelShadowData[i];
+        var["gShadowAABBs"][i] = mAccelShadowAABB[i];
     }
         
     for (uint i = 0; i < lights.size() * (mNumberAVSMSamples / 4); i++)
