@@ -1823,6 +1823,7 @@ namespace Falcor
         // The instanced meshes are grouped based on their lists of instances.
         // Meshes with an identical set of instances can be placed together in a BLAS.
         std::map<std::set<NodeID>, meshList> instancesToMeshList;
+        std::map<std::set<NodeID>, meshList> instancesToNonShadowCastingMeshList;
         std::map<std::set<NodeID>, meshList> displacedInstancesToMeshList;
         size_t instancedMeshCount = 0;
 
@@ -1834,8 +1835,12 @@ namespace Falcor
             // Mark displaced meshes.
             const auto& pMaterial = mSceneData.pMaterials->getMaterial(mesh.materialId);
             if (pMaterial->isDisplaced()) mesh.isDisplaced = true;
+            if (!pMaterial->isCastShadow())
+                mesh.isCastShadow = false;
 
             if (mesh.isDisplaced) displacedInstancesToMeshList[mesh.instances].push_back(meshID);
+            else if (!mesh.isCastShadow)
+                instancesToNonShadowCastingMeshList[mesh.instances].push_back(meshID);
             else instancesToMeshList[mesh.instances].push_back(meshID);
             instancedMeshCount++;
         }
@@ -1848,6 +1853,13 @@ namespace Falcor
             instancedMeshes.insert(it.second.begin(), it.second.end());
             instancedCount += it.second.size();
         }
+        std::set<MeshID> instancedNonShadowCastingMeshes;
+        size_t instancedNonShadowCastingCount = 0;
+        for (const auto& it : instancesToNonShadowCastingMeshList)
+        {
+            instancedNonShadowCastingMeshes.insert(it.second.begin(), it.second.end());
+            instancedNonShadowCastingCount += it.second.size();
+        }
         std::set<MeshID> displacedInstancedMeshes;
         size_t displacedInstancedCount = 0;
         for (const auto& it : displacedInstancesToMeshList)
@@ -1855,14 +1867,19 @@ namespace Falcor
             displacedInstancedMeshes.insert(it.second.begin(), it.second.end());
             displacedInstancedCount += it.second.size();
         }
-        if ((instancedCount + displacedInstancedCount) != instancedMeshCount ||
-            (instancedMeshes.size() + displacedInstancedMeshes.size()) != instancedMeshCount) throw RuntimeError("Error in instanced mesh grouping logic");
+        if ((instancedCount + instancedNonShadowCastingCount + displacedInstancedCount) != instancedMeshCount ||
+            (instancedMeshes.size() + instancedNonShadowCastingMeshes.size() + displacedInstancedMeshes.size()) != instancedMeshCount)
+            throw RuntimeError("Error in instanced mesh grouping logic");
 
         logInfo("Found {} static non-instanced meshes, arranged in 1 mesh group.", staticMeshes.size());
         logInfo("Found {} static (non shadow throwable) non-instanced meshes, arranged in 1 mesh group.", staticNonShadowCastingMeshes.size());
         logInfo("Found {} displaced non-instanced meshes, arranged in 1 mesh group.", staticDisplacedMeshes.size());
         logInfo("Found {} dynamic non-instanced meshes, arranged in {} mesh groups.", nonInstancedDynamicMeshCount, nodeToMeshList.size());
         logInfo("Found {} instanced meshes, arranged in {} mesh groups.", instancedMeshCount, instancesToMeshList.size());
+        logInfo(
+            "Found {} (non shadow throwable) instanced meshes, arranged in {} mesh groups.", instancedNonShadowCastingCount,
+            instancesToNonShadowCastingMeshList.size()
+        );
 
         // Build final result. Format is a list of Mesh ID's per mesh group.
 
@@ -1907,6 +1924,12 @@ namespace Falcor
         for (const auto& it : instancesToMeshList)
         {
             addMeshes(it.second,is_set(mFlags, Flags::RTDontMergeInstanced));
+        }
+
+        // Instanced static and dynamic meshes are grouped based on instance lists.
+        for (const auto& it : instancesToNonShadowCastingMeshList)
+        {
+            addMeshes(it.second, is_set(mFlags, Flags::RTDontMergeInstanced));
         }
 
         // All static displaced meshes go in a single group or individual groups depending on config.
