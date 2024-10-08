@@ -1783,7 +1783,7 @@ namespace Falcor
             // Mark displaced meshes.
             const auto& pMaterial = mSceneData.pMaterials->getMaterial(mesh.materialId);
             if (pMaterial->isDisplaced()) mesh.isDisplaced = true;
-            if (pMaterial->isDoubleSided() || !pMaterial->isOpaque()) mesh.isDoubleSided = true;
+            if (pMaterial->isDoubleSided()) mesh.isDoubleSided = true;
 
             if (mesh.isStatic && mesh.isDisplaced) staticDisplacedMeshes.push_back(meshID);
             else if (mesh.isStatic && mesh.isDoubleSided) staticDoubleSided.push_back(meshID);
@@ -1814,7 +1814,7 @@ namespace Falcor
             // Mark displaced meshes.
             const auto& pMaterial = mSceneData.pMaterials->getMaterial(mesh.materialId);
             if (pMaterial->isDisplaced()) mesh.isDisplaced = true;
-            if (pMaterial->isDoubleSided() || !pMaterial->isOpaque()) mesh.isDoubleSided = true;
+            if (pMaterial->isDoubleSided()) mesh.isDoubleSided = true;
 
             if (mesh.isDisplaced) displacedInstancesToMeshList[mesh.instances].push_back(meshID);
             else if(mesh.isDoubleSided) doubleSidedInstancesToMeshList[mesh.instances].push_back(meshID);
