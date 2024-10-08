@@ -43,6 +43,7 @@ cbuffer CB
     uint2 _pad;
     float4x4 gViewProj;    // View Projection for current light
     float4x4 gInvViewProj; // Inverse view projection
+    float4x4 gView;
 }
 
 RWStructuredBuffer<AABB> gAABB;
@@ -96,7 +97,6 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
 [shader("closesthit")]
 void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs)
 {
-    const uint lightIdx = DispatchRaysIndex().x;
     TriangleHit triangleHit;
     triangleHit.instanceID = getGeometryInstanceID();
     triangleHit.primitiveIndex = PrimitiveIndex();
@@ -108,11 +108,16 @@ void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes att
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -WorldRayDirection(), lod);
 
     rayData.currentTransmittance = rayData.totalTransmittance * (1.0 - sd.opacity);
-    float4 posH = mul(gViewProj[lightIdx], float4(sd.posW, 1.f));
-    rayData.depth = (posH.w - gNear) / (gFar - gNear); // Normalized depth
+    // float4 posH = mul(gViewProj, float4(sd.posW, 1.f));
+    //  rayData.depth = posH.w; // Linear depth
+    // float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
+    // rayData.depth = rayData.depth + (kDepthBias * gFar) + (normalBias * gFar);
+    rayData.depth = -1.0 * mul(gView, float4(sd.posW, 1.f)).z;
+    //float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
+    //rayData.depth = rayData.depth + (kDepthBias * gFar) + (normalBias * gFar);
+
      //Add bias to depth
-    float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
-    rayData.depth = saturate(rayData.depth + kDepthBias + normalBias);
+    
     rayData.dist = RayTCurrent();
 }
 
@@ -145,9 +150,10 @@ void rayGen()
 
     RayData rayData = RayData();
     bool useRayTracing = true;
+    float lastMinDepth = 0.0;
     // Loop to get all possible samples
     for (uint i = 0; (i < MAX_ELEMENTS) && useRayTracing ; i++) {
-        rayData.depth = 1;
+        rayData.depth = -1;
         rayData.dist = -1;
         rayData.currentTransmittance = 0.0;
 
@@ -165,8 +171,8 @@ void rayGen()
 
         if (rayData.dist > 0 && i > 0) {
             // Write output
-            float3 minPoint = float3(pixel.x + 0.1, pixel.y + 0.1, ray.TMin + 0.0001);
-            float3 maxPoint = float3(pixel.x + 0.9, pixel.y + 0.9, rayData.dist);
+            float3 minPoint = float3(pixel.x + 0.1, pixel.y + 0.1, lastMinDepth);
+            float3 maxPoint = float3(pixel.x + 0.9, pixel.y + 0.9, rayData.depth);
 
             uint insertIdx = 0;
             InterlockedAdd(gCounter[0], 1u, insertIdx);
@@ -180,15 +186,16 @@ void rayGen()
         // Update for next iteration
         if (rayData.dist > 0) {
             ray.TMin = rayData.dist;
+            lastMinDepth = rayData.depth;
             rayData.totalTransmittance = rayData.currentTransmittance;
         }
            
     }
 
-    //Insert last element
-    if (ray.TMin < ray.TMax) {
-        float3 minPoint = float3(pixel.x + 0.1, pixel.y + 0.1, ray.TMin + 0.0001);
-        float3 maxPoint = float3(pixel.x + 0.9, pixel.y + 0.9, ray.TMax);
+    // Insert last element
+    if (lastMinDepth < gFar) {
+        float3 minPoint = float3(pixel.x + 0.1, pixel.y + 0.1, lastMinDepth);
+        float3 maxPoint = float3(pixel.x + 0.9, pixel.y + 0.9, gFar);
 
         uint insertIdx = 0;
         InterlockedAdd(gCounter[0], 1u, insertIdx);

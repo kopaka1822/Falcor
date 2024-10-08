@@ -80,8 +80,9 @@ cbuffer ShadowVPs
     float4x4 gShadowMapVP[COUNT_LIGHTS];
 }
 
-struct AccelData {
-    float vis;
+cbuffer ShadowView
+{
+    float4x4 gShadowMapView[COUNT_LIGHTS];
 }
 
 // Inputs
@@ -97,7 +98,7 @@ Texture2D<float4> gTmpStochDepths[COUNT_SM];
 Texture2D<float4> gTmpStochTransmittance[COUNT_SM];
 
 RaytracingAccelerationStructure gShadowAS;
-StructuredBuffer<AccelData> gAccelShadowData[COUNT_LIGHTS];
+StructuredBuffer<float> gAccelShadowData[COUNT_LIGHTS];
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -675,17 +676,19 @@ float evalAccelShadow(uint lightIdx, float3 posW, float3 lightPosW) {
     shadowPos.z = (shadowPos.w - gNear) / (gFar - gNear); // Linear distance
 
     // Check if inside
-    /*
     if (any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
         return 0.0;
-    */
+    
 
     float2 shadowPixel = floor(shadowPos.xy * gSMSize) + 0.5;
-    float dist = distance(posW, lightPosW);
+    // float dist = distance(posW, lightPosW);
+    float dist = -1.0 * mul(gShadowMapView[lightIdx], float4(posW, 1.0)).z;
+
     AccelShadowRayData rayData = AccelShadowRayData();
+    rayData.visibility = 0.0;
     RayDesc ray;
-    ray.Origin = float3(shadowPixel.x, shadowPixel.y, shadowPos.w);
-    ray.Direction = float3(0,1,0);
+    ray.Origin = float3(shadowPixel.x, shadowPixel.y, dist);
+    ray.Direction = float3(0,0,-1);
     ray.TMin = 0;
     ray.TMax = 1e-10;
 
@@ -696,9 +699,10 @@ float evalAccelShadow(uint lightIdx, float3 posW, float3 lightPosW) {
     if (rayData.count == 0)
         rayData.visibility = 1.0;
 
+    /*
     if (rayData.count > 1)
         rayData.visibility /= rayData.count;
-
+    */
     return rayData.visibility;
 }
 
@@ -1103,8 +1107,8 @@ void shadowAnyHit(inout ShadowRayData rayData, BuiltInTriangleIntersectionAttrib
 void shadowAccelAnyHit(inout AccelShadowRayData rayData: SV_RayPayload, AccelShadowAttribs attribs: SV_IntersectionAttributes)
 {
     // Get data
-    AccelData shadowData = gAccelShadowData[InstanceIndex()][PrimitiveIndex()];
-    rayData.visibility += shadowData.vis;
+    float shadowData = gAccelShadowData[InstanceIndex()][PrimitiveIndex()];
+    rayData.visibility = max(rayData.visibility , shadowData);
 
     rayData.count++;
     IgnoreHit();

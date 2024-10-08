@@ -753,6 +753,7 @@ void TransparencyPathTracer::generateAccelShadow(RenderContext* pRenderContext, 
         var["CB"]["gFar"] = mNearFar.y;
         var["CB"]["gViewProj"] = mShadowMapMVP[i].viewProjection;
         var["CB"]["gInvViewProj"] = mShadowMapMVP[i].invViewProjection;
+        var["CB"]["gView"] = mShadowMapMVP[i].view;
 
         var["gAABB"] = mAccelShadowAABB[i];
         var["gCounter"] = mAccelShadowCounter[i];
@@ -835,6 +836,7 @@ void TransparencyPathTracer::traceScene(RenderContext* pRenderContext, const Ren
     for (uint i = 0; i < lights.size(); i++)
     {
         var["ShadowVPs"]["gShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
+        var["ShadowView"]["gShadowMapView"][i] = mShadowMapMVP[i].view;
         var["gAccelShadowData"][i] = mAccelShadowData[i];
     }
         
