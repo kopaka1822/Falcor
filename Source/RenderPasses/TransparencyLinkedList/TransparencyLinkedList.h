@@ -56,11 +56,13 @@ public:
     {
         RayTracing = 0u,
         StochSM = 1u,
+        LinkedList = 2u,
     };
 
     FALCOR_ENUM_INFO(ShadowEvalMode,{
         {ShadowEvalMode::RayTracing, "RayTracing"},
         {ShadowEvalMode::StochSM, "StochSM"},
+        {ShadowEvalMode::LinkedList, "LinkedList"},
     });
 
 private:
@@ -79,9 +81,9 @@ private:
 
     void updateSMMatrices(RenderContext* pRenderContext, const RenderData& renderData);
     void generateStochasticSM(RenderContext* pRenderContext, const RenderData& renderData);
+    void generateLinkedLists(RenderContext* pRenderContext, const RenderData& renderData);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void prepareVars();
-
 
     // Internal state
     ref<Scene> mpScene;                     ///< Current scene.
@@ -132,6 +134,12 @@ private:
 
     RayTracingPipeline mTracer;
     RayTracingPipeline mGenStochSMPip;    //Stochastic baised SM
+
+    // Linked list
+    std::vector<ref<Buffer>> mpLinkedList;
+    uint32_t mLinkedElementCount = 512 * 512 * 16; // (~70mb with 16 byte data => 4 floats)
+    RayTracingPipeline mGenLinkedListPip;
+    ref<Buffer> mpLinkedListCounter;
 };
 
 FALCOR_ENUM_REGISTER(TransparencyLinkedList::ShadowEvalMode);

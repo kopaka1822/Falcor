@@ -52,6 +52,7 @@ import SharedTypes;
 //Shadow Eval Modes
 #define SHADOW_EVAL_MODE_RAYTRACING 0
 #define SHADOW_EVAL_MODE_StochSM 1
+#define SHADOW_EVAL_MODE_LINKED_LIST 2
 
 #ifndef SHADOW_EVAL_MODE
 #define SHADOW_EVAL_MODE SHADOW_EVAL_MODE_RAYTRACING
@@ -434,6 +435,44 @@ float evalStochasticSM(uint lightIdx, float3 posW) {
     return shadow;
 }
 
+struct ListNode
+{
+    float depth;
+    float visibility;
+    uint next;
+    uint pad;
+};
+
+RWStructuredBuffer<ListNode> gLinkedList[COUNT_LIGHTS];
+
+float evalLinkedListSM(uint lightIdx, float3 posW) {
+    float4 shadowPos = mul(gShadowMapVP[lightIdx], float4(posW, 1));
+    shadowPos.xyz /= shadowPos.w;
+
+    shadowPos.y *= -1;                       // Flip
+    shadowPos.xy = shadowPos.xy * 0.5 + 0.5; // UV from [-1,1] to [0,1]
+    shadowPos.z = (shadowPos.w - gNear) / (gFar - gNear); // Linear distance
+
+    // Check if inside
+    if (any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
+        return 0.0;
+
+    float dist = -1.0 * mul(gShadowMapView[lightIdx], float4(posW, 1.0)).z;
+    dist = dist - 1e-2; // TODO better bias
+    uint2 shadowPixel = uint2(floor(shadowPos.xy * gSMSize));
+    uint index = shadowPixel.y * gSMSize.x + shadowPixel.x;
+    ListNode n = gLinkedList[lightIdx][index];
+    // traverse visibility until dist is reached
+    float visibility = 1.0;
+    while(n.depth < dist) {
+        visibility = n.visibility;
+        if(n.next == 0) break;
+        n = gLinkedList[lightIdx][n.next];
+    }
+
+    return visibility;
+}
+
 /** Samples a light index either uniform or with RIS (Good if a couple lights are used that dont overlap each other)
  */
 AnalyticLightSample sampleLightIndex(float3 posW, uint lightCount, inout SampleGenerator sg, out uint lightIndex, out float invPdf) {
@@ -507,8 +546,10 @@ float3 evalDirectAnalytic(const ShadingData sd, const IMaterialInstance mi, inou
         // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
         const float3 origin = computeRayOrigin(sd.posW, dot(sd.faceN, ls.dir) >= 0.f ? sd.faceN : -sd.faceN);
         shadow = traceShadowRay(origin, ls.dir, ls.distance);
-    #else //SHADOW_EVAL_MODE == SHADOW_EVAL_MODE_StochSM
+    #elif SHADOW_EVAL_MODE == SHADOW_EVAL_MODE_StochSM
         shadow = evalStochasticSM(lightIndex, sd.posW);
+    #elif SHADOW_EVAL_MODE == SHADOW_EVAL_MODE_LINKED_LIST
+        shadow = evalLinkedListSM(lightIndex, sd.posW);
     #endif
     
     if (shadow <= 0) return float3(0.f);

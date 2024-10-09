@@ -5,6 +5,7 @@ target_sources(TransparencyLinkedList PRIVATE
     TransparencyLinkedList.h
 	TransparencyLinkedList.rt.slang
 	GenStochasticSM.rt.slang
+    GenLinkedList.rt.slang
     SharedTypes.slang
 )
 

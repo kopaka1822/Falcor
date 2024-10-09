@@ -44,6 +44,7 @@ namespace
     const std::string kShaderStochSMRay = kShaderFolder + "GenStochasticSM.rt.slang";
     const std::string kShaderTemporalStochSMRay = kShaderFolder + "GenTmpStochSM.rt.slang";
     const std::string kShaderAccelShadowRay = kShaderFolder + "GenAccelShadow.rt.slang";
+    const std::string kShaderLinkedList = kShaderFolder + "GenLinkedList.rt.slang";
 
     //RT shader constant settings
     const uint kMaxPayloadSizeBytes = 20u;
@@ -107,6 +108,9 @@ TransparencyLinkedList::TransparencyLinkedList(ref<Device> pDevice, const Proper
     samplerDesc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpPointSampler = Sampler::create(mpDevice, samplerDesc);
     FALCOR_ASSERT(mpPointSampler);
+
+    mpLinkedListCounter = Buffer::createStructured(mpDevice, sizeof(uint), 1, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false);
+    mpLinkedListCounter->setName("LinkedListCounter");
 }
 
 Properties TransparencyLinkedList::getProperties() const
@@ -161,6 +165,7 @@ void TransparencyLinkedList::execute(RenderContext* pRenderContext, const Render
         updateSMMatrices(pRenderContext, renderData);
 
         generateStochasticSM(pRenderContext, renderData);
+        generateLinkedLists(pRenderContext, renderData);
     }
     
 
@@ -326,6 +331,103 @@ void TransparencyLinkedList::generateStochasticSM(RenderContext* pRenderContext,
     }
 }
 
+void TransparencyLinkedList::generateLinkedLists(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    FALCOR_PROFILE(pRenderContext, "Generate Linked List");
+    if (!mGenLinkedListPip.pProgram)
+    {
+        RtProgram::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderLinkedList);
+        desc.setMaxPayloadSize(4 * 4); // TODO adjust
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1u);
+
+        mGenLinkedListPip.pBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        auto& sbt = mGenLinkedListPip.pBindingTable;
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setMiss(0, desc.addMiss("miss"));
+
+        if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
+        {
+            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+        }
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add("MAX_INDEX", std::to_string(mLinkedElementCount));
+        defines.add(mpSampleGenerator->getDefines());
+
+        mGenLinkedListPip.pProgram = RtProgram::create(mpDevice, desc, defines);
+    }
+
+    auto& lights = mpScene->getLights();
+
+    // Create / Destroy resources
+    {
+        mpLinkedList.resize(lights.size());
+        int i = 0;
+        for(auto& pList : mpLinkedList)
+        {
+            if(!pList || pList->getElementCount() != mLinkedElementCount)
+            {
+                pList = Buffer::createStructured(mpDevice, sizeof(float) * 4, mLinkedElementCount);
+                pList->setName("LinkedList_" + std::to_string(i));
+            }
+            ++i;
+        }
+    }
+
+    //Abort early if disabled
+    if (mShadowEvaluationMode != ShadowEvalMode::LinkedList)
+        return;
+
+    // Defines
+    mGenLinkedListPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
+    mGenLinkedListPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
+
+    // Create Program Vars
+    if (!mGenLinkedListPip.pVars)
+    {
+        mGenLinkedListPip.pProgram->setTypeConformances(mpScene->getTypeConformances());
+        mGenLinkedListPip.pVars = RtProgramVars::create(mpDevice, mGenLinkedListPip.pProgram, mGenLinkedListPip.pBindingTable);
+        mpSampleGenerator->setShaderData(mGenLinkedListPip.pVars->getRootVar());
+    }
+
+    FALCOR_ASSERT(mGenLinkedListPip.pVars);
+
+    // Trace the pass for every light
+    for (uint i = 0; i < lights.size(); i++)
+    {
+        if (!lights[i]->isActive())
+            break;
+        FALCOR_PROFILE(pRenderContext, lights[i]->getName());
+
+        // clear to first free index after the head
+        pRenderContext->clearUAV(mpLinkedListCounter->getUAV(0, 1).get(), uint4(mSMSize * mSMSize));
+
+        // Bind Utility
+        auto var = mGenLinkedListPip.pVars->getRootVar();
+        var["CB"]["gFrameCount"] = mFrameCount;
+        var["CB"]["gLightPos"] = mShadowMapMVP[i].pos;
+        var["CB"]["gNear"] = mNearFar.x;
+        var["CB"]["gFar"] = mNearFar.y;
+        var["CB"]["gViewProj"] = mShadowMapMVP[i].viewProjection;
+        var["CB"]["gInvViewProj"] = mShadowMapMVP[i].invViewProjection;
+        var["CB"]["gView"] = mShadowMapMVP[i].view;
+
+        var["gLinkedList"] = mpLinkedList[i];
+        var["gCounter"] = mpLinkedListCounter;
+
+        // Get dimensions of ray dispatch.
+        const uint2 targetDim = uint2(mSMSize);
+        FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
+
+        // Spawn the rays.
+        mpScene->raytrace(pRenderContext, mGenLinkedListPip.pProgram.get(), mGenLinkedListPip.pVars, uint3(targetDim, 1));
+    }
+}
+
 void TransparencyLinkedList::traceScene(RenderContext* pRenderContext, const RenderData& renderData) {
     FALCOR_PROFILE(pRenderContext, "Trace Scene");
     auto& lights = mpScene->getLights();
@@ -370,6 +472,7 @@ void TransparencyLinkedList::traceScene(RenderContext* pRenderContext, const Ren
     {
         var["ShadowVPs"]["gShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
         var["ShadowView"]["gShadowMapView"][i] = mShadowMapMVP[i].view;
+        var["gLinkedList"][i] = mpLinkedList[i];
     }
         
     for (uint i = 0; i < lights.size() * (mNumberAVSMSamples / 4); i++)
@@ -433,6 +536,11 @@ void TransparencyLinkedList::renderUI(Gui::Widgets& widget)
     dirty |= widget.checkbox("Generate Stochastic Shadow Maps", mGenStochSM);
     dirty |= widget.dropdown("Shadow Render Mode", mShadowEvaluationMode);
 
+    if(mShadowEvaluationMode == ShadowEvalMode::LinkedList)
+    {
+        dirty |= widget.var("Max Elements", mLinkedElementCount, 1u, std::numeric_limits<uint32_t>::max());
+    }
+
     if (auto group = widget.group("Deep Shadow Maps Settings"))
     {
         mAVSMRebuildProgram |= group.dropdown("K", kAVSMDropdownK, mNumberAVSMSamples);
@@ -460,7 +568,6 @@ void TransparencyLinkedList::renderUI(Gui::Widgets& widget)
                 mFrameCount = 0;
             group.var("Frame Count", mFrameCount, 0u, UINT_MAX);
         }
-
     }
 
     mOptionsChanged |= dirty;
@@ -473,6 +580,10 @@ void TransparencyLinkedList::setScene(RenderContext* pRenderContext, const ref<S
     mTracer.pBindingTable = nullptr;
     mTracer.pVars = nullptr;
     mFrameCount = 0;
+
+    mGenLinkedListPip.pProgram = nullptr;
+    mGenLinkedListPip.pBindingTable = nullptr;
+    mGenLinkedListPip.pVars = nullptr;
 
     // Set new scene.
     mpScene = pScene;
