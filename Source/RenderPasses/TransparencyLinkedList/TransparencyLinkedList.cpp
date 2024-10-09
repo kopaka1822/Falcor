@@ -356,6 +356,7 @@ void TransparencyLinkedList::generateLinkedLists(RenderContext* pRenderContext, 
         DefineList defines;
         defines.add(mpScene->getSceneDefines());
         defines.add("MAX_INDEX", std::to_string(mLinkedElementCount));
+        
         defines.add(mpSampleGenerator->getDefines());
 
         mGenLinkedListPip.pProgram = RtProgram::create(mpDevice, desc, defines);
@@ -415,6 +416,8 @@ void TransparencyLinkedList::generateLinkedLists(RenderContext* pRenderContext, 
         var["CB"]["gViewProj"] = mShadowMapMVP[i].viewProjection;
         var["CB"]["gInvViewProj"] = mShadowMapMVP[i].invViewProjection;
         var["CB"]["gView"] = mShadowMapMVP[i].view;
+        float rayConeAngle = std::atan(2.0f * std::tan(lights[i]->getData().openingAngle /*opening angle is already halved*/) / float(mSMSize));
+        var["CB"]["gRayConeAngle"] = rayConeAngle;
 
         var["gLinkedList"] = mpLinkedList[i];
         var["gCounter"] = mpLinkedListCounter;

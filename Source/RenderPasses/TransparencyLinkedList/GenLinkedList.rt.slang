@@ -1,6 +1,7 @@
 #include "Scene/SceneDefines.slangh"
 #include "Utils/Math/MathConstants.slangh"
-
+import Rendering.Materials.TexLODHelpers;
+import Rendering.Materials.TexLODTypes;
 import Scene.Raytracing;
 import Scene.Intersection;
 import Utils.Math.MathHelpers;
@@ -11,6 +12,8 @@ import Utils.Sampling.SampleGenerator;
 #ifndef MAX_ELEMENTS
 #define MAX_ELEMENTS 256
 #endif
+
+//#define USE_LOD
 
 /** Payload for shadow ray.
 */
@@ -33,7 +36,8 @@ cbuffer CB
     float3      gLightPos;     // Current Light Position
     float       gNear;
     float       gFar;
-    uint2       _pad;
+    float       gRayConeAngle; // spread angle
+    uint        _pad;
     float4x4    gViewProj;      // View Projection for current light
     float4x4    gInvViewProj;   // Inverse view projection
     float4x4    gView;
@@ -53,6 +57,14 @@ RWBuffer<uint> gCounter; // counter for the nodes
 static const float kDepthBias = AVSM_DEPTH_BIAS;
 static const float kNormalBias = AVSM_NORMAL_DEPTH_BIAS;
 static const float kMinOpacity = 1e-7;
+
+ExplicitRayConesLodTextureSampler computeLod(VertexData v, float3 rayDir)
+{
+    RayCone rc = RayCone(0.0, gRayConeAngle);
+    rc = rc.propagateDistance(RayTCurrent());
+    float lambda = rc.computeLOD(v.coneTexLODValue, rayDir, v.faceNormalW);
+    return ExplicitRayConesLodTextureSampler(lambda);
+}
 
 /** Setup ShadingData based on loaded vertex/material attributes for a hit point.
     \param[in] hit Hit information.
@@ -87,7 +99,12 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
     VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
     const uint materialID = gScene.getMaterialID(instanceID);
     // TODO lod
-    if (gScene.materials.alphaTest(v, materialID, 0.f, kMinOpacity)) 
+    #ifndef USE_LOD
+    let lod = ExplicitLodTextureSampler(0.f);
+    #else
+    let lod = computeLod(v, WorldRayDirection());
+    #endif
+    if (gScene.materials.alphaTest(v, materialID, lod, kMinOpacity)) 
         IgnoreHit();
 }
 
@@ -101,8 +118,11 @@ void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes att
 
     VertexData v = gScene.getVertexData(triangleHit);
     uint materialID = gScene.getMaterialID(triangleHit.instanceID);
-    // TODO lod
+    #ifndef USE_LOD
     let lod = ExplicitLodTextureSampler(0.f);
+    #else
+    let lod = computeLod(v, WorldRayDirection());
+    #endif
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -WorldRayDirection(), lod);
 
     rayData.visibility = rayData.visibility * (1.0 - sd.opacity);
