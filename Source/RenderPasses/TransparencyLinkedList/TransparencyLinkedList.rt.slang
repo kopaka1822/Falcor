@@ -442,7 +442,29 @@ struct ListNode
     uint next;
 };
 
-RWStructuredBuffer<ListNode> gLinkedList[COUNT_LIGHTS];
+struct ListNode2
+{
+    uint prev;
+    uint right;
+    uint bot;
+}
+
+StructuredBuffer<ListNode> gLinkedList[COUNT_LIGHTS];
+StructuredBuffer<ListNode2> gLinkedListNeighbors[COUNT_LIGHTS];
+
+float getLinkedVisibility(ListNode n, float dist, uint lightIdx)
+{
+    float visibility = 1.0;
+    // from the way we construct the linked list neighbors, we know that we start with n.depth < depth
+    while (n.depth < dist)
+    {
+        visibility = n.visibility;
+        if (n.next == 0) break;
+        n = gLinkedList[lightIdx][n.next];
+    }
+
+    return visibility;
+}
 
 float evalLinkedListSM(uint lightIdx, float3 posW) {
     float4 shadowPos = mul(gShadowMapVP[lightIdx], float4(posW, 1));
@@ -457,16 +479,54 @@ float evalLinkedListSM(uint lightIdx, float3 posW) {
         return 0.0;
 
     float dist = shadowPos.w; //-1.0 * mul(gShadowMapView[lightIdx], float4(posW, 1.0)).z;
-    dist = dist - 1e-2; // TODO better bias
-    uint2 shadowPixel = uint2(floor(shadowPos.xy * gSMSize));
-    uint index = shadowPixel.y * gSMSize.x + shadowPixel.x;
-    ListNode n = gLinkedList[lightIdx][index];
-    // traverse visibility until dist is reached
     float visibility = 1.0;
-    while(n.depth < dist) {
-        visibility = n.visibility;
-        if(n.next == 0) break;
-        n = gLinkedList[lightIdx][n.next];
+
+    if (USE_LINKED_PCF)
+    {
+        float2 gatherUV;
+        float4 w = getGatherWeights(shadowPos.xy, gSMSize, gatherUV);
+        dist = dist - 1e-8;
+        int2 shadowPixel = int2(floor(shadowPos.xy * gSMSize - 0.5));
+        // TODO special case for borders
+        if (shadowPixel.x < 0 || shadowPixel.y < 0 || shadowPixel.x >= gSMSize - 1 || shadowPixel.y >= gSMSize - 1)
+            return 0.0;
+
+        uint index = shadowPixel.y * gSMSize.x + shadowPixel.x;
+        ListNode n = gLinkedList[lightIdx][index];
+        float4 v = 1.0; // (-,+),(+,+)(+,-)(-,-) => BotLeft (x), BotRight (y), TopRight (z), TopLeft (w)
+        while (n.depth < dist) {
+            v.w = n.visibility;
+            if (n.next == 0) break;
+            uint nextIndex = n.next;
+            n = gLinkedList[lightIdx][n.next];
+            if (n.depth < dist) index = nextIndex; // only update if the next node is still in front (because index will be used to obtain the neighbors)
+        }
+        uint zIndex = gLinkedListNeighbors[lightIdx][index].right;
+        uint xIndex = gLinkedListNeighbors[lightIdx][index].bot;
+        ListNode nZ = gLinkedList[lightIdx][zIndex];
+        ListNode nX = gLinkedList[lightIdx][xIndex];
+        // TODO trace for correct visibility
+        v.z = getLinkedVisibility(nZ, dist, lightIdx);
+        v.x = getLinkedVisibility(nX, dist, lightIdx);
+        uint yIndex = gLinkedListNeighbors[lightIdx][zIndex].bot;
+        ListNode nY = gLinkedList[lightIdx][yIndex];
+        v.y = getLinkedVisibility(nY, dist, lightIdx);
+        visibility = dot(w, v);
+        // visibility = (v.x + v.y + v.z + v.w) * 0.25;
+        //visibility = max(max(v.x, v.y), max(v.z, v.w));
+    }
+    else
+    {
+        dist = dist - 1e-2;       // TODO better bias
+        uint2 shadowPixel = uint2(floor(shadowPos.xy * gSMSize));
+        uint index = shadowPixel.y * gSMSize.x + shadowPixel.x;
+        ListNode n = gLinkedList[lightIdx][index];
+        // traverse visibility until dist is reached
+        while (n.depth < dist) {
+            visibility = n.visibility;
+            if (n.next == 0) break;
+            n = gLinkedList[lightIdx][n.next];
+        }
     }
 
     return visibility;

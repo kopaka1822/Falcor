@@ -45,6 +45,7 @@ namespace
     const std::string kShaderTemporalStochSMRay = kShaderFolder + "GenTmpStochSM.rt.slang";
     const std::string kShaderAccelShadowRay = kShaderFolder + "GenAccelShadow.rt.slang";
     const std::string kShaderLinkedList = kShaderFolder + "GenLinkedList.rt.slang";
+    const std::string kShaderLinkedListNeighbors = kShaderFolder + "GenLinkedListNeighbors.cs.slang";
 
     //RT shader constant settings
     const uint kMaxPayloadSizeBytes = 20u;
@@ -361,27 +362,44 @@ void TransparencyLinkedList::generateLinkedLists(RenderContext* pRenderContext, 
 
         mGenLinkedListPip.pProgram = RtProgram::create(mpDevice, desc, defines);
     }
+    if(!mpLinkedListNeighborsPass)
+    {
+        mpLinkedListNeighborsPass = ComputePass::create(mpDevice, kShaderLinkedListNeighbors);
+    }
 
     auto& lights = mpScene->getLights();
 
     // Create / Destroy resources
     {
         mpLinkedList.resize(lights.size());
-        int i = 0;
-        for(auto& pList : mpLinkedList)
+        mpLinkedListNeighbors.resize(lights.size());
+        for(size_t i = 0; i < mpLinkedList.size(); i++)
         {
+            auto& pList = mpLinkedList[i];
+            auto& pListNeighbors = mpLinkedListNeighbors[i];
+
             if(!pList || pList->getElementCount() != mLinkedElementCount)
             {
                 pList = Buffer::createStructured(mpDevice, sizeof(float) * 3, mLinkedElementCount);
                 pList->setName("LinkedList_" + std::to_string(i));
             }
-            ++i;
+            if (mUseLinkedListPcf)
+            {
+                if(!pListNeighbors || pListNeighbors->getElementCount() != mLinkedElementCount)
+                {
+                    pListNeighbors = Buffer::createStructured(mpDevice, sizeof(float) * 3, mLinkedElementCount);
+                    pListNeighbors->setName("LinkedListNeighbors_" + std::to_string(i));
+                }
+            }
+            else pListNeighbors.reset();
         }
     }
 
     //Abort early if disabled
     if (mShadowEvaluationMode != ShadowEvalMode::LinkedList)
+    {
         return;
+    }
 
     // Defines
     mGenLinkedListPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
@@ -428,6 +446,16 @@ void TransparencyLinkedList::generateLinkedLists(RenderContext* pRenderContext, 
 
         // Spawn the rays.
         mpScene->raytrace(pRenderContext, mGenLinkedListPip.pProgram.get(), mGenLinkedListPip.pVars, uint3(targetDim, 1));
+
+        if(mUseLinkedListPcf)
+        {
+            // link neighbors
+            auto var2 = mpLinkedListNeighborsPass->getRootVar();
+            var2["CB"]["SMSize"] = mSMSize;
+            var2["gLinkedList"] = mpLinkedList[i];
+            var2["gLinkedListNeighbors"] = mpLinkedListNeighbors[i];
+            mpLinkedListNeighborsPass->execute(pRenderContext, mSMSize, mSMSize);
+        }
     }
 }
 
@@ -450,6 +478,7 @@ void TransparencyLinkedList::traceScene(RenderContext* pRenderContext, const Ren
     mTracer.pProgram->addDefine("SHADOW_EVAL_MODE", std::to_string((uint)mShadowEvaluationMode));
     mTracer.pProgram->addDefine("USE_AVSM_PCF", mAVSMUsePCF ? "1" : "0");
     mTracer.pProgram->addDefine("USE_AVSM_INTERPOLATION", mAVSMUseInterpolation ? "1" : "0");
+    mTracer.pProgram->addDefine("USE_LINKED_PCF", mUseLinkedListPcf ? "1" : "0");
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     mTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));
@@ -476,6 +505,7 @@ void TransparencyLinkedList::traceScene(RenderContext* pRenderContext, const Ren
         var["ShadowVPs"]["gShadowMapVP"][i] = mShadowMapMVP[i].viewProjection;
         var["ShadowView"]["gShadowMapView"][i] = mShadowMapMVP[i].view;
         var["gLinkedList"][i] = mpLinkedList[i];
+        var["gLinkedListNeighbors"][i] = mpLinkedListNeighbors[i];
     }
         
     for (uint i = 0; i < lights.size() * (mNumberAVSMSamples / 4); i++)
@@ -542,6 +572,7 @@ void TransparencyLinkedList::renderUI(Gui::Widgets& widget)
     if(mShadowEvaluationMode == ShadowEvalMode::LinkedList)
     {
         dirty |= widget.var("Max Elements", mLinkedElementCount, 1u, std::numeric_limits<uint32_t>::max());
+        dirty |= widget.checkbox("Use PCF", mUseLinkedListPcf);
     }
 
     if (auto group = widget.group("Deep Shadow Maps Settings"))

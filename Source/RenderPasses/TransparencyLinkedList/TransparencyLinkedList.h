@@ -137,9 +137,12 @@ private:
 
     // Linked list
     std::vector<ref<Buffer>> mpLinkedList;
+    std::vector<ref<Buffer>> mpLinkedListNeighbors;
+    bool mUseLinkedListPcf = false;
     uint32_t mLinkedElementCount = 512 * 512 * 16; // (~70mb with 16 byte data => 4 floats)
     RayTracingPipeline mGenLinkedListPip;
     ref<Buffer> mpLinkedListCounter;
+    ref<ComputePass> mpLinkedListNeighborsPass;
 };
 
 FALCOR_ENUM_REGISTER(TransparencyLinkedList::ShadowEvalMode);

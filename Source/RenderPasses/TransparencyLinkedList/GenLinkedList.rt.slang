@@ -126,6 +126,8 @@ void closestHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes att
 
     rayData.visibility = rayData.visibility * (1.0 - sd.opacity);
     rayData.depth = -1.0 * mul(gView, float4(sd.posW, 1.f)).z;
+    float normalBias = (1.0 - abs(dot(WorldRayDirection(), sd.faceN))) * kNormalBias;
+    rayData.depth += (kDepthBias + normalBias) * gFar;
     rayData.rayT = RayTCurrent();
 }
 
