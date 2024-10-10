@@ -339,7 +339,7 @@ void TransparencyLinkedList::generateLinkedLists(RenderContext* pRenderContext, 
         RtProgram::Desc desc;
         desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kShaderLinkedList);
-        desc.setMaxPayloadSize(4 * 4); // TODO adjust
+        desc.setMaxPayloadSize(4 * 3);
         desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
         desc.setMaxTraceRecursionDepth(1u);
 
@@ -372,7 +372,7 @@ void TransparencyLinkedList::generateLinkedLists(RenderContext* pRenderContext, 
         {
             if(!pList || pList->getElementCount() != mLinkedElementCount)
             {
-                pList = Buffer::createStructured(mpDevice, sizeof(float) * 4, mLinkedElementCount);
+                pList = Buffer::createStructured(mpDevice, sizeof(float) * 3, mLinkedElementCount);
                 pList->setName("LinkedList_" + std::to_string(i));
             }
             ++i;

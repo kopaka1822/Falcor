@@ -48,7 +48,6 @@ struct ListNode
     float depth;
     float visibility;
     uint next;
-    uint pad;
 };
 
 RWStructuredBuffer<ListNode> gLinkedList;
@@ -164,7 +163,6 @@ void rayGen()
     prevNode.depth = FLT_MAX;
     prevNode.visibility = 1.0;
     prevNode.next = 0;
-    prevNode.pad = 0; // padding
     uint prevNodeIndex = pixel.y * frameDim.x + pixel.x;
 
     // Loop to get all possible samples
@@ -194,12 +192,11 @@ void rayGen()
         node.depth = rayData.depth;
         node.visibility = rayData.visibility;
         node.next = 0;
-        node.pad = 0; // padding
         
         // update for next iteration
         prevNode = node;
         prevNodeIndex = nodeIndex;
-        ray.TMin = rayData.rayT + 1e-7;  
+        ray.TMin = rayData.rayT;  
         
         if(rayData.visibility <= kMinOpacity) break; // stop if visibility is too low)
     }

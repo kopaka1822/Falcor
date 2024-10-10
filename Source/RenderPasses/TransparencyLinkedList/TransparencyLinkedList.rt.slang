@@ -440,7 +440,6 @@ struct ListNode
     float depth;
     float visibility;
     uint next;
-    uint pad;
 };
 
 RWStructuredBuffer<ListNode> gLinkedList[COUNT_LIGHTS];
@@ -457,7 +456,7 @@ float evalLinkedListSM(uint lightIdx, float3 posW) {
     if (any(shadowPos.xyz < 0.0) || any(shadowPos.xyz > 1.0))
         return 0.0;
 
-    float dist = -1.0 * mul(gShadowMapView[lightIdx], float4(posW, 1.0)).z;
+    float dist = shadowPos.w; //-1.0 * mul(gShadowMapView[lightIdx], float4(posW, 1.0)).z;
     dist = dist - 1e-2; // TODO better bias
     uint2 shadowPixel = uint2(floor(shadowPos.xy * gSMSize));
     uint index = shadowPixel.y * gSMSize.x + shadowPixel.x;
