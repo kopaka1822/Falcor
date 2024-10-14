@@ -55,13 +55,11 @@ public:
     enum class ShadowEvalMode : uint
     {
         RayTracing = 0u,
-        StochSM = 1u,
         LinkedList = 2u,
     };
 
     FALCOR_ENUM_INFO(ShadowEvalMode,{
         {ShadowEvalMode::RayTracing, "RayTracing"},
-        {ShadowEvalMode::StochSM, "StochSM"},
         {ShadowEvalMode::LinkedList, "LinkedList"},
     });
 
@@ -80,7 +78,6 @@ private:
 
 
     void updateSMMatrices(RenderContext* pRenderContext, const RenderData& renderData);
-    void generateStochasticSM(RenderContext* pRenderContext, const RenderData& renderData);
     void generateLinkedLists(RenderContext* pRenderContext, const RenderData& renderData);
     void traceScene(RenderContext* pRenderContext, const RenderData& renderData);
     void prepareVars();
@@ -97,7 +94,7 @@ private:
     bool mUseImportanceSampling = true; ///< Use importance sampling for materials.
     bool mUseRussianRoulettePath = false;   ///< Russian Roulett to abort the path early
     bool mUseRussianRouletteForAlpha = false; ///< Use Russian Roulette for transparent materials
-    ShadowEvalMode mShadowEvaluationMode = ShadowEvalMode::StochSM;
+    ShadowEvalMode mShadowEvaluationMode = ShadowEvalMode::LinkedList;
 
     // Runtime data Tracer
     uint mFrameCount = 0; ///< Frame count since scene was loaded.
@@ -108,7 +105,6 @@ private:
     uint mAccelShadowMaxNumPoints = 0;
 
     //Configuration Shadow Map
-    bool mGenStochSM = true;
     bool mAVSMRebuildProgram = false;
     bool mAVSMTexResChanged = false;
     bool mAVSMUsePCF = false;
@@ -121,8 +117,6 @@ private:
 
     //Runtime Data DeepSM
     std::vector<LightMVP> mShadowMapMVP;
-    std::vector<ref<Texture>> mStochDepths;           //Depths for Stochastic SM
-    std::vector<ref<Texture>> mStochTransmittance;    //Transmittance for Stochstic SM
 
     // Ray tracing program.
     struct RayTracingPipeline
@@ -133,7 +127,6 @@ private:
     };
 
     RayTracingPipeline mTracer;
-    RayTracingPipeline mGenStochSMPip;    //Stochastic baised SM
 
     // Linked list
     std::vector<ref<Buffer>> mpLinkedList;
