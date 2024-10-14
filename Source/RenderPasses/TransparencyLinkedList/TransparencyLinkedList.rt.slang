@@ -331,6 +331,41 @@ float getLinkedVisibility(ListNode n, float dist, uint lightIdx)
     return visibility;
 }
 
+struct LinkedPcfData
+{
+    float depth;
+    float visibilityFront; // visibility in front of the depth
+    float visibilityBack; // visibility behind the depth
+};
+
+LinkedPcfData getLinkedPcfData(ListNode n, float dist, uint lightIdx)
+{
+    LinkedPcfData data;
+    data.depth = n.depth;
+    data.visibilityFront = 1.0;
+    data.visibilityBack = n.visibility;
+    //return data;
+    float prevVisibility = n.visibility;
+
+    // find closest depth
+    float minDist = abs(n.depth - dist);
+    while(n.next != 0 && n.depth < dist)
+    {
+        n = gLinkedList[lightIdx][n.next];
+        float curDist = abs(n.depth - dist); 
+        if(curDist < minDist)
+        {
+            minDist = curDist;
+            data.depth = n.depth;
+            data.visibilityFront = prevVisibility;
+            data.visibilityBack = n.visibility;
+        }
+        prevVisibility = n.visibility;
+    }
+
+    return data;
+}
+
 float evalLinkedListSM(uint lightIdx, float3 posW) {
     float4 shadowPos = mul(gShadowMapVP[lightIdx], float4(posW, 1));
     shadowPos.xyz /= shadowPos.w;
@@ -360,15 +395,32 @@ float evalLinkedListSM(uint lightIdx, float3 posW) {
     if (USE_LINKED_PCF)
     {
         float2 gatherUV;
+        // (-,+),(+,+)(+,-)(-,-) => BotLeft (x), BotRight (y), TopRight (z), TopLeft (w)
         float4 w = getGatherWeights(shadowPos.xy, gSMSize, gatherUV);
-        dist = dist - 1e-8;
+        
+        //dist = dist - 1e-8;
+        //dist = dist - 1e-2;
         int2 shadowPixel = int2(floor(shadowPos.xy * gSMSize - 0.5));
         // TODO special case for borders
         if (shadowPixel.x < 0 || shadowPixel.y < 0 || shadowPixel.x >= gSMSize - 1 || shadowPixel.y >= gSMSize - 1)
             return 0.0;
 
         uint index = shadowPixel.y * gSMSize.x + shadowPixel.x;
-        ListNode n = gLinkedList[lightIdx][index];
+        let wData = getLinkedPcfData(gLinkedList[lightIdx][index], dist, lightIdx);
+        let zData = getLinkedPcfData(gLinkedList[lightIdx][index + 1], dist, lightIdx);
+        let yData = getLinkedPcfData(gLinkedList[lightIdx][index + gSMSize.x + 1], dist, lightIdx);
+        let xData = getLinkedPcfData(gLinkedList[lightIdx][index + gSMSize.x], dist, lightIdx);
+
+        float c = 80.0 / gFar; // exponential shadow map
+        float visFront = dot(w, float4(xData.visibilityFront, yData.visibilityFront, zData.visibilityFront, wData.visibilityFront));
+        float visBack = dot(w, float4(xData.visibilityBack, yData.visibilityBack, zData.visibilityBack, wData.visibilityBack));
+        float filteredDepth = dot(w, exp(c * float4(xData.depth, yData.depth, zData.depth, wData.depth)));
+        //float filteredDepth = dot(0.25, exp(c * float4(xData.depth, yData.depth, zData.depth, wData.depth)));
+        float shadowTest = exp(-c * dist) * filteredDepth;
+        shadowTest = saturate(shadowTest);
+        visibility = shadowTest * visFront + (1.0 - shadowTest) * visBack;
+        //visibility = visFront;
+        /*ListNode n = gLinkedList[lightIdx][index];
         float4 v = 1.0; // (-,+),(+,+)(+,-)(-,-) => BotLeft (x), BotRight (y), TopRight (z), TopLeft (w)
         while (n.depth < dist) {
             v.w = n.visibility;
@@ -390,6 +442,7 @@ float evalLinkedListSM(uint lightIdx, float3 posW) {
         visibility = dot(w, v);
         // visibility = (v.x + v.y + v.z + v.w) * 0.25;
         //visibility = max(max(v.x, v.y), max(v.z, v.w));
+        */
     }
     else
     {
