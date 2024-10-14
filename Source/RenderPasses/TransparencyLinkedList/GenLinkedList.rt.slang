@@ -50,8 +50,25 @@ struct ListNode
     uint next;
 };
 
+struct ArrayNode
+{
+    float depth;
+    float visibility;
+
+    __init(ListNode n)
+    {
+        this.depth = n.depth;
+        this.visibility = n.visibility;
+    }
+};
+
 RWStructuredBuffer<ListNode> gLinkedList;
 RWBuffer<uint> gCounter; // counter for the nodes
+
+// array members
+RWStructuredBuffer<ArrayNode> gArray;
+RWTexture2D<uint2> gArrayOffsets; // stores offsets for the array: (start, count) pairs.
+RWBuffer<uint> gCounter2; // counter for array storage
 
 static const float kDepthBias = AVSM_DEPTH_BIAS;
 static const float kNormalBias = AVSM_NORMAL_DEPTH_BIAS;
@@ -139,6 +156,7 @@ void rayGen()
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
+    uint numElements = 0;
 
     float2 pixelSample = pixel + 0.5;
 
@@ -166,6 +184,7 @@ void rayGen()
     prevNode.visibility = 1.0;
     prevNode.next = 0;
     uint prevNodeIndex = pixel.y * frameDim.x + pixel.x;
+    uint nodeIndex = prevNodeIndex;
 
     // Loop to get all possible samples
     for (uint i = 0; i < MAX_ELEMENTS; i++) {
@@ -177,7 +196,7 @@ void rayGen()
         if(rayData.depth < 0) break; // miss shader
 
         // get storage for new point
-        uint nodeIndex = prevNodeIndex;
+        nodeIndex = prevNodeIndex;
         if(i > 0) // for first iteration, just overwrite the initial node
         {
             InterlockedAdd(gCounter[0], 1u, nodeIndex);
@@ -187,6 +206,7 @@ void rayGen()
             // complete and write last node
             prevNode.next = nodeIndex;
             gLinkedList[prevNodeIndex] = prevNode;
+            numElements += 1;
         }
 
         // create new node storage
@@ -205,4 +225,22 @@ void rayGen()
 
     // write last node
     gLinkedList[prevNodeIndex] = prevNode;
+    numElements += 1;
+
+#ifdef USE_LINKED_LIST_ARRAY
+    uint arrayStartIndex = 0;
+    InterlockedAdd(gCounter2[0], numElements, arrayStartIndex);
+    // store start index and number of elements
+    gArrayOffsets[pixel] = uint2(arrayStartIndex, numElements);
+
+    // write linked list to array
+    uint index = arrayStartIndex;
+    nodeIndex = pixel.y * frameDim.x + pixel.x;
+    for (uint index = arrayStartIndex; index < arrayStartIndex + numElements; index++)
+    {
+        ListNode node = gLinkedList[nodeIndex];
+        gArray[index] = ArrayNode(node);
+        nodeIndex = node.next;
+    }
+#endif
 }

@@ -112,6 +112,9 @@ TransparencyLinkedList::TransparencyLinkedList(ref<Device> pDevice, const Proper
 
     mpLinkedListCounter = Buffer::createStructured(mpDevice, sizeof(uint), 1, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false);
     mpLinkedListCounter->setName("LinkedListCounter");
+
+    mpLinkedListCounter2 = Buffer::createStructured(mpDevice, sizeof(uint), 1, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource, Buffer::CpuAccess::None, nullptr, false);
+    mpLinkedListCounter2->setName("LinkedListCounter2");
 }
 
 Properties TransparencyLinkedList::getProperties() const
@@ -373,10 +376,15 @@ void TransparencyLinkedList::generateLinkedLists(RenderContext* pRenderContext, 
     {
         mpLinkedList.resize(lights.size());
         mpLinkedListNeighbors.resize(lights.size());
+        mpLinkedListArray.resize(lights.size());
+        mpLinkedListArrayOffsets.resize(lights.size());
+
         for(size_t i = 0; i < mpLinkedList.size(); i++)
         {
             auto& pList = mpLinkedList[i];
             auto& pListNeighbors = mpLinkedListNeighbors[i];
+            auto& pListArray = mpLinkedListArray[i];
+            auto& pListArrayOffsets = mpLinkedListArrayOffsets[i];
 
             if(!pList || pList->getElementCount() != mLinkedElementCount)
             {
@@ -392,6 +400,19 @@ void TransparencyLinkedList::generateLinkedLists(RenderContext* pRenderContext, 
                 }
             }
             else pListNeighbors.reset();
+            if(mUseLinkedListArray)
+            {
+                if(!pListArray || pListArray->getElementCount() != mLinkedElementCount)
+                {
+                    pListArray = Buffer::createStructured(mpDevice, sizeof(float) * 2, mLinkedElementCount);
+                    pListArray->setName("LinkedListArray_" + std::to_string(i));
+                }
+                if(!pListArrayOffsets || pListArrayOffsets->getWidth() != mSMSize)
+                {
+                    pListArrayOffsets = Texture::create2D(mpDevice, mSMSize, mSMSize, ResourceFormat::RG32Uint, 1, 1, nullptr, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+                    pListArrayOffsets->setName("LinkedListArrayOffsets_" + std::to_string(i));
+                }
+            }
         }
     }
 
@@ -404,6 +425,14 @@ void TransparencyLinkedList::generateLinkedLists(RenderContext* pRenderContext, 
     // Defines
     mGenLinkedListPip.pProgram->addDefine("AVSM_DEPTH_BIAS", std::to_string(mDepthBias));
     mGenLinkedListPip.pProgram->addDefine("AVSM_NORMAL_DEPTH_BIAS", std::to_string(mNormalDepthBias));
+    if(mUseLinkedListArray)
+    {
+        mGenLinkedListPip.pProgram->addDefine("USE_LINKED_LIST_ARRAY");
+    }
+    else
+    {
+        mGenLinkedListPip.pProgram->removeDefine("USE_LINKED_LIST_ARRAY");
+    }
 
     // Create Program Vars
     if (!mGenLinkedListPip.pVars)
@@ -439,6 +468,15 @@ void TransparencyLinkedList::generateLinkedLists(RenderContext* pRenderContext, 
 
         var["gLinkedList"] = mpLinkedList[i];
         var["gCounter"] = mpLinkedListCounter;
+
+        if(mUseLinkedListArray)
+        {
+            pRenderContext->clearUAV(mpLinkedListCounter2->getUAV(0, 1).get(), uint4(0));
+
+            var["gArray"] = mpLinkedListArray[i];
+            var["gArrayOffsets"] = mpLinkedListArrayOffsets[i];
+            var["gCounter2"] = mpLinkedListCounter2;
+        }
 
         // Get dimensions of ray dispatch.
         const uint2 targetDim = uint2(mSMSize);
@@ -484,6 +522,15 @@ void TransparencyLinkedList::traceScene(RenderContext* pRenderContext, const Ren
     mTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));
     mTracer.pProgram->addDefines(getValidResourceDefines(kOutputChannels, renderData));
 
+    if(mUseLinkedListArray)
+    {
+        mTracer.pProgram->addDefine("USE_LINKED_LIST_ARRAY");
+    }
+    else
+    {
+        mTracer.pProgram->removeDefine("USE_LINKED_LIST_ARRAY");
+    }
+
     // Prepare program vars. This may trigger shader compilation.
     if (!mTracer.pVars)
         prepareVars();
@@ -506,6 +553,8 @@ void TransparencyLinkedList::traceScene(RenderContext* pRenderContext, const Ren
         var["ShadowView"]["gShadowMapView"][i] = mShadowMapMVP[i].view;
         var["gLinkedList"][i] = mpLinkedList[i];
         var["gLinkedListNeighbors"][i] = mpLinkedListNeighbors[i];
+        var["gLinkedListArrays"][i] = mpLinkedListArray[i];
+        var["gLinkedListArrayOffsets"][i] = mpLinkedListArrayOffsets[i];
     }
         
     for (uint i = 0; i < lights.size() * (mNumberAVSMSamples / 4); i++)
@@ -573,6 +622,8 @@ void TransparencyLinkedList::renderUI(Gui::Widgets& widget)
     {
         dirty |= widget.var("Max Elements", mLinkedElementCount, 1u, std::numeric_limits<uint32_t>::max());
         dirty |= widget.checkbox("Use PCF", mUseLinkedListPcf);
+        dirty |= widget.checkbox("Store as Array", mUseLinkedListArray);
+        if (mUseLinkedListArray) mUseLinkedListPcf = false; // TODO implement pcf with array
     }
 
     if (auto group = widget.group("Deep Shadow Maps Settings"))

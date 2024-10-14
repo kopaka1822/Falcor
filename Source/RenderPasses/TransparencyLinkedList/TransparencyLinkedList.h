@@ -138,10 +138,14 @@ private:
     // Linked list
     std::vector<ref<Buffer>> mpLinkedList;
     std::vector<ref<Buffer>> mpLinkedListNeighbors;
+    std::vector<ref<Buffer>> mpLinkedListArray;
+    std::vector<ref<Texture>> mpLinkedListArrayOffsets;
     bool mUseLinkedListPcf = false;
+    bool mUseLinkedListArray = false;
     uint32_t mLinkedElementCount = 512 * 512 * 16; // (~70mb with 16 byte data => 4 floats)
     RayTracingPipeline mGenLinkedListPip;
     ref<Buffer> mpLinkedListCounter;
+    ref<Buffer> mpLinkedListCounter2;
     ref<ComputePass> mpLinkedListNeighborsPass;
 };
 

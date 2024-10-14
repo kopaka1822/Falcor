@@ -449,8 +449,16 @@ struct ListNode2
     uint bot;
 }
 
+struct ArrayNode
+{
+    float depth;
+    float visibility;
+};
+
 StructuredBuffer<ListNode> gLinkedList[COUNT_LIGHTS];
 StructuredBuffer<ListNode2> gLinkedListNeighbors[COUNT_LIGHTS];
+StructuredBuffer<ArrayNode> gLinkedListArrays[COUNT_LIGHTS];
+Texture2D<uint2> gLinkedListArrayOffsets[COUNT_LIGHTS]; // stores offsets for the array: (start, count) pairs.
 
 float getLinkedVisibility(ListNode n, float dist, uint lightIdx)
 {
@@ -481,6 +489,17 @@ float evalLinkedListSM(uint lightIdx, float3 posW) {
     float dist = shadowPos.w; //-1.0 * mul(gShadowMapView[lightIdx], float4(posW, 1.0)).z;
     float visibility = 1.0;
 
+    #ifdef USE_LINKED_LIST_ARRAY
+    dist = dist - 1e-2;       // TODO better bias
+    uint2 shadowPixel = uint2(floor(shadowPos.xy * gSMSize));
+    uint2 offsets = gLinkedListArrayOffsets[lightIdx][shadowPixel];
+    for(uint index = offsets.x; index < offsets.x + offsets.y; index++)
+    {
+        ArrayNode n = gLinkedListArrays[lightIdx][index];
+        if (n.depth >= dist) break;
+        visibility = n.visibility;
+    }
+    #else // USE_LINKED_LIST_ARRAY
     if (USE_LINKED_PCF)
     {
         float2 gatherUV;
@@ -528,7 +547,7 @@ float evalLinkedListSM(uint lightIdx, float3 posW) {
             n = gLinkedList[lightIdx][n.next];
         }
     }
-
+    #endif
     return visibility;
 }
 
