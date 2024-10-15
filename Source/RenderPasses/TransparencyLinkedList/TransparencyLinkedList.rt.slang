@@ -37,6 +37,9 @@ import Rendering.Lights.LightHelpers;
 import Utils.Color.ColorHelpers;
 import SharedTypes;
 
+import Rendering.ShadowMaps.ShadowTestFunctions;
+import Rendering.ShadowMaps.ShadowMapHelpers;
+
 #ifndef COUNT_LIGHTS
 #define COUNT_LIGHTS 1
 #endif
@@ -285,12 +288,12 @@ void traceAlphaRay(inout PathData pathData, inout TransparencyRayData rayData) {
     TraceRay(gScene.rtAccel, rayFlags, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayData);
 }
 
-float4 getGatherWeights(const float2 uv, const uint smRes, out float2 gatherUV) {
+/*float4 getGatherWeights(const float2 uv, const uint smRes, out float2 gatherUV) {
     gatherUV = (floor(uv * float(smRes) - 0.5) + 1.0f) / float(smRes);
     float2 f = frac(uv * float(smRes) - 0.5f);
     // (-,+),(+,+)(+,-)(-,-)
     return float4((1.f - f.x) * f.y, f.x * f.y, f.x * (1.f - f.y), (1.f - f.x) * (1.f - f.y));
-}
+}*/
 
 struct ListNode
 {
@@ -411,12 +414,26 @@ float evalLinkedListSM(uint lightIdx, float3 posW) {
         let yData = getLinkedPcfData(gLinkedList[lightIdx][index + gSMSize.x + 1], dist, lightIdx);
         let xData = getLinkedPcfData(gLinkedList[lightIdx][index + gSMSize.x], dist, lightIdx);
 
-        float c = 80.0 / gFar; // exponential shadow map
+        float c = 80.0; // exponential shadow map
         float visFront = dot(w, float4(xData.visibilityFront, yData.visibilityFront, zData.visibilityFront, wData.visibilityFront));
         float visBack = dot(w, float4(xData.visibilityBack, yData.visibilityBack, zData.visibilityBack, wData.visibilityBack));
-        float filteredDepth = dot(w, exp(c * float4(xData.depth, yData.depth, zData.depth, wData.depth)));
-        //float filteredDepth = dot(0.25, exp(c * float4(xData.depth, yData.depth, zData.depth, wData.depth)));
-        float shadowTest = exp(-c * dist) * filteredDepth;
+        float4 rawDepths = float4(xData.depth, yData.depth, zData.depth, wData.depth);
+
+        // reformat to [0, 1]
+        float4 linearDepths = saturate(rawDepths / gFar);
+        dist = saturate(dist / gFar);
+        //linearDepths = linearDepths * 2.0 - 1.0;
+        //dist = dist * 2.0 - 1.0;
+
+        float2 moments = float2(dot(w, linearDepths), dot(w, linearDepths * linearDepths));
+        float shadowTest = ChebyshevUpperBound(moments, dist, 1e-10);
+
+        //float4 moments = float4(dot(w, linearDepths), dot(w, linearDepths * linearDepths), dot(w, linearDepths * linearDepths * linearDepths), dot(w, linearDepths * linearDepths * linearDepths * linearDepths));
+        //float shadowTest = msmHamburger(moments, dist);
+
+        //float filteredDepth = dot(w, exp(c * linearDepths));
+        //float shadowTest = exp(-c * dist) * filteredDepth;
+
         shadowTest = saturate(shadowTest);
         visibility = shadowTest * visFront + (1.0 - shadowTest) * visBack;
         //visibility = visFront;
