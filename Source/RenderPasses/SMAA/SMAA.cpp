@@ -141,6 +141,9 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
         FALCOR_PROFILE(pRenderContext, "EdgeDetection");
         auto var = mpPass1->getRootVar();
         var["gColor"] = pColorIn;
+        var["gDepth"] = pDepthIn;
+
+        mpPass1->getProgram()->addDefine("EDGE_MODE", std::to_string(uint(mEdgeMode)));
 
         mpFbo->attachColorTarget(pEdgesTex, 0);
         mpPass1->execute(pRenderContext, mpFbo);
@@ -173,5 +176,5 @@ void SMAA::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
 
-
+    widget.dropdown("EdgeMode", mEdgeMode);
 }

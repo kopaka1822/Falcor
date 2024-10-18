@@ -35,7 +35,21 @@ using namespace Falcor;
 class SMAA : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(SMAA, "SMAA", "Insert pass description here.");
+    FALCOR_PLUGIN_CLASS(SMAA, "SMAA", "Subpixel Morphological Anti-Aliasing");
+
+    enum class EdgeMode : uint32_t
+    {
+        Luma = 0u,
+        Color = 1u,
+        Depth = 2u,
+    };
+
+    FALCOR_ENUM_INFO(EdgeMode,
+    {
+        {EdgeMode::Luma, "Luma"},
+        {EdgeMode::Color, "Color"},
+        {EdgeMode::Depth, "Depth"},
+    });
 
     static ref<SMAA> create(ref<Device> pDevice, const Properties& props) { return make_ref<SMAA>(pDevice, props); }
 
@@ -64,4 +78,8 @@ private:
 
     ref<Sampler> mpLinearSampler;
     ref<Sampler> mpPointSampler;
+
+    EdgeMode mEdgeMode = EdgeMode::Color; // best quality
 };
+
+FALCOR_ENUM_REGISTER(SMAA::EdgeMode);
