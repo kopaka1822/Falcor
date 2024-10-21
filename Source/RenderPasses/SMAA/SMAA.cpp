@@ -53,10 +53,12 @@ SMAA::SMAA(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
 {
     mpSearchTex = Texture::create2D(mpDevice, SEARCHTEX_WIDTH, SEARCHTEX_HEIGHT, ResourceFormat::R8Unorm, 1, 1, searchTexBytes);
+    mpSearchTex->setName("SMAASearchTex");
     mpAreaTex = Texture::create2D(mpDevice, AREATEX_WIDTH, AREATEX_HEIGHT, ResourceFormat::RG8Unorm, 1, 1, areaTexBytes);
+    mpAreaTex->setName("SMAAAreaTex");
 
     Sampler::Desc s;
-    s.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear);
+    s.setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Point);
     s.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpLinearSampler = Sampler::create(mpDevice, s);
     s.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point);
@@ -106,7 +108,7 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
     }
 
     const uint width = renderData.getDefaultTextureDims().x;
-    const uint height = renderData.getDefaultTextureDims().x;
+    const uint height = renderData.getDefaultTextureDims().y;
 
     if(!mpPass1 || !mpPass2 || !mpPass3)
     {

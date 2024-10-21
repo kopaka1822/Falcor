@@ -1255,6 +1255,13 @@ float4 SMAABlendingWeightCalculationPS(float2 texcoord,
     return weights;
 }
 
+// for pass 3, colors should be read in sRGB space, so that interpolation occurs in the perceived color space
+#ifndef PASS3_COLOR_READ
+#define PASS3_COLOR_READ(color) color;
+#endif
+#ifndef PASS3_COLOR_WRITE
+#define PASS3_COLOR_WRITE(color) color;
+#endif
 //-----------------------------------------------------------------------------
 // Neighborhood Blending Pixel Shader (Third Pass)
 
@@ -1275,7 +1282,7 @@ float4 SMAANeighborhoodBlendingPS(float2 texcoord,
     // Is there any blending weight with a value greater than 0.0?
     SMAA_BRANCH
     if (dot(a, float4(1.0, 1.0, 1.0, 1.0)) < 1e-5) {
-        float4 color = SMAASampleLevelZero(colorTex, texcoord);
+        float4 color = PASS3_COLOR_READ(SMAASampleLevelZero(colorTex, texcoord));
 
         #if SMAA_REPROJECTION
         float2 velocity = SMAA_DECODE_VELOCITY(SMAASampleLevelZero(velocityTex, texcoord));
@@ -1284,7 +1291,7 @@ float4 SMAANeighborhoodBlendingPS(float2 texcoord,
         color.a = sqrt(5.0 * length(velocity));
         #endif
 
-        return color;
+        return PASS3_COLOR_WRITE(color);
     } else {
         bool h = max(a.x, a.z) > max(a.y, a.w); // max(horizontal) > max(vertical)
 
@@ -1300,8 +1307,8 @@ float4 SMAANeighborhoodBlendingPS(float2 texcoord,
 
         // We exploit bilinear filtering to mix current pixel with the chosen
         // neighbor:
-        float4 color = blendingWeight.x * SMAASampleLevelZero(colorTex, blendingCoord.xy);
-        color += blendingWeight.y * SMAASampleLevelZero(colorTex, blendingCoord.zw);
+        float4 color = blendingWeight.x * PASS3_COLOR_READ(SMAASampleLevelZero(colorTex, blendingCoord.xy));
+        color += blendingWeight.y * PASS3_COLOR_READ(SMAASampleLevelZero(colorTex, blendingCoord.zw));
 
         #if SMAA_REPROJECTION
         // Antialias velocity for proper reprojection in a later stage:
@@ -1312,7 +1319,7 @@ float4 SMAANeighborhoodBlendingPS(float2 texcoord,
         color.a = sqrt(5.0 * length(velocity));
         #endif
 
-        return color;
+        return PASS3_COLOR_WRITE(color);
     }
 }
 
