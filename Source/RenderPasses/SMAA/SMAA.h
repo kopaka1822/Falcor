@@ -74,6 +74,9 @@ private:
     ref<FullScreenPass> mpPass2;
     ref<FullScreenPass> mpPass3;
 
+    ref<DepthStencilState> mpStencilWriteMask;
+    ref<DepthStencilState> mpStencilUseMask;
+
     ref<Fbo> mpFbo;
 
     ref<Sampler> mpLinearSampler;

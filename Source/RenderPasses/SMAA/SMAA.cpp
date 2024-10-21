@@ -34,6 +34,7 @@ namespace
     const std::string kColorOut = "colorOut";
     const std::string kColorIn = "colorIn";
     const std::string kDepthIn = "linearDepth";
+    const std::string kInternalStencil = "stencil";
 
     const std::string kEdgesTex = "edgesTex";
     const std::string kBlendTex = "blendTex";
@@ -65,6 +66,21 @@ SMAA::SMAA(ref<Device> pDevice, const Properties& props)
     mpPointSampler = Sampler::create(mpDevice, s);
 
     mpFbo = Fbo::create(mpDevice);
+
+    DepthStencilState::Desc dsDesc;
+    dsDesc.setDepthEnabled(false);
+    dsDesc.setStencilEnabled(true);
+    // always pass and increase the stencil value
+    dsDesc.setStencilFunc(DepthStencilState::Face::FrontAndBack, ComparisonFunc::Always);
+    dsDesc.setStencilOp(DepthStencilState::Face::FrontAndBack, DepthStencilState::StencilOp::Increase, DepthStencilState::StencilOp::Increase, DepthStencilState::StencilOp::Increase);
+    mpStencilWriteMask = DepthStencilState::create(dsDesc);
+
+    // modify desc to only accept non-zero stencil values
+    dsDesc.setStencilFunc(DepthStencilState::Face::FrontAndBack, ComparisonFunc::NotEqual);
+    dsDesc.setStencilRef(0);
+    dsDesc.setStencilOp(DepthStencilState::Face::FrontAndBack, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep);
+    dsDesc.setStencilWriteMask(0);
+    mpStencilUseMask = DepthStencilState::create(dsDesc);
 }
 
 Properties SMAA::getProperties() const
@@ -83,6 +99,8 @@ RenderPassReflection SMAA::reflect(const CompileData& compileData)
 
     reflector.addOutput(kColorOut, "Color Output").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA8UnormSrgb);
 
+    reflector.addInternal(kInternalStencil, "internal stencil").bindFlags(ResourceBindFlags::AllDepthViews).format(ResourceFormat::D32FloatS8X24);
+
     return reflector;
 }
 
@@ -100,6 +118,7 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pEdgesTex = renderData[kEdgesTex]->asTexture();
     auto pBlendTex = renderData[kBlendTex]->asTexture();
     auto pColorOut = renderData[kColorOut]->asTexture();
+    auto pStencil = renderData[kInternalStencil]->asTexture();
 
     if(!mEnabled)
     {
@@ -125,10 +144,12 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpPass1 = FullScreenPass::create(mpDevice, kSmaaShader1, defines);
         mpPass1->getRootVar()["LinearSampler"] = mpLinearSampler;
         mpPass1->getRootVar()["PointSampler"] = mpPointSampler;
+        //mpPass1->getState()->setDepthStencilState(mpStencilWriteMask);
 
         mpPass2 = FullScreenPass::create(mpDevice, kSmaaShader2, defines);
         mpPass2->getRootVar()["LinearSampler"] = mpLinearSampler;
         mpPass2->getRootVar()["PointSampler"] = mpPointSampler;
+        //mpPass2->getState()->setDepthStencilState(mpStencilUseMask);
 
         mpPass3 = FullScreenPass::create(mpDevice, kSmaaShader3, defines);
         mpPass3->getRootVar()["LinearSampler"] = mpLinearSampler;
@@ -138,6 +159,7 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
     // clear edges and blend textures
     pRenderContext->clearTexture(pEdgesTex.get());
     pRenderContext->clearTexture(pBlendTex.get());
+    pRenderContext->clearDsv(pStencil->getDSV().get(), 0.0f, 0, false, true);
 
     {
         FALCOR_PROFILE(pRenderContext, "EdgeDetection");
@@ -148,6 +170,7 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpPass1->getProgram()->addDefine("EDGE_MODE", std::to_string(uint(mEdgeMode)));
 
         mpFbo->attachColorTarget(pEdgesTex, 0);
+        mpFbo->attachDepthStencilTarget(pStencil);
         mpPass1->execute(pRenderContext, mpFbo);
     }
 
@@ -159,6 +182,7 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
         var["gSearchTex"] = mpSearchTex;
 
         mpFbo->attachColorTarget(pBlendTex, 0);
+        mpFbo->attachDepthStencilTarget(pStencil);
         mpPass2->execute(pRenderContext, mpFbo);
     }
 
@@ -169,6 +193,7 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
         var["gBlendTex"] = pBlendTex;
 
         mpFbo->attachColorTarget(pColorOut, 0);
+        mpFbo->attachDepthStencilTarget(nullptr);
         mpPass3->execute(pRenderContext, mpFbo);
     }
 }
