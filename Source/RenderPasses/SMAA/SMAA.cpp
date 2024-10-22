@@ -79,7 +79,6 @@ SMAA::SMAA(ref<Device> pDevice, const Properties& props)
     dsDesc.setStencilFunc(DepthStencilState::Face::FrontAndBack, ComparisonFunc::NotEqual);
     dsDesc.setStencilRef(0);
     dsDesc.setStencilOp(DepthStencilState::Face::FrontAndBack, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep);
-    dsDesc.setStencilWriteMask(0);
     mpStencilUseMask = DepthStencilState::create(dsDesc);
 }
 
@@ -99,7 +98,7 @@ RenderPassReflection SMAA::reflect(const CompileData& compileData)
 
     reflector.addOutput(kColorOut, "Color Output").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA8UnormSrgb);
 
-    reflector.addInternal(kInternalStencil, "internal stencil").bindFlags(ResourceBindFlags::AllDepthViews).format(ResourceFormat::D32FloatS8X24);
+    reflector.addInternal(kInternalStencil, "internal stencil").bindFlags(ResourceBindFlags::DepthStencil).format(ResourceFormat::D32FloatS8X24);
 
     return reflector;
 }
@@ -144,12 +143,12 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpPass1 = FullScreenPass::create(mpDevice, kSmaaShader1, defines);
         mpPass1->getRootVar()["LinearSampler"] = mpLinearSampler;
         mpPass1->getRootVar()["PointSampler"] = mpPointSampler;
-        //mpPass1->getState()->setDepthStencilState(mpStencilWriteMask);
+        mpPass1->getState()->setDepthStencilState(mpStencilWriteMask);
 
         mpPass2 = FullScreenPass::create(mpDevice, kSmaaShader2, defines);
         mpPass2->getRootVar()["LinearSampler"] = mpLinearSampler;
         mpPass2->getRootVar()["PointSampler"] = mpPointSampler;
-        //mpPass2->getState()->setDepthStencilState(mpStencilUseMask);
+        mpPass2->getState()->setDepthStencilState(mpStencilUseMask);
 
         mpPass3 = FullScreenPass::create(mpDevice, kSmaaShader3, defines);
         mpPass3->getRootVar()["LinearSampler"] = mpLinearSampler;
@@ -157,8 +156,8 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
     }
 
     // clear edges and blend textures
-    pRenderContext->clearTexture(pEdgesTex.get());
-    pRenderContext->clearTexture(pBlendTex.get());
+    pRenderContext->clearTexture(pEdgesTex.get(), float4(0.0f));
+    pRenderContext->clearTexture(pBlendTex.get(), float4(0.0f));
     pRenderContext->clearDsv(pStencil->getDSV().get(), 0.0f, 0, false, true);
 
     {
