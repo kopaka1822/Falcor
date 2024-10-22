@@ -9,6 +9,7 @@ target_sources(SMAA PRIVATE
     Pass1.hlsl
     Pass2.hlsl
     Pass3.hlsl
+    Reproject.hlsl
 )
 
 target_copy_shaders(SMAA RenderPasses/SMAA)

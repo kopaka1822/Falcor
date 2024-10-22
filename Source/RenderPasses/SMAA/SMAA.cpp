@@ -35,6 +35,10 @@ namespace
     const std::string kColorIn = "colorIn";
     const std::string kDepthIn = "linearDepth";
     const std::string kInternalStencil = "stencil";
+    const std::string kVelocityIn = "mvec";
+
+    const std::string kTmpColorOut = "kTempColorOut";
+    const std::string kPrevColor = "kPrevColor";
 
     const std::string kEdgesTex = "edgesTex";
     const std::string kBlendTex = "blendTex";
@@ -43,6 +47,7 @@ namespace
     const std::string kSmaaShader1 = "RenderPasses/SMAA/Pass1.hlsl";
     const std::string kSmaaShader2 = "RenderPasses/SMAA/Pass2.hlsl";
     const std::string kSmaaShader3 = "RenderPasses/SMAA/Pass3.hlsl";
+    const std::string kSmaaShaderReproject = "RenderPasses/SMAA/Reproject.hlsl";
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -89,16 +94,21 @@ Properties SMAA::getProperties() const
 
 RenderPassReflection SMAA::reflect(const CompileData& compileData)
 {
+    auto outFormat = ResourceFormat::RGBA8UnormSrgb;
+
     RenderPassReflection reflector;
     reflector.addInput(kColorIn, "Color Input").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kDepthIn, "(Optional) Linear Depth Input").bindFlags(ResourceBindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addInput(kVelocityIn, "2D motion vectors").bindFlags(ResourceBindFlags::ShaderResource).flags(RenderPassReflection::Field::Flags::Optional);
 
     reflector.addOutput(kEdgesTex, "Top,Right Edges").format(ResourceFormat::RG8Unorm);
     reflector.addOutput(kBlendTex, "Blend Weights").format(ResourceFormat::RGBA8Unorm);
 
-    reflector.addOutput(kColorOut, "Color Output").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA8UnormSrgb);
+    reflector.addOutput(kColorOut, "Color Output").bindFlags(ResourceBindFlags::RenderTarget).format(outFormat);
 
     reflector.addInternal(kInternalStencil, "internal stencil").bindFlags(ResourceBindFlags::DepthStencil).format(ResourceFormat::D32FloatS8X24);
+    reflector.addInternal(kTmpColorOut, "temporary storage for color").format(outFormat);
+    reflector.addInternal(kPrevColor, "previous frame color").format(outFormat).flags(RenderPassReflection::Field::Flags::Persistent);
 
     return reflector;
 }
@@ -118,6 +128,10 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
     auto pBlendTex = renderData[kBlendTex]->asTexture();
     auto pColorOut = renderData[kColorOut]->asTexture();
     auto pStencil = renderData[kInternalStencil]->asTexture();
+    ref<Texture> pVelocityIn = renderData[kVelocityIn] ? renderData[kVelocityIn]->asTexture() : nullptr;
+
+    auto pTmpColorOut = renderData[kTmpColorOut]->asTexture();
+    auto pPrevColor = renderData[kPrevColor]->asTexture();
 
     if(!mEnabled)
     {
@@ -138,7 +152,7 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
         //defines.add("SMAA_PRESET_HIGH");
         defines.add("SMAA_PRESET_ULTRA");
         //defines.add("SMAA_PREDICATION", "1");
-        //defines.add("SMAA_REPROJECTION", "1");
+        defines.add("SMAA_REPROJECTION", "1");
 
         mpPass1 = FullScreenPass::create(mpDevice, kSmaaShader1, defines);
         mpPass1->getRootVar()["LinearSampler"] = mpLinearSampler;
@@ -153,6 +167,13 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpPass3 = FullScreenPass::create(mpDevice, kSmaaShader3, defines);
         mpPass3->getRootVar()["LinearSampler"] = mpLinearSampler;
         mpPass3->getRootVar()["PointSampler"] = mpPointSampler;
+
+        mpPassReproject = FullScreenPass::create(mpDevice, kSmaaShaderReproject, defines);
+        mpPassReproject->getRootVar()["LinearSampler"] = mpLinearSampler;
+        mpPassReproject->getRootVar()["PointSampler"] = mpPointSampler;
+
+        // do this only on resets:
+        pRenderContext->blit(pColorIn->getSRV(), pPrevColor->getRTV());
     }
 
     // clear edges and blend textures
@@ -190,10 +211,31 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
         auto var = mpPass3->getRootVar();
         var["gColor"] = pColorIn;
         var["gBlendTex"] = pBlendTex;
+        var["gVelocity"] = pVelocityIn;
+        mpPass3->getProgram()->addDefine("SMAA_REPROJECTION", mReprojection ? "1" : "0");
 
-        mpFbo->attachColorTarget(pColorOut, 0);
+        if(mReprojection)
+            mpFbo->attachColorTarget(pTmpColorOut, 0);
+        else
+            mpFbo->attachColorTarget(pColorOut, 0);
+        
         mpFbo->attachDepthStencilTarget(nullptr);
         mpPass3->execute(pRenderContext, mpFbo);
+    }
+
+    if(mReprojection)
+    {
+        FALCOR_PROFILE(pRenderContext, "Reprojection");
+        auto var = mpPassReproject->getRootVar();
+        var["gColor"] = pTmpColorOut;
+        var["gPrevColor"] = pPrevColor;
+        var["gVelocity"] = pVelocityIn;
+
+        mpFbo->attachColorTarget(pColorOut, 0);
+        mpPassReproject->execute(pRenderContext, mpFbo);
+
+        // copy color to prev color
+        pRenderContext->blit(pColorOut->getSRV(), pPrevColor->getRTV());
     }
 }
 
@@ -202,5 +244,6 @@ void SMAA::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
 
+    widget.checkbox("Reprojection", mReprojection);
     widget.dropdown("EdgeMode", mEdgeMode);
 }

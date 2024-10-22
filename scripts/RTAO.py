@@ -41,6 +41,7 @@ def render_graph_RTAO():
     g.add_edge('DiffuseAmbient.out', 'SMAA.colorIn')
     g.add_edge('SMAA', 'PathBenchmark')
     g.add_edge('GBufferRT.linearZ', 'SMAA.linearDepth')
+    g.add_edge('GBufferRT.mvec', 'SMAA.mvec')
     g.mark_output('TAA0.colorOut')
     g.mark_output('Ambient.out')
     g.mark_output('FXAA.colorOut')

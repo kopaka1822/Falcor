@@ -25,11 +25,17 @@ float4 SrgbToLinear(float4 color)
 
 Texture2D gColor;
 Texture2D gBlendTex;
+Texture2D gVelocity;
 
 float4 main(float2 texC : TEXCOORD) : SV_TARGET0
 {
     float4 offset;
     SMAANeighborhoodBlendingVS(texC, offset);
+#if SMAA_REPROJECTION == 0
     return SMAANeighborhoodBlendingPS(texC, offset,
         gColor, gBlendTex);
+#elif SMAA_REPROJECTION == 1
+    return SMAANeighborhoodBlendingPS(texC, offset,
+        gColor, gBlendTex, gVelocity);
+#endif
 }

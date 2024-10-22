@@ -73,6 +73,7 @@ private:
     ref<FullScreenPass> mpPass1;
     ref<FullScreenPass> mpPass2;
     ref<FullScreenPass> mpPass3;
+    ref<FullScreenPass> mpPassReproject;
 
     ref<DepthStencilState> mpStencilWriteMask;
     ref<DepthStencilState> mpStencilUseMask;
@@ -83,6 +84,8 @@ private:
     ref<Sampler> mpPointSampler;
 
     EdgeMode mEdgeMode = EdgeMode::Color; // best quality
+
+    bool mReprojection = false;
 };
 
 FALCOR_ENUM_REGISTER(SMAA::EdgeMode);
