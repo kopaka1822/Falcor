@@ -56,7 +56,10 @@ public:
 
 protected:
     uint32_t mCurSample = 0;
-    static constexpr uint32_t kSampleCount = 8;
-    static const float2 kPattern[kSampleCount];
+    uint32_t kSampleCount = 0;
+    const float2* kPattern = nullptr;
+    static const float2 kPattern8x[8];
+    static const float2 kPattern4x[4];
+    static const float2 kPattern2x[2];
 };
 } // namespace Falcor

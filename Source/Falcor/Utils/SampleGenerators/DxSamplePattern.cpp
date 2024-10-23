@@ -30,7 +30,7 @@
 
 namespace Falcor
 {
-const float2 DxSamplePattern::kPattern[] = {
+const float2 DxSamplePattern::kPattern8x[] = {
     // clang-format off
     { 1.0f / 16.0f, -3.0f / 16.0f},
     {-1.0f / 16.0f,  3.0f / 16.0f},
@@ -43,10 +43,42 @@ const float2 DxSamplePattern::kPattern[] = {
     // clang-format on
 };
 
+const float2 DxSamplePattern::kPattern2x[] = {
+    { 0.25f, -0.25f}, 
+    {-0.25f, 0.25f}, 
+};
+
+/*const float2 DxSamplePattern::kPattern4x[] = {
+    {0.375f, -0.125f},  
+     {-0.125f, 0.375f},  
+    {0.1250f, -0.375f}, 
+     {-0.375, 0.125f}, 
+};*/
+
+const float2 DxSamplePattern::kPattern4x[] = {
+    {0.375f, 0.125f},
+     {-0.125f, 0.375f},
+    {0.1250f, -0.375f},
+     {-0.375, -0.125f},
+};
+
+
+
 DxSamplePattern::DxSamplePattern(uint32_t sampleCount)
 {
-    // FIXME: Support other sample counts
-    if (sampleCount != kSampleCount)
-        logWarning("DxSamplePattern() currently requires sampleCount = 8. Using that number.");
+    kSampleCount = sampleCount;
+    if(sampleCount == 2)
+    {
+        kPattern = kPattern2x;
+    }
+    else if(sampleCount == 4)
+    {
+        kPattern = kPattern4x;
+    }
+    else
+    {
+        kPattern = kPattern8x;
+        kSampleCount = 8; // fix sample count to 8 if no other match
+    }
 }
 } // namespace Falcor

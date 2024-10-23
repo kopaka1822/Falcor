@@ -123,6 +123,7 @@ void SMAA::compile(RenderContext* pRenderContext, const CompileData& compileData
 
 void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    mFrameIndex++;
     auto pColorIn = renderData[kColorIn]->asTexture();
     ref<Texture> pDepthIn = renderData[kDepthIn] ? renderData[kDepthIn]->asTexture() : nullptr;
     auto pEdgesTex = renderData[kEdgesTex]->asTexture();
@@ -198,6 +199,32 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
         var["gEdgesTex"] = pEdgesTex;
         var["gAreaTex"] = mpAreaTex;
         var["gSearchTex"] = mpSearchTex;
+
+        auto sampleCount = renderData.getDictionary().getValue("GBufferSampleCount", 1u);
+        if(mReprojection && sampleCount >= 4)
+        {
+            float4 indices[] = {
+                float4{ 5.0f, 3.0f, 1.0f, 3.0f }, // S0
+                float4{ 4.0f, 6.0f, 2.0f, 3.0f }, // S1
+                float4{ 3.0f, 5.0f, 1.0f, 4.0f }, // S2
+                float4{ 6.0f, 4.0f, 2.0f, 4.0f }  // S3
+            };
+            var["Constants"]["sIndices"] = indices[mFrameIndex % 4u];
+            if (sampleCount != 4) logWarning("SMAA does only support Sample Counts of 1,2,4 for camera jitter.");
+        }
+        else if(mReprojection && sampleCount >= 2)
+        {
+            float4 indices[] = {
+                float4{ 1.0f, 1.0f, 1.0f, 0.0f }, // S0
+                float4{ 2.0f, 2.0f, 2.0f, 0.0f }  // S1
+            };
+            var["Constants"]["sIndices"] = indices[mFrameIndex % 2u];
+            if (sampleCount != 2) logWarning("SMAA does only support Sample Counts of 1,2,4 for camera jitter.");
+        }
+        else
+        {
+            var["Constants"]["sIndices"] = float4(0.0f);
+        }
 
         mpFbo->attachColorTarget(pBlendTex, 0);
         mpFbo->attachDepthStencilTarget(pStencil);

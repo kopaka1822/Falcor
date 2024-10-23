@@ -152,6 +152,13 @@ void GBufferBase::execute(RenderContext* pRenderContext, const RenderData& rende
     // Pass flag for adjust shading normals to subsequent passes via the dictionary.
     // Adjusted shading normals cannot be passed via the VBuffer, so this flag allows consuming passes to compute them when enabled.
     dict[Falcor::kRenderPassGBufferAdjustShadingNormals] = mAdjustShadingNormals;
+
+    uint gbufferSampleCount = 1u;
+    if (mSamplePattern != SamplePattern::Center)
+    {
+        gbufferSampleCount = mSampleCount;
+    }
+    dict["GBufferSampleCount"] = gbufferSampleCount;
 }
 
 void GBufferBase::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

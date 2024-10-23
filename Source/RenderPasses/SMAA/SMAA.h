@@ -87,6 +87,7 @@ private:
 
     bool mReprojection = false;
     bool mClearReproject = true;
+    uint mFrameIndex = 0;
 };
 
 FALCOR_ENUM_REGISTER(SMAA::EdgeMode);
