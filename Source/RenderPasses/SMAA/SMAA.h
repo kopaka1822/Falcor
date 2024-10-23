@@ -86,6 +86,7 @@ private:
     EdgeMode mEdgeMode = EdgeMode::Color; // best quality
 
     bool mReprojection = false;
+    bool mClearReproject = true;
 };
 
 FALCOR_ENUM_REGISTER(SMAA::EdgeMode);

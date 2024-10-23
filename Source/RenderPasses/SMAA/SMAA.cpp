@@ -118,6 +118,7 @@ void SMAA::compile(RenderContext* pRenderContext, const CompileData& compileData
     mpPass1.reset();
     mpPass2.reset();
     mpPass3.reset();
+    mClearReproject = true;
 }
 
 void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -171,9 +172,6 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpPassReproject = FullScreenPass::create(mpDevice, kSmaaShaderReproject, defines);
         mpPassReproject->getRootVar()["LinearSampler"] = mpLinearSampler;
         mpPassReproject->getRootVar()["PointSampler"] = mpPointSampler;
-
-        // do this only on resets:
-        pRenderContext->blit(pColorIn->getSRV(), pPrevColor->getRTV());
     }
 
     // clear edges and blend textures
@@ -226,6 +224,13 @@ void SMAA::execute(RenderContext* pRenderContext, const RenderData& renderData)
     if(mReprojection)
     {
         FALCOR_PROFILE(pRenderContext, "Reprojection");
+
+        if(mClearReproject)
+        {
+            pRenderContext->blit(pColorOut->getSRV(), pPrevColor->getRTV());
+            mClearReproject = false;
+        }
+
         auto var = mpPassReproject->getRootVar();
         var["gColor"] = pTmpColorOut;
         var["gPrevColor"] = pPrevColor;
@@ -244,6 +249,7 @@ void SMAA::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
 
-    widget.checkbox("Reprojection", mReprojection);
+    if (widget.checkbox("Reprojection", mReprojection))
+        mClearReproject = true;
     widget.dropdown("EdgeMode", mEdgeMode);
 }
