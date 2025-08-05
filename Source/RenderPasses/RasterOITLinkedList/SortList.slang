@@ -39,7 +39,7 @@ cbuffer PerFrame
 }
 
 #ifndef MAX_FRAGMENT
-#define MAX_FRAGMENT 64
+#define MAX_FRAGMENT 256
 #endif
 
 [numthreads(8, 8, 1)]

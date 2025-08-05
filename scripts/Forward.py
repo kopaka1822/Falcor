@@ -3,7 +3,7 @@ from falcor import *
 
 def render_graph_Forward():
     g = RenderGraph('Forward')
-    g.create_pass('GBufferRaster', 'GBufferRaster', {'outputSize': 'Default', 'samplePattern': 'Center', 'sampleCount': 8, 'useAlphaTest': True, 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': 'Back'})
+    g.create_pass('GBufferRaster', 'GBufferRaster', {'outputSize': 'Default', 'samplePattern': 'Center', 'sampleCount': 8, 'useAlphaTest': True, 'alphaTestMode': 'Basic', 'adjustShadingNormals': True, 'forceCullMode': False, 'cull': 'Back', 'textureLodBias': 0.0})
     g.create_pass('RayShadow', 'RayShadow', {})
     g.create_pass('ToneMapper', 'ToneMapper', {'outputSize': 'Default', 'useSceneMetadata': True, 'exposureCompensation': 0.0, 'autoExposure': False, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': 'Linear', 'clamp': False, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': 'AperturePriority'})
     g.create_pass('TAA', 'TAA', {'alpha': 0.10000000149011612, 'colorBoxSigma': 0.5, 'antiFlicker': True})
@@ -11,6 +11,8 @@ def render_graph_Forward():
     g.create_pass('EnvMapPass', 'EnvMapPass', {})
     g.create_pass('PathBenchmark', 'PathBenchmark', {})
     g.create_pass('VideoRecorder', 'VideoRecorder', {})
+    g.create_pass('SMAA', 'SMAA', {})
+    g.create_pass('DLSSPass', 'DLSSPass', {'enabled': True, 'outputSize': 'Default', 'profile': 'DLAA', 'preset': 'Default(CNN)', 'motionVectorScale': 'Relative', 'isHDR': True, 'useJitteredMV': False, 'sharpness': 0.3499999940395355, 'exposure': 0.0})
     g.add_edge('GBufferRaster.posW', 'RayShadow.posW')
     g.add_edge('GBufferRaster.normW', 'RayShadow.normalW')
     g.add_edge('GBufferRaster.mvec', 'TAA.motionVecs')
@@ -22,8 +24,16 @@ def render_graph_Forward():
     g.add_edge('TAA', 'PathBenchmark')
     g.add_edge('VideoRecorder', 'GBufferRaster')
     g.add_edge('ToneMapper.dst', 'TAA.colorIn')
+    g.add_edge('ToneMapper.dst', 'SMAA.colorIn')
+    g.add_edge('GBufferRaster.mvec', 'SMAA.mvec')
+    g.add_edge('GBufferRaster.linearZ', 'SMAA.linearDepth')
+    g.add_edge('GBufferRaster.mvec', 'DLSSPass.mvec')
+    g.add_edge('GBufferRaster.depth', 'DLSSPass.depth')
+    g.add_edge('ForwardLighting.color', 'DLSSPass.color')
     g.mark_output('TAA.colorOut')
     g.mark_output('ToneMapper.dst')
+    g.mark_output('SMAA.colorOut')
+    g.mark_output('DLSSPass.output')
     return g
 
 Forward = render_graph_Forward()

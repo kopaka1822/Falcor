@@ -212,7 +212,8 @@ void PreviewSurfaceConverter::cacheMaterial(const StandardMaterialSpec& spec, re
         std::unique_lock lock(mCacheMutex);
         if (mSpecMaterialCache.find(spec) == mSpecMaterialCache.end())
         {
-            throw RuntimeError("Expected PreviewSurfaceConverter spec cache entry for '{}' not found.", spec.name);
+            //throw RuntimeError("Expected PreviewSurfaceConverter spec cache entry for '{}' not found.", spec.name);
+            logWarning("Expected PreviewSurfaceConverter spec cache entry for '{}' not found.", spec.name);
         }
         mSpecMaterialCache[spec] = pMaterial;
     }
