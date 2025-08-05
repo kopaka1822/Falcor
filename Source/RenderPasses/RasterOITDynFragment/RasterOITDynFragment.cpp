@@ -66,13 +66,11 @@ RasterOITDynFragment::RasterOITDynFragment(ref<Device> pDevice, const Properties
     mpSortPass = ComputePass::create(mpDevice, kSortFile);
 
     // optimized sort passes
-    // maximum fragment count for the resolve stage. 0 means unlimited
-    static constexpr auto resolveIntervals = std::array{ 0, 256, 128, 64, 32, 16, 8, 4, 0 /*only for MIN_FRAGMENT*/ };
+    // maximum fragment count for the resolve stage
+    static constexpr auto resolveIntervals = std::array{ 256, 128, 64, 32, 16, 8, 4, 0 /*only for MIN_FRAGMENT*/ };
 
     DefineList s;
-    s["MIN_FRAGMENT"] = std::to_string(resolveIntervals[1]);
-    mpOptimizedSortPasses.push_back(ComputePass::create(mpDevice, kSortFile, "main", s));
-    for (size_t i = 1; i < resolveIntervals.size() - 1; ++i)
+    for (size_t i = 0; i < resolveIntervals.size() - 1; ++i)
     {
         s["MAX_FRAGMENT"] = std::to_string(resolveIntervals[i]);
         s["MIN_FRAGMENT"] = std::to_string(resolveIntervals[i + 1]);

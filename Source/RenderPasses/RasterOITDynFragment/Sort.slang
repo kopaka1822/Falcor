@@ -38,6 +38,9 @@ cbuffer PerFrame
     uint maxFragmentCount;
 }
 
+#ifndef MAX_FRAGMENT
+#define MAX_FRAGMENT 256
+#endif
 #ifndef MIN_FRAGMENT
 #define MIN_FRAGMENT 0
 #endif
@@ -64,14 +67,10 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     if (numFragments <= MIN_FRAGMENT) return; // this is handled by a different shader
 
 //#undef MAX_FRAGMENT
-#ifdef MAX_FRAGMENT
+//#ifdef MAX_FRAGMENT
     if (numFragments > MAX_FRAGMENT) return; // this is handled by a different shader
-#if MAX_FRAGMENT > 8
+
 #define IN_LIST(i) i < numFragments
-#else
-// no early out is faster for very small lists
-#define IN_LIST(i) true
-#endif
 
 	// load fragments into registers
 	Fragment f[MAX_FRAGMENT];
@@ -140,7 +139,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 		color.a *= (1.0 - c.a);
 	}
 
-#else // no upper limit for list length
+/*#else // no upper limit for list length
 	// sort fragments between start and end
     for (uint i = startIdx + 1; i < endIdx; ++i)
     {
@@ -169,7 +168,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 		// background occlusion
         color.a *= (1.0 - next.a);
     }
-#endif
+#endif*/
 
     gColor[pixel] = color;
 }
