@@ -29,6 +29,10 @@
 #include "Scene/Lighting/LightSettings.h"
 #include "Scene/Lighting/ShadowSettings.h"
 
+#include "Core/API/NativeHandleTraits.h"
+#include "Core/API/NativeFormats.h"
+#include <d3d12.h>
+
 namespace
 {
     const std::string kDepth = "depth"; // input depth buffer
@@ -46,6 +50,19 @@ namespace
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
     registry.registerClass<RenderPass, RasterOITLinkedList>();
+}
+
+static void setStencilRef(RenderContext* pRenderContext, uint stencilRef)
+{
+    auto pCmd = pRenderContext->getLowLevelData()->getGfxCommandBuffer();
+    gfx::InteropHandle handle;
+    pCmd->getNativeHandle(&handle);
+    if (handle.api == gfx::InteropHandleAPI::D3D12)
+    {
+        ID3D12GraphicsCommandList* pCmdList = reinterpret_cast<ID3D12GraphicsCommandList*>(handle.handleValue);
+        pCmdList->OMSetStencilRef(stencilRef);
+    }
+    else assert(false); // set for other api
 }
 
 static constexpr auto resolveIntervals = std::array{ 256, 128, 64, 32, 16, 8, 4, 0 /*only for MIN_FRAGMENT*/ };
@@ -90,11 +107,12 @@ RasterOITLinkedList::RasterOITLinkedList(ref<Device> pDevice, const Properties& 
     {
         d["MAX_FRAGMENT"] = std::to_string(resolveIntervals[i]);
         auto pass = FullScreenPass::create(mpDevice, kSortFile, d);
-        pass->getState()->setDepthStencilState(sortDs);
+        // pass->getState()->setDepthStencilState(sortDs); // does not work in this falcor version
         pass->getState()->setStencilRef(resolveIntervals[i + 1]);
         // share vars
         if(!mpOptimizedSortPasses.empty())
             pass->setVars(mpOptimizedSortPasses[0]->getVars());
+
         mpOptimizedSortPasses.push_back(std::move(pass));
     }
 }
@@ -221,9 +239,10 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
 
             for (size_t i = 0; i < resolveIntervals.size() - 1; ++i)
             {
-                
+                setStencilRef(pRenderContext, resolveIntervals[i + 1]);
                 mpOptimizedSortPasses[i]->execute(pRenderContext, mpSortFbo);
             }
+            setStencilRef(pRenderContext, 0);
         }
         else
         {
