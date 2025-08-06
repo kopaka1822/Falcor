@@ -95,7 +95,7 @@ RasterOITLinkedList::RasterOITLinkedList(ref<Device> pDevice, const Properties& 
     mpSortFbo = Fbo::create(mpDevice);
     dsDesc.setDepthEnabled(false);
     dsDesc.setStencilEnabled(true);
-    dsDesc.setStencilFunc(DepthStencilState::Face::FrontAndBack, DepthStencilState::Func::Greater);
+    dsDesc.setStencilFunc(DepthStencilState::Face::FrontAndBack, DepthStencilState::Func::Less);
     dsDesc.setStencilOp(DepthStencilState::Face::FrontAndBack, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Zero);
     auto sortDs = DepthStencilState::create(dsDesc);
 
@@ -107,8 +107,8 @@ RasterOITLinkedList::RasterOITLinkedList(ref<Device> pDevice, const Properties& 
     {
         d["MAX_FRAGMENT"] = std::to_string(resolveIntervals[i]);
         auto pass = FullScreenPass::create(mpDevice, kSortFile, d);
-        // pass->getState()->setDepthStencilState(sortDs); // does not work in this falcor version
-        pass->getState()->setStencilRef(resolveIntervals[i + 1]);
+        pass->getState()->setDepthStencilState(sortDs); 
+        //pass->getState()->setStencilRef(resolveIntervals[i + 1]); // does not work in this falcor version
         // share vars
         if(!mpOptimizedSortPasses.empty())
             pass->setVars(mpOptimizedSortPasses[0]->getVars());
@@ -228,14 +228,14 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
 
             vars["gHead"] = pHead;
             vars["gBuffer"] = mpDataBuffer;
-            vars["gColor"] = pColor;
+            //vars["gColor"] = pColor;
             vars["gPixelCount"] = pPixelCount;
 
             vars["PerFrame"]["gFrameDim"] = uint2(pDepth->getWidth(), pDepth->getHeight());
             vars["PerFrame"]["maxElements"] = mpDataBuffer->getElementCount();
 
             mpSortFbo->attachDepthStencilTarget(pDepth);
-            //mpSortFbo->attachColorTarget(pColor, 0); // TODO write color as pixel output
+            mpSortFbo->attachColorTarget(pColor, 0);
 
             for (size_t i = 0; i < resolveIntervals.size() - 1; ++i)
             {

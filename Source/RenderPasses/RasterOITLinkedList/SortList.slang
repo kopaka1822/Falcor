@@ -44,7 +44,7 @@ cbuffer PerFrame
 
 #ifdef RASTER_IMPL
 [earlydepthstencil]
-void main(float2 texC : TEXCOORD, float4 pos : SV_POSITION)
+float4 main(float2 texC : TEXCOORD, float4 pos : SV_POSITION) : SV_TARGET
 {
     uint2 pixel = uint2(pos.xy);
 #else
@@ -52,9 +52,9 @@ void main(float2 texC : TEXCOORD, float4 pos : SV_POSITION)
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
     uint2 pixel = id.xy;
-#endif
     if (pixel.x >= gFrameDim.x || pixel.y >= gFrameDim.y)
         return;
+#endif
 
     #ifdef MIN_FRAGMENT
     uint pixCount = gPixelCount[pixel];
@@ -68,8 +68,12 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
     uint head = gHead[pixel];
     if (head >= maxElements)
+#ifdef RASTER_IMPL
+        return float4(0.0, 0.0, 0.0, 1.0);
+#else
         return;
-
+#endif
+        
     // load fragments into registers
     FragData f[MAX_FRAGMENT];
 
@@ -136,5 +140,9 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         color.a *= (1.0 - c.a);
     }
 
+#ifdef RASTER_IMPL
+    return color;
+#else
     gColor[pixel] = color;
+#endif    
 }
