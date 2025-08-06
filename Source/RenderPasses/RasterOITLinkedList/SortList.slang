@@ -42,10 +42,17 @@ cbuffer PerFrame
 #define MAX_FRAGMENT 256
 #endif
 
+#ifdef RASTER_IMPL
+[earlydepthstencil]
+void main(float2 texC : TEXCOORD, float4 pos : SV_POSITION)
+{
+    uint2 pixel = uint2(pos.xy);
+#else
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
     uint2 pixel = id.xy;
+#endif
     if (pixel.x >= gFrameDim.x || pixel.y >= gFrameDim.y)
         return;
 

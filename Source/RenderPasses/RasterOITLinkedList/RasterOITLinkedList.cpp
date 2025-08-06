@@ -48,6 +48,8 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, RasterOITLinkedList>();
 }
 
+static constexpr auto resolveIntervals = std::array{ 256, 128, 64, 32, 16, 8, 4, 0 /*only for MIN_FRAGMENT*/ };
+
 RasterOITLinkedList::RasterOITLinkedList(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
 {
@@ -68,19 +70,32 @@ RasterOITLinkedList::RasterOITLinkedList(ref<Device> pDevice, const Properties& 
     Program::Desc desc;
     desc.addShaderLibrary(kSortFile).csEntry("main").setShaderModel("6_5");
 
+    // default sort pass
     mpSortPass = ComputePass::create(mpDevice, desc);
 
     // optimized sort passes
     // maximum fragment count for the resolve stage. Upper limit is 256
-    static constexpr auto resolveIntervals = std::array{ 256, 128, 64, 32, 16, 8, 4, 0 /*only for MIN_FRAGMENT*/ };
+    mpSortFbo = Fbo::create(mpDevice);
+    dsDesc.setDepthEnabled(false);
+    dsDesc.setStencilEnabled(true);
+    dsDesc.setStencilFunc(DepthStencilState::Face::FrontAndBack, DepthStencilState::Func::Greater);
+    dsDesc.setStencilOp(DepthStencilState::Face::FrontAndBack, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Zero);
+    auto sortDs = DepthStencilState::create(dsDesc);
 
-    for(size_t i = 0; i < resolveIntervals.size() - 1; ++i)
+    // optimized sort programs
+    mpOptimizedSortPasses.resize(0);
+    DefineList d;
+    d["RASTER_IMPL"] = "1";
+    for (size_t i = 0; i < resolveIntervals.size() - 1; ++i)
     {
-        DefineList d;
         d["MAX_FRAGMENT"] = std::to_string(resolveIntervals[i]);
-        d["MIN_FRAGMENT"] = std::to_string(resolveIntervals[i + 1]);
-        mpOptimizedSortPasses.push_back(ComputePass::create(mpDevice, desc, d));
-        mpOptimizedSortPasses.back()->setVars(mpSortPass->getVars());
+        auto pass = FullScreenPass::create(mpDevice, kSortFile, d);
+        pass->getState()->setDepthStencilState(sortDs);
+        pass->getState()->setStencilRef(resolveIntervals[i + 1]);
+        // share vars
+        if(!mpOptimizedSortPasses.empty())
+            pass->setVars(mpOptimizedSortPasses[0]->getVars());
+        mpOptimizedSortPasses.push_back(std::move(pass));
     }
 }
 
@@ -187,25 +202,40 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
     //return;
     {
         FALCOR_PROFILE(pRenderContext, "Sort and Blend");
-        auto vars = mpSortPass->getRootVar();
 
-        vars["gHead"] = pHead;
-        vars["gBuffer"] = mpDataBuffer;
-        vars["gColor"] = pColor;
-        vars["gPixelCount"] = pPixelCount;
-
-        vars["PerFrame"]["gFrameDim"] = uint2(pDepth->getWidth(), pDepth->getHeight());
-        vars["PerFrame"]["maxElements"] = mpDataBuffer->getElementCount();
 
         if(mOptimizeSort)
         {
-            for (auto& sortPass : mpOptimizedSortPasses)
+            auto vars = mpOptimizedSortPasses[0]->getRootVar();
+
+            vars["gHead"] = pHead;
+            vars["gBuffer"] = mpDataBuffer;
+            vars["gColor"] = pColor;
+            vars["gPixelCount"] = pPixelCount;
+
+            vars["PerFrame"]["gFrameDim"] = uint2(pDepth->getWidth(), pDepth->getHeight());
+            vars["PerFrame"]["maxElements"] = mpDataBuffer->getElementCount();
+
+            mpSortFbo->attachDepthStencilTarget(pDepth);
+            //mpSortFbo->attachColorTarget(pColor, 0); // TODO write color as pixel output
+
+            for (size_t i = 0; i < resolveIntervals.size() - 1; ++i)
             {
-                sortPass->execute(pRenderContext, pDepth->getWidth(), pDepth->getHeight());
+                
+                mpOptimizedSortPasses[i]->execute(pRenderContext, mpSortFbo);
             }
         }
         else
         {
+            auto vars = mpSortPass->getRootVar();
+
+            vars["gHead"] = pHead;
+            vars["gBuffer"] = mpDataBuffer;
+            vars["gColor"] = pColor;
+            vars["gPixelCount"] = pPixelCount;
+
+            vars["PerFrame"]["gFrameDim"] = uint2(pDepth->getWidth(), pDepth->getHeight());
+            vars["PerFrame"]["maxElements"] = mpDataBuffer->getElementCount();
             mpSortPass->execute(pRenderContext, pDepth->getWidth(), pDepth->getHeight());
         }
     }

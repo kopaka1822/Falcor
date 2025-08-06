@@ -28,6 +28,7 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include "Core/Pass/FullScreenPass.h"
 
 using namespace Falcor;
 
@@ -68,5 +69,6 @@ private:
     ref<FrustumCulling> mpCulling;
 
     bool mOptimizeSort = true;
-    std::vector<ref<ComputePass>> mpOptimizedSortPasses;
+    std::vector<ref<FullScreenPass>> mpOptimizedSortPasses;
+    ref<Fbo> mpSortFbo;
 };
