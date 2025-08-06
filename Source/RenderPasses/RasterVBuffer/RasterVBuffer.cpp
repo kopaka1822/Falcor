@@ -87,7 +87,7 @@ RenderPassReflection RasterVBuffer::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
     reflector.addOutput(kVbuffer, "V-buffer").format(HitInfo::kDefaultFormat);
-    reflector.addOutput(kDepth, "Depth Bufer").format(ResourceFormat::D32Float);
+    reflector.addOutput(kDepth, "Depth Bufer").format(ResourceFormat::D32FloatS8X24);
     return reflector;
 }
 

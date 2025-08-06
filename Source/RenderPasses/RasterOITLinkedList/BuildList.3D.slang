@@ -75,7 +75,8 @@ void psMain(VSOut v, uint triangleIndex : SV_PrimitiveID, float3 barycentrics : 
     let material = gScene.materials.getMaterial(v.materialID);
     float alpha = material.evalOpacity(gScene.materials, v.texC, lod);
     if (alpha <= 0.01)
-        discard; // no hit
+        return;
+        //discard; // no hit
     
     float3 viewDir = -gScene.camera.computeRayPinhole(pixel, gFrameDim).dir;
     float4 shadedColor = shadeVBuffer(triangleHit, pixel, gFrameDim, viewDir);
@@ -84,7 +85,8 @@ void psMain(VSOut v, uint triangleIndex : SV_PrimitiveID, float3 barycentrics : 
     uint idx = uint(-1);
     InterlockedAdd(gCount[0], 1, idx);
     if (idx >= maxElements)
-        discard;
+        return;
+        //discard;
 
     BufferData data;
     data.depth = v.posH.w;

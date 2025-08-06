@@ -55,6 +55,9 @@ RasterOITLinkedList::RasterOITLinkedList(ref<Device> pDevice, const Properties& 
     mpState = GraphicsState::create(mpDevice);
     DepthStencilState::Desc dsDesc;
     dsDesc.setDepthWriteMask(false); // disable depth writes
+    dsDesc.setStencilEnabled(true); // enable stencil
+    dsDesc.setStencilFunc(DepthStencilState::Face::FrontAndBack, DepthStencilState::Func::Always); // always pass stencil test
+    dsDesc.setStencilOp(DepthStencilState::Face::FrontAndBack, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::Keep, DepthStencilState::StencilOp::IncreaseSaturate); // count fragments
     auto dsState = DepthStencilState::create(dsDesc);
     mpState->setDepthStencilState(dsState);
     mpFbo = Fbo::create(mpDevice);
@@ -148,6 +151,7 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
         mpProgram->addDefine("OPTIMIZE_SORT", std::to_string(mOptimizeSort ? 1 : 0));
 
         // framebuffer
+        pRenderContext->clearDsv(pDepth->getDSV().get(), 1.0f, 0, false, true); // only clear stencil
         mpFbo->attachDepthStencilTarget(pDepth);
         mpState->setFbo(mpFbo);
 
