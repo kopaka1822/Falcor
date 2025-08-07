@@ -67,18 +67,18 @@ void RayGen()
 
     SortParams params;
     params.head = head;
-
+    callableIndex = 0; // TODO delete
     CallShader(callableIndex, params);
 }
 
 [shader("callable")]
-void SortList_0(SortParams p)
+void SortList_0(inout SortParams p)
 {
     gColor[DispatchRaysIndex().xy] = float4(0.0, 0.0, 0.0, 1.0);
 }
 
 [shader("callable")]
-void SortList_4(SortParams p)
+void SortList_4(inout SortParams p)
 {
 #define MAX_FRAGMENT 4
 #include "CallableInternal.h"
@@ -86,7 +86,7 @@ void SortList_4(SortParams p)
 }
 
 [shader("callable")]
-void SortList_8(SortParams p)
+void SortList_8(inout SortParams p)
 {
 #define MAX_FRAGMENT 8
 #include "CallableInternal.h"
@@ -94,7 +94,7 @@ void SortList_8(SortParams p)
 }
 
 [shader("callable")]
-void SortList_16(SortParams p)
+void SortList_16(inout SortParams p)
 {
 #define MAX_FRAGMENT 16
 #include "CallableInternal.h"
@@ -102,7 +102,7 @@ void SortList_16(SortParams p)
 }
 
 [shader("callable")]
-void SortList_32(SortParams p)
+void SortList_32(inout SortParams p)
 {
 #define MAX_FRAGMENT 32
 #include "CallableInternal.h"
@@ -110,7 +110,7 @@ void SortList_32(SortParams p)
 }
 
 [shader("callable")]
-void SortList_64(SortParams p)
+void SortList_64(inout SortParams p)
 {
 #define MAX_FRAGMENT 64
 #include "CallableInternal.h"
@@ -118,7 +118,7 @@ void SortList_64(SortParams p)
 }
 
 [shader("callable")]
-void SortList_128(SortParams p)
+void SortList_128(inout SortParams p)
 {
 #define MAX_FRAGMENT 128
 #include "CallableInternal.h"
@@ -126,7 +126,7 @@ void SortList_128(SortParams p)
 }
 
 [shader("callable")]
-void SortList_256(SortParams p)
+void SortList_256(inout SortParams p)
 {
 #define MAX_FRAGMENT 256
 #include "CallableInternal.h"

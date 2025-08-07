@@ -151,6 +151,7 @@ private:
 
     uint32_t mRayTypeCount = 0;                         ///< Number of ray types (= number of hit groups per geometry).
     uint32_t mGeometryCount = 0;                        ///< Number of geometries.
+    uint32_t mCallableCount = 0;                        ///< Number of callable shaders.
     std::vector<int32_t> mUniqueEntryPointGroupIndices; ///< Indices of all unique entry point groups that we use in the associated program.
 
     mutable ShaderTablePtr mpShaderTable;                    ///< GPU shader table.
@@ -159,6 +160,7 @@ private:
     VarsVector mRayGenVars;
     VarsVector mMissVars;
     VarsVector mHitVars;
+    VarsVector mCallableVars;
 };
 
 } // namespace Falcor

@@ -38,13 +38,13 @@ const uint32_t kMaxMissCount = (1 << 16);
 const uint32_t kMaxRayTypeCount = (1 << 4);
 } // namespace
 
-ref<RtBindingTable> RtBindingTable::create(uint32_t missCount, uint32_t rayTypeCount, uint32_t geometryCount)
+ref<RtBindingTable> RtBindingTable::create(uint32_t missCount, uint32_t rayTypeCount, uint32_t geometryCount, uint32_t callableCount)
 {
-    return ref<RtBindingTable>(new RtBindingTable(missCount, rayTypeCount, geometryCount));
+    return ref<RtBindingTable>(new RtBindingTable(missCount, rayTypeCount, geometryCount, callableCount));
 }
 
-RtBindingTable::RtBindingTable(uint32_t missCount, uint32_t rayTypeCount, uint32_t geometryCount)
-    : mMissCount(missCount), mRayTypeCount(rayTypeCount), mGeometryCount(geometryCount)
+RtBindingTable::RtBindingTable(uint32_t missCount, uint32_t rayTypeCount, uint32_t geometryCount, uint32_t callableCount)
+    : mMissCount(missCount), mRayTypeCount(rayTypeCount), mGeometryCount(geometryCount), mCallableCount(callableCount)
 {
     if (missCount > kMaxMissCount)
     {
@@ -55,7 +55,7 @@ RtBindingTable::RtBindingTable(uint32_t missCount, uint32_t rayTypeCount, uint32
         throw ArgumentError("'rayTypeCount' exceeds the maximum supported ({})", kMaxRayTypeCount);
     }
 
-    size_t recordCount = 1ull + missCount + rayTypeCount * geometryCount;
+    size_t recordCount = 1ull + missCount + rayTypeCount * geometryCount + callableCount;
     if (recordCount > std::numeric_limits<uint32_t>::max())
     {
         throw ArgumentError("Raytracing binding table is too large");
@@ -77,6 +77,15 @@ void RtBindingTable::setMiss(uint32_t missIndex, ShaderID shaderID)
         throw ArgumentError("'missIndex' is out of range");
     }
     mShaderTable[getMissOffset(missIndex)] = shaderID;
+}
+
+void RtBindingTable::setCallable(uint32_t callableIndex, ShaderID shaderID)
+{
+    if (callableIndex >= mCallableCount)
+    {
+        throw ArgumentError("'callableIndex' is out of range");
+    }
+    mShaderTable[1 + mMissCount + mRayTypeCount * mGeometryCount + callableIndex] = shaderID;
 }
 
 void RtBindingTable::setHitGroup(uint32_t rayType, uint32_t geometryID, ShaderID shaderID)

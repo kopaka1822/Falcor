@@ -110,6 +110,7 @@ void RtProgramVars::init(const ref<RtBindingTable>& pBindingTable)
 {
     mRayTypeCount = pBindingTable->getRayTypeCount();
     mGeometryCount = pBindingTable->getGeometryCount();
+    mCallableCount = pBindingTable->getCallableCount();
 
     // We must create sub-shader-objects for all the entry point
     // groups that are used by the supplied binding table.
@@ -172,6 +173,19 @@ void RtProgramVars::init(const ref<RtBindingTable>& pBindingTable)
         }
     }
 
+    mCallableVars.resize(mCallableCount);
+    for (uint32_t i = 0; i < mCallableCount; ++i)
+    {
+        const auto& callableInfo = pBindingTable->getCallable(i);
+        if (!callableInfo.isValid())
+        {
+            logWarning("Raytracing binding table has no shader at callable index {}. Is that intentional?", i);
+            continue;
+        }
+        mCallableVars[i].entryPointGroupIndex = callableInfo.groupIndex;
+        entryPointGroupIndices.insert(callableInfo.groupIndex);
+    }
+
     mUniqueEntryPointGroupIndices.assign(entryPointGroupIndices.begin(), entryPointGroupIndices.end());
     FALCOR_ASSERT(!mUniqueEntryPointGroupIndices.empty());
 
@@ -228,6 +242,9 @@ bool RtProgramVars::prepareShaderTable(RenderContext* pCtx, RtStateObject* pRtso
         std::vector<const char*> hitgroupShaders;
         getShaderNames(mHitVars, hitgroupShaders);
 
+        std::vector<const char*> callableShaders;
+        getShaderNames(mCallableVars, callableShaders);
+
         gfx::IShaderTable::Desc desc = {};
         desc.rayGenShaderCount = (uint32_t)rayGenShaders.size();
         desc.rayGenShaderEntryPointNames = rayGenShaders.data();
@@ -235,6 +252,7 @@ bool RtProgramVars::prepareShaderTable(RenderContext* pCtx, RtStateObject* pRtso
         desc.missShaderEntryPointNames = missShaders.data();
         desc.hitGroupCount = (uint32_t)hitgroupShaders.size();
         desc.hitGroupNames = hitgroupShaders.data();
+        // TODO add callables here
         desc.program = pRtso->getKernels()->getGfxProgram();
         if (SLANG_FAILED(mpDevice->getGfxDevice()->createShaderTable(desc, mpShaderTable.writeRef())))
             return false;

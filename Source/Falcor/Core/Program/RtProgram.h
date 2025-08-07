@@ -195,6 +195,12 @@ public:
             const std::string& entryPointNameSuffix = ""
         );
 
+        ShaderID addCallable(
+            const std::string& callable,
+            const TypeConformanceList& typeConformances = TypeConformanceList(),
+            const std::string& entryPointNameSuffix = ""
+        );
+
         /**
          * Get the max recursion depth.
          */

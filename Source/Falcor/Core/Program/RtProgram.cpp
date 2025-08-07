@@ -100,6 +100,17 @@ RtProgram::ShaderID RtProgram::Desc::addHitGroup(
     return {mBaseDesc.mActiveGroup};
 }
 
+RtProgram::ShaderID RtProgram::Desc::addCallable(const std::string& callable, const TypeConformanceList& typeConformances, const std::string& entryPointNameSuffix)
+{
+    checkArgument(!callable.empty(), "'miss' entry point name must not be empty");
+
+    mBaseDesc.beginEntryPointGroup(entryPointNameSuffix);
+    mBaseDesc.entryPoint(ShaderType::Callable, callable);
+    mBaseDesc.addTypeConformancesToGroup(typeConformances);
+
+    return { mBaseDesc.mActiveGroup };
+}
+
 ref<RtProgram> RtProgram::create(ref<Device> pDevice, Desc desc, const DefineList& programDefines)
 {
     return ref<RtProgram>(new RtProgram(pDevice, desc, programDefines));

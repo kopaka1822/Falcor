@@ -88,6 +88,9 @@ private:
     
     ref<FullScreenPass> mpOptimizedSortPass;
     ref<Fbo> mpSortFbo;
+
+    ref<RtProgram> mpCallableSortPass;
+    ref<RtProgramVars> mpCallableSortVars;
 };
 
 FALCOR_ENUM_REGISTER(RasterOITLinkedList::SortMode);

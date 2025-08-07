@@ -58,7 +58,7 @@ public:
      * @param[in] geometryCount Number of geometries.
      * @return A new object, or throws an exception on error.
      */
-    static ref<RtBindingTable> create(uint32_t missCount, uint32_t rayTypeCount, uint32_t geometryCount);
+    static ref<RtBindingTable> create(uint32_t missCount, uint32_t rayTypeCount, uint32_t geometryCount, uint32_t callableCount = 0);
 
     /**
      * Set the raygen shader ID.
@@ -72,6 +72,8 @@ public:
      * @param[in] shaderID The shader ID in the program.
      */
     void setMiss(uint32_t missIndex, ShaderID shaderID);
+
+    void setCallable(uint32_t callableIndex, ShaderID shaderID);
 
     /**
      * Set a hit group shader ID.
@@ -115,16 +117,23 @@ public:
      */
     ShaderID getHitGroup(uint32_t rayType, uint32_t geometryID) const { return mShaderTable[getHitGroupOffset(rayType, geometryID)]; }
 
+    ShaderID getCallable(uint32_t callableIndex) const
+    {
+        FALCOR_ASSERT(callableIndex < mCallableCount);
+        return mShaderTable[1 + mMissCount + mRayTypeCount * mGeometryCount + callableIndex];
+    }
+
     uint32_t getMissCount() const { return mMissCount; }
     uint32_t getRayTypeCount() const { return mRayTypeCount; }
     uint32_t getGeometryCount() const { return mGeometryCount; }
+    uint32_t getCallableCount() const { return mCallableCount; }
 
 private:
     RtBindingTable() = delete;
     RtBindingTable(const RtBindingTable&) = delete;
     RtBindingTable& operator=(const RtBindingTable&) = delete;
 
-    RtBindingTable(uint32_t missCount, uint32_t rayTypeCount, uint32_t geometryCount);
+    RtBindingTable(uint32_t missCount, uint32_t rayTypeCount, uint32_t geometryCount, uint32_t callableCount = 0);
 
     uint32_t getMissOffset(uint32_t missIndex) const
     {
@@ -145,6 +154,7 @@ private:
     uint32_t mMissCount = 0;     ///< Number of miss shaders.
     uint32_t mRayTypeCount = 0;  ///< Number of ray types.
     uint32_t mGeometryCount = 0; ///< Number of geometries in the scene.
+    uint32_t mCallableCount = 0; ///< Number of callable shaders.
 
     std::vector<ShaderID> mShaderTable; ///< Table of all shader IDs. The default value is a null entry (no shader).
 };

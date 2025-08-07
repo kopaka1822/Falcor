@@ -114,9 +114,19 @@ RasterOITLinkedList::RasterOITLinkedList(ref<Device> pDevice, const Properties& 
     rt.setMaxTraceRecursionDepth(1);
     
 
-    auto sbt = RtBindingTable::create(0, 0, 0);
-    sbt->setRayGen(rt.addRayGen("rayGen"));
-    // TODO add callables
+    auto sbt = RtBindingTable::create(0, 0, 0, 8);
+    sbt->setRayGen(rt.addRayGen("RayGen"));
+    sbt->setCallable(0, rt.addCallable("SortList_0"));
+    sbt->setCallable(1, rt.addCallable("SortList_4"));
+    sbt->setCallable(2, rt.addCallable("SortList_8"));
+    sbt->setCallable(3, rt.addCallable("SortList_16"));
+    sbt->setCallable(4, rt.addCallable("SortList_32"));
+    sbt->setCallable(5, rt.addCallable("SortList_64"));
+    sbt->setCallable(6, rt.addCallable("SortList_128"));
+    sbt->setCallable(7, rt.addCallable("SortList_256"));
+
+    mpCallableSortPass = RtProgram::create(mpDevice, rt, DefineList());
+    mpCallableSortVars = RtProgramVars::create(mpDevice, mpCallableSortPass, sbt);
 }
 
 Properties RasterOITLinkedList::getProperties() const
@@ -249,7 +259,16 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
         }
         else if (mSortMode == SortMode::Callable)
         {
+            auto vars = mpCallableSortVars->getRootVar();
 
+            vars["gHead"] = pHead;
+            vars["gBuffer"] = mpDataBuffer;
+            vars["gColor"] = pColor;
+            vars["gPixelCount"] = pPixelCount;
+
+            vars["PerFrame"]["gFrameDim"] = uint2(pDepth->getWidth(), pDepth->getHeight());
+            vars["PerFrame"]["maxElements"] = mpDataBuffer->getElementCount();
+            pRenderContext->raytrace(mpCallableSortPass.get(), mpCallableSortVars.get(), pDepth->getWidth(), pDepth->getHeight(), 1);
         }
         else
         {
