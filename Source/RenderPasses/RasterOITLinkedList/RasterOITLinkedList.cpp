@@ -45,6 +45,7 @@ namespace
 
     const std::string kProgramFile = "RenderPasses/RasterOITLinkedList/BuildList.3D.slang";
     const std::string kSortFile = "RenderPasses/RasterOITLinkedList/SortList.slang";
+    const std::string kCallableFile = "RenderPasses/RasterOITLinkedList/CallableSort.slang";
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -105,6 +106,17 @@ RasterOITLinkedList::RasterOITLinkedList(ref<Device> pDevice, const Properties& 
     d["MAX_FRAGMENT"] = std::to_string(resolveIntervals[0]);
     mpOptimizedSortPass = FullScreenPass::create(mpDevice, kSortFile, d);
     mpOptimizedSortPass->getState()->setDepthStencilState(sortDs);
+
+    RtProgram::Desc rt;
+    rt.addShaderLibrary(kCallableFile).setShaderModel("6_5");
+    rt.setMaxPayloadSize(sizeof(uint));
+    rt.setMaxAttributeSize(sizeof(float2));
+    rt.setMaxTraceRecursionDepth(1);
+    
+
+    auto sbt = RtBindingTable::create(0, 0, 0);
+    sbt->setRayGen(rt.addRayGen("rayGen"));
+    // TODO add callables
 }
 
 Properties RasterOITLinkedList::getProperties() const
@@ -171,7 +183,7 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
         LightSettings::get().updateShaderVar(vars);
         ShadowSettings::get().updateShaderVar(mpDevice, vars);
         mpProgram->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
-        mpProgram->addDefine("OPTIMIZE_SORT", std::to_string(mOptimizeSort ? 1 : 0));
+        mpProgram->addDefine("OPTIMIZE_SORT", std::to_string(mSortMode != SortMode::SingleCompute ? 1 : 0));
 
         // framebuffer
         pRenderContext->clearDsv(pDepth->getDSV().get(), 1.0f, 0, false, true); // only clear stencil
@@ -212,7 +224,7 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
         FALCOR_PROFILE(pRenderContext, "Sort and Blend");
 
 
-        if(mOptimizeSort)
+        if(mSortMode == SortMode::Stencil)
         {
             auto vars = mpOptimizedSortPass->getRootVar();
 
@@ -234,6 +246,10 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
                 mpOptimizedSortPass->execute(pRenderContext, mpSortFbo);
             }
             setStencilRef(pRenderContext, 0);
+        }
+        else if (mSortMode == SortMode::Callable)
+        {
+
         }
         else
         {
@@ -257,7 +273,7 @@ void RasterOITLinkedList::renderUI(Gui::Widgets& widget)
     auto sizeInBytes = size_t(mDataBufferSize) * size_t(16);
     widget.text("Size in MB: " + std::to_string(sizeInBytes / (1024u * 1024u)));
 
-    widget.checkbox("Optimize Sort", mOptimizeSort);
+    widget.dropdown("Sort Mode", mSortMode);
 }
 
 void RasterOITLinkedList::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

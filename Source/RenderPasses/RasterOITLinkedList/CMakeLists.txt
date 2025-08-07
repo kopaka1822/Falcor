@@ -5,6 +5,8 @@ target_sources(RasterOITLinkedList PRIVATE
     RasterOITLinkedList.h
     BuildList.3D.slang
     SortList.slang
+    CallableSort.slang
+    CallableInternal.h
 )
 
 target_copy_shaders(RasterOITLinkedList RenderPasses/RasterOITLinkedList)

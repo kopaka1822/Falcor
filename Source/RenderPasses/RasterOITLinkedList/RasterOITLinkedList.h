@@ -37,6 +37,22 @@ class RasterOITLinkedList : public RenderPass
 public:
     FALCOR_PLUGIN_CLASS(RasterOITLinkedList, "RasterOITLinkedList", "OIT with per-pixel linked lists");
 
+    enum class SortMode : uint32_t
+    {
+        SingleCompute,
+        Stencil,
+        Callable
+    };
+
+    FALCOR_ENUM_INFO(
+        SortMode,
+        {
+            {SortMode::SingleCompute, "Single Compute"},
+            {SortMode::Stencil, "Stencil"},
+            {SortMode::Callable, "Callable"},
+        }
+    );
+
     static ref<RasterOITLinkedList> create(ref<Device> pDevice, const Properties& props) { return make_ref<RasterOITLinkedList>(pDevice, props); }
 
     RasterOITLinkedList(ref<Device> pDevice, const Properties& props);
@@ -68,7 +84,10 @@ private:
     uint mDataBufferSize = 1024 * 1024 * 40;
     ref<FrustumCulling> mpCulling;
 
-    bool mOptimizeSort = true;
+    SortMode mSortMode = SortMode::Stencil;
+    
     ref<FullScreenPass> mpOptimizedSortPass;
     ref<Fbo> mpSortFbo;
 };
+
+FALCOR_ENUM_REGISTER(RasterOITLinkedList::SortMode);
