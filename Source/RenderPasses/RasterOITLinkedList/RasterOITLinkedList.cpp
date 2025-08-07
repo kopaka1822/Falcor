@@ -100,21 +100,11 @@ RasterOITLinkedList::RasterOITLinkedList(ref<Device> pDevice, const Properties& 
     auto sortDs = DepthStencilState::create(dsDesc);
 
     // optimized sort programs
-    mpOptimizedSortPasses.resize(0);
     DefineList d;
     d["RASTER_IMPL"] = "1";
-    for (size_t i = 0; i < resolveIntervals.size() - 1; ++i)
-    {
-        d["MAX_FRAGMENT"] = std::to_string(resolveIntervals[i]);
-        auto pass = FullScreenPass::create(mpDevice, kSortFile, d);
-        pass->getState()->setDepthStencilState(sortDs); 
-        //pass->getState()->setStencilRef(resolveIntervals[i + 1]); // does not work in this falcor version
-        // share vars
-        if(!mpOptimizedSortPasses.empty())
-            pass->setVars(mpOptimizedSortPasses[0]->getVars());
-
-        mpOptimizedSortPasses.push_back(std::move(pass));
-    }
+    d["MAX_FRAGMENT"] = std::to_string(resolveIntervals[0]);
+    mpOptimizedSortPass = FullScreenPass::create(mpDevice, kSortFile, d);
+    mpOptimizedSortPass->getState()->setDepthStencilState(sortDs);
 }
 
 Properties RasterOITLinkedList::getProperties() const
@@ -224,7 +214,7 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
 
         if(mOptimizeSort)
         {
-            auto vars = mpOptimizedSortPasses[0]->getRootVar();
+            auto vars = mpOptimizedSortPass->getRootVar();
 
             vars["gHead"] = pHead;
             vars["gBuffer"] = mpDataBuffer;
@@ -239,8 +229,9 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
 
             for (size_t i = 0; i < resolveIntervals.size() - 1; ++i)
             {
+                mpOptimizedSortPass->getProgram()->addDefine("MAX_FRAGMENT", std::to_string(resolveIntervals[i]));
                 setStencilRef(pRenderContext, resolveIntervals[i + 1]);
-                mpOptimizedSortPasses[i]->execute(pRenderContext, mpSortFbo);
+                mpOptimizedSortPass->execute(pRenderContext, mpSortFbo);
             }
             setStencilRef(pRenderContext, 0);
         }

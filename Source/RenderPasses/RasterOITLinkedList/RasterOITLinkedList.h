@@ -69,6 +69,6 @@ private:
     ref<FrustumCulling> mpCulling;
 
     bool mOptimizeSort = true;
-    std::vector<ref<FullScreenPass>> mpOptimizedSortPasses;
+    ref<FullScreenPass> mpOptimizedSortPass;
     ref<Fbo> mpSortFbo;
 };
