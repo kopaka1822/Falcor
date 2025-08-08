@@ -84,7 +84,7 @@ private:
     uint mDataBufferSize = 1024 * 1024 * 40;
     ref<FrustumCulling> mpCulling;
 
-    SortMode mSortMode = SortMode::Stencil;
+    SortMode mSortMode = SortMode::Callable;
     
     ref<FullScreenPass> mpOptimizedSortPass;
     ref<Fbo> mpSortFbo;
