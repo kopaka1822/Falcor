@@ -252,7 +252,8 @@ bool RtProgramVars::prepareShaderTable(RenderContext* pCtx, RtStateObject* pRtso
         desc.missShaderEntryPointNames = missShaders.data();
         desc.hitGroupCount = (uint32_t)hitgroupShaders.size();
         desc.hitGroupNames = hitgroupShaders.data();
-        // TODO add callables here
+        desc.callableShaderCount = (uint32_t)callableShaders.size();
+        desc.callableShaderEntryPointNames = callableShaders.data();
         desc.program = pRtso->getKernels()->getGfxProgram();
         if (SLANG_FAILED(mpDevice->getGfxDevice()->createShaderTable(desc, mpShaderTable.writeRef())))
             return false;

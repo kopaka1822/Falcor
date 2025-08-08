@@ -55,19 +55,25 @@ void RayGen()
     if (head >= maxElements)
         listSize = 0;
 
-    // Choose callable shader index based on list size
-    uint callableIndex = 0;
-    if (listSize > 0)
-    {
-        uint clampedSize = min(listSize, 256); // Cap at 256
-        // Compute the next power-of-two bucket index:
-        // 1–4 => 1, 5–8 => 2, ..., 129–256 => 7
-        callableIndex = 1 + firstbithigh((clampedSize - 1) >> 2);
-    }
+    uint callableIndex = 7;
+    if (listSize <= 128)
+        callableIndex = 6;
+    if (listSize <= 64)
+        callableIndex = 5;
+    if (listSize <= 32)
+        callableIndex = 4;
+    if (listSize <= 16)
+        callableIndex = 3;
+    if (listSize <= 8)
+        callableIndex = 2;
+    if (listSize <= 4)
+        callableIndex = 1;
+    if (listSize == 0)
+        callableIndex = 0;
 
     SortParams params;
     params.head = head;
-    callableIndex = 0; // TODO delete
+    
     CallShader(callableIndex, params);
 }
 
