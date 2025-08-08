@@ -342,15 +342,15 @@ set_property(CACHE FALCOR_SLANG_CONFIG PROPERTY STRINGS release debug)
 if(FALCOR_WINDOWS)
     add_library(slang SHARED IMPORTED GLOBAL)
     set_target_properties(slang PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES ${SLANG_DIR}
-        IMPORTED_IMPLIB ${SLANG_DIR}/bin/windows-x64/${FALCOR_SLANG_CONFIG}/slang.lib
-        IMPORTED_LOCATION ${SLANG_DIR}/bin/windows-x64/${FALCOR_SLANG_CONFIG}/slang.dll
+        INTERFACE_INCLUDE_DIRECTORIES ${SLANG_DIR}/include
+        IMPORTED_IMPLIB ${SLANG_DIR}/lib/slang.lib
+        IMPORTED_LOCATION ${SLANG_DIR}/bin/slang.dll
     )
 elseif(FALCOR_LINUX)
     add_library(slang SHARED IMPORTED GLOBAL)
     set_target_properties(slang PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES ${SLANG_DIR}
-        IMPORTED_LOCATION ${SLANG_DIR}/bin/linux-x64/${FALCOR_SLANG_CONFIG}/libslang.so
+        INTERFACE_INCLUDE_DIRECTORIES ${SLANG_DIR}/include
+        IMPORTED_LOCATION ${SLANG_DIR}/bin/libslang.so
     )
 endif()
 
@@ -358,15 +358,15 @@ endif()
 if(FALCOR_WINDOWS)
     add_library(slang-gfx SHARED IMPORTED GLOBAL)
     set_target_properties(slang-gfx PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES ${SLANG_DIR}
-        IMPORTED_IMPLIB ${SLANG_DIR}/bin/windows-x64/${FALCOR_SLANG_CONFIG}/gfx.lib
-        IMPORTED_LOCATION ${SLANG_DIR}/bin/windows-x64/${FALCOR_SLANG_CONFIG}/gfx.dll
+        INTERFACE_INCLUDE_DIRECTORIES ${SLANG_DIR}/include
+        IMPORTED_IMPLIB ${SLANG_DIR}/lib/gfx.lib
+        IMPORTED_LOCATION ${SLANG_DIR}/bin/gfx.dll
     )
 elseif(FALCOR_LINUX)
     add_library(slang-gfx SHARED IMPORTED GLOBAL)
     set_target_properties(slang-gfx PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES ${SLANG_DIR}
-        IMPORTED_LOCATION ${SLANG_DIR}/bin/linux-x64/${FALCOR_SLANG_CONFIG}/libgfx.so
+        INTERFACE_INCLUDE_DIRECTORIES ${SLANG_DIR}/include
+        IMPORTED_LOCATION ${SLANG_DIR}/bin/libgfx.so
     )
 endif()
 

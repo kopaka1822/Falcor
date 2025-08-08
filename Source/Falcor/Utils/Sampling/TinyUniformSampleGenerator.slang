@@ -55,7 +55,7 @@ public struct TinyUniformSampleGenerator : ISampleGenerator
      * @param[in] pixel Pixel id.
      * @param[in] sampleNumber Sample number.
      */
-    __init(uint2 pixel, uint sampleNumber)
+    public __init(uint2 pixel, uint sampleNumber)
     {
         // Use block cipher to generate a pseudorandom initial seed.
         uint seed = blockCipherTEA(interleave_32bit(pixel), sampleNumber).x;

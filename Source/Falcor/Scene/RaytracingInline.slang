@@ -41,7 +41,7 @@ __exported import Scene.RaytracingInstanceMaskHelper;
 
 /** Return the geometry type for a committed hit.
 */
-GeometryType getCommittedGeometryType<let Flags : int>(RayQuery<Flags> rayQuery)
+GeometryType getCommittedGeometryType<let Flags : int>(inout RayQuery<Flags> rayQuery)
 {
     GeometryInstanceID instanceID = GeometryInstanceID(rayQuery.CommittedInstanceID(), rayQuery.CommittedGeometryIndex());
     return gScene.getGeometryInstanceType(instanceID);
@@ -49,7 +49,7 @@ GeometryType getCommittedGeometryType<let Flags : int>(RayQuery<Flags> rayQuery)
 
 /** Return the geometry type for a candidate hit.
 */
-GeometryType getCandidateGeometryType<let Flags : int>(RayQuery<Flags> rayQuery)
+GeometryType getCandidateGeometryType <let Flags : int>(inout RayQuery<Flags>rayQuery)
 {
     GeometryInstanceID instanceID = GeometryInstanceID(rayQuery.CandidateInstanceID(), rayQuery.CandidateGeometryIndex());
     return gScene.getGeometryInstanceType(instanceID);
@@ -59,7 +59,7 @@ GeometryType getCandidateGeometryType<let Flags : int>(RayQuery<Flags> rayQuery)
     \param[in] rayQuery RayQuery object.
     \return Committed triangle hit.
 */
-TriangleHit getCommittedTriangleHit<let Flags : int>(RayQuery<Flags> rayQuery)
+TriangleHit getCommittedTriangleHit <let Flags : int>(inout RayQuery<Flags>rayQuery)
 {
     TriangleHit hit;
     hit.instanceID = GeometryInstanceID(rayQuery.CommittedInstanceID(), rayQuery.CommittedGeometryIndex());
@@ -72,7 +72,7 @@ TriangleHit getCommittedTriangleHit<let Flags : int>(RayQuery<Flags> rayQuery)
     \param[in] rayQuery RayQuery object.
     \return Candidate triangle hit.
 */
-TriangleHit getCandidateTriangleHit<let Flags : int>(RayQuery<Flags> rayQuery)
+TriangleHit getCandidateTriangleHit <let Flags : int>(inout RayQuery<Flags>rayQuery)
 {
     TriangleHit hit;
     hit.instanceID = GeometryInstanceID(rayQuery.CandidateInstanceID(), rayQuery.CandidateGeometryIndex());
@@ -83,7 +83,7 @@ TriangleHit getCandidateTriangleHit<let Flags : int>(RayQuery<Flags> rayQuery)
 
 
 // TODO: Pass UseAlphaTest as a template argument.
-bool traceSceneRayImpl<let Flags : int>(const bool useAlphaTest, RayQuery<Flags> rayQuery, const Ray ray, out HitInfo hit, out float hitT, uint rayFlags, uint instanceInclusionMask)
+bool traceSceneRayImpl<let Flags : int>(const bool useAlphaTest, inout RayQuery<Flags> rayQuery, const Ray ray, out HitInfo hit, out float hitT, uint rayFlags, uint instanceInclusionMask)
 {
     rayQuery.TraceRayInline(gScene.rtAccel, rayFlags, instanceInclusionMask, ray.toRayDesc());
 
@@ -248,7 +248,8 @@ bool traceSceneRay<let UseAlphaTest : int>(const Ray ray, out HitInfo hit, out f
     }
 }
 
-bool traceSceneVisibilityRayImpl<let Flags : int>(const bool useAlphaTest, RayQuery<Flags> rayQuery, const Ray ray, uint rayFlags, uint instanceInclusionMask)
+bool traceSceneVisibilityRayImpl <let Flags : int>(const bool useAlphaTest, inout RayQuery<Flags> rayQuery,
+const Ray ray, uint rayFlags, uint instanceInclusionMask)
 {
     rayQuery.TraceRayInline(gScene.rtAccel, rayFlags, instanceInclusionMask, ray.toRayDesc());
 

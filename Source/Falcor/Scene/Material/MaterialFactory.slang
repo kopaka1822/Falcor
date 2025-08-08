@@ -79,7 +79,7 @@ extension MaterialSystem
     */
     ShadingData prepareShadingData<L:ITextureSampler>(const VertexData v, const uint materialID, const float3 viewDir, L lod)
     {
-        ShadingData sd = {};
+        ShadingData sd;
 
         sd.posW = v.posW;
         sd.uv = v.texC;

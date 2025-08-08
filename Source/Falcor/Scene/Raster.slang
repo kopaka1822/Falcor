@@ -74,7 +74,7 @@ struct VSOut
 VSOut defaultVS(VSIn vIn)
 {
     VSOut vOut;
-    const GeometryInstanceID instanceID = { vIn.instanceID };
+    const GeometryInstanceID instanceID = { vIn.instanceID, 0 };
 
     float4x4 worldMat = gScene.getWorldMatrix(instanceID);
     float3 posW = mul(worldMat, float4(vIn.pos, 1.f)).xyz;

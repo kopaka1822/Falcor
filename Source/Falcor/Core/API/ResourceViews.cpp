@@ -126,19 +126,19 @@ static void fillBufferViewDesc(gfx::IResourceView::Desc& desc, Buffer* pBuffer, 
         bufferElementSize = pBuffer->getStructSize();
         bufferElementCount = pBuffer->getElementCount();
         desc.format = gfx::Format::Unknown;
-        desc.bufferElementSize = bufferElementSize;
+        //desc.bufferElementSize = bufferElementSize;
     }
     else
     {
         desc.format = gfx::Format::Unknown;
-        bufferElementSize = 4;
+        bufferElementSize = 1;
         bufferElementCount = pBuffer->getSize();
     }
 
     bool useDefaultCount = (elementCount == ShaderResourceView::kMaxPossible);
     FALCOR_ASSERT(useDefaultCount || (firstElement + elementCount) <= bufferElementCount); // Check range
-    desc.bufferRange.firstElement = firstElement;
-    desc.bufferRange.elementCount = useDefaultCount ? (bufferElementCount - firstElement) : elementCount;
+    desc.bufferRange.offset = firstElement * bufferElementSize;
+    desc.bufferRange.size = useDefaultCount ? (bufferElementCount - firstElement) * bufferElementSize : elementCount * bufferElementSize;
 }
 
 ref<ShaderResourceView> ShaderResourceView::create(Device* pDevice, Buffer* pBuffer, uint32_t firstElement, uint32_t elementCount)
