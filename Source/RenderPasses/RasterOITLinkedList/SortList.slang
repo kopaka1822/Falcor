@@ -91,7 +91,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
 #define IN_LIST(i) i < count
 
-#if MAX_FRAGMENT < 32
+#if MAX_FRAGMENT <= 0
 
     // sort registers (insertion sort)
     [unroll] for (uint i = 1; i < MAX_FRAGMENT && IN_LIST(i); ++i)
@@ -107,24 +107,23 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 #else
     // sort registers (shell sort)
     const uint gaps[] = { 111, 41, 13, 4, 1 };
+    //const uint gaps[] = { 132, 57, 23, 10, 4, 1 }; // Ciura's sequence
     const uint maxGaps = 5;
-#if MAX_FRAGMENT <= 111
-    const uint startGap = 1;
-#else
-    const uint startGap = 0;
-#endif
 
-    [unroll] for (uint gapIdx = startGap; gapIdx < maxGaps; ++gapIdx)
+    [unroll] for (uint gapIdx = 0; gapIdx < maxGaps; ++gapIdx)
     {
-        const int gap = gaps[gapIdx];
-        for (uint i = gap; i < MAX_FRAGMENT && IN_LIST(i); ++i)
+        const uint gap = gaps[gapIdx];
+        [unroll] for (uint i = gap; i < MAX_FRAGMENT && i < count; ++i)
         {
-            for (uint j = i; j >= gap && f[j - gap].depth > f[j].depth; j -= gap)
+            const FragData frag = f[i];
+            uint j = i;
+            while (j >= gap && f[j - gap].depth > frag.depth)
             {
-                let tmp = f[j];
                 f[j] = f[j - gap];
-                f[j - gap] = tmp;
+                j -= gap;
             }
+            if (j != i)
+                f[j] = frag;
         }
     }
 
