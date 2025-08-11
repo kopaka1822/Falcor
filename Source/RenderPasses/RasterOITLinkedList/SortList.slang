@@ -104,7 +104,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
             f[j - 1] = tmp;
         }
     }
-#else
+#elif MAX_FRAGMENT >= 0
     // sort registers (shell sort)
     const uint gaps[] = { 111, 41, 13, 4, 1 };
     //const uint gaps[] = { 132, 57, 23, 10, 4, 1 }; // Ciura's sequence
@@ -126,7 +126,31 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                 f[j] = frag;
         }
     }
-
+#else
+    // bitonic sort
+    [unroll]
+    for (uint size = 2; size <= MAX_FRAGMENT; size <<= 1)
+    {
+        [unroll]
+        for (uint stride = size >> 1; stride > 0; stride >>= 1)
+        {
+            [unroll]
+            for (uint i = 0; i < MAX_FRAGMENT; ++i)
+            {
+                uint j = i ^ stride;
+                if (j > i)
+                {
+                    bool ascending = ((i & size) == 0);
+                    if ((f[i].depth > f[j].depth) == ascending)
+                    {
+                        let tmp = f[i];
+                        f[i] = f[j];
+                        f[j] = tmp;
+                    }
+                }
+            }
+        }
+    }
 #endif
 
     float4 color = float4(0.0, 0.0, 0.0, 1.0);
