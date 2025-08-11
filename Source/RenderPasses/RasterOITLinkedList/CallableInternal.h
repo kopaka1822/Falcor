@@ -4,7 +4,7 @@ FragData f[MAX_FRAGMENT];
 // insert from linked list
 uint next = p.head;
 uint count = 0;
-/* [unroll] for (uint i = 0; i < MAX_FRAGMENT && next < maxElements; ++i)
+/*[unroll] for (uint i = 0; i < MAX_FRAGMENT && next < maxElements; ++i)
 {
     BufferData data = gBuffer[next];
     next = data.next;
@@ -12,6 +12,7 @@ uint count = 0;
     f[i].color = data.color;
     count++;
 }*/
+// conditional assigment appears to be faster than condional branching (early exit loop)
 [unroll] for (uint i = 0; i < MAX_FRAGMENT; ++i)
 {
     if (next < maxElements)
@@ -34,32 +35,50 @@ uint count = 0;
 // sort registers (insertion sort)
 [unroll] for (uint i = 1; i < MAX_FRAGMENT && i < count; ++i)
 {
-    // i - 1 elements are sorted
-    [unroll] for (uint j = i; j > 0 && f[j - 1].depth > f[j].depth; --j)
+    const FragData frag = f[i];
+    [unroll] for (uint j = i; j > 0 && f[j - 1].depth > frag.depth; --j)
     {
-        let tmp = f[j];
         f[j] = f[j - 1];
-        f[j - 1] = tmp;
+        f[j - 1] = frag;
     }
 }
-#elif MAX_FRAGMENT >= 32
+#elif MAX_FRAGMENT >= 0
 // sort registers (shell sort)
-const uint gaps[] = { 111, 41, 13, 4, 1 };
-const uint maxGaps = 5;
+//const uint gaps[] = { 111, 41, 13, 4, 1 };
+const uint gaps[] = { 132, 57, 23, 10, 4, 1 }; // Ciura's sequence
+const uint maxGaps = 6;
+
+/* [unroll] for (uint gapIdx = 0; gapIdx < maxGaps; ++gapIdx)
+{
+    const int gap = gaps[gapIdx];
+    [unroll] for (uint i = gap; i < MAX_FRAGMENT && i < count; ++i)
+    {
+        const FragData frag = f[i];
+        for (uint j = i; j >= gap && f[j - gap].depth > frag.depth; j -= gap)
+        {
+            f[j] = f[j - gap];
+            f[j - gap] = frag;
+        }
+    }
+}*/
 
 [unroll] for (uint gapIdx = 0; gapIdx < maxGaps; ++gapIdx)
 {
-    const int gap = gaps[gapIdx];
+    const uint gap = gaps[gapIdx];
     for (uint i = gap; i < MAX_FRAGMENT && i < count; ++i)
     {
-        for (uint j = i; j >= gap && f[j - gap].depth > f[j].depth; j -= gap)
+        const FragData frag = f[i];
+        uint j = i;
+        while (j >= gap && f[j - gap].depth > frag.depth)
         {
-            let tmp = f[j];
             f[j] = f[j - gap];
-            f[j - gap] = tmp;
+            j -= gap;
         }
+        if (j != i)
+            f[j] = frag;
     }
 }
+
 
 #else
 // bitonic sort
