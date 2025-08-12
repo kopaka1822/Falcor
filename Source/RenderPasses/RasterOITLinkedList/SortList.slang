@@ -1,8 +1,6 @@
 #include "Utils/Math/MathConstants.slangh"
 
-RWTexture2D<float4> gColor;
 Texture2D<uint> gHead;
-Texture2D<uint> gPixelCount;
 
 struct BufferData // 4 * 4 byte 
 {
@@ -48,23 +46,14 @@ float4 main(float2 texC : TEXCOORD, float4 pos : SV_POSITION) : SV_TARGET
 {
     uint2 pixel = uint2(pos.xy);
 #else
-[numthreads(8, 8, 1)]
+RWTexture2D<float4> gColor;
+[numthreads(8, 4, 1)]
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
     uint2 pixel = id.xy;
     if (pixel.x >= gFrameDim.x || pixel.y >= gFrameDim.y)
         return;
 #endif
-
-    #ifdef MIN_FRAGMENT
-    uint pixCount = gPixelCount[pixel];
-    if (pixCount > MAX_FRAGMENT) return;
-    if (pixCount <= MIN_FRAGMENT)
-    {
-        if (MIN_FRAGMENT == 0) gColor[pixel] = float4(0, 0, 0, 1);
-        return; // this is handled by a different shader
-    }
-    #endif
 
     uint head = gHead[pixel];
     if (head >= maxElements)

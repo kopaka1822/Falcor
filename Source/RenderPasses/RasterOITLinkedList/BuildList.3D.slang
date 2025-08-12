@@ -83,6 +83,7 @@ void psMain(VSOut v, uint triangleIndex : SV_PrimitiveID, float3 barycentrics : 
     shadedColor.a = alpha;
     
     uint idx = uint(-1);
+
     InterlockedAdd(gCount[0], 1, idx);
     if (idx >= maxElements)
         return;
@@ -90,15 +91,14 @@ void psMain(VSOut v, uint triangleIndex : SV_PrimitiveID, float3 barycentrics : 
 
     BufferData data;
     data.depth = v.posH.w;
-    data.color = packHalf4(shadedColor); //half4(shadedColor);
-    //data.color = shadedColor.xw;
-    // change head pointer to this element, and use previous head as next from this element
+    data.color = packHalf4(shadedColor);
+    //  change head pointer to this element, and use previous head as next from this element
     InterlockedExchange(gHead[pixel], idx, data.next);
 
     // store buffer data
     gBuffer[idx] = data;
-
-#if OPTIMIZE_SORT
+    
+#if OPTIMIZE_SORT != 0
     InterlockedAdd(gPixelCount[pixel], 1);
 #endif
 }

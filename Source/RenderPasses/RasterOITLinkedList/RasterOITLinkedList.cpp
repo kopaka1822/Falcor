@@ -66,7 +66,7 @@ static void setStencilRef(RenderContext* pRenderContext, uint stencilRef)
     else assert(false); // set for other api
 }
 
-static constexpr auto resolveIntervals = std::array{ 256, 128, 64, 32, 16, 8, 4, 0 /*only for MIN_FRAGMENT*/ };
+static constexpr auto resolveIntervals = std::array{ 256, 128, 64, 32, 16, 8, 4, 0 };
 
 RasterOITLinkedList::RasterOITLinkedList(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
@@ -193,7 +193,7 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
         LightSettings::get().updateShaderVar(vars);
         ShadowSettings::get().updateShaderVar(mpDevice, vars);
         mpProgram->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
-        mpProgram->addDefine("OPTIMIZE_SORT", std::to_string(mSortMode != SortMode::SingleCompute ? 1 : 0));
+        mpProgram->addDefine("OPTIMIZE_SORT", std::to_string(mSortMode == SortMode::Callable ? 1 : 0));
 
         // framebuffer
         pRenderContext->clearDsv(pDepth->getDSV().get(), 1.0f, 0, false, true); // only clear stencil
@@ -240,9 +240,6 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
 
             vars["gHead"] = pHead;
             vars["gBuffer"] = mpDataBuffer;
-            //vars["gColor"] = pColor;
-            vars["gPixelCount"] = pPixelCount;
-
             vars["PerFrame"]["gFrameDim"] = uint2(pDepth->getWidth(), pDepth->getHeight());
             vars["PerFrame"]["maxElements"] = mpDataBuffer->getElementCount();
 
@@ -277,7 +274,6 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
             vars["gHead"] = pHead;
             vars["gBuffer"] = mpDataBuffer;
             vars["gColor"] = pColor;
-            vars["gPixelCount"] = pPixelCount;
 
             vars["PerFrame"]["gFrameDim"] = uint2(pDepth->getWidth(), pDepth->getHeight());
             vars["PerFrame"]["maxElements"] = mpDataBuffer->getElementCount();
