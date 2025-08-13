@@ -1,55 +1,182 @@
+# Alias-Free Shadows with Ray Cones for Alpha Tested Geometry
+
 ![](docs/images/teaser.png)
 
-# Spatio-Temporal Dithering for Order-Independent Transparency on Ray Tracing Hardware
+#### Abstract
 
-Teaser:
-
-[![YouTube](http://i.ytimg.com/vi/07vLuLH_1wU/hqdefault.jpg)](https://www.youtube.com/watch?v=07vLuLH_1wU)
+We present a method for computing alias-free, smooth shadows for alpha-tested geometry using a single ray per pixel. Without mipmap filtering, hard shadows from alpha-tested geometry appear very noisy under camera motion. Typically, many ray samples are required to soften the shadows and reduce noise. We propose using mipmaps instead, to achieve a fast and temporally stable solution. To determine the appropriate mipmap level, we introduce novel ray cone operations that account for directional and point light sources.
 
 ## Contents:
 
-* [Demo User Interface](#demo-user-interface)
+* [Supplemental Videos](#supplemental-videos)
 * [Source Code](#source-code)
-* [Falcor Prerequisites](#falcor-prerequisites)
-* [Building Falcor](#building-falcor)
+* [Falcor](#falcor-prerequisites)
 
-## Demo User Interface
+## Supplemental Videos
 
-This project was implemented in NVIDIAs Falcor rendering framework.
+#### Video 1
+Video featuring simple Mip 0 texture filtering for shadows rays and our ray cone texture filtering (Raw, AlphaTest, Saturate). We recommend using Saturate for best performance and least aliasing.
 
-You can download the executable demo from the [Releases Page](https://github.com/kopaka1822/Falcor/releases/tag/SpatioTemporalDither), or build the project by following the instructions in [Building Falcor](#building-falcor).
+[![YouTube](http://i.ytimg.com/vi/OEIuljlHHrk/hqdefault.jpg)](https://www.youtube.com/watch?v=OEIuljlHHrk)
 
-After downloading the demo from the releases page, you can execute it with the RunFalcor.bat file. In the Demo, you can configure the renderer after expanding the **DitherVBuffer** tab. In the **DitherVBuffer** tab you can select the specific transparency technique in the **Dither** dropdown:
-* Disabled: Everything will be interpreted as opaque
-* STD 3x3: Our STD from the paper, with 3x3 dither matrices
-* DitherTemporalAA: Unreal Engine's DTAA
-* RussianRoulette: Russian Roulette renderer from the paper
-* HashGrid: (not in the paper) This renderer tries to pin the noise to the surface of the objects, instead of pinning it to screen space. This works somewhat well for white and blue noise, but produces extreme moiree patterns for regular patterns like bayer dithering matrices.
-* FractalDithering: (not in the paper) This technique also tries to pin a texture to the surface of the objects, but uses a recurring fractal dithering pattern to do so. Unfortunately, scaling this dithering pattern to subpixel also produces extreme moiree patterns. The technique itself comes from this [Youtube](https://www.youtube.com/watch?v=HPqGaIMVuLs&pp=ygURZnJhY3RhbCBkaXRoZXJpbmc%3D) video.
-* STD 2x2: STD, but with 2x2 dither matrices (using all 24 permutations of 2x2 matrices)
-* Periodic: Tries to utilize the uniform distribution modulo one, to select the optimal temporal sequence. Unfortunately, this flickers a lot.
-* SpatioTemporalBlueNoise: Implementation based on Wolfe et al. \[WMAR22\] (Screen-Space noise)
-* SurfaceSpatioTemporalBlueNoise: Same as above, but the texture is being attached to the surfaces as in the HashGrid technique above.
-* BlueNoise3D: Screen-space blue noise, where the third axis is represented by time.
+#### Video 2
 
-=> For the baseline, set the Hybrid Threshold slider to 0.0
+Comparison of simple Mip 0 texture filtering and its application to popular anti-aliasing techniques:
+* SMAA T2X
+* TAA
+* DLSS (DLAA)
 
-In the correction dropdown you can enable or disable the DLSS correction.
+Our ray cone texture filtering is not applied in this video. It can be applied to further decrease shadow aliasing, if the AA method itself is not sufficient.
 
-You can navigate the camera with WASD and dragging the mouse for rotation.
-Hold shift for more camera speed
-QE for camera up and down
-Space to pause the animation
+[![YouTube](http://i.ytimg.com/vi/p58oNANme10/hqdefault.jpg)](https://www.youtube.com/watch?v=p58oNANme10)
 
 ## Source Code
 
-The important files can be found in `Source/RenderPasses/DitherVBuffer/`:
-* `DitherVBuffer.cpp/.h`: Renderer
-* `Dither.slangh`: Shader code for STD, RussianRoulette etc.
-* `DitherVBuffer.rt.slang`: Ray tracing shader (uses functions fron the `Dither.slangh` in the any-hit)
-* `PermutationLookup.h`: Code for generating our 3x3 Dither Matrices
+A code snippet for the ray cones is listed below:
 
-Additionally you can check out `Source/RenderPasses/DitherVBufferRaster/` for the raster implementation.
+```c++
+struct RayCone
+{
+    float width;
+    float angle;
+
+    RayCone propagate(float hitT)
+    {
+        return RayCone(angle * hitT + width, angle);
+    }
+
+    RayCone hit(float3 rayDir, float3 normal)
+    {
+        return RayCone(width / abs(dot(rayDir, normal)), angle);
+    }
+
+    RayCone reflect(float3 rayDir, float3 normal)
+    {
+        return RayCone(width * abs(dot(rayDir, normal)), angle);
+    }
+
+    RayCone focus(float focusT)
+    {
+        return RayCone(width, -width / focusT);
+    }
+
+    RayCone orthogonalize()
+    {
+        return RayCone(width, 0);
+    }
+
+    // triLODConstant: Value computed by computeRayConeTriangleLODValue()
+    float computeLOD(float triLODConstant)
+    {
+        return triLODConstant + log2(width);
+    }
+};
+
+float computeRayConeTriangleLODValue(float3 vertices[3], float2 txcoords[3], float3x3 worldMat)
+{
+    float2 tx10 = txcoords[1] - txcoords[0];
+    float2 tx20 = txcoords[2] - txcoords[0];
+    float Ta = abs(tx10.x * tx20.y - tx20.x * tx10.y);
+
+    float3 edge01 = mul(worldMat, vertices[1] - vertices[0]);
+    float3 edge02 = mul(worldMat, vertices[2] - vertices[0]);
+
+    float3 triangleNormal = cross(edge01, edge02);
+    float Pa = length(triangleNormal); 
+    return 0.5f * log2(Ta / Pa);
+}
+```
+
+A simplified shader for tracing the shadow ray is below:
+```c++
+float traceShadowRay(float3 posW, float3 normalW)
+{    
+    if (dot(normalW, posW.xyz - gScene.camera.getPosition()) > 0)
+        normalW = -normalW;
+    
+    LightData light = gScene.getLight();
+    RayDesc ray;
+    ray.Origin = posW.xyz;
+    ray.TMin = gScene.camera.data.nearZ * 0.1;
+
+    float3 V = gScene.camera.getPosition() - posW.xyz;
+    float lenV = length(V);
+
+    // RAY_CONE_SPREAD: atan(2.0 * tan(FOVradians * 0.5f) / windowHeightInPixels)
+    RayCone rc = RayCone(0.0, RAY_CONE_SPREAD);
+    rc = rc.propagate(lenV); // travel t
+    rc = rc.hit(V / lenV, normalW); // hit surface
+    
+    float secondarySpreadAngle = RAY_CONE_SPREAD;
+    if (light.type == uint(LightType::Point))
+    {
+        ray.Direction = normalize(light.posW - posW.xyz);
+        ray.TMax = distance(light.posW, posW.xyz) - gPointLightClip;
+
+        rc = rc.reflect(ray.Direction, normalW);
+        rc = rc.focus(distance(light.posW, posW.xyz));
+    }
+    else if (light.type == uint(LightType::Directional))
+    {
+        ray.Direction = -light.dirW;
+        ray.TMax = gScene.camera.data.farZ;
+        secondarySpreadAngle = 0.0; // light rays are orthogonal
+
+        rc = rc.reflect(ray.Direction, normalW);
+        rc = rc.orthogonalize();
+    }
+
+    if (dot(ray.Direction, normalW) <= 0.0)
+        return 0.0; // backfacing surface
+    
+    float visibility = 1.0;
+    // visibility below this threshold is considered to be zero
+    float visibilityCutoff = 0.01; 
+
+    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> rayQuery;
+    rayQuery.TraceRayInline(gScene.rtAccel, RAY_FLAG_NONE, 0xFF, ray);
+    while (rayQuery.Proceed())
+    {
+        if (rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+        {
+            float t = rayQuery.CandidateTriangleRayT();
+            // alpha test
+            const TriangleHit hit = getCandidateTriangleHit(rayQuery);
+            const uint materialID = gScene.getMaterialID(hit.instanceID);
+            const VertexData v = gScene.getVertexData(hit);
+        
+            let material = gScene.materials.getMaterial(materialID);
+
+            RayCone shadowCone = rc.propagate(t);
+            shadowCone = shadowCone.hit(ray.Direction, v.faceNormalW);
+            float lambda = shadowCone.computeLOD(v.coneTexLODValue);
+            let lod = RayConesLodTextureSampler(lambda);   
+            // sample opacity texture using the computed LOD lambda
+            float opacity = material.evalOpacity(gScene.materials, v, lod);
+
+            if (RAY_CONE_SHADOW == RAY_CONE_SHADOW_SATURATED)
+                opacity = saturate(opacity * 2.0); 
+            else if(RAY_CONE_SHADOW == RAY_CONE_SHADOW_ALPHA_TEST)
+                opacity = opacity < 0.5 ? 0.0 : 1.0;
+            
+            visibility = visibility * (1.0 - opacity);
+            if (visibility < visibilityCutoff)
+                return 0.0;
+        }
+        else
+            return 0.0; // assume occluded
+    }
+    // hit opaque?
+    if (rayQuery.CommittedStatus() != COMMITTED_NOTHING) return 0.0;
+
+    // scale based on the cutoff
+    visibility = saturate((visibility - visibilityCutoff) / (1.0 - visibilityCutoff));
+
+    return visibility;
+}
+```
+
+The full shader files can be found in `Source/Falcor/Scene/Lighting/RayShadow.slangh` (Shadow Ray) and `Source/Falcor/Rendering/Materials/TexLODHelpers.slang` (Ray Cone)
 
 ## Falcor Prerequisites
 - Windows 10 version 20H2 (October 2020 Update) or newer, OS build revision .789 or newer
