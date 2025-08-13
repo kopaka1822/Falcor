@@ -39,7 +39,7 @@ private:
 
     float mPointLightClip = 0.2f;
     bool mRayCones = false;
-    bool mDiminishBorder = true;
+    bool mDiminishBorder = false;
     float mLodBias = 0.0f;
     RayConeShadow mRayConeShadow = RayConeShadow::RawAlpha;
 

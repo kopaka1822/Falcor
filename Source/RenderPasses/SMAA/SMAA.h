@@ -85,7 +85,7 @@ private:
 
     EdgeMode mEdgeMode = EdgeMode::Color; // best quality
 
-    bool mReprojection = false;
+    bool mReprojection = true;
     bool mClearReproject = true;
     uint mFrameIndex = 0;
 };

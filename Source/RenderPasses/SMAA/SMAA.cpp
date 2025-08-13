@@ -276,7 +276,7 @@ void SMAA::renderUI(Gui::Widgets& widget)
     widget.checkbox("Enabled", mEnabled);
     if(!mEnabled) return;
 
-    if (widget.checkbox("Reprojection", mReprojection))
+    if (widget.checkbox("Reprojection (T2X)", mReprojection))
         mClearReproject = true;
     widget.dropdown("EdgeMode", mEdgeMode);
 }

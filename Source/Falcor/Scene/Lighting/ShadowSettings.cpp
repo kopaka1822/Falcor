@@ -13,13 +13,19 @@ ShadowSettings FALCOR_API_EXPORT & ShadowSettings::get()
 
 void ShadowSettings::loadFromProperties(const Properties& props)
 {
-
+    mRayCones = props.get("RayCones", mRayCones);
+    mDiminishBorder = props.get("DiminishBorder", mDiminishBorder);
+    mRayConeShadow = props.get("RayConeShadow", mRayConeShadow);
+    mPointLightClip = props.get("PointLightClip", mPointLightClip);
 }
 
 Properties ShadowSettings::getProperties() const
 {
     Properties d;
-
+    d["RayCones"] = mRayCones;
+    d["DiminishBorder"] = mDiminishBorder;
+    d["RayConeShadow"] = mRayConeShadow;
+    d["PointLightClip"] = mPointLightClip;
     return d;
 }
 
@@ -50,8 +56,9 @@ void ShadowSettings::renderUI(Gui::Widgets& widget)
 
     widget.dropdown("Shadow Type", mRayConeShadow);
     widget.var("LOD Bias", mLodBias, -16.0f, 16.0f, 0.5f);
+    widget.tooltip("Bias applied to textures for the shadow alpha test.");
     widget.var("Point Light Clip", mPointLightClip, 0.0f);
-
+    widget.tooltip("Radius around the point light source where intersections will be ignored. Useful if the point light is inside an object => can be used to ignore intersection with any geometry within that radius");
 }
 
 DefineList ShadowSettings::getShaderDefines(Scene& scene, uint2 frameDim) const
