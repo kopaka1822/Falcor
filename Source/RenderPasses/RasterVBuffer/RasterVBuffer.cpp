@@ -38,6 +38,7 @@ namespace
 
     const std::string kUseWhitelist = "useWhitelist";
     const std::string kWhitelist = "whitelist";
+    const std::string kWhitelistBuffer = "whitelistBuffer"; // GPU Buffer for whitelist
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -163,6 +164,7 @@ void RasterVBuffer::execute(RenderContext* pRenderContext, const RenderData& ren
     if (mUseTransparencyWhitelist)
     {
         renderData.getDictionary()[kWhitelist] = mTransparencyWhitelist;
+        renderData.getDictionary()[kWhitelistBuffer] = mpTransparencyWhitelist;
     }
 }
 
@@ -194,6 +196,7 @@ void RasterVBuffer::renderUI(Gui::Widgets& widget)
                 {
                     if (isTransparent) mTransparencyWhitelist.insert(name);
                     else mTransparencyWhitelist.erase(name);
+                    updateWhitelist(mpDevice, mpScene, mTransparencyWhitelist, mpTransparencyWhitelist);
                 }
             }
         }
@@ -204,7 +207,7 @@ void RasterVBuffer::setScene(RenderContext* pRenderContext, const ref<Scene>& pS
 {
     mpScene = pScene;
     setupProgram();
-    mUseTransparencyWhitelist = hasWhitelistMaterials();
+    mUseTransparencyWhitelist = updateWhitelist(mpDevice, mpScene, mTransparencyWhitelist, mpTransparencyWhitelist);
     mpCulling = nullptr;
 }
 

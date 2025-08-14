@@ -46,6 +46,9 @@ namespace
     const std::string kProgramFile = "RenderPasses/RasterOITLinkedList/BuildList.3D.slang";
     const std::string kSortFile = "RenderPasses/RasterOITLinkedList/SortList.slang";
     const std::string kCallableFile = "RenderPasses/RasterOITLinkedList/CallableSort.slang";
+    const std::string kBuildRtFile = "RenderPasses/RasterOITLinkedList/BuildList.rt.slang";
+
+    const uint32_t kMaxPayloadSizeBytes = 4 * sizeof(uint); 
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -180,54 +183,85 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
     {
         FALCOR_PROFILE(pRenderContext, "Build List");
 
-        auto vars = mpVars->getRootVar();
-        vars["gHead"] = pHead;
-        vars["gBuffer"] = mpDataBuffer;
-        vars["gCount"] = mpCountBuffer;
-        vars["gPixelCount"] = pPixelCount;
 
-        vars["PerFrame"]["gFrameDim"] = uint2(pDepth->getWidth(), pDepth->getHeight());
-        vars["PerFrame"]["maxElements"] = mpDataBuffer->getElementCount();
-
-        // lighting settings
-        LightSettings::get().updateShaderVar(vars);
-        ShadowSettings::get().updateShaderVar(mpDevice, vars);
-        mpProgram->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
-        mpProgram->addDefine("OPTIMIZE_SORT", std::to_string(mSortMode == SortMode::Callable ? 1 : 0));
-
-        // framebuffer
-        pRenderContext->clearDsv(pDepth->getDSV().get(), 1.0f, 0, false, true); // only clear stencil
-        mpFbo->attachDepthStencilTarget(pDepth);
-        mpState->setFbo(mpFbo);
-
-        std::set<std::string> whitelist;
-        const bool useWhitelist = renderData.getDictionary().keyExists(kWhitelist);
-        if (useWhitelist)
-            whitelist = renderData.getDictionary().getValue<decltype(whitelist)>(kWhitelist);
-
-        mpState->setProgram(mpProgram);
-        auto camera = mpScene->getCamera();
-        if(!mpCulling)
+        if (mBuildWithRaytracing)
         {
-            mpCulling = make_ref<FrustumCulling>(camera);
+            if (mSortMode == SortMode::Stencil) mSortMode = SortMode::Callable; // stencil not supported for raytracing
+
+            auto vars = mpBuiltRtVars->getRootVar();
+            vars["gHead"] = pHead;
+            vars["gBuffer"] = mpDataBuffer;
+            vars["gCount"] = mpCountBuffer;
+            vars["gPixelCount"] = pPixelCount;
+            vars["gDepth"] = pDepth;
+
+            vars["PerFrame"]["gFrameDim"] = uint2(pDepth->getWidth(), pDepth->getHeight());
+            vars["PerFrame"]["maxElements"] = mpDataBuffer->getElementCount();
+
+            // lighting settings
+            LightSettings::get().updateShaderVar(vars);
+            ShadowSettings::get().updateShaderVar(mpDevice, vars);
+            mpBuiltRtProgram->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
+            mpBuiltRtProgram->addDefine("OPTIMIZE_SORT", std::to_string(mSortMode == SortMode::Callable ? 1 : 0));
+
+            const bool useWhitelist = renderData.getDictionary().keyExists(kWhitelist);
+            ref<Buffer> pWhitelistBuffer;
+            pWhitelistBuffer = renderData.getDictionary().getValue<decltype(pWhitelistBuffer)>("whitelistBuffer");
+            mpBuiltRtProgram->addDefine("TRANSPARENCY_WHITELIST", useWhitelist ? "1" : "0");
+
+            mpScene->raytrace(pRenderContext, mpBuiltRtProgram.get(), mpBuiltRtVars, uint3(pDepth->getWidth(), pDepth->getHeight(), 1));
         }
-
-        mpCulling->setUserCallback([&](const MeshDesc& mesh)
+        else
         {
-            if (!useWhitelist) return true; // draw all transparent objects
-            auto mat = mpScene->getMaterial(MaterialID::fromSlang(mesh.materialID));
-            auto name = mat->getName();
-            return whitelist.find(name) != whitelist.end();
-        });
+            auto vars = mpVars->getRootVar();
+            vars["gHead"] = pHead;
+            vars["gBuffer"] = mpDataBuffer;
+            vars["gCount"] = mpCountBuffer;
+            vars["gPixelCount"] = pPixelCount;
 
-        auto cameraChanges = camera->getChanges();
-        auto excluded = Camera::Changes::Jitter | Camera::Changes::History;
-        if (((cameraChanges & ~excluded) != Camera::Changes::None))
-        {
-            mpCulling->updateFrustum(camera);
+            vars["PerFrame"]["gFrameDim"] = uint2(pDepth->getWidth(), pDepth->getHeight());
+            vars["PerFrame"]["maxElements"] = mpDataBuffer->getElementCount();
+
+            // lighting settings
+            LightSettings::get().updateShaderVar(vars);
+            ShadowSettings::get().updateShaderVar(mpDevice, vars);
+            mpProgram->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
+            mpProgram->addDefine("OPTIMIZE_SORT", std::to_string(mSortMode == SortMode::Callable ? 1 : 0));
+
+            // framebuffer
+            pRenderContext->clearDsv(pDepth->getDSV().get(), 1.0f, 0, false, true); // only clear stencil
+            mpFbo->attachDepthStencilTarget(pDepth);
+            mpState->setFbo(mpFbo);
+
+            std::set<std::string> whitelist;
+            const bool useWhitelist = renderData.getDictionary().keyExists(kWhitelist);
+            if (useWhitelist)
+                whitelist = renderData.getDictionary().getValue<decltype(whitelist)>(kWhitelist);
+
+            mpState->setProgram(mpProgram);
+            auto camera = mpScene->getCamera();
+            if (!mpCulling)
+            {
+                mpCulling = make_ref<FrustumCulling>(camera);
+            }
+
+            mpCulling->setUserCallback([&](const MeshDesc& mesh)
+                {
+                    if (!useWhitelist) return true; // draw all transparent objects
+                    auto mat = mpScene->getMaterial(MaterialID::fromSlang(mesh.materialID));
+                    auto name = mat->getName();
+                    return whitelist.find(name) != whitelist.end();
+                });
+
+            auto cameraChanges = camera->getChanges();
+            auto excluded = Camera::Changes::Jitter | Camera::Changes::History;
+            if (((cameraChanges & ~excluded) != Camera::Changes::None))
+            {
+                mpCulling->updateFrustum(camera);
+            }
+
+            mpScene->rasterizeFrustumCulling(pRenderContext, mpState.get(), mpVars.get(), RasterizerState::CullMode::None, RasterizerState::MeshRenderMode::SkipOpaque, true, mpCulling);
         }
-
-        mpScene->rasterizeFrustumCulling(pRenderContext, mpState.get(), mpVars.get(), RasterizerState::CullMode::None, RasterizerState::MeshRenderMode::SkipOpaque, true, mpCulling);
     }
     //return;
     {
@@ -288,6 +322,8 @@ void RasterOITLinkedList::renderUI(Gui::Widgets& widget)
     auto sizeInBytes = size_t(mDataBufferSize) * size_t(16);
     widget.text("Size in MB: " + std::to_string(sizeInBytes / (1024u * 1024u)));
 
+    widget.checkbox("Build with Raytracing", mBuildWithRaytracing);
+
     widget.dropdown("Sort Mode", mSortMode);
 }
 
@@ -302,13 +338,41 @@ void RasterOITLinkedList::setupProgram()
 {
     if (!mpScene) return;
 
-    Program::Desc desc;
-    desc.addShaderModules(mpScene->getShaderModules());
-    desc.addShaderLibrary(kProgramFile).psEntry("psMain").vsEntry("vsMain");
-    desc.addTypeConformances(mpScene->getTypeConformances());
-    desc.setShaderModel("6_5");
+    // raster program
+    {
+        Program::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kProgramFile).psEntry("psMain").vsEntry("vsMain");
+        desc.addTypeConformances(mpScene->getTypeConformances());
+        desc.setShaderModel("6_5");
 
-    mpProgram = GraphicsProgram::create(mpDevice, desc, mpScene->getSceneDefines());
-    mpState->setProgram(mpProgram);
-    mpVars = GraphicsVars::create(mpDevice, mpProgram->getReflector());
+        mpProgram = GraphicsProgram::create(mpDevice, desc, mpScene->getSceneDefines());
+        mpState->setProgram(mpProgram);
+        mpVars = GraphicsVars::create(mpDevice, mpProgram->getReflector());
+    }
+
+    // ray program
+    {
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        RtProgram::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kBuildRtFile);
+        desc.addTypeConformances(mpScene->getTypeConformances());
+        desc.setMaxPayloadSize(kMaxPayloadSizeBytes);
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1);
+
+        ref<RtBindingTable> sbt = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setMiss(0, desc.addMiss("miss"));
+        sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+
+        mpBuiltRtProgram = RtProgram::create(mpDevice, desc, defines);
+        mpBuiltRtVars = RtProgramVars::create(mpDevice, mpBuiltRtProgram, sbt);
+
+        // Bind static resources.
+        //ShaderVar var = mpVars->getRootVar();
+        //mpSampleGenerator->setShaderData(var);
+    }
 }

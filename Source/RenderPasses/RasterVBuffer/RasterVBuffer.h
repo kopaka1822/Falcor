@@ -28,6 +28,7 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include "../DitherVBuffer/TransparencyWhitelist.h"
 
 using namespace Falcor;
 
@@ -60,7 +61,8 @@ private:
     ref<CPUSampleGenerator> mpSamplePattern;
 
     bool mUseTransparencyWhitelist = false;
-    std::set<std::string> mTransparencyWhitelist;
+    whitelist_t mTransparencyWhitelist;
+    ref<Buffer> mpTransparencyWhitelist;
     bool mUseAlphaTextureLOD = false; // use lod for alpha lookups
 
     ref<GraphicsState> mpState;

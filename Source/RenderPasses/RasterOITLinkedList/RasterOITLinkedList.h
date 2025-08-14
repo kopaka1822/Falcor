@@ -91,6 +91,10 @@ private:
 
     ref<RtProgram> mpCallableSortPass;
     ref<RtProgramVars> mpCallableSortVars;
+
+    bool mBuildWithRaytracing = true;
+    ref<RtProgram> mpBuiltRtProgram;
+    ref<RtProgramVars> mpBuiltRtVars;
 };
 
 FALCOR_ENUM_REGISTER(RasterOITLinkedList::SortMode);

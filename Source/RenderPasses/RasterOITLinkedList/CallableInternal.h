@@ -42,7 +42,7 @@ uint count = 0;
         f[j - 1] = frag;
     }
 }
-#elif MAX_FRAGMENT >= 0
+#elif MAX_FRAGMENT >= 64
 // sort registers (shell sort)
 //const uint gaps[] = { 111, 41, 13, 4, 1 };
 const uint gaps[] = { 132, 57, 23, 10, 4, 1 }; // Ciura's sequence

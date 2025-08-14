@@ -4,6 +4,7 @@ target_sources(RasterOITLinkedList PRIVATE
     RasterOITLinkedList.cpp
     RasterOITLinkedList.h
     BuildList.3D.slang
+    BuildList.rt.slang
     SortList.slang
     CallableSort.slang
     CallableInternal.h
