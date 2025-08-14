@@ -68,7 +68,7 @@ struct RayCone
     // triLODConstant: Value computed by computeRayConeTriangleLODValue()
     float computeLOD(float triLODConstant)
     {
-        return triLODConstant + log2(width);
+        return triLODConstant + log2(width); // part of Eq. 5 (missing log2(sqrt(Tw*Th)))
     }
 };
 
@@ -83,8 +83,21 @@ float computeRayConeTriangleLODValue(float3 vertices[3], float2 txcoords[3], flo
 
     float3 triangleNormal = cross(edge01, edge02);
     float Pa = length(triangleNormal); 
-    return 0.5f * log2(Ta / Pa);
+    return 0.5f * log2(Ta / Pa); // part of Eq. 5 (missing log2(w * sqrt(Tw*Th)))
 }
+
+struct RayConesLodTextureSampler
+{
+    float rayConeLOD; // initialize with RayCone::computeLOD
+
+    float4 sampleTexture(Texture2D t, SamplerState s, float2 uv)
+    {
+        uint txw, txh;
+        t.GetDimensions(txw, txh);
+        float lambda = 0.5 * log2(txw * txh) + rayConeLOD; // full Eq. 5 from paper
+        return t.SampleLevel(s, uv, lambda);
+    }
+};
 ```
 
 A simplified shader for tracing the shadow ray is below:
@@ -102,12 +115,11 @@ float traceShadowRay(float3 posW, float3 normalW)
     float3 V = gScene.camera.getPosition() - posW.xyz;
     float lenV = length(V);
 
-    // RAY_CONE_SPREAD: atan(2.0 * tan(FOVradians * 0.5f) / windowHeightInPixels)
+    // RAY_CONE_SPREAD (Eq. 1): atan(2.0 * tan(FOVradians * 0.5f) / windowHeightInPixels)
     RayCone rc = RayCone(0.0, RAY_CONE_SPREAD);
     rc = rc.propagate(lenV); // travel t
     rc = rc.hit(V / lenV, normalW); // hit surface
     
-    float secondarySpreadAngle = RAY_CONE_SPREAD;
     if (light.type == uint(LightType::Point))
     {
         ray.Direction = normalize(light.posW - posW.xyz);
@@ -120,7 +132,6 @@ float traceShadowRay(float3 posW, float3 normalW)
     {
         ray.Direction = -light.dirW;
         ray.TMax = gScene.camera.data.farZ;
-        secondarySpreadAngle = 0.0; // light rays are orthogonal
 
         rc = rc.reflect(ray.Direction, normalW);
         rc = rc.orthogonalize();
@@ -176,7 +187,7 @@ float traceShadowRay(float3 posW, float3 normalW)
 }
 ```
 
-The full shader files can be found in `Source/Falcor/Scene/Lighting/RayShadow.slangh` (Shadow Ray) and `Source/Falcor/Rendering/Materials/TexLODHelpers.slang` (Ray Cone)
+The full shader files can be found in `Source/Falcor/Scene/Lighting/RayShadow.slangh` (Shadow Ray), `Source/Falcor/Rendering/Material/TexLODHelpers.slang` (Ray Cone) and `Source/Falcor/Scene/Material/TextureSampler.slang` (Texture Sampler)
 
 ## Falcor Prerequisites
 - Windows 10 version 20H2 (October 2020 Update) or newer, OS build revision .789 or newer
