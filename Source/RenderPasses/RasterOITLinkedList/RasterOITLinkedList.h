@@ -92,7 +92,7 @@ private:
     ref<RtProgram> mpCallableSortPass;
     ref<RtProgramVars> mpCallableSortVars;
 
-    bool mBuildWithRaytracing = true;
+    bool mBuildWithRaytracing = false;
     ref<RtProgram> mpBuiltRtProgram;
     ref<RtProgramVars> mpBuiltRtVars;
 };

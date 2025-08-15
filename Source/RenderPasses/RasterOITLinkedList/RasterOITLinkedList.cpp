@@ -48,7 +48,7 @@ namespace
     const std::string kCallableFile = "RenderPasses/RasterOITLinkedList/CallableSort.slang";
     const std::string kBuildRtFile = "RenderPasses/RasterOITLinkedList/BuildList.rt.slang";
 
-    const uint32_t kMaxPayloadSizeBytes = 4 * sizeof(uint); 
+    const uint32_t kMaxPayloadSizeBytes = 2 * sizeof(uint); 
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -208,6 +208,7 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
             ref<Buffer> pWhitelistBuffer;
             pWhitelistBuffer = renderData.getDictionary().getValue<decltype(pWhitelistBuffer)>("whitelistBuffer");
             mpBuiltRtProgram->addDefine("TRANSPARENCY_WHITELIST", useWhitelist ? "1" : "0");
+            vars["gTransparencyWhitelist"] = pWhitelistBuffer;
 
             mpScene->raytrace(pRenderContext, mpBuiltRtProgram.get(), mpBuiltRtVars, uint3(pDepth->getWidth(), pDepth->getHeight(), 1));
         }

@@ -12,11 +12,6 @@ import Utils.Math.FormatConversion;
 import Rendering.Materials.IsotropicGGX;
 import Utils.Color.ColorHelpers;
 
-#ifndef TRANSPARENCY_WHITELIST
-#define TRANSPARENCY_WHITELIST 0
-#endif
-StructuredBuffer<uint> gTransparencyWhitelist;
-
 RWTexture2D<uint> gHead;
 RWTexture2D<uint> gPixelCount;
 Texture2D<float> gDepth;
@@ -40,6 +35,21 @@ uint2 packHalf4(float4 color)
 
 globallycoherent RWStructuredBuffer<BufferData> gBuffer;
 RWBuffer<uint> gCount; // current count for the buffer
+
+#ifndef TRANSPARENCY_WHITELIST
+#define TRANSPARENCY_WHITELIST 0
+#endif
+StructuredBuffer<uint> gTransparencyWhitelist;
+
+bool isAlphaTested(uint materialID)
+{
+#if TRANSPARENCY_WHITELIST == 0
+    return false;
+#else
+    uint isTransparent = (gTransparencyWhitelist[materialID / 32u] & (1u << (materialID % 32u)));
+    return isTransparent == 0u;
+#endif
+}
 
 cbuffer PerFrame
 {
@@ -72,8 +82,11 @@ void anyHit(inout RayData rayData: SV_RayPayload, BuiltInTriangleIntersectionAtt
     uint2 frameDim = DispatchRaysDimensions().xy;
     // Alpha test for non-opaque geometry.
     GeometryInstanceID instanceID = getGeometryInstanceID();
-    VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
     uint materialID = gScene.getMaterialID(instanceID);
+    if (isAlphaTested(materialID))
+        IgnoreHit(); // this was handled by the opaque vbuffer
+    
+    VertexData v = getVertexData(instanceID, PrimitiveIndex(), attribs);
 
     TriangleHit triangleHit;
     triangleHit.instanceID = getGeometryInstanceID();
@@ -134,7 +147,9 @@ void rayGen()
     rayData.head = uint(-1);
     rayData.count = 0;
 
-    TraceRay(gScene.rtAccel, RAY_FLAG_CULL_OPAQUE, kInstanceCameraParticle, 0, rayTypeCount, 0, ray.toRayDesc(), rayData);
+    TraceRay(gScene.rtAccel,
+        RAY_FLAG_CULL_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES,
+        kInstanceCameraParticle, 0, rayTypeCount, 0, ray.toRayDesc(), rayData);
 
     gHead[pixel] = rayData.head;
 #if OPTIMIZE_SORT != 0
