@@ -143,7 +143,7 @@ RenderPassReflection RasterOITLinkedList::reflect(const CompileData& compileData
     reflector.addInput(kDepth, "Depth buffer");
 
     reflector.addInternal(kHead, "head pointer").format(ResourceFormat::R32Uint).bindFlags(ResourceBindFlags::UnorderedAccess);
-    reflector.addInternal(kPixelCount, "pixel counter").format(ResourceFormat::R32Uint).bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    reflector.addOutput(kPixelCount, "pixel counter").format(ResourceFormat::R32Uint).bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
 
     reflector.addOutput(kColor, "Color buffer").format(ResourceFormat::RGBA16Float).bindFlags(ResourceBindFlags::AllColorViews);
     return reflector;
