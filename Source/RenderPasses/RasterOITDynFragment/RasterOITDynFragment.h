@@ -84,4 +84,5 @@ private:
     std::vector<ref<Buffer>> m_scanAuxBuffer;
 
     bool mOptimizeSort = true;
+    uint mFrameCount = 0;
 };

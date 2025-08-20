@@ -111,7 +111,7 @@ void RayShadow::execute(RenderContext* pRenderContext, const RenderData& renderD
     auto var = mpPass->getRootVar();
     var["gPos"] = pPos;
     var["gNormal"] = pNormal;
-    ShadowSettings::get().updateShaderVar(mpDevice, var);
+    ShadowSettings::get().updateShaderVar(mpDevice, var, mFrameCount++);
     mpPass->getProgram()->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
 
     // raytracing data

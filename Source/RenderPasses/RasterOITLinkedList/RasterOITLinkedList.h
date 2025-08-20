@@ -95,6 +95,7 @@ private:
     bool mBuildWithRaytracing = false;
     ref<RtProgram> mpBuiltRtProgram;
     ref<RtProgramVars> mpBuiltRtVars;
+    uint mFrameCount = 0;
 };
 
 FALCOR_ENUM_REGISTER(RasterOITLinkedList::SortMode);

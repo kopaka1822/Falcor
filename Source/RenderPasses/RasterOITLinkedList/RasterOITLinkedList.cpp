@@ -200,7 +200,7 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
 
             // lighting settings
             LightSettings::get().updateShaderVar(vars);
-            ShadowSettings::get().updateShaderVar(mpDevice, vars);
+            ShadowSettings::get().updateShaderVar(mpDevice, vars, mFrameCount);
             mpBuiltRtProgram->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
             mpBuiltRtProgram->addDefine("OPTIMIZE_SORT", std::to_string(mSortMode == SortMode::Callable ? 1 : 0));
 
@@ -225,7 +225,7 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
 
             // lighting settings
             LightSettings::get().updateShaderVar(vars);
-            ShadowSettings::get().updateShaderVar(mpDevice, vars);
+            ShadowSettings::get().updateShaderVar(mpDevice, vars, mFrameCount);
             mpProgram->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
             mpProgram->addDefine("OPTIMIZE_SORT", std::to_string(mSortMode == SortMode::Callable ? 1 : 0));
 
@@ -315,6 +315,7 @@ void RasterOITLinkedList::execute(RenderContext* pRenderContext, const RenderDat
             mpSortPass->execute(pRenderContext, pDepth->getWidth(), pDepth->getHeight());
         }
     }
+    mFrameCount++;
 }
 
 void RasterOITLinkedList::renderUI(Gui::Widgets& widget)

@@ -115,7 +115,7 @@ void RayTransparency::execute(RenderContext* pRenderContext, const RenderData& r
     assert(mpTransparencyWhitelist);
     var["gTransparencyWhitelist"] = mpTransparencyWhitelist;
     LightSettings::get().updateShaderVar(var);
-    ShadowSettings::get().updateShaderVar(mpDevice, var);
+    ShadowSettings::get().updateShaderVar(mpDevice, var, mFrameCount);
 
     var["PerFrame"]["gFrameCount"] = mFrameCount++;
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");

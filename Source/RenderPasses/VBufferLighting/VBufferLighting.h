@@ -55,4 +55,5 @@ private:
     ref<Fbo> mpFbo;
     ref<Scene> mpScene;
     bool mUseRayShadow = false;
+    uint mFrameCount = 0;
 };

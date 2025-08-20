@@ -63,4 +63,5 @@ private:
     ref<Fbo> mpFbo;
 
     uint2 mInputSize = uint2(0);
+    uint mFrameCount = 0;
 };

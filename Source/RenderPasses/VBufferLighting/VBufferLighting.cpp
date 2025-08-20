@@ -102,7 +102,7 @@ void VBufferLighting::execute(RenderContext* pRenderContext, const RenderData& r
     LightSettings::get().updateShaderVar(vars);
 
     mUseRayShadow = pVisBuffer == nullptr;
-    ShadowSettings::get().updateShaderVar(mpDevice, vars);
+    ShadowSettings::get().updateShaderVar(mpDevice, vars, mFrameCount++);
     auto pProgram = mpPass->getProgram();
     pProgram->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
     pProgram->addDefine("USE_RAY_SHADOW", mUseRayShadow ? "1" : "0");

@@ -160,7 +160,7 @@ void DitherVBuffer::execute(RenderContext* pRenderContext, const RenderData& ren
     var["gBayerNoise64Tex"] = mpBayer64Tex;
     var["gSpatioTemporalBlueNoiseTex"] = mSTBNNoise == STBNNoise::Scalar ? mpSpatioTemporalBlueNoiseTex : mpSpatioTemporalBlueNoiseTex2;
 
-    var["PerFrame"]["gFrameCount"] = mFrameCount++;
+    var["PerFrame"]["gFrameCount"] = mFrameCount;
     var["PerFrame"]["gDLSSCorrectionStrength"] = mDLSSCorrectionStrength;
     var["PerFrame"]["gMinVisibility"] = mMinVisibility;
     var["PerFrame"]["gAlignMotionVectors"] = mAlignMotionVectors ? 1 : 0;
@@ -173,7 +173,7 @@ void DitherVBuffer::execute(RenderContext* pRenderContext, const RenderData& ren
     var["DitherConstants"]["gDitherTAAPermutations"] = mDitherTAAPermutations ? 1 : 0;
 
     LightSettings::get().updateShaderVar(var);
-    ShadowSettings::get().updateShaderVar(mpDevice, var);
+    ShadowSettings::get().updateShaderVar(mpDevice, var, mFrameCount);
 
     mpProgram->addDefine("COVERAGE_CORRECTION", std::to_string(uint32_t(mCoverageCorrection)));
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
@@ -209,6 +209,7 @@ void DitherVBuffer::execute(RenderContext* pRenderContext, const RenderData& ren
         renderData.getDictionary()[kWhitelist] = mTransparencyWhitelist;
         renderData.getDictionary()[kWhitelistBuffer] = mpTransparencyWhitelist;
     }
+    mFrameCount++;
 }
 
 void DitherVBuffer::renderUI(Gui::Widgets& widget)

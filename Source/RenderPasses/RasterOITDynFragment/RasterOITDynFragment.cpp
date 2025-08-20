@@ -178,7 +178,7 @@ void RasterOITDynFragment::execute(RenderContext* pRenderContext, const RenderDa
 
     // lighting settings
     LightSettings::get().updateShaderVar(vars);
-    ShadowSettings::get().updateShaderVar(mpDevice, vars);
+    ShadowSettings::get().updateShaderVar(mpDevice, vars, mFrameCount++);
     mpProgram->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
 
     // count fragments

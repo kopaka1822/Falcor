@@ -9,6 +9,7 @@ cbuffer ShadowSettingBuffer
     float gPointLightClip;
     float gShadowLodBias;
     bool gDiminishBorder;
+    uint gFrameIndex;
 };
 
 SamplerState gSoftShadowSampler; // modified clamping mode to get softer borders
@@ -27,9 +28,61 @@ SamplerState gSoftShadowSampler; // modified clamping mode to get softer borders
 #define RAY_CONE_SHADOW RAY_CONE_SHADOW_SATURATED
 #endif
 
+
+#define SHADOW_T_DEEP_SHADOW 0
+#define SHADOW_T_STOCHASTIC_SHADOW 1
+
+#ifndef SHADOW_T
+#define SHADOW_T SHADOW_T_DEEP_SHADOW
+#endif
+
 #ifndef RAY_CONE_SPREAD
 #define RAY_CONE_SPREAD 0.0
 #endif
+
+///////////// DITHER FUNCTIONS /////////////
+struct SDitherInfo
+{
+    uint2 pixel;
+    uint frameIndex; // usually for per frame rng
+    float3 posW; // world position (for white noise)
+    float alpha; // object alpha
+};
+
+float shash1D(float v)
+{
+    return frac(1.0e4 * sin(17.0 * v.x) * (0.1 + abs(sin(v.x))));
+}
+
+// Hash function from "Improved Alpha Testing Using Hashed Sampling"
+float shash(float2 v)
+{
+    return frac(1.0e4 * sin(17.0 * v.x + 0.1 * v.y) * (0.1 + abs(sin(13.0 * v.y + v.x))));
+}
+
+// 3D hash function from "Improved Alpha Testing Using Hashed Sampling"
+float shash3D(float3 v)
+{
+    return shash(float2(shash(v.xy), v.z));
+}
+
+// 4D hash function based on the 3D hash function
+float shash4D(float4 v)
+{
+    //return hash(float2(hash3D(v.xyz), v.w));
+    return shash(float2(shash(v.xy), shash(v.zw)));
+}
+
+bool swinRoulette(SDitherInfo d)
+{
+    float rng = shash4D(float4(d.posW, d.frameIndex));
+    if (rng > d.alpha)
+        return false;
+    return true;
+}
+
+
+//////////// SHADOW SAMPLER ////////////
 
 struct SoftExplicitRayConesLodTextureSampler : ITextureSampler
 {
@@ -67,6 +120,8 @@ struct SoftExplicitRayConesLodTextureSampler : ITextureSampler
     }
 };
 
+///////////////// SHADOW RAY TRACING //////////////////////
+
 float traceShadowRay(
 RayDesc ray
 #if USE_RAYCONES
@@ -76,6 +131,11 @@ RayDesc ray
 {
     float visibility = 1.0;
     float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
+
+    SDitherInfo d;
+    d.posW = ray.Origin;
+    d.frameIndex = gFrameIndex;
+    d.pixel = uint2(0, 0);
     
     RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
     const uint instanceMask = getBestParticleShadowPlane(ray.Direction);
@@ -112,6 +172,11 @@ RayDesc ray
                 opacity = saturate(opacity * 2.0); // scale opacity because opacity > 0.5 is opaque for alpha test
             else if(RAY_CONE_SHADOW == RAY_CONE_SHADOW_ALPHA_TEST)
                 opacity = opacity < 0.5 ? 0.0 : 1.0;
+
+            d.alpha = opacity;
+            #if SHADOW_T == SHADOW_T_STOCHASTIC_SHADOW
+            opacity = swinRoulette(d) ? 1.0 : 0.0;
+            #endif
             
             visibility = visibility * (1.0 - opacity);
             if (visibility < visibilityCutoff)

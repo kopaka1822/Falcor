@@ -23,7 +23,7 @@ Properties ShadowSettings::getProperties() const
     return d;
 }
 
-void ShadowSettings::updateShaderVar(ref<Device> pDevice, ShaderVar& vars)
+void ShadowSettings::updateShaderVar(ref<Device> pDevice, ShaderVar& vars, uint frameIndex)
 {
     if(!mpSampler)
     {
@@ -37,6 +37,7 @@ void ShadowSettings::updateShaderVar(ref<Device> pDevice, ShaderVar& vars)
     vars["ShadowSettingBuffer"]["gPointLightClip"] = mPointLightClip;
     vars["ShadowSettingBuffer"]["gShadowLodBias"] = mLodBias;
     vars["ShadowSettingBuffer"]["gDiminishBorder"] = mDiminishBorder;
+    vars["ShadowSettingBuffer"]["gFrameIndex"] = frameIndex;
 }
 
 void ShadowSettings::renderUI(Gui::Widgets& widget)
@@ -49,6 +50,7 @@ void ShadowSettings::renderUI(Gui::Widgets& widget)
     }
 
     widget.dropdown("Shadow Type", mRayConeShadow);
+    widget.dropdown("Shadow Technique", mShadowTechnique);
     widget.var("LOD Bias", mLodBias, -16.0f, 16.0f, 0.5f);
     widget.var("Point Light Clip", mPointLightClip, 0.0f);
 
@@ -61,6 +63,7 @@ DefineList ShadowSettings::getShaderDefines(Scene& scene, uint2 frameDim) const
     defines.add("RAY_CONE_SPREAD", std::to_string(rayConeSpread));
     defines.add("USE_RAYCONES", mRayCones ? "1" : "0");
     defines.add("RAY_CONE_SHADOW", std::to_string(int(mRayConeShadow)));
+    defines.add("SHADOW_T", std::to_string(int(mShadowTechnique)));
     return defines;
 }
 
