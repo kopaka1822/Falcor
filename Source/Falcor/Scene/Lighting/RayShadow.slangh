@@ -81,7 +81,28 @@ bool swinRoulette(SDitherInfo d)
     return true;
 }
 
-
+float correctCoverage(float alpha)
+{
+    float gDLSSCorrectionStrength = 1.0;
+//#if COVERAGE_CORRECTION == COVERAGE_CORRECTION_DLSS
+    // measured for RR, but works for STD as well
+    float dlssAlpha = saturate(0.0113 + 1.6560 * alpha - 0.8210 * alpha * alpha + 0.1560 * alpha * alpha * alpha);
+    //return dlssAlpha;
+    //alpha = lerp(alpha, dlssAlpha, gDLSSCorrectionStrength);
+/*#endif
+#if COVERAGE_CORRECTION == COVERAGE_CORRECTION_FSR
+    // measured for RR (but not good for STD)
+    // float fsrAlpha = saturate(0.0142 + 1.3693 * alpha - 0.1821 * alpha * alpha - 0.2135 * alpha * alpha * alpha);
+    float fsrAlpha = alpha;
+    // special measuement for STD
+    if (alpha > 0.320314)
+        fsrAlpha = saturate(-1.0204 + 6.0689 * alpha - 6.7421 * alpha * alpha + 2.6931 * alpha * alpha * alpha);
+    else if (alpha < 0.202436)
+        fsrAlpha = saturate(1.3113 * alpha + 0.6793 * alpha * alpha - 10.9520 * alpha * alpha * alpha);
+    alpha = lerp(alpha, fsrAlpha, gDLSSCorrectionStrength);
+#endif*/
+    return alpha;
+}
 //////////// SHADOW SAMPLER ////////////
 
 struct SoftExplicitRayConesLodTextureSampler : ITextureSampler
@@ -130,7 +151,7 @@ RayDesc ray
 )
 {
     float visibility = 1.0;
-    float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
+    float visibilityCutoff = 0.0; // visibility below this threshold is considered to be zero
 
     SDitherInfo d;
     d.posW = ray.Origin;
@@ -173,13 +194,13 @@ RayDesc ray
             else if(RAY_CONE_SHADOW == RAY_CONE_SHADOW_ALPHA_TEST)
                 opacity = opacity < 0.5 ? 0.0 : 1.0;
 
-            d.alpha = opacity;
+            d.alpha = opacity; //correctCoverage(opacity);
             #if SHADOW_T == SHADOW_T_STOCHASTIC_SHADOW
             opacity = swinRoulette(d) ? 1.0 : 0.0;
             #endif
             
             visibility = visibility * (1.0 - opacity);
-            if (visibility < visibilityCutoff)
+            if (visibility <= visibilityCutoff)
                 return 0.0;
         }
         else
