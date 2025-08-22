@@ -14,7 +14,7 @@ Texture2D<float> ambient; // ambient occlusion
 float computeShadowImpl(uint2 pixel, uint lightIndex, float3 posW, float3 normalW)
 {
     #if USE_RAY_SHADOW != 0
-    return traceShadowRay(posW, normalW, lightIndex);
+    return traceShadowRay(pixel, posW, normalW, lightIndex);
     #else
     uint visWidth, visHeight, visSlices;
     visibilityBuffer.GetDimensions(visWidth, visHeight, visSlices);

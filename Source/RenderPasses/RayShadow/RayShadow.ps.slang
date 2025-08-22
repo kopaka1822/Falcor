@@ -18,5 +18,5 @@ float main(float2 texC : TEXCOORD, float4 svPos : SV_POSITION) : SV_Target
         return 1.0;
 
     float3 normalW = gNormal[int2(svPos.xy)].xyz;
-    return traceShadowRay(posW.xyz, normalW, gLightIndex);
+    return traceShadowRay(uint2(svPos.xy), posW.xyz, normalW, gLightIndex);
 }

@@ -10,9 +10,13 @@ cbuffer ShadowSettingBuffer
     float gShadowLodBias;
     bool gDiminishBorder;
     uint gFrameIndex;
+    bool gsRotatePattern; // rotate shadow map dither pattern
 };
 
 SamplerState gSoftShadowSampler; // modified clamping mode to get softer borders
+
+Texture2D<float> gsBlueNoise64x64Tex;
+Texture2DArray<float> gsSpatioTemporalBlueNoiseTex;
 
 #ifndef USE_RAYCONES
 #define USE_RAYCONES 1
@@ -31,6 +35,8 @@ SamplerState gSoftShadowSampler; // modified clamping mode to get softer borders
 
 #define SHADOW_T_DEEP_SHADOW 0
 #define SHADOW_T_STOCHASTIC_SHADOW 1
+#define SHADOW_T_DITHER2x2 2
+#define SHADOW_T_DITHER3x3 3
 
 #ifndef SHADOW_T
 #define SHADOW_T SHADOW_T_DEEP_SHADOW
@@ -79,6 +85,81 @@ bool swinRoulette(SDitherInfo d)
     if (rng > d.alpha)
         return false;
     return true;
+}
+
+uint2 sapplyRotation(uint2 pixel, uint offset, uint width, uint height)
+{
+    uint xoff = offset % width;
+    uint yoff = (offset / width);
+    if (yoff % 2u)
+        xoff = width - xoff - 1; // serpentine raster
+    pixel.x += xoff;
+    pixel.y += yoff;
+    return pixel;
+}
+
+float sgetTopNoise(SDitherInfo d)
+{
+    return gsBlueNoise64x64Tex[d.pixel % 64u];
+}
+
+float sgetPixelDitherThreshold2x2(SDitherInfo d)
+{
+    uint4 mask = uint4(0, 2, 3, 1);
+    uint2 p = d.pixel;
+    if (gsRotatePattern)
+        p = sapplyRotation(p, d.frameIndex, 2, 2); // rotate lookup based on frame index
+    uint lookup = (p.x % 2u) + 2u * (p.y % 2u);
+    uint v = mask[lookup]; // 0, 1, 2 or 3
+
+    return (v + sgetTopNoise(d)) / 4.0;
+}
+
+
+float sgetPixelDitherThreshold3x3(SDitherInfo d)
+{
+    uint2 p = d.pixel;
+    if (gsRotatePattern)
+        p = sapplyRotation(p, d.frameIndex, 3, 3);
+    p = p % 3u;
+
+    uint3x3 mask =
+    {
+        0, 6, 3,
+        8, 4, 1,
+        5, 2, 7
+    };
+    uint v = mask[p.y][p.x]; // 0-8
+
+    return (v + sgetTopNoise(d)) / 9.0;
+}
+
+float sgetPixelDitherThreshold4x4(SDitherInfo d)
+{
+    uint2 p = d.pixel;
+    if (gsRotatePattern)
+        p = sapplyRotation(p, d.frameIndex, 4, 4);
+    p = p % 4u;
+
+    uint3x3 mask =
+    {
+        0, 8, 2, 10,
+        12, 4, 14, 6,
+        3, 11, 1, 9,
+        15, 7, 13, 5
+    };
+    uint v = mask[p.y][p.x];
+
+    return (v + sgetTopNoise(d)) / 16.0;
+}
+
+float sgetSTBNThreshold(SDitherInfo d)
+{
+    uint3 texCoord = uint3(d.pixel, d.frameIndex);
+    // clamp to texture size
+    texCoord = texCoord % uint3(128, 128, 64);
+    float t = gsSpatioTemporalBlueNoiseTex[texCoord];
+    return clamp(t, 1e-6, 1.0);
 }
 
 float correctCoverage(float alpha)
@@ -144,6 +225,7 @@ struct SoftExplicitRayConesLodTextureSampler : ITextureSampler
 ///////////////// SHADOW RAY TRACING //////////////////////
 
 float traceShadowRay(
+uint2 pixel,
 RayDesc ray
 #if USE_RAYCONES
 , RayCone rc
@@ -151,11 +233,20 @@ RayDesc ray
 )
 {
     float visibility = 1.0;
-    float visibilityCutoff = 0.0; // visibility below this threshold is considered to be zero
+    float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
 
     SDitherInfo d;
     d.frameIndex = gFrameIndex;
-    d.pixel = uint2(0, 0);
+    d.pixel = pixel;
+    d.posW = ray.Origin;
+    d.alpha = 0.0;
+    
+    #if SHADOW_T == SHADOW_T_DITHER2x2
+    visibilityCutoff = sgetPixelDitherThreshold2x2(d);
+    #endif
+    #if SHADOW_T == SHADOW_T_DITHER3x3
+    visibilityCutoff = sgetPixelDitherThreshold3x3(d);
+    #endif
     
     RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
     const uint instanceMask = getBestParticleShadowPlane(ray.Direction);
@@ -175,7 +266,7 @@ RayDesc ray
             let material = gScene.materials.getMaterial(materialID);
 
             // LOD
-            #if USE_RAYCONES
+#if USE_RAYCONES
             RayCone shadowCone = rc.propagateDistance(t);
             shadowCone = shadowCone.hit(ray.Direction, v.faceNormalW);
             float lambda = shadowCone.computeLOD(v.coneTexLODValue);
@@ -209,13 +300,17 @@ RayDesc ray
 
     if (rayQuery.CommittedStatus() != COMMITTED_NOTHING)  visibility = 0.0; // hit opaque => occluded
 
-    // scale based on the cutoff
+    #if SHADOW_T == SHADOW_T_DEEP_SHADOW
     visibility = saturate((visibility - visibilityCutoff) / (1.0 - visibilityCutoff));
-    
+    #else
+    // stochastic process
+    visibility = visibility <= visibilityCutoff ? 0.0 : 1.0;
+    #endif
+
     return visibility;
 }
 
-float traceShadowRay(float3 posW, float3 normalW, uint lightIndex)
+float traceShadowRay(uint2 pixel, float3 posW, float3 normalW, uint lightIndex)
 {    
     if (dot(normalW, posW.xyz - gScene.camera.getPosition()) > 0)
         normalW = -normalW;
@@ -264,9 +359,9 @@ float traceShadowRay(float3 posW, float3 normalW, uint lightIndex)
         return 1.0;
     
     #if USE_RAYCONES
-    float visibility = traceShadowRay(ray, rc);
+    float visibility = traceShadowRay(pixel, ray, rc);
     #else
-    float visibility = traceShadowRay(ray);
+    float visibility = traceShadowRay(pixel, ray);
     #endif
     
     return visibility;

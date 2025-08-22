@@ -31,9 +31,9 @@ public:
     {
         DeepShadow,
         StochasticShadow,
-        STD3x3,
-        STD2x2,
-        BlueNoise,
+        Dither2x2,
+        Dither3x3,
+        Dither4x4,
         SpatioTemporalBlueNoise
     };
 
@@ -42,10 +42,10 @@ public:
         {
             { ShadowTechnique::DeepShadow, "Deep Shadow" },
             { ShadowTechnique::StochasticShadow, "Stochastic Shadow" },
-            //{ ShadowTechnique::STD3x3, "STD 3x3" },
-            //{ ShadowTechnique::STD2x2, "STD 2x2" },
-            //{ ShadowTechnique::BlueNoise, "Blue Noise" },
-            //{ ShadowTechnique::SpatioTemporalBlueNoise, "Spatio-Temporal Blue Noise" }
+            { ShadowTechnique::Dither2x2, "Dither 2x2" },
+            { ShadowTechnique::Dither3x3, "Dither 3x3" },
+            { ShadowTechnique::Dither4x4, "Dither 4x4" },
+            { ShadowTechnique::SpatioTemporalBlueNoise, "STBN" }
         }
     );
 
@@ -67,6 +67,9 @@ private:
     ShadowTechnique mShadowTechnique = ShadowTechnique::DeepShadow;
 
     ref<Sampler> mpSampler;
+    ref<Texture> mpBlueNoise64Tex;
+    ref<Texture> mpSpatioTemporalBlueNoiseTex;
+    bool mRotatePattern = true;
 };
 
 FALCOR_ENUM_REGISTER(ShadowSettings::RayConeShadow);

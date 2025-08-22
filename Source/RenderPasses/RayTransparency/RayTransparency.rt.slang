@@ -120,7 +120,7 @@ float2 calcMotionVector(uint2 pixel, uint2 frameDim, TriangleHit triangleHit)
 float computeShadowImpl(uint2 pixel, uint lightIndex, float3 posW, float3 normalW)
 {
     // posW + normal?
-    return traceShadowRay(posW, normalW, lightIndex);
+    return traceShadowRay(pixel, posW, normalW, lightIndex);
 }
 
 [shader("closesthit")]

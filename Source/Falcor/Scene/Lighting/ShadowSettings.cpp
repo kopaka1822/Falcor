@@ -38,6 +38,13 @@ void ShadowSettings::updateShaderVar(ref<Device> pDevice, ShaderVar& vars, uint 
     vars["ShadowSettingBuffer"]["gShadowLodBias"] = mLodBias;
     vars["ShadowSettingBuffer"]["gDiminishBorder"] = mDiminishBorder;
     vars["ShadowSettingBuffer"]["gFrameIndex"] = frameIndex;
+    vars["ShadowSettingBuffer"]["gsRotatePattern"] = mRotatePattern;
+    if(!mpBlueNoise64Tex)
+        mpBlueNoise64Tex = Texture::createFromFile(pDevice, "dither/bluenoise64.dds", false, false);
+    vars["gsBlueNoise64x64Tex"] = mpBlueNoise64Tex;
+    if (!mpSpatioTemporalBlueNoiseTex)
+        mpSpatioTemporalBlueNoiseTex = Texture::createFromFile(pDevice, "dither/spatiotemporal_bluenoise.dds", false, false);
+    vars["gsSpatioTemporalBlueNoiseTex"] = mpSpatioTemporalBlueNoiseTex;
 }
 
 void ShadowSettings::renderUI(Gui::Widgets& widget)
@@ -51,6 +58,11 @@ void ShadowSettings::renderUI(Gui::Widgets& widget)
 
     widget.dropdown("Shadow Type", mRayConeShadow);
     widget.dropdown("Shadow Technique", mShadowTechnique);
+    if (mShadowTechnique == ShadowTechnique::Dither2x2 || mShadowTechnique == ShadowTechnique::Dither3x3 || mShadowTechnique == ShadowTechnique::Dither4x4)
+    {
+        widget.checkbox("Rotate Pattern", mRotatePattern);
+    }
+
     widget.var("LOD Bias", mLodBias, -16.0f, 16.0f, 0.5f);
     widget.var("Point Light Clip", mPointLightClip, 0.0f);
 
@@ -69,5 +81,5 @@ DefineList ShadowSettings::getShaderDefines(Scene& scene, uint2 frameDim) const
 
 ShadowSettings::ShadowSettings()
 {
-
+    
 }

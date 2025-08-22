@@ -51,7 +51,7 @@ VSOut vsMain(VSIn vIn)
 
 float computeShadowImpl(uint2 pixel, uint lightIndex, float3 posW, float3 normalW)
 {
-    return traceShadowRay(posW, normalW, lightIndex);
+    return traceShadowRay(pixel, posW, normalW, lightIndex);
 }
 
 [earlydepthstencil]
