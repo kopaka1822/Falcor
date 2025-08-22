@@ -154,7 +154,6 @@ RayDesc ray
     float visibilityCutoff = 0.0; // visibility below this threshold is considered to be zero
 
     SDitherInfo d;
-    d.posW = ray.Origin;
     d.frameIndex = gFrameIndex;
     d.pixel = uint2(0, 0);
     
@@ -194,6 +193,7 @@ RayDesc ray
             else if(RAY_CONE_SHADOW == RAY_CONE_SHADOW_ALPHA_TEST)
                 opacity = opacity < 0.5 ? 0.0 : 1.0;
 
+            d.posW = v.posW;
             d.alpha = opacity; //correctCoverage(opacity);
             #if SHADOW_T == SHADOW_T_STOCHASTIC_SHADOW
             opacity = swinRoulette(d) ? 1.0 : 0.0;
