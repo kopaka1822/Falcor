@@ -37,6 +37,8 @@ Texture2DArray<float> gsSpatioTemporalBlueNoiseTex;
 #define SHADOW_T_STOCHASTIC_SHADOW 1
 #define SHADOW_T_DITHER2x2 2
 #define SHADOW_T_DITHER3x3 3
+#define SHADOW_T_DITHER4x4 4
+#define SHADOW_T_STBN 5
 
 #ifndef SHADOW_T
 #define SHADOW_T SHADOW_T_DEEP_SHADOW
@@ -141,7 +143,7 @@ float sgetPixelDitherThreshold4x4(SDitherInfo d)
         p = sapplyRotation(p, d.frameIndex, 4, 4);
     p = p % 4u;
 
-    uint3x3 mask =
+    uint4x4 mask =
     {
         0, 8, 2, 10,
         12, 4, 14, 6,
@@ -247,6 +249,12 @@ RayDesc ray
     #if SHADOW_T == SHADOW_T_DITHER3x3
     visibilityCutoff = sgetPixelDitherThreshold3x3(d);
     #endif
+    #if SHADOW_T == SHADOW_T_DITHER4x4
+    visibilityCutoff = sgetPixelDitherThreshold4x4(d);
+    #endif
+    #if SHADOW_T == SHADOW_T_STBN
+    visibilityCutoff = sgetSTBNThreshold(d);
+    #endif
     
     RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
     const uint instanceMask = getBestParticleShadowPlane(ray.Direction);
@@ -266,7 +274,7 @@ RayDesc ray
             let material = gScene.materials.getMaterial(materialID);
 
             // LOD
-#if USE_RAYCONES
+            #if USE_RAYCONES
             RayCone shadowCone = rc.propagateDistance(t);
             shadowCone = shadowCone.hit(ray.Direction, v.faceNormalW);
             float lambda = shadowCone.computeLOD(v.coneTexLODValue);
