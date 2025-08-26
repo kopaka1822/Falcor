@@ -649,14 +649,16 @@ void VideoRecorder::stopRender()
         char buffer[2048];
 
         std::string outputFilename;
-        if (!mOutputPrefixFolder.empty())
-        {
-            if (!folderExists(mOutputPrefixFolder))
-                createFolder(mOutputPrefixFolder);
-            outputFilename = mOutputPrefixFolder + "/" + mOutputPrefix + outputName + ".mp4";
-        }
+        if (!mOutputPrefixFolder.empty() && !folderExists(mOutputPrefixFolder))
+            createFolder(mOutputPrefixFolder);
+
+        if(!mOutputPrefixFolder.empty())
+            outputFilename = mOutputPrefixFolder + "/";
+
+        if(mOutputs.size() > 1)
+            outputFilename += mOutputPrefix + outputName + ".mp4";
         else
-            outputFilename = mOutputPrefix + outputName + ".mp4";
+            outputFilename += mOutputPrefix + ".mp4";
 
         deleteFile(outputFilename); // delete old file (otherwise ffmpeg will not write anything)
         sprintf_s(buffer, "ffmpeg -r %d -i %s%%04d.bmp -c:v libx264 -preset medium -crf 12 -vf \"fps=%d,format=yuv420p\" \"%s\" 2>&1", mFps, filenameBase.c_str(), mFps, outputFilename.c_str());
