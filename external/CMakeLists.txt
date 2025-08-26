@@ -502,6 +502,20 @@ set_target_properties(ffxapi PROPERTIES
 )
 set(FALCOR_HAS_FFXAPI ON PARENT_SCOPE)
 
+# INTEL XESS
+set(XESS_DIR ${PACKMAN_DIR}/xess)
+set(FFX_LIB_DIR ${PACKMAN_DIR}/xess/bin)
+set(XESS_API_BACKEND DX12_X64)
+add_library(xessapi SHARED IMPORTED GLOBAL)
+set_target_properties(xessapi PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES ${XESS_DIR}/inc
+    IMPORTED_LOCATION_RELEASE ${FFX_LIB_DIR}/libxess.dll
+    IMPORTED_LOCATION_DEBUG ${FFX_LIB_DIR}/libxess.dll
+    IMPORTED_IMPLIB_RELEASE ${XESS_DIR}/lib/libxess.lib
+    IMPORTED_IMPLIB_DEBUG ${XESS_DIR}/lib/libxess.lib
+)
+set(FALCOR_HAS_XESS ON PARENT_SCOPE)
+
 # optix
 set(OPTIX_DIR ${PACKMAN_DIR}/optix)
 if(EXISTS ${OPTIX_DIR}/include/optix.h)

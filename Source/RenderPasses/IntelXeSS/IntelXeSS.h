@@ -28,6 +28,7 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include <xess/xess.h>
 
 using namespace Falcor;
 
@@ -50,6 +51,7 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
+    xess_context_handle_t mContext = nullptr;
     ref<Scene> mpScene;
 
     bool mReset = true;

@@ -27,6 +27,7 @@
  **************************************************************************/
 #include "IntelXeSS.h"
 #include "Core/API/NativeHandleTraits.h"
+#include <xess/xess_d3d12.h>
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
@@ -66,6 +67,25 @@ RenderPassReflection IntelXeSS::reflect(const CompileData& compileData)
 void IntelXeSS::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
     auto pNative = mpDevice->getNativeHandle().as<ID3D12Device*>();
+    auto xr = xessD3D12CreateContext(pNative, &mContext);
+    if(xr != XESS_RESULT_SUCCESS)
+        throw std::runtime_error("Failed to create XeSS context");
+
+    xess_d3d12_init_params_t ip = {};
+    ip.outputResolution.x = compileData.defaultTexDims.x;
+    ip.outputResolution.y = compileData.defaultTexDims.y;
+    ip.qualitySetting = XESS_QUALITY_SETTING_AA; // highest quality?
+    xr = xessD3D12Init(mContext, &ip);
+    if(xr != XESS_RESULT_SUCCESS)
+        throw std::runtime_error("Failed to initialize XeSS context");
+
+    mReset = true;
+}
+
+static ID3D12Resource* getNativeResource(const ref<Texture>& pTex)
+{
+    if (!pTex) return nullptr;
+    return pTex->getNativeHandle().as<ID3D12Resource*>();
 }
 
 void IntelXeSS::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -86,8 +106,24 @@ void IntelXeSS::execute(RenderContext* pRenderContext, const RenderData& renderD
 
     ID3D12GraphicsCommandList* pCommandList = pRenderContext->getLowLevelData()->getCommandBufferNativeHandle().as<ID3D12GraphicsCommandList*>();
 
+    xess_d3d12_execute_params_t ep = {};
+    ep.inputWidth = pColorIn->getWidth();
+    ep.inputHeight = pColorIn->getHeight();
+    float2 jitterOffset = float2(pCamera->getJitterX(), -pCamera->getJitterY()) * float2(pColorIn->getWidth(), pColorIn->getHeight());
+    ep.jitterOffsetX = jitterOffset.x;
+    ep.jitterOffsetY = jitterOffset.y;
+    ep.resetHistory = mReset ? 1 : 0;
+    ep.pColorTexture = getNativeResource(pColorIn);
+    ep.pDepthTexture = getNativeResource(pDepth);
+    ep.pVelocityTexture = getNativeResource(pMotion);
+    ep.pOutputTexture = getNativeResource(pOut);
+    ep.exposureScale = 1.0f;
 
-
+    auto xr = xessD3D12Execute(mContext, pCommandList, &ep);
+    if(xr != XESS_RESULT_SUCCESS)
+    {
+        logWarning("Failed xessD3D12Execute");
+    }
 
     mReset = false;
     pRenderContext->setPendingCommands(true);
@@ -97,4 +133,11 @@ void IntelXeSS::execute(RenderContext* pRenderContext, const RenderData& renderD
 
 void IntelXeSS::renderUI(Gui::Widgets& widget)
 {
+    widget.checkbox("Enabled", mEnabled);
+    if (!mEnabled) return;
+
+    if (widget.button("Reset"))
+    {
+        mReset = true;
+    }
 }

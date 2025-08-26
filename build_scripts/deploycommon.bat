@@ -74,6 +74,11 @@ if exist %FfxDir% (
     robocopy %FfxDir%\PrebuiltSignedDLL %OutDir% *.dll /r:0 >nul
 )
 
+rem copy xessapi
+set XessDir=%ExtDir%\xess
+if exist %XessDir% (
+    robocopy %XessDir%\bin %OutDir% *.dll /r:0 >nul
+)
 
 rem Copy RTXDI SDK shaders
 set RtxdiSDKDir=%ExtDir%\rtxdi\rtxdi-sdk\include\rtxdi

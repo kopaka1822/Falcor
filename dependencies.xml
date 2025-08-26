@@ -68,4 +68,8 @@
     <dependency name="fsr" linkPath="external/packman/fsr">
         <package name="fsr" version="v1.1.3" remotes="fsr-github" platforms="windows-x86_64"/>
     </dependency>
+    <remote name="xess-github" type="https" packageLocation="github.com/intel/xess/releases/download/v2.1.0/XeSS_SDK_2.1.0.zip"/>
+    <dependency name="xess" linkPath="external/packman/xess">
+        <package name="xess" version="v2.1.0" remotes="xess-github" platforms="windows-x86_64"/>
+    </dependency>
 </project>
