@@ -27,37 +27,33 @@
  **************************************************************************/
 #pragma once
 #include "Falcor.h"
-#include "ffx_api/ffx_api.hpp"
 #include "RenderGraph/RenderPass.h"
 
 using namespace Falcor;
 
-class FSR : public RenderPass
+class IntelXeSS : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(FSR, "FSR", "Insert pass description here.");
+    FALCOR_PLUGIN_CLASS(IntelXeSS, "IntelXeSS", "Insert pass description here.");
 
-    static ref<FSR> create(ref<Device> pDevice, const Properties& props) { return make_ref<FSR>(pDevice, props); }
+    static ref<IntelXeSS> create(ref<Device> pDevice, const Properties& props) { return make_ref<IntelXeSS>(pDevice, props); }
 
-    FSR(ref<Device> pDevice, const Properties& props);
+    IntelXeSS(ref<Device> pDevice, const Properties& props);
 
     virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override { mpScene = pScene; }
+    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override {}
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    ffx::Context mContext;
     ref<Scene> mpScene;
 
-    float mSharpness = 0.0f;
     bool mReset = true;
     bool mEnabled = true;
-    bool mUseReactive = false;
 
     CpuTimer mTimer;
 };
