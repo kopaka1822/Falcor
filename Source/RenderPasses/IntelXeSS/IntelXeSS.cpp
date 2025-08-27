@@ -46,6 +46,20 @@ namespace
 IntelXeSS::IntelXeSS(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
 {
+    auto pNative = mpDevice->getNativeHandle().as<ID3D12Device*>();
+    auto xr = xessD3D12CreateContext(pNative, &mContext);
+    if (xr != XESS_RESULT_SUCCESS)
+        throw std::runtime_error("Failed to create XeSS context");
+
+    xess_version_t ver = {};
+    xess_result_t res = xessGetVersion(&ver);
+    if (res == XESS_RESULT_SUCCESS)
+    {
+        std::cerr << "XeSS version: "
+            << ver.major << "."
+            << ver.minor << "."
+            << ver.patch << std::endl;
+    }
 }
 
 Properties IntelXeSS::getProperties() const
@@ -66,25 +80,27 @@ RenderPassReflection IntelXeSS::reflect(const CompileData& compileData)
 
 void IntelXeSS::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
-    auto pNative = mpDevice->getNativeHandle().as<ID3D12Device*>();
-    auto xr = xessD3D12CreateContext(pNative, &mContext);
-    if(xr != XESS_RESULT_SUCCESS)
-        throw std::runtime_error("Failed to create XeSS context");
-
     xess_d3d12_init_params_t ip = {};
     ip.outputResolution.x = compileData.defaultTexDims.x;
     ip.outputResolution.y = compileData.defaultTexDims.y;
-    ip.qualitySetting = XESS_QUALITY_SETTING_AA; // highest quality?
-    xr = xessD3D12Init(mContext, &ip);
+    ip.qualitySetting = XESS_QUALITY_SETTING_AA; // highest quality
+    //ip.initFlags = XESS_INIT_FLAG_USE_NDC_VELOCITY;
+    auto xr = xessD3D12Init(mContext, &ip);
     if(xr != XESS_RESULT_SUCCESS)
         throw std::runtime_error("Failed to initialize XeSS context");
 
     mReset = true;
 }
 
-static ID3D12Resource* getNativeResource(const ref<Texture>& pTex)
+static ID3D12Resource* getNativeResource(RenderContext* pRenderContext, const ref<Texture>& pTex, bool isOutput)
 {
     if (!pTex) return nullptr;
+
+    if (isOutput)
+        pRenderContext->resourceBarrier(pTex.get(), Resource::State::UnorderedAccess);
+    else
+        pRenderContext->resourceBarrier(pTex.get(), Resource::State::NonPixelShader);
+
     return pTex->getNativeHandle().as<ID3D12Resource*>();
 }
 
@@ -109,14 +125,16 @@ void IntelXeSS::execute(RenderContext* pRenderContext, const RenderData& renderD
     xess_d3d12_execute_params_t ep = {};
     ep.inputWidth = pColorIn->getWidth();
     ep.inputHeight = pColorIn->getHeight();
+    xessSetVelocityScale(mContext, pColorIn->getWidth(), pColorIn->getHeight());
+    // jitter should be [-0.5, 0.5] => pixel coordinates
     float2 jitterOffset = float2(pCamera->getJitterX(), -pCamera->getJitterY()) * float2(pColorIn->getWidth(), pColorIn->getHeight());
     ep.jitterOffsetX = jitterOffset.x;
     ep.jitterOffsetY = jitterOffset.y;
     ep.resetHistory = mReset ? 1 : 0;
-    ep.pColorTexture = getNativeResource(pColorIn);
-    ep.pDepthTexture = getNativeResource(pDepth);
-    ep.pVelocityTexture = getNativeResource(pMotion);
-    ep.pOutputTexture = getNativeResource(pOut);
+    ep.pColorTexture = getNativeResource(pRenderContext, pColorIn, false);
+    ep.pDepthTexture = getNativeResource(pRenderContext, pDepth, false);
+    ep.pVelocityTexture = getNativeResource(pRenderContext, pMotion, false);
+    ep.pOutputTexture = getNativeResource(pRenderContext, pOut, true);
     ep.exposureScale = 1.0f;
 
     auto xr = xessD3D12Execute(mContext, pCommandList, &ep);
