@@ -70,6 +70,7 @@ private:
     ref<Texture> mpBlueNoise64Tex;
     ref<Texture> mpSpatioTemporalBlueNoiseTex;
     bool mRotatePattern = true;
+    bool mCorrectCoverage = false;
 };
 
 FALCOR_ENUM_REGISTER(ShadowSettings::RayConeShadow);

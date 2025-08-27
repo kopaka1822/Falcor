@@ -39,6 +39,7 @@ void ShadowSettings::updateShaderVar(ref<Device> pDevice, ShaderVar& vars, uint 
     vars["ShadowSettingBuffer"]["gDiminishBorder"] = mDiminishBorder;
     vars["ShadowSettingBuffer"]["gFrameIndex"] = frameIndex;
     vars["ShadowSettingBuffer"]["gsRotatePattern"] = mRotatePattern;
+    vars["ShadowSettingBuffer"]["gsCorrectCoverage"] = mCorrectCoverage;
     if(!mpBlueNoise64Tex)
         mpBlueNoise64Tex = Texture::createFromFile(pDevice, "dither/bluenoise64.dds", false, false);
     vars["gsBlueNoise64x64Tex"] = mpBlueNoise64Tex;
@@ -62,6 +63,8 @@ void ShadowSettings::renderUI(Gui::Widgets& widget)
     {
         widget.checkbox("Rotate Pattern", mRotatePattern);
     }
+    if(mShadowTechnique != ShadowTechnique::DeepShadow)
+        widget.checkbox("Correct Coverage", mCorrectCoverage);
 
     widget.var("LOD Bias", mLodBias, -16.0f, 16.0f, 0.5f);
     widget.var("Point Light Clip", mPointLightClip, 0.0f);

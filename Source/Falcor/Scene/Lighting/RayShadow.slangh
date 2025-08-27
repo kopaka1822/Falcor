@@ -11,6 +11,7 @@ cbuffer ShadowSettingBuffer
     bool gDiminishBorder;
     uint gFrameIndex;
     bool gsRotatePattern; // rotate shadow map dither pattern
+    bool gsCorrectCoverage; // attempts to correct stochastic coverage for DLSS
 };
 
 SamplerState gSoftShadowSampler; // modified clamping mode to get softer borders
@@ -164,6 +165,14 @@ float sgetSTBNThreshold(SDitherInfo d)
     return clamp(t, 1e-6, 1.0);
 }
 
+float scorrectVisibility(float v)
+{
+    if (!gsCorrectCoverage)
+        return v;
+    float dlssV = saturate(-0.0007 + 1.8453 * v - 1.0947 * v * v + 0.2485 * v * v * v);
+    return lerp(v, dlssV, 1.0);
+}
+
 float correctCoverage(float alpha)
 {
     float gDLSSCorrectionStrength = 1.0;
@@ -299,20 +308,22 @@ RayDesc ray
             #endif
             
             visibility = visibility * (1.0 - opacity);
-            if (visibility <= visibilityCutoff)
+            //if (visibility <= visibilityCutoff)
+            if (scorrectVisibility(visibility) <= visibilityCutoff)
                 return 0.0;
         }
         else
             return 0.0; // hit opaque => occluded
     }
 
-    if (rayQuery.CommittedStatus() != COMMITTED_NOTHING)  visibility = 0.0; // hit opaque => occluded
+    if (rayQuery.CommittedStatus() != COMMITTED_NOTHING) return 0.0; // hit opaque => occluded
 
     #if SHADOW_T == SHADOW_T_DEEP_SHADOW
     visibility = saturate((visibility - visibilityCutoff) / (1.0 - visibilityCutoff));
     #else
     // stochastic process
-    visibility = visibility <= visibilityCutoff ? 0.0 : 1.0;
+    return 1.0;
+    //visibility = visibility <= visibilityCutoff ? 0.0 : 1.0;
     #endif
 
     return visibility;
