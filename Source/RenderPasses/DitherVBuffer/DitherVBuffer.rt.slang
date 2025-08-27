@@ -224,6 +224,11 @@ void anyHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAt
     else if (alpha < 0.202436) fsrAlpha = saturate(1.3113 * alpha + 0.6793 * alpha * alpha - 10.9520 * alpha * alpha * alpha);
     alpha = lerp(alpha, fsrAlpha, gDLSSCorrectionStrength);
     #endif
+    #if COVERAGE_CORRECTION == COVERAGE_CORRECTION_XESS
+    float xessAlpha = pow(alpha, 0.423);
+    //float xessAlpha = saturate(0.0512 + 3.0635 * alpha - 4.3486 * alpha * alpha + 2.2454 * alpha * alpha * alpha);
+    alpha = lerp(alpha, xessAlpha, gDLSSCorrectionStrength * 0.5); // take 0.5 by default, because it is too strong during motion otherwise
+    #endif
 
     DitherInfo d = {};
     d.pixel = pixel;
