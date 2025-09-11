@@ -60,3 +60,21 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
 void DitherVBuffer2::renderUI(Gui::Widgets& widget)
 {
 }
+
+void DitherVBuffer2::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
+{
+
+}
+
+void DitherVBuffer2::setupProgram()
+{
+}
+
+bool DitherVBuffer2::updateWhitelistBuffer()
+{
+    return false;
+}
+
+void DitherVBuffer2::createNoisePattern()
+{
+}

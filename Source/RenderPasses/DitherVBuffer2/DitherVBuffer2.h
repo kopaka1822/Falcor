@@ -28,13 +28,70 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include "Utils/SampleGenerators/HaltonSamplePattern.h"
+#include "../DitherVBuffer/TransparencyWhitelist.h"
 
 using namespace Falcor;
 
 class DitherVBuffer2 : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(DitherVBuffer2, "DitherVBuffer2", "Insert pass description here.");
+    enum class DitherMode : uint32_t
+    {
+        RussianRoulette = 4,
+        Disabled = 0xff,
+    };
+
+    FALCOR_ENUM_INFO(DitherMode, {
+        { DitherMode::Disabled, "Disabled" },
+        { DitherMode::RussianRoulette, "RussianRoulette" },
+    });
+
+    enum class CoverageCorrection : uint32_t
+    {
+        Disabled,
+        DLSS,
+        FSR,
+        XeSS
+    };
+
+    FALCOR_ENUM_INFO(CoverageCorrection, {
+        { CoverageCorrection::Disabled, "Disabled" },
+        { CoverageCorrection::DLSS, "DLSS" },
+        { CoverageCorrection::FSR, "FSR" },
+        { CoverageCorrection::XeSS, "XeSS" }
+    });
+
+    enum class ObjectHashType : uint32_t
+    {
+        Quads,
+        Geometry,
+    };
+
+    FALCOR_ENUM_INFO(ObjectHashType, {
+        {ObjectHashType::Quads, "Quads"},
+        {ObjectHashType::Geometry, "Geometry"},
+    });
+
+    // based on DLSS scales
+    enum class RenderScale : uint32_t
+    {
+        Full,
+        Quality,
+        Balanced,
+        Performance,
+        UtraPerformance,
+    };
+
+    FALCOR_ENUM_INFO(RenderScale, {
+        {RenderScale::Full, "Full (100%)"},
+        {RenderScale::Quality, "Quality (66.7%)"},
+        {RenderScale::Balanced, "Balanced (58%)"},
+        {RenderScale::Performance, "Performance (50%)"},
+        {RenderScale::UtraPerformance, "UltraPerformance (33.3%)"},
+    });
+
+    FALCOR_PLUGIN_CLASS(DitherVBuffer2, "DitherVBuffer2", "VBuffer with Dithering options for transparency and reflections");
 
     static ref<DitherVBuffer2> create(ref<Device> pDevice, const Properties& props) { return make_ref<DitherVBuffer2>(pDevice, props); }
 
@@ -45,9 +102,62 @@ public:
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override {}
+    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
+    static uint2 getRenderSize(uint2 displaySize, RenderScale scale)
+    {
+        uint2 res = displaySize;
+        switch (scale)
+        {
+        case RenderScale::Quality:
+            res = uint2(ceil(float2(displaySize) * 0.667f));
+            break;
+        case RenderScale::Balanced:
+            res = uint2(ceil(float2(displaySize) * 0.58f));
+            break;
+        case RenderScale::Performance:
+            res = uint2(ceil(float2(displaySize) * 0.50f));
+            break;
+        case RenderScale::UtraPerformance:
+            res = uint2(ceil(float2(displaySize) * 0.333f));
+            break;
+        }
+        res = max(res, uint2(1));
+        return res;
+    }
 private:
+
+    void setupProgram();
+    // returns true if at least one material was whitelisted (or scene was invalid)
+    bool updateWhitelistBuffer();
+    void createNoisePattern();
+
+    ref<Scene> mpScene;
+
+    ref<RtProgram> mpProgram;
+    ref<RtProgramVars> mpVars;
+    ref<SampleGenerator> mpSampleGenerator;
+    ref<Buffer> mpTransparencyWhitelist;
+    ref<Buffer> mpPermutations3x3Buffer;
+
+    uint mFrameCount = 0;
+
+    ref<CPUSampleGenerator> mpSamplePattern;
+
+    DitherMode mDitherMode = DitherMode::RussianRoulette;
+    bool mUseAlphaTextureLOD = false; // use lod for alpha lookups
+    bool mUseTransparencyWhitelist = false;
+    whitelist_t mTransparencyWhitelist;
+    CoverageCorrection mCoverageCorrection = CoverageCorrection::DLSS;
+    float mDLSSCorrectionStrength = 1.0;
+    ObjectHashType mObjectHashType = ObjectHashType::Geometry;
+
+    bool mCullBackFaces = false;
+    uint mMaxRecusion = 10;
+    //bool mAlignMotionVectors = false; // align when using pixel grid techniques
+    //bool mRotatePattern = true; // rotate pattern when using pixel grid techniques
+
+    RenderScale mRenderScale = RenderScale::Full;
 };
