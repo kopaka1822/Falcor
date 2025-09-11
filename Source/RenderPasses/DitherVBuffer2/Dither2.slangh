@@ -1,0 +1,789 @@
+#define DITHER_MODE_DISABLED 0xff
+#define DITHER_MODE_PER_PIXEL_2X2 0
+#define DITHER_MODE_PER_PIXEL_3X3 1
+#define DITHER_MODE_PER_PIXEL_4X4 2
+#define DITHER_MODE_RUSSIAN_ROULETTE 4
+#define DITHER_MODE_PERIODIC 5
+#define DITHER_MODE_HASH_GRID 6
+#define DITHER_MODE_FRACTAL_DITHERING 7
+#define DITHER_MODE_BLUE_NOISE3D 8
+#define DITHER_MODE_DITHER_TEMPORAL_AA 10
+#define DITHER_MODE_STBN 11
+#define DITHER_MODE_SURFACE_STBN 12
+
+#define TEMPORAL_DITHER_DISABLED 0
+#define TEMPORAL_DITHER_UNIFORM 1
+#define TEMPORAL_DITHER_VANDERCORPUT 2
+#define TEMPORAL_DITHER_CYCLICALPHA 3
+
+#define NOISE_TOP_DISABLED 0
+#define NOISE_TOP_STATIC_WHITE 1
+#define NOISE_TOP_DYNAMIC_WHITE 2
+#define NOISE_TOP_STATIC_BLUE 3
+#define NOISE_TOP_DYNAMIC_BLUE 4
+#define NOISE_TOP_STATIC_BAYER 5
+#define NOISE_TOP_DYNAMIC_BAYER 6
+#define NOISE_TOP_SURFACE_WHITE 7
+
+#define OBJECT_HASH_QUADS 0
+#define OBJECT_HASH_GEOMETRY 0
+
+#ifndef DITHER_MODE
+#define DITHER_MODE DITHER_MODE_DISABLED
+#endif
+#ifndef TEMPORAL_DITHER_MODE
+#define TEMPORAL_DITHER_MODE TEMPORAL_DITHER_DISABLED
+#endif
+
+#define COVERAGE_CORRECTION_DISABLED 0
+#define COVERAGE_CORRECTION_DLSS 1
+#define COVERAGE_CORRECTION_FSR 2
+#define COVERAGE_CORRECTION_XESS 3
+
+#ifndef COVERAGE_CORRECTION
+#define COVERAGE_CORRECTION COVERAGE_CORRECTION_DISABLED
+#endif
+
+#ifndef ENABLE_HASH_GRIDS
+#define ENABLE_HASH_GRIDS 0
+#endif
+
+Texture3D<float> gDitherTex;
+Texture2D<float> gDitherRampTex; // converts opacity to threshold for the dither tex
+SamplerState gDitherSampler;
+Texture2D<float> gNoiseTex;
+SamplerState gNoiseSampler;
+
+Texture2DArray<float> gBlueNoise3DTex;
+Texture2D<float> gBlueNoise64x64Tex;
+Texture2D<float> gBayerNoise64Tex;
+Texture2DArray<float> gSpatioTemporalBlueNoiseTex;
+
+StructuredBuffer<uint> gPermutations3x3; // permutations packed into 4 bytes
+
+cbuffer DitherConstants
+{
+    float2 gNoiseScale; // inverse resolution for noise texture
+    float gGridScale;
+    int gRotatePattern;
+    uint gObjectHashType;
+    uint gNoiseTop;
+    uint gDitherTAAPermutations; // enables permutations for dither taa
+};
+
+// common variables used in the dithering functions
+struct DitherInfo
+{
+    uint2 pixel;
+    uint frameIndex; // usually for per frame rng
+    float3 posW; // world position (for white noise)
+    float alpha; // object alpha
+#if ENABLE_HASH_GRIDS != 0
+    float2 posUV; // uv coordinate
+    float maxDerivUV; // max derivative in uv
+#endif
+};
+
+static const int4x4 ditherMatrix = int4x4(
+        int4(0, 8, 2, 10),
+        int4(12, 4, 14, 6),
+        int4(3, 11, 1, 9),
+        int4(15, 7, 13, 5)
+    );
+
+float getObjectHash();
+
+uint3x3 get3x3Permutation(uint id)
+{
+    uint elementCount, stride;
+    gPermutations3x3.GetDimensions(elementCount, stride);
+    uint packed = gPermutations3x3[id % elementCount];
+    uint3x3 m;
+    uint sumValues = 0; // To track the sum of the extracted values
+
+    // Extract the first 8 values (4 bits each)
+    [unroll] for (int i = 0; i < 8; i++)
+    {
+        uint value = (packed >> (i * 4)) & 0xF;
+        m[i / 3][i % 3] = value;
+        sumValues += value;
+    }
+
+    // Compute the missing value using sum formula (0+1+2+3+4+5+6+7+8 = 36)
+    m[2][2] = 36 - sumValues;
+
+    return m;
+}
+
+uint4 get2x2Permutation(uint i) {
+    switch (i % 24u) {
+        case 0:  return uint4(0, 1, 2, 3);
+        case 1:  return uint4(0, 1, 3, 2);
+        case 2:  return uint4(0, 2, 1, 3);
+        case 3:  return uint4(0, 2, 3, 1);
+        case 4:  return uint4(0, 3, 1, 2);
+        case 5:  return uint4(0, 3, 2, 1);
+        case 6:  return uint4(1, 0, 2, 3);
+        case 7:  return uint4(1, 0, 3, 2);
+        case 8:  return uint4(1, 2, 0, 3);
+        case 9:  return uint4(1, 2, 3, 0);
+        case 10: return uint4(1, 3, 0, 2);
+        case 11: return uint4(1, 3, 2, 0);
+        case 12: return uint4(2, 0, 1, 3);
+        case 13: return uint4(2, 0, 3, 1);
+        case 14: return uint4(2, 1, 0, 3);
+        case 15: return uint4(2, 1, 3, 0);
+        case 16: return uint4(2, 3, 0, 1);
+        case 17: return uint4(2, 3, 1, 0);
+        case 18: return uint4(3, 0, 1, 2);
+        case 19: return uint4(3, 0, 2, 1);
+        case 20: return uint4(3, 1, 0, 2);
+        case 21: return uint4(3, 1, 2, 0);
+        case 22: return uint4(3, 2, 0, 1);
+        case 23: return uint4(3, 2, 1, 0);
+        default: return 0u;
+    }
+}
+
+uint4 get2x2PrettyPermutation(uint i) {
+    // only pretty configurations (first two numbers form a diagonal)
+    switch (i % 8u) {
+        case 0:  return uint4(0, 2, 3, 1);
+        case 1:  return uint4(0, 3, 2, 1);
+        case 2:  return uint4(2, 0, 1, 3);
+        case 3:  return uint4(3, 0, 1, 2);
+        case 4:  return uint4(2, 1, 0, 3);
+        case 5:  return uint4(3, 1, 0, 2);
+        case 6:  return uint4(1, 2, 3, 0);
+        case 7:  return uint4(1, 3, 2, 0);
+        default: return 0u;
+    }
+}
+
+
+float hash1D(float v)
+{
+    return frac(1.0e4 * sin(17.0 * v.x) * (0.1 + abs(sin(v.x))));
+}
+
+// Hash function from "Improved Alpha Testing Using Hashed Sampling"
+float hash(float2 v)
+{
+    return frac(1.0e4 * sin(17.0 * v.x + 0.1 * v.y) * (0.1 + abs(sin(13.0 * v.y + v.x))));
+}
+
+// 3D hash function from "Improved Alpha Testing Using Hashed Sampling"
+float hash3D(float3 v)
+{
+    return hash(float2(hash(v.xy), v.z));
+}
+
+// 4D hash function based on the 3D hash function
+float hash4D(float4 v)
+{
+    //return hash(float2(hash3D(v.xyz), v.w));
+    return hash(float2(hash(v.xy), hash(v.zw)));
+}
+
+float getTopNoise(DitherInfo d)
+{
+    switch(gNoiseTop)
+    {
+        case NOISE_TOP_STATIC_WHITE:
+            return hash3D(d.posW);
+        case NOISE_TOP_DYNAMIC_WHITE:
+            return hash4D(float4(d.posW, d.frameIndex));
+        case NOISE_TOP_STATIC_BLUE:
+            return gBlueNoise64x64Tex[d.pixel % 64u];
+        case NOISE_TOP_DYNAMIC_BLUE:
+            return gBlueNoise3DTex[uint3(d.pixel, d.frameIndex) % 16u];
+        case NOISE_TOP_STATIC_BAYER:
+            return gBayerNoise64Tex[d.pixel % 64u];
+        case NOISE_TOP_SURFACE_WHITE:
+            return evalHashGrid2D(d, gGridScale);
+            //return evalHashGrid3D(d, gGridScale);
+        case NOISE_TOP_DISABLED:
+        default:
+            return 0.5;
+    }
+}
+
+
+
+bool winHashGrid2D(DitherInfo d)
+{
+    float threshold = evalHashGrid2D(d, gGridScale, gRotatePattern);
+    return d.alpha >= threshold;
+}
+
+bool winRoulette(DitherInfo d)
+{
+    float rng = hash4D(float4(d.posW, d.frameIndex));
+    if(rng > d.alpha) return false;
+    return true;
+}
+
+
+uint2 applyRotation(uint2 pixel, uint offset, uint width, uint height)
+{
+    uint xoff = offset % width;
+    uint yoff = (offset / width);
+    if (yoff % 2u) xoff = width - xoff - 1; // serpentine raster
+    pixel.x += xoff;
+    pixel.y += yoff;
+    return pixel;
+}
+
+float getPixelDitherThreshold2x2(DitherInfo d)
+{
+    // use random offset to ensure that each primitive uses a different mask
+    uint randomOffset = uint(getObjectHash() * 7919);
+
+    uint4 mask = get2x2Permutation(randomOffset); // mask with [0, 1, 2, 3] permutation
+    uint2 p = d.pixel;
+    if (gRotatePattern)
+        p = applyRotation(p, d.frameIndex, 2, 2); // rotate lookup based on frame index
+    uint lookup = (p.x % 2u) + 2u * (p.y % 2u);
+    uint v = mask[lookup]; // 0, 1, 2 or 3
+
+    return (v + getTopNoise(d)) / 4.0;
+}
+
+float getPixelDitherThreshold3x3(DitherInfo d)
+{
+    // use random offset to ensure that each primitive uses a different mask
+    uint randomOffset = uint(getObjectHash() * 7919);
+    uint2 p = d.pixel;
+    if(gRotatePattern)
+        p = applyRotation(p, d.frameIndex, 3, 3);
+    
+    p = p % 3u;
+
+    uint3x3 mask = get3x3Permutation(randomOffset);
+    uint v = mask[p.y][p.x]; // 0-8
+
+    return (v + getTopNoise(d)) / 9.0;
+}
+
+
+
+// Hardcoded version of the i-th permutation of [0,1,2,3,4].
+void GetPermutation5(uint i, out int result[5])
+{
+    switch(i % 120u)
+    {
+        case 0:  result[0]=0; result[1]=1; result[2]=2; result[3]=3; result[4]=4; break;
+        case 1:  result[0]=0; result[1]=1; result[2]=2; result[3]=4; result[4]=3; break;
+        case 2:  result[0]=0; result[1]=1; result[2]=3; result[3]=2; result[4]=4; break;
+        case 3:  result[0]=0; result[1]=1; result[2]=3; result[3]=4; result[4]=2; break;
+        case 4:  result[0]=0; result[1]=1; result[2]=4; result[3]=2; result[4]=3; break;
+        case 5:  result[0]=0; result[1]=1; result[2]=4; result[3]=3; result[4]=2; break;
+        case 6:  result[0]=0; result[1]=2; result[2]=1; result[3]=3; result[4]=4; break;
+        case 7:  result[0]=0; result[1]=2; result[2]=1; result[3]=4; result[4]=3; break;
+        case 8:  result[0]=0; result[1]=2; result[2]=3; result[3]=1; result[4]=4; break;
+        case 9:  result[0]=0; result[1]=2; result[2]=3; result[3]=4; result[4]=1; break;
+        case 10: result[0]=0; result[1]=2; result[2]=4; result[3]=1; result[4]=3; break;
+        case 11: result[0]=0; result[1]=2; result[2]=4; result[3]=3; result[4]=1; break;
+        case 12: result[0]=0; result[1]=3; result[2]=1; result[3]=2; result[4]=4; break;
+        case 13: result[0]=0; result[1]=3; result[2]=1; result[3]=4; result[4]=2; break;
+        case 14: result[0]=0; result[1]=3; result[2]=2; result[3]=1; result[4]=4; break;
+        case 15: result[0]=0; result[1]=3; result[2]=2; result[3]=4; result[4]=1; break;
+        case 16: result[0]=0; result[1]=3; result[2]=4; result[3]=1; result[4]=2; break;
+        case 17: result[0]=0; result[1]=3; result[2]=4; result[3]=2; result[4]=1; break;
+        case 18: result[0]=0; result[1]=4; result[2]=1; result[3]=2; result[4]=3; break;
+        case 19: result[0]=0; result[1]=4; result[2]=1; result[3]=3; result[4]=2; break;
+        case 20: result[0]=0; result[1]=4; result[2]=2; result[3]=1; result[4]=3; break;
+        case 21: result[0]=0; result[1]=4; result[2]=2; result[3]=3; result[4]=1; break;
+        case 22: result[0]=0; result[1]=4; result[2]=3; result[3]=1; result[4]=2; break;
+        case 23: result[0]=0; result[1]=4; result[2]=3; result[3]=2; result[4]=1; break;
+
+        case 24: result[0]=1; result[1]=0; result[2]=2; result[3]=3; result[4]=4; break;
+        case 25: result[0]=1; result[1]=0; result[2]=2; result[3]=4; result[4]=3; break;
+        case 26: result[0]=1; result[1]=0; result[2]=3; result[3]=2; result[4]=4; break;
+        case 27: result[0]=1; result[1]=0; result[2]=3; result[3]=4; result[4]=2; break;
+        case 28: result[0]=1; result[1]=0; result[2]=4; result[3]=2; result[4]=3; break;
+        case 29: result[0]=1; result[1]=0; result[2]=4; result[3]=3; result[4]=2; break;
+        case 30: result[0]=1; result[1]=2; result[2]=0; result[3]=3; result[4]=4; break;
+        case 31: result[0]=1; result[1]=2; result[2]=0; result[3]=4; result[4]=3; break;
+        case 32: result[0]=1; result[1]=2; result[2]=3; result[3]=0; result[4]=4; break;
+        case 33: result[0]=1; result[1]=2; result[2]=3; result[3]=4; result[4]=0; break;
+        case 34: result[0]=1; result[1]=2; result[2]=4; result[3]=0; result[4]=3; break;
+        case 35: result[0]=1; result[1]=2; result[2]=4; result[3]=3; result[4]=0; break;
+        case 36: result[0]=1; result[1]=3; result[2]=0; result[3]=2; result[4]=4; break;
+        case 37: result[0]=1; result[1]=3; result[2]=0; result[3]=4; result[4]=2; break;
+        case 38: result[0]=1; result[1]=3; result[2]=2; result[3]=0; result[4]=4; break;
+        case 39: result[0]=1; result[1]=3; result[2]=2; result[3]=4; result[4]=0; break;
+        case 40: result[0]=1; result[1]=3; result[2]=4; result[3]=0; result[4]=2; break;
+        case 41: result[0]=1; result[1]=3; result[2]=4; result[3]=2; result[4]=0; break;
+        case 42: result[0]=1; result[1]=4; result[2]=0; result[3]=2; result[4]=3; break;
+        case 43: result[0]=1; result[1]=4; result[2]=0; result[3]=3; result[4]=2; break;
+        case 44: result[0]=1; result[1]=4; result[2]=2; result[3]=0; result[4]=3; break;
+        case 45: result[0]=1; result[1]=4; result[2]=2; result[3]=3; result[4]=0; break;
+        case 46: result[0]=1; result[1]=4; result[2]=3; result[3]=0; result[4]=2; break;
+        case 47: result[0]=1; result[1]=4; result[2]=3; result[3]=2; result[4]=0; break;
+
+        case 48: result[0]=2; result[1]=0; result[2]=1; result[3]=3; result[4]=4; break;
+        case 49: result[0]=2; result[1]=0; result[2]=1; result[3]=4; result[4]=3; break;
+        case 50: result[0]=2; result[1]=0; result[2]=3; result[3]=1; result[4]=4; break;
+        case 51: result[0]=2; result[1]=0; result[2]=3; result[3]=4; result[4]=1; break;
+        case 52: result[0]=2; result[1]=0; result[2]=4; result[3]=1; result[4]=3; break;
+        case 53: result[0]=2; result[1]=0; result[2]=4; result[3]=3; result[4]=1; break;
+        case 54: result[0]=2; result[1]=1; result[2]=0; result[3]=3; result[4]=4; break;
+        case 55: result[0]=2; result[1]=1; result[2]=0; result[3]=4; result[4]=3; break;
+        case 56: result[0]=2; result[1]=1; result[2]=3; result[3]=0; result[4]=4; break;
+        case 57: result[0]=2; result[1]=1; result[2]=3; result[3]=4; result[4]=0; break;
+        case 58: result[0]=2; result[1]=1; result[2]=4; result[3]=0; result[4]=3; break;
+        case 59: result[0]=2; result[1]=1; result[2]=4; result[3]=3; result[4]=0; break;
+        case 60: result[0]=2; result[1]=3; result[2]=0; result[3]=1; result[4]=4; break;
+        case 61: result[0]=2; result[1]=3; result[2]=0; result[3]=4; result[4]=1; break;
+        case 62: result[0]=2; result[1]=3; result[2]=1; result[3]=0; result[4]=4; break;
+        case 63: result[0]=2; result[1]=3; result[2]=1; result[3]=4; result[4]=0; break;
+        case 64: result[0]=2; result[1]=3; result[2]=4; result[3]=0; result[4]=1; break;
+        case 65: result[0]=2; result[1]=3; result[2]=4; result[3]=1; result[4]=0; break;
+        case 66: result[0]=2; result[1]=4; result[2]=0; result[3]=1; result[4]=3; break;
+        case 67: result[0]=2; result[1]=4; result[2]=0; result[3]=3; result[4]=1; break;
+        case 68: result[0]=2; result[1]=4; result[2]=1; result[3]=0; result[4]=3; break;
+        case 69: result[0]=2; result[1]=4; result[2]=1; result[3]=3; result[4]=0; break;
+        case 70: result[0]=2; result[1]=4; result[2]=3; result[3]=0; result[4]=1; break;
+        case 71: result[0]=2; result[1]=4; result[2]=3; result[3]=1; result[4]=0; break;
+
+        case 72: result[0]=3; result[1]=0; result[2]=1; result[3]=2; result[4]=4; break;
+        case 73: result[0]=3; result[1]=0; result[2]=1; result[3]=4; result[4]=2; break;
+        case 74: result[0]=3; result[1]=0; result[2]=2; result[3]=1; result[4]=4; break;
+        case 75: result[0]=3; result[1]=0; result[2]=2; result[3]=4; result[4]=1; break;
+        case 76: result[0]=3; result[1]=0; result[2]=4; result[3]=1; result[4]=2; break;
+        case 77: result[0]=3; result[1]=0; result[2]=4; result[3]=2; result[4]=1; break;
+        case 78: result[0]=3; result[1]=1; result[2]=0; result[3]=2; result[4]=4; break;
+        case 79: result[0]=3; result[1]=1; result[2]=0; result[3]=4; result[4]=2; break;
+        case 80: result[0]=3; result[1]=1; result[2]=2; result[3]=0; result[4]=4; break;
+        case 81: result[0]=3; result[1]=1; result[2]=2; result[3]=4; result[4]=0; break;
+        case 82: result[0]=3; result[1]=1; result[2]=4; result[3]=0; result[4]=2; break;
+        case 83: result[0]=3; result[1]=1; result[2]=4; result[3]=2; result[4]=0; break;
+        case 84: result[0]=3; result[1]=2; result[2]=0; result[3]=1; result[4]=4; break;
+        case 85: result[0]=3; result[1]=2; result[2]=0; result[3]=4; result[4]=1; break;
+        case 86: result[0]=3; result[1]=2; result[2]=1; result[3]=0; result[4]=4; break;
+        case 87: result[0]=3; result[1]=2; result[2]=1; result[3]=4; result[4]=0; break;
+        case 88: result[0]=3; result[1]=2; result[2]=4; result[3]=0; result[4]=1; break;
+        case 89: result[0]=3; result[1]=2; result[2]=4; result[3]=1; result[4]=0; break;
+        case 90: result[0]=3; result[1]=4; result[2]=0; result[3]=1; result[4]=2; break;
+        case 91: result[0]=3; result[1]=4; result[2]=0; result[3]=2; result[4]=1; break;
+        case 92: result[0]=3; result[1]=4; result[2]=1; result[3]=0; result[4]=2; break;
+        case 93: result[0]=3; result[1]=4; result[2]=1; result[3]=2; result[4]=0; break;
+        case 94: result[0]=3; result[1]=4; result[2]=2; result[3]=0; result[4]=1; break;
+        case 95: result[0]=3; result[1]=4; result[2]=2; result[3]=1; result[4]=0; break;
+
+        case 96:  result[0]=4; result[1]=0; result[2]=1; result[3]=2; result[4]=3; break;
+        case 97:  result[0]=4; result[1]=0; result[2]=1; result[3]=3; result[4]=2; break;
+        case 98:  result[0]=4; result[1]=0; result[2]=2; result[3]=1; result[4]=3; break;
+        case 99:  result[0]=4; result[1]=0; result[2]=2; result[3]=3; result[4]=1; break;
+        case 100: result[0]=4; result[1]=0; result[2]=3; result[3]=1; result[4]=2; break;
+        case 101: result[0]=4; result[1]=0; result[2]=3; result[3]=2; result[4]=1; break;
+        case 102: result[0]=4; result[1]=1; result[2]=0; result[3]=2; result[4]=3; break;
+        case 103: result[0]=4; result[1]=1; result[2]=0; result[3]=3; result[4]=2; break;
+        case 104: result[0]=4; result[1]=1; result[2]=2; result[3]=0; result[4]=3; break;
+        case 105: result[0]=4; result[1]=1; result[2]=2; result[3]=3; result[4]=0; break;
+        case 106: result[0]=4; result[1]=1; result[2]=3; result[3]=0; result[4]=2; break;
+        case 107: result[0]=4; result[1]=1; result[2]=3; result[3]=2; result[4]=0; break;
+        case 108: result[0]=4; result[1]=2; result[2]=0; result[3]=1; result[4]=3; break;
+        case 109: result[0]=4; result[1]=2; result[2]=0; result[3]=3; result[4]=1; break;
+        case 110: result[0]=4; result[1]=2; result[2]=1; result[3]=0; result[4]=3; break;
+        case 111: result[0]=4; result[1]=2; result[2]=1; result[3]=3; result[4]=0; break;
+        case 112: result[0]=4; result[1]=2; result[2]=3; result[3]=0; result[4]=1; break;
+        case 113: result[0]=4; result[1]=2; result[2]=3; result[3]=1; result[4]=0; break;
+        case 114: result[0]=4; result[1]=3; result[2]=0; result[3]=1; result[4]=2; break;
+        case 115: result[0]=4; result[1]=3; result[2]=0; result[3]=2; result[4]=1; break;
+        case 116: result[0]=4; result[1]=3; result[2]=1; result[3]=0; result[4]=2; break;
+        case 117: result[0]=4; result[1]=3; result[2]=1; result[3]=2; result[4]=0; break;
+        case 118: result[0]=4; result[1]=3; result[2]=2; result[3]=0; result[4]=1; break;
+        case 119:
+        default:  result[0]=4; result[1]=3; result[2]=2; result[3]=1; result[4]=0; break;
+    }
+}
+
+
+// from unreal engine DitherTemporalAA
+float ditherTemporalAAThreshold(DitherInfo d)
+{
+    // 5 translucency steps, high frequency regular pattern
+    uint2 p = d.pixel + uint2(d.frameIndex);
+    uint stratifyIndex = (p.x + p.y * 2u) % 5;
+
+    
+    if(gDitherTAAPermutations)
+    {
+        // Custom workaround to prevent different objects from masking each other out:
+        int statifyNumbers[5]; // obtain one of the 120 permutations of [0, 1, 2, 3, 4]
+        GetPermutation5(uint(getObjectHash() * 120), statifyNumbers);
+        stratifyIndex = statifyNumbers[stratifyIndex];
+    }
+
+    // random noise to break up the 5 steps
+    float blue = getTopNoise(d); // generalized with more noise types beside static blue
+    //float t = (stratifyIndex + blue + rng) / 6.0; // original threshold, but biased
+    float t = (stratifyIndex + blue) / 5.0; // unbiased threshold
+    
+    t = clamp(t, 1e-6, 1.0);
+    return t;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+////////////////// DEPRECATED METHODS ///////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+// WARNING: NOT UP TO DATE (Missing good matrix permutations)
+float getPixelDitherThreshold4x4(DitherInfo d)
+{
+    uint randomOffset = uint(getObjectHash() * 7919);
+
+    uint2 p = d.pixel;
+    if (gRotatePattern)
+        p = applyRotation(p, d.frameIndex, 4, 4);
+    
+    // TODO replace lookup with precomputed matrices
+    p.x += randomOffset % 4u;
+    p.y += randomOffset / 4u;
+    p = p % 4u;
+
+    return (ditherMatrix[p.y][p.x] + getTopNoise(d)) / 16.0;
+}
+
+float getSTBNThreshold(DitherInfo d)
+{
+    uint randomOffset = uint(getObjectHash() * 128 * 128 * 64); // texture resolution 128x128x64
+    uint3 texCoord = uint3(d.pixel, d.frameIndex);
+    // add random offset
+    texCoord.x += randomOffset % 128u;
+    texCoord.y += (randomOffset / 128u) % 128u;
+    texCoord.z += randomOffset / 16384u;
+    // clamp to texture size
+    texCoord = texCoord % uint3(128, 128, 64);
+    float t = gSpatioTemporalBlueNoiseTex[texCoord];
+    return clamp(t, 1e-6, 1.0);
+}
+
+float getHashSTBNThreshold(DitherInfo d)
+{
+    #if ENABLE_HASH_GRIDS != 0
+    uint randomOffset = uint(getObjectHash() * 64); // only for temporal slice
+
+    const float g_HashScale = gGridScale;
+    float pixScale = 1.0 / (g_HashScale * d.maxDerivUV);
+    
+    // Find two nearest log-discretized noise scales
+    float2 pixScales = float2(
+        exp2(floor(log2(pixScale))),
+        exp2(ceil(log2(pixScale)))
+    );
+
+    uint4 coords = uint4(floor(pixScales.x * d.posUV), floor(pixScales.y * d.posUV));
+    //coords = uint4(((int4(coords) % 128) + 128) % 128);
+    coords = coords % 128u; // spatial part
+    
+    uint z = (d.frameIndex + randomOffset / (128u * 128u)) % 64u; // temporal part
+
+    // Compute alpha thresholds at our two noise scales
+    float2 alpha = float2(
+        gSpatioTemporalBlueNoiseTex[uint3(coords.xy, z)],
+        gSpatioTemporalBlueNoiseTex[uint3(coords.zw, z)]
+    );
+    alpha = 1.0 - alpha;
+
+    // Factor to interpolate lerp with
+    float lerpFactor = frac(log2(pixScale));
+    lerpFactor = 1.0;
+    //float lerpFactor = frac( pixScale );
+    
+    // Interpolate alpha threshold from noise at two scales
+    float x = (1.0 - lerpFactor) * alpha.x + lerpFactor * alpha.y;
+    
+    // Pass into CDF to compute uniformly distrib threshold
+    float a = min(lerpFactor, 1.0 - lerpFactor);
+    float3 cases = float3(
+        x * x / (2 * a * (1.0 - a)),
+        (x - 0.5 * a) / (1.0 - a),
+        1.0 - ((1.0 - x) * (1.0 - x) / (2.0 * a * (1.0 - a)))
+    );
+
+    float threshold = (x < (1 - a)) ? ((x < a) ? cases.x : cases.y) : cases.z;
+
+    threshold = clamp(threshold, 1e-6, 1.0);
+    return threshold;
+    #else
+    return 0.5;
+    #endif
+}
+
+float getBlueNoise3DThreshold(DitherInfo d)
+{
+    uint randomOffset = uint(getObjectHash() * 16 * 16 * 16);
+
+    uint3 texCoord = uint3(d.pixel, d.frameIndex);
+    // add random offset
+    texCoord.x += randomOffset % 16u;
+    texCoord.y += (randomOffset / 16u) % 16u;
+    texCoord.z += randomOffset / 256u;
+    // clamp to texture size
+    texCoord = texCoord % 16u;
+    float t = gBlueNoise3DTex[texCoord];
+    t = clamp(t, 1e-6, 1.0);
+    return t;
+}
+
+bool winBlueNoise3D(DitherInfo d)
+{
+    return d.alpha >= getBlueNoise3DThreshold(d);
+}
+
+bool winRotation(DitherInfo d)
+{
+    float rng = 0.0;
+    rng += ditherMatrix[d.pixel.x % 4u][d.pixel.y % 4u] / 16.0;
+    rng += hash(float2(InstanceID(), GeometryIndex()));
+
+    return frac(rng + d.frameIndex * d.alpha) < d.alpha;
+}
+
+float noise(float2 uv)
+{
+    return gNoiseTex.SampleLevel(gNoiseSampler, uv * gNoiseScale, 0.0).r;
+}
+
+bool winFractalDither(DitherInfo d, float2 dx, float2 dy, float4x4 cameraProjection)
+{
+    #if ENABLE_HASH_GRIDS != 0
+    float g_Scale = gGridScale;
+    float g_SizeVariability = 1.0;
+    bool g_InvertPattern = true; // false: holes are round, true: occluders are round
+
+    // adjusted dither code from: https://github.com/runevision/Dither3D/blob/main/Assets/Dither3D/Dither3DInclude.cginc
+    float xRes, yRes, zRes;
+    gDitherTex.GetDimensions(xRes, yRes, zRes);
+    float invXres = 1.0 / xRes; // yRes should be same
+    
+    // The relationship between X resolution, dots per side, and total number of
+    // dots - which is also the Z resolution - is hardcoded in the script that
+    // creates the 3D texture.
+    float dotsPerSide = xRes / 16.0;
+    float dotsTotal = zRes; // or pow(dotsPerSide, 2);
+    float invZres = 1.0 / zRes;
+
+    // Lookup opacity to make dither output have correct output
+    // opacity at different input opacity values.
+    float xRamp, yRamp;
+    gDitherRampTex.GetDimensions(xRamp, yRamp);
+    if (g_InvertPattern)
+        d.alpha = 1.0 - d.alpha;
+    float lookup = lerp(0.5, xRamp - 0.5, d.alpha) / xRamp; // adjust opacity lookup position
+    d.alpha = gDitherRampTex.SampleLevel(gDitherSampler, float2(lookup, 0.5), 0.0);
+
+#define RADIAL_COMPENSATION 0
+#if RADIAL_COMPENSATION != 0
+    // Convert pixel coordinate to normalized screen space [-1, 1] with (0, 0) at the center
+    float2 screenP = (float2(DispatchRaysIndex().xy) / float2(DispatchRaysDimensions().xy) - 0.5) * 2.0;
+    // Calculate view direction projected onto camera plane.
+    float2 viewDirProj = float2(
+        screenP.x / cameraProjection[0][0],
+        screenP.y / -cameraProjection[1][1]
+    );
+
+    // Calculate how much dots should be larger towards the edges of the screen.
+    // This is meant to keep dots completely stable under camera rotation.
+    // Currently it doesn't entirely work but is more stable than no compensation.
+    float radialCompensation = dot(viewDirProj, viewDirProj) + 1;
+
+    // Apply compensation to dx and dy
+    dx *= radialCompensation;
+    dy *= radialCompensation;
+#endif
+    
+    // Get frequency based on singular value decomposition.
+    // A simpler approach would have been to use fwidth(uv_DitherTex).
+    // However:
+    //  1) fwidth is not accurate and produces axis-aligned biases/artefacts.
+    //  2) We need both the minimum and maximum rate of change.
+    //     These can be along any directions (orthogonal to each other),
+    //     not necessarily aligned with x, y, u or v.
+    //     So we use (a subset of) singular value decomposition to get these.
+    float2x2 matr = { dx, dy };
+    float4 vectorized = float4(dx, dy);
+    float Q = dot(vectorized, vectorized);
+    float R = determinant(matr); //ad-bc
+    float discriminantSqr = max(0, Q * Q - 4 * R * R);
+    float discriminant = sqrt(discriminantSqr);
+
+    // "freq" here means rate of change of the UV coordinates on the screen.
+    // Something smaller on the screen has a larger rate of change of its
+    // UV coordinates from one pixel to the next.
+    //
+    // The freq variable: (max-freq, min-freq)
+    //
+    // If a surface has non-uniform scaling, or is seen at an angle,
+    // or has UVs that are stretched more in one direction than the other,
+    // the min and max frequency won't be the same.
+    float2 freq = sqrt(float2(Q + discriminant, Q - discriminant) / 2);
+
+    // We define a spacing variable which linearly correlates with
+    // the average distance between dots.
+    // For this dot spacing, we use the smaller frequency, which
+    // corresponds to the largest amount of stretching.
+    // This for example means that dots seen at an angle will be
+    // compressed in one direction rather than enlarged in the other.
+    float spacing = freq.y;
+
+    // Scale the spacing by the specified input (power of two) scale.
+    float scaleExp = exp2(g_Scale);
+    spacing *= scaleExp;
+
+    // We keep the spacing the same regardless of whether we're using
+    // a pattern with more or less dots in it.
+    spacing *= dotsPerSide * 0.125;
+
+    // We produce higher brightness by having the dots be larger
+    // compared to the pattern size (based on a contrast threshold
+    // further down), and lower brightness by having them be smaller.
+    //
+    // If we don't want variable dot sizes, we can keep the dot sizes
+    // approximately constant regardless of brightness by dividing
+    // the spacing by the brightness. This makes both the dots and
+    // the spacing between them larger, the lower the brightness is.
+    // In this case, the two adjustments of dot size cancel out each
+    // other, leaving only the effect on the spacing between the dots.
+    //
+    // Any behavior in between these two is also possible, controlled by
+    // the _SizeVariability input.
+    //
+    // A*pow(B,-1) is the same as A/B, so when _SizeVariability is 0,
+    // we divide the spacing by the brightness.
+    //
+    // A*pow(B,0) is the same as A, so when _SizeVariability is 1,
+    // we leave the spacing alone.
+    //
+    // The "* 2" is there so the mid-size dots keeps constant throughout
+    // the spectrum, rather than the largest-sized dots.
+    // The "+ 0.001" is there to avoid dividing by zero.
+    float brightnessSpacingMultiplier =
+        pow(d.alpha * 2 + 0.001, -(1 - g_SizeVariability));
+    spacing *= brightnessSpacingMultiplier;
+
+    // Find the power-of-two level that corresponds to the dot spacing.
+    float spacingLog = log2(spacing);
+    int patternScaleLevel = floor(spacingLog); // Fractal level.
+    float f = spacingLog - patternScaleLevel; // Fractional part.
+
+    // Get the UV coordinates in the current fractal level.
+    float2 uv = d.posUV / exp2(patternScaleLevel);
+
+    // Get the third coordinate for the 3D texture lookup.
+    // Each layer along the 3rd dimension in the 3D texture has one more dot.
+    // The first layer we use is the one that has 1/4 of the dots.
+    // The last layer we use is the one with all the dots.
+    float subLayer = lerp(0.25 * dotsTotal, dotsTotal, 1 - f);
+
+    // Texels are half a texel offset from the texture border, so we
+    // need to subtract half a texel. We also normalize to the 0-1 range.
+    subLayer = (subLayer - 0.5) * invZres;
+
+    // Sample the 3D texture.
+    //float pattern = 1.0 - gDitherTex.SampleLevel(gDitherSampler, float3(uv, 1.0-subLayer), 0.0).r;
+    float pattern = gDitherTex.SampleLevel(gDitherSampler, float3(uv, 1.0 - subLayer), 0.0).r;
+
+    if (g_InvertPattern)
+        return pattern > d.alpha;
+    else
+        return pattern < d.alpha;
+    #else
+    return true;
+    #endif
+}
+
+// from Hashed Alpha Testing
+/*float evalHashGrid3D(DitherInfo d, float g_HashScale)
+{
+    float pixScale = 1.0 / (g_HashScale * d.maxDerivO);
+
+    // Find two nearest log-discretized noise scales
+    float2 pixScales = float2(
+        exp2(floor(log2(pixScale))),
+        exp2(ceil(log2(pixScale)))
+    );
+
+    // Compute alpha thresholds at our two noise scales
+    float2 alpha = float2(
+        hash3D(floor(pixScales.x * d.posO)),
+        hash3D(floor(pixScales.y * d.posO))
+    );
+
+    // Factor to interpolate lerp with
+    float lerpFactor = frac(log2(pixScale));
+    
+    // Interpolate alpha threshold from noise at two scales
+    float x = (1.0 - lerpFactor) * alpha.x + lerpFactor * alpha.y;
+    
+    // Pass into CDF to compute uniformly distrib threshold
+    float a = min(lerpFactor, 1.0 - lerpFactor);
+    float3 cases = float3(
+        x * x / (2 * a * (1.0 - a)),
+        (x - 0.5 * a) / (1.0 - a),
+        1.0 - ((1.0 - x) * (1.0 - x) / (2.0 * a * (1.0 - a)))
+    );
+
+    float threshold = (x < (1 - a)) ? ((x < a) ? cases.x : cases.y) : cases.z;
+    threshold = clamp(threshold, 1e-6, 1.0);
+    return threshold;
+}*/
+
+float evalHashGrid2D(DitherInfo d, float g_HashScale, bool rotate = false)
+{
+    #if ENABLE_HASH_GRIDS != 0
+    float pixScale = 1.0 / (g_HashScale * d.maxDerivUV);
+    
+    // Find two nearest log-discretized noise scales
+    float2 pixScales = float2(
+        exp2(floor(log2(pixScale))),
+        exp2(ceil(log2(pixScale)))
+    );
+
+    float4 coords = float4(floor(pixScales.x * d.posUV), floor(pixScales.y * d.posUV));
+    if (rotate)
+    {
+        uint width = 3; // width for rotation
+        uint xoff = d.frameIndex % width;
+        uint yoff = (d.frameIndex / width);
+        if (yoff % 2u)
+            xoff = width - xoff - 1; // serpentine raster
+        yoff = yoff % width;
+        coords.xz += xoff;
+        coords.yw += yoff;
+    }
+
+    // Compute alpha thresholds at our two noise scales
+    float2 alpha = float2(
+        noise(coords.xy),
+        noise(coords.zw)
+    );
+    alpha = 1.0 - alpha;
+
+    // Factor to interpolate lerp with
+    float lerpFactor = frac(log2(pixScale));
+    //lerpFactor = 1.0;
+    //float lerpFactor = frac( pixScale );
+    
+    // Interpolate alpha threshold from noise at two scales
+    float x = (1.0 - lerpFactor) * alpha.x + lerpFactor * alpha.y;
+    
+    // Pass into CDF to compute uniformly distrib threshold
+    float a = min(lerpFactor, 1.0 - lerpFactor);
+    float3 cases = float3(
+        x * x / (2 * a * (1.0 - a)),
+        (x - 0.5 * a) / (1.0 - a),
+        1.0 - ((1.0 - x) * (1.0 - x) / (2.0 * a * (1.0 - a)))
+    );
+
+    float threshold = (x < (1 - a)) ? ((x < a) ? cases.x : cases.y) : cases.z;
+
+    threshold = clamp(threshold, 1e-6, 1.0);
+    return threshold;
+    #else
+    return 0.5;
+    #endif
+}
