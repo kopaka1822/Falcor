@@ -295,12 +295,15 @@ void rayGen()
         let lod = ExplicitLodTextureSampler(0.0);
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.dir, lod);
 
+        float eta = 1.0 / sd.IoR; // always assume we come from air
+        
         // check if viewing from wrong side (since adjust shading normal does not always work as expected)
         if (!sd.frontFacing)
         {
             sd.frontFacing = true;
             sd.faceN = -sd.faceN;
             sd.frame.N = -sd.frame.N;
+            eta = sd.IoR; // invert IOR
         }
 
         // Create material instance at shading point.
@@ -312,8 +315,10 @@ void rayGen()
         float diffRefract = dot(bsdf.diffuseTransmissionAlbedo, 0.33);
         float specReflect = dot(bsdf.specularReflectionAlbedo, 0.33);
         float specRefract = dot(bsdf.specularTransmissionAlbedo, 0.33);
-        float absorb = saturate(1.0 - specReflect);
-
+        float refract = saturate(diffRefract + specRefract);
+        float absorb = saturate(1.0 - specReflect - refract);
+        
+        
         DitherInfo d = { };
         d.pixel = pixel;
         d.frameIndex = gFrameCount + 1; // hack to make it independent from transparency
@@ -322,14 +327,31 @@ void rayGen()
         float rng = getRouletteThreshold(d);
 
         // absorb case
-        if(rng < absorb)
+        if(rng < absorb || i == gPathLength)
         {
             gColor[pixel] = float4(shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
             gVBuffer[pixel] = data.hit; // this hit was accepted
             return;
         }
         rng -= absorb;
-        // specular reflection case
+
+        ray.tMin = 1e-6;
+        if (rng < refract)
+        {
+            //float3 rdir = refract(ray.dir, bsdf.guideNormal, eta);
+            //float3 rdir = refract(ray.dir, sd.faceN, eta);
+            //if (dot(rdir, rdir) > 0.01)
+            {
+                ray.origin = sd.computeNewRayOrigin(false);
+                //ray.dir = rdir;
+                //gColor[pixel] = float4(0, 0, 1, 1);
+                //return;
+                //gColor[pixel] = float4(specReflect, specRefract, diffReflect, diffRefract);
+                //return;
+                continue;
+            } // else fallthrough to specular reflection (TIR Total Internal Refelction)
+        }
+        // specular reflection
         ray.origin = sd.computeNewRayOrigin(true);
         ray.dir = reflect(ray.dir, bsdf.guideNormal);
     }
