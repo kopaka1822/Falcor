@@ -3,36 +3,14 @@
 #define DITHER_MODE_PER_PIXEL_3X3 1
 #define DITHER_MODE_PER_PIXEL_4X4 2
 #define DITHER_MODE_RUSSIAN_ROULETTE 4
-#define DITHER_MODE_PERIODIC 5
-#define DITHER_MODE_HASH_GRID 6
-#define DITHER_MODE_FRACTAL_DITHERING 7
-#define DITHER_MODE_BLUE_NOISE3D 8
 #define DITHER_MODE_DITHER_TEMPORAL_AA 10
 #define DITHER_MODE_STBN 11
-#define DITHER_MODE_SURFACE_STBN 12
-
-#define TEMPORAL_DITHER_DISABLED 0
-#define TEMPORAL_DITHER_UNIFORM 1
-#define TEMPORAL_DITHER_VANDERCORPUT 2
-#define TEMPORAL_DITHER_CYCLICALPHA 3
-
-#define NOISE_TOP_DISABLED 0
-#define NOISE_TOP_STATIC_WHITE 1
-#define NOISE_TOP_DYNAMIC_WHITE 2
-#define NOISE_TOP_STATIC_BLUE 3
-#define NOISE_TOP_DYNAMIC_BLUE 4
-#define NOISE_TOP_STATIC_BAYER 5
-#define NOISE_TOP_DYNAMIC_BAYER 6
-#define NOISE_TOP_SURFACE_WHITE 7
 
 #define OBJECT_HASH_QUADS 0
 #define OBJECT_HASH_GEOMETRY 0
 
 #ifndef DITHER_MODE
 #define DITHER_MODE DITHER_MODE_DISABLED
-#endif
-#ifndef TEMPORAL_DITHER_MODE
-#define TEMPORAL_DITHER_MODE TEMPORAL_DITHER_DISABLED
 #endif
 
 #define COVERAGE_CORRECTION_DISABLED 0
@@ -44,30 +22,14 @@
 #define COVERAGE_CORRECTION COVERAGE_CORRECTION_DISABLED
 #endif
 
-#ifndef ENABLE_HASH_GRIDS
-#define ENABLE_HASH_GRIDS 0
-#endif
-
-Texture3D<float> gDitherTex;
-Texture2D<float> gDitherRampTex; // converts opacity to threshold for the dither tex
-SamplerState gDitherSampler;
-Texture2D<float> gNoiseTex;
-SamplerState gNoiseSampler;
-
-Texture2DArray<float> gBlueNoise3DTex;
 Texture2D<float> gBlueNoise64x64Tex;
-Texture2D<float> gBayerNoise64Tex;
 Texture2DArray<float> gSpatioTemporalBlueNoiseTex;
-
 StructuredBuffer<uint> gPermutations3x3; // permutations packed into 4 bytes
 
 cbuffer DitherConstants
 {
-    float2 gNoiseScale; // inverse resolution for noise texture
-    float gGridScale;
     int gRotatePattern;
     uint gObjectHashType;
-    uint gNoiseTop;
     uint gDitherTAAPermutations; // enables permutations for dither taa
 };
 
@@ -78,10 +40,6 @@ struct DitherInfo
     uint frameIndex; // usually for per frame rng
     float3 posW; // world position (for white noise)
     float alpha; // object alpha
-#if ENABLE_HASH_GRIDS != 0
-    float2 posUV; // uv coordinate
-    float maxDerivUV; // max derivative in uv
-#endif
 };
 
 static const int4x4 ditherMatrix = int4x4(
@@ -187,33 +145,7 @@ float hash4D(float4 v)
 
 float getTopNoise(DitherInfo d)
 {
-    switch(gNoiseTop)
-    {
-        case NOISE_TOP_STATIC_WHITE:
-            return hash3D(d.posW);
-        case NOISE_TOP_DYNAMIC_WHITE:
-            return hash4D(float4(d.posW, d.frameIndex));
-        case NOISE_TOP_STATIC_BLUE:
-            return gBlueNoise64x64Tex[d.pixel % 64u];
-        case NOISE_TOP_DYNAMIC_BLUE:
-            return gBlueNoise3DTex[uint3(d.pixel, d.frameIndex) % 16u];
-        case NOISE_TOP_STATIC_BAYER:
-            return gBayerNoise64Tex[d.pixel % 64u];
-        case NOISE_TOP_SURFACE_WHITE:
-            return evalHashGrid2D(d, gGridScale);
-            //return evalHashGrid3D(d, gGridScale);
-        case NOISE_TOP_DISABLED:
-        default:
-            return 0.5;
-    }
-}
-
-
-
-bool winHashGrid2D(DitherInfo d)
-{
-    float threshold = evalHashGrid2D(d, gGridScale, gRotatePattern);
-    return d.alpha >= threshold;
+    return gBlueNoise64x64Tex[d.pixel % 64u];
 }
 
 bool winRoulette(DitherInfo d)
@@ -426,6 +358,21 @@ float ditherTemporalAAThreshold(DitherInfo d)
     return t;
 }
 
+float getSTBNThreshold(DitherInfo d)
+{
+    uint randomOffset = uint(getObjectHash() * 128 * 128 * 64); // texture resolution 128x128x64
+    uint3 texCoord = uint3(d.pixel, d.frameIndex);
+    // add random offset
+    texCoord.x += randomOffset % 128u;
+    texCoord.y += (randomOffset / 128u) % 128u;
+    texCoord.z += randomOffset / 16384u;
+    // clamp to texture size
+    texCoord = texCoord % uint3(128, 128, 64);
+    float t = gSpatioTemporalBlueNoiseTex[texCoord];
+    return clamp(t, 1e-6, 1.0);
+}
+
+
 /////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////// DEPRECATED METHODS ///////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -447,343 +394,3 @@ float getPixelDitherThreshold4x4(DitherInfo d)
     return (ditherMatrix[p.y][p.x] + getTopNoise(d)) / 16.0;
 }
 
-float getSTBNThreshold(DitherInfo d)
-{
-    uint randomOffset = uint(getObjectHash() * 128 * 128 * 64); // texture resolution 128x128x64
-    uint3 texCoord = uint3(d.pixel, d.frameIndex);
-    // add random offset
-    texCoord.x += randomOffset % 128u;
-    texCoord.y += (randomOffset / 128u) % 128u;
-    texCoord.z += randomOffset / 16384u;
-    // clamp to texture size
-    texCoord = texCoord % uint3(128, 128, 64);
-    float t = gSpatioTemporalBlueNoiseTex[texCoord];
-    return clamp(t, 1e-6, 1.0);
-}
-
-float getHashSTBNThreshold(DitherInfo d)
-{
-    #if ENABLE_HASH_GRIDS != 0
-    uint randomOffset = uint(getObjectHash() * 64); // only for temporal slice
-
-    const float g_HashScale = gGridScale;
-    float pixScale = 1.0 / (g_HashScale * d.maxDerivUV);
-    
-    // Find two nearest log-discretized noise scales
-    float2 pixScales = float2(
-        exp2(floor(log2(pixScale))),
-        exp2(ceil(log2(pixScale)))
-    );
-
-    uint4 coords = uint4(floor(pixScales.x * d.posUV), floor(pixScales.y * d.posUV));
-    //coords = uint4(((int4(coords) % 128) + 128) % 128);
-    coords = coords % 128u; // spatial part
-    
-    uint z = (d.frameIndex + randomOffset / (128u * 128u)) % 64u; // temporal part
-
-    // Compute alpha thresholds at our two noise scales
-    float2 alpha = float2(
-        gSpatioTemporalBlueNoiseTex[uint3(coords.xy, z)],
-        gSpatioTemporalBlueNoiseTex[uint3(coords.zw, z)]
-    );
-    alpha = 1.0 - alpha;
-
-    // Factor to interpolate lerp with
-    float lerpFactor = frac(log2(pixScale));
-    lerpFactor = 1.0;
-    //float lerpFactor = frac( pixScale );
-    
-    // Interpolate alpha threshold from noise at two scales
-    float x = (1.0 - lerpFactor) * alpha.x + lerpFactor * alpha.y;
-    
-    // Pass into CDF to compute uniformly distrib threshold
-    float a = min(lerpFactor, 1.0 - lerpFactor);
-    float3 cases = float3(
-        x * x / (2 * a * (1.0 - a)),
-        (x - 0.5 * a) / (1.0 - a),
-        1.0 - ((1.0 - x) * (1.0 - x) / (2.0 * a * (1.0 - a)))
-    );
-
-    float threshold = (x < (1 - a)) ? ((x < a) ? cases.x : cases.y) : cases.z;
-
-    threshold = clamp(threshold, 1e-6, 1.0);
-    return threshold;
-    #else
-    return 0.5;
-    #endif
-}
-
-float getBlueNoise3DThreshold(DitherInfo d)
-{
-    uint randomOffset = uint(getObjectHash() * 16 * 16 * 16);
-
-    uint3 texCoord = uint3(d.pixel, d.frameIndex);
-    // add random offset
-    texCoord.x += randomOffset % 16u;
-    texCoord.y += (randomOffset / 16u) % 16u;
-    texCoord.z += randomOffset / 256u;
-    // clamp to texture size
-    texCoord = texCoord % 16u;
-    float t = gBlueNoise3DTex[texCoord];
-    t = clamp(t, 1e-6, 1.0);
-    return t;
-}
-
-bool winBlueNoise3D(DitherInfo d)
-{
-    return d.alpha >= getBlueNoise3DThreshold(d);
-}
-
-bool winRotation(DitherInfo d)
-{
-    float rng = 0.0;
-    rng += ditherMatrix[d.pixel.x % 4u][d.pixel.y % 4u] / 16.0;
-    rng += hash(float2(InstanceID(), GeometryIndex()));
-
-    return frac(rng + d.frameIndex * d.alpha) < d.alpha;
-}
-
-float noise(float2 uv)
-{
-    return gNoiseTex.SampleLevel(gNoiseSampler, uv * gNoiseScale, 0.0).r;
-}
-
-bool winFractalDither(DitherInfo d, float2 dx, float2 dy, float4x4 cameraProjection)
-{
-    #if ENABLE_HASH_GRIDS != 0
-    float g_Scale = gGridScale;
-    float g_SizeVariability = 1.0;
-    bool g_InvertPattern = true; // false: holes are round, true: occluders are round
-
-    // adjusted dither code from: https://github.com/runevision/Dither3D/blob/main/Assets/Dither3D/Dither3DInclude.cginc
-    float xRes, yRes, zRes;
-    gDitherTex.GetDimensions(xRes, yRes, zRes);
-    float invXres = 1.0 / xRes; // yRes should be same
-    
-    // The relationship between X resolution, dots per side, and total number of
-    // dots - which is also the Z resolution - is hardcoded in the script that
-    // creates the 3D texture.
-    float dotsPerSide = xRes / 16.0;
-    float dotsTotal = zRes; // or pow(dotsPerSide, 2);
-    float invZres = 1.0 / zRes;
-
-    // Lookup opacity to make dither output have correct output
-    // opacity at different input opacity values.
-    float xRamp, yRamp;
-    gDitherRampTex.GetDimensions(xRamp, yRamp);
-    if (g_InvertPattern)
-        d.alpha = 1.0 - d.alpha;
-    float lookup = lerp(0.5, xRamp - 0.5, d.alpha) / xRamp; // adjust opacity lookup position
-    d.alpha = gDitherRampTex.SampleLevel(gDitherSampler, float2(lookup, 0.5), 0.0);
-
-#define RADIAL_COMPENSATION 0
-#if RADIAL_COMPENSATION != 0
-    // Convert pixel coordinate to normalized screen space [-1, 1] with (0, 0) at the center
-    float2 screenP = (float2(DispatchRaysIndex().xy) / float2(DispatchRaysDimensions().xy) - 0.5) * 2.0;
-    // Calculate view direction projected onto camera plane.
-    float2 viewDirProj = float2(
-        screenP.x / cameraProjection[0][0],
-        screenP.y / -cameraProjection[1][1]
-    );
-
-    // Calculate how much dots should be larger towards the edges of the screen.
-    // This is meant to keep dots completely stable under camera rotation.
-    // Currently it doesn't entirely work but is more stable than no compensation.
-    float radialCompensation = dot(viewDirProj, viewDirProj) + 1;
-
-    // Apply compensation to dx and dy
-    dx *= radialCompensation;
-    dy *= radialCompensation;
-#endif
-    
-    // Get frequency based on singular value decomposition.
-    // A simpler approach would have been to use fwidth(uv_DitherTex).
-    // However:
-    //  1) fwidth is not accurate and produces axis-aligned biases/artefacts.
-    //  2) We need both the minimum and maximum rate of change.
-    //     These can be along any directions (orthogonal to each other),
-    //     not necessarily aligned with x, y, u or v.
-    //     So we use (a subset of) singular value decomposition to get these.
-    float2x2 matr = { dx, dy };
-    float4 vectorized = float4(dx, dy);
-    float Q = dot(vectorized, vectorized);
-    float R = determinant(matr); //ad-bc
-    float discriminantSqr = max(0, Q * Q - 4 * R * R);
-    float discriminant = sqrt(discriminantSqr);
-
-    // "freq" here means rate of change of the UV coordinates on the screen.
-    // Something smaller on the screen has a larger rate of change of its
-    // UV coordinates from one pixel to the next.
-    //
-    // The freq variable: (max-freq, min-freq)
-    //
-    // If a surface has non-uniform scaling, or is seen at an angle,
-    // or has UVs that are stretched more in one direction than the other,
-    // the min and max frequency won't be the same.
-    float2 freq = sqrt(float2(Q + discriminant, Q - discriminant) / 2);
-
-    // We define a spacing variable which linearly correlates with
-    // the average distance between dots.
-    // For this dot spacing, we use the smaller frequency, which
-    // corresponds to the largest amount of stretching.
-    // This for example means that dots seen at an angle will be
-    // compressed in one direction rather than enlarged in the other.
-    float spacing = freq.y;
-
-    // Scale the spacing by the specified input (power of two) scale.
-    float scaleExp = exp2(g_Scale);
-    spacing *= scaleExp;
-
-    // We keep the spacing the same regardless of whether we're using
-    // a pattern with more or less dots in it.
-    spacing *= dotsPerSide * 0.125;
-
-    // We produce higher brightness by having the dots be larger
-    // compared to the pattern size (based on a contrast threshold
-    // further down), and lower brightness by having them be smaller.
-    //
-    // If we don't want variable dot sizes, we can keep the dot sizes
-    // approximately constant regardless of brightness by dividing
-    // the spacing by the brightness. This makes both the dots and
-    // the spacing between them larger, the lower the brightness is.
-    // In this case, the two adjustments of dot size cancel out each
-    // other, leaving only the effect on the spacing between the dots.
-    //
-    // Any behavior in between these two is also possible, controlled by
-    // the _SizeVariability input.
-    //
-    // A*pow(B,-1) is the same as A/B, so when _SizeVariability is 0,
-    // we divide the spacing by the brightness.
-    //
-    // A*pow(B,0) is the same as A, so when _SizeVariability is 1,
-    // we leave the spacing alone.
-    //
-    // The "* 2" is there so the mid-size dots keeps constant throughout
-    // the spectrum, rather than the largest-sized dots.
-    // The "+ 0.001" is there to avoid dividing by zero.
-    float brightnessSpacingMultiplier =
-        pow(d.alpha * 2 + 0.001, -(1 - g_SizeVariability));
-    spacing *= brightnessSpacingMultiplier;
-
-    // Find the power-of-two level that corresponds to the dot spacing.
-    float spacingLog = log2(spacing);
-    int patternScaleLevel = floor(spacingLog); // Fractal level.
-    float f = spacingLog - patternScaleLevel; // Fractional part.
-
-    // Get the UV coordinates in the current fractal level.
-    float2 uv = d.posUV / exp2(patternScaleLevel);
-
-    // Get the third coordinate for the 3D texture lookup.
-    // Each layer along the 3rd dimension in the 3D texture has one more dot.
-    // The first layer we use is the one that has 1/4 of the dots.
-    // The last layer we use is the one with all the dots.
-    float subLayer = lerp(0.25 * dotsTotal, dotsTotal, 1 - f);
-
-    // Texels are half a texel offset from the texture border, so we
-    // need to subtract half a texel. We also normalize to the 0-1 range.
-    subLayer = (subLayer - 0.5) * invZres;
-
-    // Sample the 3D texture.
-    //float pattern = 1.0 - gDitherTex.SampleLevel(gDitherSampler, float3(uv, 1.0-subLayer), 0.0).r;
-    float pattern = gDitherTex.SampleLevel(gDitherSampler, float3(uv, 1.0 - subLayer), 0.0).r;
-
-    if (g_InvertPattern)
-        return pattern > d.alpha;
-    else
-        return pattern < d.alpha;
-    #else
-    return true;
-    #endif
-}
-
-// from Hashed Alpha Testing
-/*float evalHashGrid3D(DitherInfo d, float g_HashScale)
-{
-    float pixScale = 1.0 / (g_HashScale * d.maxDerivO);
-
-    // Find two nearest log-discretized noise scales
-    float2 pixScales = float2(
-        exp2(floor(log2(pixScale))),
-        exp2(ceil(log2(pixScale)))
-    );
-
-    // Compute alpha thresholds at our two noise scales
-    float2 alpha = float2(
-        hash3D(floor(pixScales.x * d.posO)),
-        hash3D(floor(pixScales.y * d.posO))
-    );
-
-    // Factor to interpolate lerp with
-    float lerpFactor = frac(log2(pixScale));
-    
-    // Interpolate alpha threshold from noise at two scales
-    float x = (1.0 - lerpFactor) * alpha.x + lerpFactor * alpha.y;
-    
-    // Pass into CDF to compute uniformly distrib threshold
-    float a = min(lerpFactor, 1.0 - lerpFactor);
-    float3 cases = float3(
-        x * x / (2 * a * (1.0 - a)),
-        (x - 0.5 * a) / (1.0 - a),
-        1.0 - ((1.0 - x) * (1.0 - x) / (2.0 * a * (1.0 - a)))
-    );
-
-    float threshold = (x < (1 - a)) ? ((x < a) ? cases.x : cases.y) : cases.z;
-    threshold = clamp(threshold, 1e-6, 1.0);
-    return threshold;
-}*/
-
-float evalHashGrid2D(DitherInfo d, float g_HashScale, bool rotate = false)
-{
-    #if ENABLE_HASH_GRIDS != 0
-    float pixScale = 1.0 / (g_HashScale * d.maxDerivUV);
-    
-    // Find two nearest log-discretized noise scales
-    float2 pixScales = float2(
-        exp2(floor(log2(pixScale))),
-        exp2(ceil(log2(pixScale)))
-    );
-
-    float4 coords = float4(floor(pixScales.x * d.posUV), floor(pixScales.y * d.posUV));
-    if (rotate)
-    {
-        uint width = 3; // width for rotation
-        uint xoff = d.frameIndex % width;
-        uint yoff = (d.frameIndex / width);
-        if (yoff % 2u)
-            xoff = width - xoff - 1; // serpentine raster
-        yoff = yoff % width;
-        coords.xz += xoff;
-        coords.yw += yoff;
-    }
-
-    // Compute alpha thresholds at our two noise scales
-    float2 alpha = float2(
-        noise(coords.xy),
-        noise(coords.zw)
-    );
-    alpha = 1.0 - alpha;
-
-    // Factor to interpolate lerp with
-    float lerpFactor = frac(log2(pixScale));
-    //lerpFactor = 1.0;
-    //float lerpFactor = frac( pixScale );
-    
-    // Interpolate alpha threshold from noise at two scales
-    float x = (1.0 - lerpFactor) * alpha.x + lerpFactor * alpha.y;
-    
-    // Pass into CDF to compute uniformly distrib threshold
-    float a = min(lerpFactor, 1.0 - lerpFactor);
-    float3 cases = float3(
-        x * x / (2 * a * (1.0 - a)),
-        (x - 0.5 * a) / (1.0 - a),
-        1.0 - ((1.0 - x) * (1.0 - x) / (2.0 * a * (1.0 - a)))
-    );
-
-    float threshold = (x < (1 - a)) ? ((x < a) ? cases.x : cases.y) : cases.z;
-
-    threshold = clamp(threshold, 1e-6, 1.0);
-    return threshold;
-    #else
-    return 0.5;
-    #endif
-}

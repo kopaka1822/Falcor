@@ -132,7 +132,6 @@ private:
     void setupProgram();
     // returns true if at least one material was whitelisted (or scene was invalid)
     bool updateWhitelistBuffer();
-    void createNoisePattern();
 
     ref<Scene> mpScene;
 
@@ -141,13 +140,14 @@ private:
     ref<SampleGenerator> mpSampleGenerator;
     ref<Buffer> mpTransparencyWhitelist;
     ref<Buffer> mpPermutations3x3Buffer;
+    ref<Texture> mpSpatioTemporalBlueNoiseTex;
+    ref<Texture> mpBlueNoise64Tex;
 
     uint mFrameCount = 0;
 
     ref<CPUSampleGenerator> mpSamplePattern;
 
     DitherMode mDitherMode = DitherMode::RussianRoulette;
-    bool mUseAlphaTextureLOD = false; // use lod for alpha lookups
     bool mUseTransparencyWhitelist = false;
     whitelist_t mTransparencyWhitelist;
     CoverageCorrection mCoverageCorrection = CoverageCorrection::DLSS;
@@ -161,3 +161,8 @@ private:
 
     RenderScale mRenderScale = RenderScale::Full;
 };
+
+FALCOR_ENUM_REGISTER(DitherVBuffer2::DitherMode);
+FALCOR_ENUM_REGISTER(DitherVBuffer2::CoverageCorrection);
+FALCOR_ENUM_REGISTER(DitherVBuffer2::ObjectHashType);
+FALCOR_ENUM_REGISTER(DitherVBuffer2::RenderScale);

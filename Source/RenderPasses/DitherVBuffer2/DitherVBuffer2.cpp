@@ -26,6 +26,23 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "DitherVBuffer2.h"
+#include "../DitherVBuffer/PermutationLookup.h"
+#include "Scene/Lighting/LightSettings.h"
+#include "Scene/Lighting/ShadowSettings.h"
+
+namespace
+{
+    const std::string kVbuffer = "vbuffer";
+    const std::string kMotion = "mvec";
+    const std::string kColorOut = "color";
+
+    const uint32_t kMaxPayloadSizeBytes = 6 * sizeof(float);
+    const std::string kProgramRaytraceFile = "RenderPasses/DitherVBuffer2/DitherVBuffer2.rt.slang";
+
+    const std::string kUseWhitelist = "useWhitelist";
+    const std::string kWhitelist = "whitelist";
+    const std::string kWhitelistBuffer = "whitelistBuffer"; // GPU Buffer for whitelist
+}
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
@@ -35,46 +52,202 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 DitherVBuffer2::DitherVBuffer2(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
 {
+    mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
+    mpSamplePattern = HaltonSamplePattern::create(16);
+
+    //generatePermutations<3>();
+    mpPermutations3x3Buffer = generatePermutations3x3(mpDevice);
+    mpBlueNoise64Tex = Texture::createFromFile(mpDevice, "dither/bluenoise64.dds", false, false);
+    mpSpatioTemporalBlueNoiseTex = Texture::createFromFile(mpDevice, "dither/spatiotemporal_bluenoise.dds", false, false);
+
+    // load properties
+    for (const auto& [key, value] : props)
+    {
+        if (key == kUseWhitelist) mUseTransparencyWhitelist = value;
+        else if (key == kWhitelist)
+        {
+            std::stringstream ss;
+            std::string svalue = value;
+            ss << svalue;
+            std::string entry;
+            while (std::getline(ss, entry, ','))
+            {
+                mTransparencyWhitelist.insert(entry);
+            }
+        }
+    }
 }
 
 Properties DitherVBuffer2::getProperties() const
 {
-    return {};
+    Properties props;
+    props[kUseWhitelist] = mUseTransparencyWhitelist;
+    // convert whitelist into a comma separated string
+    std::stringstream ss;
+    for (const auto& entry : mTransparencyWhitelist) ss << entry << ",";
+    props[kWhitelist] = ss.str();
+    return props;
 }
 
 RenderPassReflection DitherVBuffer2::reflect(const CompileData& compileData)
 {
+    uint2 dims = getRenderSize(compileData.defaultTexDims, mRenderScale);
+
     // Define the required resources here
     RenderPassReflection reflector;
-    //reflector.addOutput("dst");
-    //reflector.addInput("src");
+    reflector.addOutput(kVbuffer, "V-buffer").format(HitInfo::kDefaultFormat).texture2D(dims.x, dims.y);
+    reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).flags(RenderPassReflection::Field::Flags::Optional).texture2D(dims.x, dims.y);
+    reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     return reflector;
 }
 
 void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // renderData holds the requested resources
-    // auto& pTexture = renderData.getTexture("src");
+    auto pVbuffer = renderData.getTexture(kVbuffer);
+    auto pMotion = renderData.getTexture(kMotion);
+    auto pColor = renderData.getTexture(kColorOut);
+
+    if (!mpScene)
+    {
+        pRenderContext->clearTexture(pColor.get(), float4(0, 0, 0, 0));
+        return;
+    }
+
+    assert(mpProgram);
+    assert(mpVars);
+
+    uint2 frameDim = uint2(pVbuffer->getWidth(), pVbuffer->getHeight());
+    mpScene->getCamera()->setPatternGenerator(mpSamplePattern, 1.0f / float2(frameDim));
+
+    auto var = mpVars->getRootVar();
+    var["gVBuffer"] = pVbuffer;
+    var["gMotion"] = pMotion;
+    var["gColor"] = pColor;
+    assert(mpTransparencyWhitelist);
+    var["gTransparencyWhitelist"] = mpTransparencyWhitelist;
+    var["gPermutations3x3"] = mpPermutations3x3Buffer;
+    var["gBlueNoise64x64Tex"] = mpBlueNoise64Tex;
+    var["gSpatioTemporalBlueNoiseTex"] =mpSpatioTemporalBlueNoiseTex;
+
+    var["PerFrame"]["gFrameCount"] = mFrameCount;
+    var["PerFrame"]["gDLSSCorrectionStrength"] = mDLSSCorrectionStrength;
+    var["PerFrame"]["gAlignMotionVectors"] = 0;
+
+    var["DitherConstants"]["gRotatePattern"] = 1;
+    var["DitherConstants"]["gObjectHashType"] = uint(mObjectHashType);
+    var["DitherConstants"]["gDitherTAAPermutations"] = 1;
+    
+    LightSettings::get().updateShaderVar(var);
+    ShadowSettings::get().updateShaderVar(mpDevice, var, mFrameCount);
+
+    mpProgram->addDefine("COVERAGE_CORRECTION", std::to_string(uint32_t(mCoverageCorrection)));
+    mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
+    mpProgram->addDefine("DITHER_MODE", std::to_string(uint32_t(mDitherMode)));
+    mpProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
+    mpProgram->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
+
+    uint3 dispatch = uint3(1);
+    dispatch.x = pVbuffer->getWidth();
+    dispatch.y = pVbuffer->getHeight();
+    mpScene->raytrace(pRenderContext, mpProgram.get(), mpVars, dispatch);
+
+    // add whitelist to dict
+    if (mUseTransparencyWhitelist)
+    {
+        renderData.getDictionary()[kWhitelist] = mTransparencyWhitelist;
+        renderData.getDictionary()[kWhitelistBuffer] = mpTransparencyWhitelist;
+    }
+    mFrameCount++;
 }
 
 void DitherVBuffer2::renderUI(Gui::Widgets& widget)
 {
+    if (widget.dropdown("Render Scale", mRenderScale))
+        requestRecompile();
+
+    widget.dropdown("Dither", mDitherMode);
+
+    widget.dropdown("Correction", mCoverageCorrection);
+    if (mCoverageCorrection != CoverageCorrection::Disabled)
+    {
+        widget.slider("Correction Strength", mDLSSCorrectionStrength, 0.0f, 4.0f);
+    }
+
+
+    if (auto g = widget.group("Scene"))
+    {
+        widget.dropdown("Object Hash", mObjectHashType);
+
+        widget.checkbox("Cull Back Faces", mCullBackFaces);
+
+        widget.checkbox("Transparency Whitelist", mUseTransparencyWhitelist);
+        widget.tooltip("Uses only whitelisted materials for dithering, when enabled. If not whitelisted, the material will use an alpha test.");
+        if (mUseTransparencyWhitelist && mpScene)
+        {
+            auto g2 = widget.group("Whitelist");
+            std::string removeEntry;
+            // list all material names of the current scene
+            for (uint mat = 0; mat < mpScene->getMaterialCount(); ++mat)
+            {
+                std::string name = mpScene->getMaterial(MaterialID(mat))->getName();
+                bool isTransparent = mTransparencyWhitelist.find(name) != mTransparencyWhitelist.end();
+                if (g2.checkbox(name.c_str(), isTransparent))
+                {
+                    if (isTransparent) mTransparencyWhitelist.insert(name);
+                    else mTransparencyWhitelist.erase(name);
+                    updateWhitelistBuffer();
+                }
+            }
+        }
+    }
+
+    if (auto g = widget.group("Lighting"))
+    {
+        LightSettings::get().renderUI(g);
+    }
+    if (auto g = widget.group("Shadows"))
+    {
+        ShadowSettings::get().renderUI(g);
+    }
 }
 
 void DitherVBuffer2::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
-
+    mpScene = pScene;
+    setupProgram();
+    mUseTransparencyWhitelist = updateWhitelistBuffer();
 }
 
 void DitherVBuffer2::setupProgram()
 {
+    if (!mpScene) return;
+
+    DefineList defines;
+    defines.add(mpScene->getSceneDefines());
+    defines.add(mpSampleGenerator->getDefines());
+
+    RtProgram::Desc desc;
+    desc.addShaderModules(mpScene->getShaderModules());
+    desc.addShaderLibrary(kProgramRaytraceFile);
+    desc.addTypeConformances(mpScene->getTypeConformances());
+    desc.setMaxPayloadSize(kMaxPayloadSizeBytes);
+    desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+    desc.setMaxTraceRecursionDepth(1);
+
+    ref<RtBindingTable> sbt = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+    sbt->setRayGen(desc.addRayGen("rayGen"));
+    sbt->setMiss(0, desc.addMiss("miss"));
+    sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+
+    mpProgram = RtProgram::create(mpDevice, desc, defines);
+    mpVars = RtProgramVars::create(mpDevice, mpProgram, sbt);
+
+    // Bind static resources.
+    ShaderVar var = mpVars->getRootVar();
+    mpSampleGenerator->setShaderData(var);
 }
 
 bool DitherVBuffer2::updateWhitelistBuffer()
 {
-    return false;
-}
-
-void DitherVBuffer2::createNoisePattern()
-{
+    return updateWhitelist(mpDevice, mpScene, mTransparencyWhitelist, mpTransparencyWhitelist);
 }
