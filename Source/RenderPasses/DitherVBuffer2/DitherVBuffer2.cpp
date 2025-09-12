@@ -132,6 +132,7 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
     var["PerFrame"]["gFrameCount"] = mFrameCount;
     var["PerFrame"]["gDLSSCorrectionStrength"] = mDLSSCorrectionStrength;
     var["PerFrame"]["gAlignMotionVectors"] = 0;
+    var["PerFrame"]["gPathLength"] = mPathLength;
 
     var["DitherConstants"]["gRotatePattern"] = 1;
     var["DitherConstants"]["gObjectHashType"] = uint(mObjectHashType);
@@ -164,6 +165,8 @@ void DitherVBuffer2::renderUI(Gui::Widgets& widget)
 {
     if (widget.dropdown("Render Scale", mRenderScale))
         requestRecompile();
+
+    widget.var("Path Length", mPathLength, 1, 64);
 
     widget.dropdown("Dither", mDitherMode);
 

@@ -155,7 +155,7 @@ private:
     ObjectHashType mObjectHashType = ObjectHashType::Geometry;
 
     bool mCullBackFaces = false;
-    uint mMaxRecusion = 10;
+    int mPathLength = 10;
     //bool mAlignMotionVectors = false; // align when using pixel grid techniques
     //bool mRotatePattern = true; // rotate pattern when using pixel grid techniques
 

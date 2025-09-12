@@ -39,7 +39,6 @@ struct DitherInfo
     uint2 pixel;
     uint frameIndex; // usually for per frame rng
     float3 posW; // world position (for white noise)
-    float alpha; // object alpha
 };
 
 static const int4x4 ditherMatrix = int4x4(
@@ -148,13 +147,11 @@ float getTopNoise(DitherInfo d)
     return gBlueNoise64x64Tex[d.pixel % 64u];
 }
 
-bool winRoulette(DitherInfo d)
+float getRouletteThreshold(DitherInfo d)
 {
     float rng = hash4D(float4(d.posW, d.frameIndex));
-    if(rng > d.alpha) return false;
-    return true;
+    return rng;
 }
-
 
 uint2 applyRotation(uint2 pixel, uint offset, uint width, uint height)
 {

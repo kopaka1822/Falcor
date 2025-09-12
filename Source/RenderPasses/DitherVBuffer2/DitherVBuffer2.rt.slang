@@ -36,6 +36,8 @@ cbuffer PerFrame
     float gDLSSCorrectionStrength;
 
     int gAlignMotionVectors; // align motion vectors to grid spacing when moving
+    uint gPathLength; // 1 = only primary ray
+
 }
 
 #define MIN_VISIBILITY 0.001
@@ -48,7 +50,7 @@ RWTexture2D<float4> gColor; // shaded vbuffer
 
 struct RayData
 {
-    float rayT; // input: TMax, output: TCurrent
+    PackedHitInfo hit; // RGBA32UINT
 };
 
 // posV: view space position (negative z)
@@ -118,6 +120,7 @@ void miss(inout RayData rayData : SV_RayPayload)
     float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
     float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
     gVBuffer[pixel] = hitInfo.getData();
+    rayData.hit = hitInfo.getData();
     gMotion[pixel] = getAlignedMotionVector(prevUV - (float2(pixel) + 0.5) / float2(frameDim), false);
     gColor[pixel] = shadeEnvmap(-WorldRayDirection());
 }
@@ -189,7 +192,6 @@ void anyHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAt
     d.pixel = pixel;
     d.frameIndex = gFrameCount;
     d.posW = v.posW;
-    d.alpha = alpha;
 
     #if DITHER_MODE == DITHER_MODE_DISABLED
 
@@ -211,7 +213,7 @@ void anyHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAt
         IgnoreHit();
     #endif
     #if DITHER_MODE == DITHER_MODE_RUSSIAN_ROULETTE
-    if(!winRoulette(d))
+    if(alpha < getRouletteThreshold(d))
         IgnoreHit();
     #endif
     #if DITHER_MODE == DITHER_MODE_STBN
@@ -256,14 +258,8 @@ void closestHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersecti
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics = attribs.barycentrics;
 
-    float3 color = shadeVBuffer(triangleHit, pixel, frameDim, -WorldRayDirection()).rgb;
-    {
-        // write to vbuffer (last entry)
-        gColor[pixel] = float4(color, 1.0);
-        gVBuffer[pixel] = HitInfo(triangleHit).getData();
-        gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, true);
-    }
-    
+    rayData.hit = HitInfo(triangleHit).getData();
+
 }
 
 [shader("raygeneration")]
@@ -278,5 +274,63 @@ void rayGen()
     uint rayFlags = 0;
     if (CULL_BACK_FACES) rayFlags |= RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
 
-    TraceRay(gScene.rtAccel, rayFlags, kInstanceCameraParticle, 0, rayTypeCount, 0, ray.toRayDesc(), data);
+    for (uint i = 0; i < gPathLength; ++i)
+    {
+        TraceRay(gScene.rtAccel, rayFlags, kInstanceCameraParticle, 0, rayTypeCount, 0, ray.toRayDesc(), data);
+
+        HitInfo hit = HitInfo(data.hit);
+        if (!hit.isValid())
+            return; // everything was writting in the miss shader?
+
+        if (hit.getType() != HitType::Triangle)
+            return;
+
+        TriangleHit triangleHit = hit.getTriangleHit();
+        if(i == 0) // motion vector from initial intersection
+            gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, true);
+        
+        // decide wheter to accept hit or continue tracing
+        let v = gScene.getVertexData(triangleHit);
+        let materialID = gScene.getMaterialID(triangleHit.instanceID);
+        let lod = ExplicitLodTextureSampler(0.0);
+        ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.dir, lod);
+
+        // check if viewing from wrong side (since adjust shading normal does not always work as expected)
+        if (!sd.frontFacing)
+        {
+            sd.frontFacing = true;
+            sd.faceN = -sd.faceN;
+            sd.frame.N = -sd.frame.N;
+        }
+
+        // Create material instance at shading point.
+        let mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
+        let bsdf = mi.getProperties(sd);
+
+        // check bsdf
+        float diffReflect = dot(bsdf.diffuseReflectionAlbedo, 0.33);
+        float diffRefract = dot(bsdf.diffuseTransmissionAlbedo, 0.33);
+        float specReflect = dot(bsdf.specularReflectionAlbedo, 0.33);
+        float specRefract = dot(bsdf.specularTransmissionAlbedo, 0.33);
+        float absorb = saturate(1.0 - specReflect);
+
+        DitherInfo d = { };
+        d.pixel = pixel;
+        d.frameIndex = gFrameCount + 1; // hack to make it independent from transparency
+        d.posW = v.posW;
+        
+        float rng = getRouletteThreshold(d);
+
+        // absorb case
+        if(rng < absorb)
+        {
+            gColor[pixel] = float4(shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
+            gVBuffer[pixel] = data.hit; // this hit was accepted
+            return;
+        }
+        rng -= absorb;
+        // specular reflection case
+        ray.origin = sd.computeNewRayOrigin(true);
+        ray.dir = reflect(ray.dir, bsdf.guideNormal);
+    }
 }
