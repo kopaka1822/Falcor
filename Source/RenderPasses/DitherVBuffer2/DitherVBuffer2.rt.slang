@@ -292,6 +292,7 @@ void rayGen()
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
     float3 thp = 1.0; // path throughput
+    float3 emission = 0.0; // emission along path
 
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameCount);
     Ray ray = gScene.camera.computeRayPinhole(pixel, frameDim);
@@ -333,6 +334,8 @@ void rayGen()
         let mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
         let bsdf = mi.getProperties(sd);
 
+        emission += thp * bsdf.emission;
+        
         BSDFSample bsdfSample;
         if (!mi.sample(sd, sg, bsdfSample, true /*Importance sampling*/))
             bsdfSample.weight = 0.0;
@@ -346,7 +349,7 @@ void rayGen()
         
         float rng = getRouletteThreshold(d);
 
-        float wLocal = 1.0; // local light weight (TODO replace with mi.eval())
+        float wLocal = saturate(1.0 - dot(bsdfSample.weight, 0.33)); // local light weight (TODO replace with mi.eval())
         // decide wheter to take this path (1.0) or continue tracing (bsdfSample.weight)
         float pSum = wLocal + dot(bsdfSample.weight, 0.33);
         thp *= pSum; // update throughput
@@ -354,7 +357,8 @@ void rayGen()
         if (rng * pSum <= wLocal) // works if pSum and wLocal are zero
         {
             // use this path => shade and output
-            gColor[pixel] = float4(thp * shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
+            thp *= 1.0 / wLocal;
+            gColor[pixel] = float4(emission + thp * shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
             gVBuffer[pixel] = data.hit; // this hit was accepted
             return;
         }
