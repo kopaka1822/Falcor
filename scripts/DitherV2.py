@@ -1,7 +1,7 @@
 from pathlib import WindowsPath, PosixPath
 from falcor import *
 
-def render_graph_Dither():
+def render_graph_Dither2():
     g = RenderGraph('Dither2')
     g.create_pass('DitherVBuffer2', 'DitherVBuffer2', {'useWhitelist': True, 'whitelist': '/root/_materials/Burn,/root/_materials/Fire_Magic,/root/_materials/Healing,/root/_materials/Hit1,/root/_materials/Hit1_001,/root/_materials/Light,/root/_materials/Sadness_water,/root/_materials/Water_drip,/root/_materials/Wirble,/root/_materials/boss_healthbar,/root/_materials/eff_clouds,/root/_materials/effect_Fire,/root/_materials/effect_barrier,/root/_materials/effect_light,/root/_materials/effect_shield,/root/_materials/effect_thunder,Board,CollectInner,Collectible,Smoke,TransparentPlane1,'})
     g.create_pass('ToneMapper', 'ToneMapper', {'outputSize': 'Default', 'useSceneMetadata': True, 'exposureCompensation': 0.0, 'autoExposure': False, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': 'Linear', 'clamp': False, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': 'AperturePriority'})
@@ -23,8 +23,6 @@ def render_graph_Dither():
     g.add_edge('OutputSwitch.out', 'ToneMapper.src')
     g.add_edge('FSR.output', 'OutputSwitch.i3')
     g.add_edge('AccumulatePass.output', 'OutputSwitch.i2')
-    g.add_edge('UnpackVBuffer.rasterZ', 'DLSSPass.depth')
-    g.add_edge('UnpackVBuffer.rasterZ', 'FSR.depth')
     g.add_edge('DitherVBuffer2.mvec', 'RayReconstructionPass.mvec')
     g.add_edge('UnpackVBuffer.linearZ', 'RayReconstructionPass.linearZ')
     g.add_edge('UnpackVBuffer.roughness', 'RayReconstructionPass.roughness')
@@ -42,13 +40,15 @@ def render_graph_Dither():
     g.add_edge('DitherVBuffer2.color', 'FSR.color')
     g.add_edge('DitherVBuffer2.color', 'DitherTAA.colorIn')
     g.add_edge('DitherVBuffer2.color', 'RayReconstructionPass.color')
-    g.add_edge('UnpackVBuffer.rasterZ', 'IntelXeSS.depth')
     g.add_edge('DitherVBuffer2.mvec', 'IntelXeSS.mvec')
     g.add_edge('DitherVBuffer2.color', 'IntelXeSS.color')
     g.add_edge('IntelXeSS.output', 'OutputSwitch.i5')
+    g.add_edge('DitherVBuffer2.depth', 'DLSSPass.depth')
+    g.add_edge('DitherVBuffer2.depth', 'FSR.depth')
+    g.add_edge('DitherVBuffer2.depth', 'IntelXeSS.depth')
     g.mark_output('ToneMapper.dst')
     return g
 
-Dither = render_graph_Dither()
-try: m.addGraph(Dither)
+Dither2 = render_graph_Dither2()
+try: m.addGraph(Dither2)
 except NameError: None

@@ -35,6 +35,7 @@ namespace
     const std::string kVbuffer = "vbuffer";
     const std::string kMotion = "mvec";
     const std::string kColorOut = "color";
+    const std::string kDepthOut = "depth";
 
     const uint32_t kMaxPayloadSizeBytes = 6 * sizeof(float);
     const std::string kProgramRaytraceFile = "RenderPasses/DitherVBuffer2/DitherVBuffer2.rt.slang";
@@ -98,6 +99,7 @@ RenderPassReflection DitherVBuffer2::reflect(const CompileData& compileData)
     reflector.addOutput(kVbuffer, "V-buffer").format(HitInfo::kDefaultFormat).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).flags(RenderPassReflection::Field::Flags::Optional).texture2D(dims.x, dims.y);
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
+    reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     return reflector;
 }
 
@@ -106,6 +108,7 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
     auto pVbuffer = renderData.getTexture(kVbuffer);
     auto pMotion = renderData.getTexture(kMotion);
     auto pColor = renderData.getTexture(kColorOut);
+    auto pDepth = renderData.getTexture(kDepthOut);
 
     if (!mpScene)
     {
@@ -123,6 +126,7 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
     var["gVBuffer"] = pVbuffer;
     var["gMotion"] = pMotion;
     var["gColor"] = pColor;
+    var["gDepth"] = pDepth;
     assert(mpTransparencyWhitelist);
     var["gTransparencyWhitelist"] = mpTransparencyWhitelist;
     var["gPermutations3x3"] = mpPermutations3x3Buffer;

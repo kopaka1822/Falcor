@@ -71,6 +71,7 @@ StructuredBuffer<uint> gTransparencyWhitelist;
 RWTexture2D<PackedHitInfo> gVBuffer;
 RWTexture2D<float2> gMotion;
 RWTexture2D<float4> gColor; // shaded vbuffer
+RWTexture2D<float> gDepth; // non-linear depth for DLSS
 
 struct RayData
 {
@@ -136,17 +137,8 @@ float2 getAlignedMotionVector(float2 mvec, bool isTransparent)
 [shader("miss")]
 void miss(inout RayData rayData : SV_RayPayload)
 {
-    uint2 pixel = DispatchRaysIndex().xy;
-    uint2 frameDim = DispatchRaysDimensions().xy;
-
     HitInfo hitInfo = { };
-    float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/false).dir;
-    float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
-    float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
-    gVBuffer[pixel] = hitInfo.getData();
     rayData.hit = hitInfo.getData();
-    gMotion[pixel] = getAlignedMotionVector(prevUV - (float2(pixel) + 0.5) / float2(frameDim), false);
-    gColor[pixel] = shadeEnvmap(-WorldRayDirection());
 }
 
 bool isAlphaTested(uint materialID)
@@ -286,6 +278,14 @@ void closestHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersecti
 
 }
 
+float linearToNonLinearZ(float l)
+{
+    float n = gScene.camera.data.nearZ;
+    float f = gScene.camera.data.farZ;
+    l = clamp(l, n, f);
+    return ((n * f) / l - f) / (n - f);
+}
+
 [shader("raygeneration")]
 void rayGen()
 {
@@ -293,6 +293,7 @@ void rayGen()
     uint2 frameDim = DispatchRaysDimensions().xy;
     float3 thp = 1.0; // path throughput
     float3 emission = 0.0; // emission along path
+    float linearZ = 0.0;
 
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameCount);
     Ray ray = gScene.camera.computeRayPinhole(pixel, frameDim);
@@ -301,13 +302,14 @@ void rayGen()
     uint rayFlags = 0;
     if (CULL_BACK_FACES) rayFlags |= RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
 
-    for (uint i = 0; i < gPathLength; ++i)
+    uint i = 0;
+    for (; i < gPathLength; ++i)
     {
         TraceRay(gScene.rtAccel, rayFlags, kInstanceCameraParticle, 0, rayTypeCount, 0, ray.toRayDesc(), data);
 
         HitInfo hit = HitInfo(data.hit);
         if (!hit.isValid())
-            return; // everything was writting in the miss shader?
+            break; // miss
 
         if (hit.getType() != HitType::Triangle)
             return;
@@ -321,6 +323,7 @@ void rayGen()
         let materialID = gScene.getMaterialID(triangleHit.instanceID);
         let lod = ExplicitLodTextureSampler(0.0);
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.dir, lod);
+        linearZ += distance(ray.origin, v.posW);
         
         // check if viewing from wrong side (since adjust shading normal does not always work as expected)
         //if (!sd.frontFacing)
@@ -360,6 +363,7 @@ void rayGen()
             thp *= 1.0 / wLocal;
             gColor[pixel] = float4(emission + thp * shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
             gVBuffer[pixel] = data.hit; // this hit was accepted
+            gDepth[pixel] = linearToNonLinearZ(linearZ);
             return;
         }
         else
@@ -372,4 +376,17 @@ void rayGen()
             ray.dir = bsdfSample.wo;
         }
     }
+    
+    // => no hit, eval envmap
+    if (i == 0) // use envmap motion vector if no hit at all
+    {
+        float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/false).dir;
+        float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
+        float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
+        gMotion[pixel] = getAlignedMotionVector(prevUV - (float2(pixel) + 0.5) / float2(frameDim), false);
+    }
+
+    gColor[pixel] = float4(emission + thp * shadeEnvmap(-ray.dir).rgb, 1.0);
+    gVBuffer[pixel] = data.hit;
+    gDepth[pixel] = 1.0; // far plane
 }
