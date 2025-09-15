@@ -315,8 +315,10 @@ void rayGen()
         float diffRefract = dot(bsdf.diffuseTransmissionAlbedo, 0.33);
         float specReflect = dot(bsdf.specularReflectionAlbedo, 0.33);
         float specRefract = dot(bsdf.specularTransmissionAlbedo, 0.33);
-        float refract = saturate(diffRefract + specRefract);
-        float absorb = saturate(1.0 - specReflect - refract);
+        float pRefract = saturate(diffRefract + specRefract);
+        if (pRefract > 0.0)
+            pRefract = 0.9;
+        float absorb = saturate(1.0 - specReflect - pRefract);
         
         
         DitherInfo d = { };
@@ -336,18 +338,14 @@ void rayGen()
         rng -= absorb;
 
         ray.tMin = 1e-6;
-        if (rng < refract)
+        if (rng < pRefract)
         {
-            //float3 rdir = refract(ray.dir, bsdf.guideNormal, eta);
+            float3 rdir = refract(ray.dir, bsdf.guideNormal, eta);
             //float3 rdir = refract(ray.dir, sd.faceN, eta);
-            //if (dot(rdir, rdir) > 0.01)
+            if (dot(rdir, rdir) > 0.01)
             {
                 ray.origin = sd.computeNewRayOrigin(false);
-                //ray.dir = rdir;
-                //gColor[pixel] = float4(0, 0, 1, 1);
-                //return;
-                //gColor[pixel] = float4(specReflect, specRefract, diffReflect, diffRefract);
-                //return;
+                ray.dir = rdir;
                 continue;
             } // else fallthrough to specular reflection (TIR Total Internal Refelction)
         }
