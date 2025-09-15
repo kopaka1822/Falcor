@@ -6,13 +6,37 @@
 import Scene.Raytracing;
 import Scene.Intersection;
 import Utils.Math.MathHelpers;
-import Utils.Sampling.SampleGenerator;
 import Utils.Math.PackedFormats;
 import Utils.Math.FormatConversion;
 import Rendering.Materials.IsotropicGGX;
 import Utils.Color.ColorHelpers;
 
 #include "Dither2.slangh"
+
+import Utils.Sampling.SampleGeneratorInterface;
+import Utils.Sampling.Pseudorandom.Xoshiro;
+import Utils.Sampling.Pseudorandom.SplitMix64;
+import Utils.Math.BitTricks;
+
+struct UniformSampleGenerator : ISampleGenerator
+{
+    __init(uint2 pixel, uint sampleNumber)
+    {
+        SplitMix64 rng = createSplitMix64(interleave_32bit(pixel), sampleNumber);
+        uint64_t s0 = nextRandom64(rng);
+        uint64_t s1 = nextRandom64(rng);
+        uint seed[4] = { uint(s0), uint(s0 >> 32), uint(s1), uint(s1 >> 32) };
+        this.rng = createXoshiro128StarStar(seed);
+    }
+
+    [mutating]
+    uint next()
+    {
+        return nextRandom(rng);
+    }
+
+    Xoshiro128StarStar rng;
+};
 
 float getObjectHash()
 {
@@ -267,7 +291,9 @@ void rayGen()
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
+    float3 thp = 1.0; // path throughput
 
+    UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameCount);
     Ray ray = gScene.camera.computeRayPinhole(pixel, frameDim);
 
     RayData data;
@@ -294,32 +320,24 @@ void rayGen()
         let materialID = gScene.getMaterialID(triangleHit.instanceID);
         let lod = ExplicitLodTextureSampler(0.0);
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.dir, lod);
-
-        float eta = 1.0 / sd.IoR; // always assume we come from air
         
         // check if viewing from wrong side (since adjust shading normal does not always work as expected)
-        if (!sd.frontFacing)
+        //if (!sd.frontFacing)
         {
-            sd.frontFacing = true;
-            sd.faceN = -sd.faceN;
-            sd.frame.N = -sd.frame.N;
-            eta = sd.IoR; // invert IOR
+            //sd.frontFacing = true;
+            //sd.faceN = -sd.faceN;
+            //sd.frame.N = -sd.frame.N;
         }
 
         // Create material instance at shading point.
         let mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
         let bsdf = mi.getProperties(sd);
 
-        // check bsdf
-        float diffReflect = dot(bsdf.diffuseReflectionAlbedo, 0.33);
-        float diffRefract = dot(bsdf.diffuseTransmissionAlbedo, 0.33);
-        float specReflect = dot(bsdf.specularReflectionAlbedo, 0.33);
-        float specRefract = dot(bsdf.specularTransmissionAlbedo, 0.33);
-        float pRefract = saturate(diffRefract + specRefract);
-        if (pRefract > 0.0)
-            pRefract = 0.9;
-        float absorb = saturate(1.0 - specReflect - pRefract);
-        
+        BSDFSample bsdfSample;
+        if (!mi.sample(sd, sg, bsdfSample, true /*Importance sampling*/))
+            bsdfSample.weight = 0.0;
+        if (i == gPathLength)
+            bsdfSample.weight = 0.0; // force absorb
         
         DitherInfo d = { };
         d.pixel = pixel;
@@ -328,29 +346,26 @@ void rayGen()
         
         float rng = getRouletteThreshold(d);
 
-        // absorb case
-        if(rng < absorb || i == gPathLength)
+        float wLocal = 1.0; // local light weight (TODO replace with mi.eval())
+        // decide wheter to take this path (1.0) or continue tracing (bsdfSample.weight)
+        float pSum = wLocal + dot(bsdfSample.weight, 0.33);
+        thp *= pSum; // update throughput
+        //if (rng < wLocal / pSum)
+        if (rng * pSum <= wLocal) // works if pSum and wLocal are zero
         {
-            gColor[pixel] = float4(shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
+            // use this path => shade and output
+            gColor[pixel] = float4(thp * shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
             gVBuffer[pixel] = data.hit; // this hit was accepted
             return;
         }
-        rng -= absorb;
-
-        ray.tMin = 1e-6;
-        if (rng < pRefract)
+        else
         {
-            float3 rdir = refract(ray.dir, bsdf.guideNormal, eta);
-            //float3 rdir = refract(ray.dir, sd.faceN, eta);
-            if (dot(rdir, rdir) > 0.01)
-            {
-                ray.origin = sd.computeNewRayOrigin(false);
-                ray.dir = rdir;
-                continue;
-            } // else fallthrough to specular reflection (TIR Total Internal Refelction)
+            // use reflection/refraction path
+            thp *= (bsdfSample.weight / dot(bsdfSample.weight, 0.33)); // adjust for non-monochrome weight
+            ray.tMin = 1e-6;
+            bool transmission = bsdfSample.isLobe(LobeType::Transmission);
+            ray.origin = sd.computeNewRayOrigin(!transmission);
+            ray.dir = bsdfSample.wo;
         }
-        // specular reflection
-        ray.origin = sd.computeNewRayOrigin(true);
-        ray.dir = reflect(ray.dir, bsdf.guideNormal);
     }
 }

@@ -40,11 +40,6 @@ import Utils.Math.BitTricks;
  */
 public struct UniformSampleGenerator : ISampleGenerator
 {
-    struct Padded
-    {
-        UniformSampleGenerator internal;
-    }
-
     /**
      * Initializes the sample generator for a given pixel and sample number.
      * @param[in] pixel Pixel id.
@@ -52,8 +47,6 @@ public struct UniformSampleGenerator : ISampleGenerator
      */
     __init(uint2 pixel, uint sampleNumber)
     {
-        UniformSampleGenerator sampleGenerator;
-
         // Use SplitMix64 generator to generate a good pseudorandom initial state.
         // The pixel coord is expected to be max 28 bits (16K^2 is the resource limit in D3D12).
         // The sample number is expected to be practically max ~28 bits, e.g. 16spp x 16M samples.

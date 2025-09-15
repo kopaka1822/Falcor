@@ -236,6 +236,7 @@ void DitherVBuffer2::setupProgram()
     desc.setMaxPayloadSize(kMaxPayloadSizeBytes);
     desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
     desc.setMaxTraceRecursionDepth(1);
+    desc.setShaderModel("6_6");
 
     ref<RtBindingTable> sbt = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
     sbt->setRayGen(desc.addRayGen("rayGen"));
