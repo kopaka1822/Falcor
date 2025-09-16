@@ -391,12 +391,15 @@ void rayGen()
         // emission and ambience at every step (directly available due to bsdf)
         emission += thp * bsdf.emission * gEmissionIntensity;
         emission += thp * bsdf.diffuseReflectionAlbedo * gAmbientIntensity;
-        
+
+        // only delta reflections, refractions for next bounce
+        sd.mtl.setActiveLobes((uint) LobeType::Delta | (uint) LobeType::Specular);
         BSDFSample bsdfSample;
         if (!mi.sample(sd, sg, bsdfSample, true /*Importance sampling*/))
             bsdfSample.weight = 0.0;
         if (i == gPathLength)
             bsdfSample.weight = 0.0; // force absorb
+        sd.mtl.setActiveLobes((uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)
         
         DitherInfo d = { };
         d.pixel = pixel;
