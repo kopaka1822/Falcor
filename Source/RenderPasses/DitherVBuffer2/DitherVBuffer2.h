@@ -160,6 +160,11 @@ private:
     //bool mRotatePattern = true; // rotate pattern when using pixel grid techniques
 
     RenderScale mRenderScale = RenderScale::Full;
+
+    float mAmbientIntensity = 0.25;
+    float mAnalyticIntensity = 0.5;
+    float mEmissionIntensity = 1.0;
+    float mEnvmapIntensity = 1.0;
 };
 
 FALCOR_ENUM_REGISTER(DitherVBuffer2::DitherMode);

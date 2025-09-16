@@ -27,7 +27,6 @@
  **************************************************************************/
 #include "DitherVBuffer2.h"
 #include "../DitherVBuffer/PermutationLookup.h"
-#include "Scene/Lighting/LightSettings.h"
 #include "Scene/Lighting/ShadowSettings.h"
 
 namespace
@@ -137,12 +136,15 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
     var["PerFrame"]["gDLSSCorrectionStrength"] = mDLSSCorrectionStrength;
     var["PerFrame"]["gAlignMotionVectors"] = 0;
     var["PerFrame"]["gPathLength"] = mPathLength;
+    var["PerFrame"]["gAmbientIntensity"] = mAmbientIntensity;
+    var["PerFrame"]["gAnalyticIntensity"] = mAnalyticIntensity;
+    var["PerFrame"]["gEmissionIntensity"] = mEmissionIntensity;
+    var["PerFrame"]["gEnvmapIntensity"] = mEnvmapIntensity;
 
     var["DitherConstants"]["gRotatePattern"] = 1;
     var["DitherConstants"]["gObjectHashType"] = uint(mObjectHashType);
     var["DitherConstants"]["gDitherTAAPermutations"] = 1;
     
-    LightSettings::get().updateShaderVar(var);
     ShadowSettings::get().updateShaderVar(mpDevice, var, mFrameCount);
 
     mpProgram->addDefine("COVERAGE_CORRECTION", std::to_string(uint32_t(mCoverageCorrection)));
@@ -210,7 +212,10 @@ void DitherVBuffer2::renderUI(Gui::Widgets& widget)
 
     if (auto g = widget.group("Lighting"))
     {
-        LightSettings::get().renderUI(g);
+        widget.var("Ambient", mAmbientIntensity, 0.0f);
+        widget.var("Analytic", mAnalyticIntensity, 0.0f);
+        widget.var("Emission", mEmissionIntensity, 0.0f);
+        widget.var("Envmap", mEnvmapIntensity, 0.0f);
     }
     if (auto g = widget.group("Shadows"))
     {

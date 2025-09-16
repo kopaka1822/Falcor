@@ -1,6 +1,6 @@
 #include "Scene/SceneDefines.slangh"
 #include "Utils/Math/MathConstants.slangh"
-#include "Scene/Lighting/Lighting.slangh"
+//#include "Scene/Lighting/Lighting.slangh"
 #include "Scene/Lighting/RayShadow.slangh"
 
 import Scene.Raytracing;
@@ -62,6 +62,16 @@ cbuffer PerFrame
     int gAlignMotionVectors; // align motion vectors to grid spacing when moving
     uint gPathLength; // 1 = only primary ray
 
+    float gAmbientIntensity;
+    float gAnalyticIntensity;
+    float gEmissionIntensity;
+    float gEnvmapIntensity;
+
+}
+
+float4 shadeEnvmap(float3 viewDir)
+{
+    return float4(gScene.envMap.eval(-viewDir) * gEnvmapIntensity, 1.0);
 }
 
 #define MIN_VISIBILITY 0.001
@@ -286,6 +296,47 @@ float linearToNonLinearZ(float l)
     return ((n * f) / l - f) / (n - f);
 }
 
+float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance mi, inout UniformSampleGenerator sg)
+{
+    if (gAnalyticIntensity <= 0.0)
+        return 0.0;
+    
+    const uint lightCount = gScene.getLightCount();
+    float3 color = 0.0;
+    for (uint i = 0; i < lightCount; ++i)
+    {
+        AnalyticLightSample ls;
+        evalLightApproximate(sd.posW, gScene.getLight(i), ls);
+        // check which side
+        const uint lobeTypes = mi.getLobeTypes(sd);
+        const bool hasReflection = lobeTypes & uint(LobeType::Reflection);
+        const bool hasTransmission = (lobeTypes & uint(LobeType::Transmission)); // || (sd.opacity < 1.0);
+        float NdotL = dot(sd.getOrientedFaceNormal(), ls.dir);
+        const float kMinCosTheta = 0.0001;
+        if ((NdotL <= kMinCosTheta && !hasTransmission) || (NdotL >= -kMinCosTheta && !hasReflection))
+            continue;
+        
+        // TODO shadow ray
+        float V = 1.0;
+        //float V = traceShadowRay(pixel, sd.posW, , i);
+        color += max(V * mi.eval(sd, ls.dir, sg) * ls.Li, 0.0);
+    }
+    return gAnalyticIntensity * color;
+}
+
+float getAnalyticWeight(uint2 pixel, const ShadingData sd, const IMaterialInstance mi, UniformSampleGenerator sg)
+{
+    const uint lightCount = gScene.getLightCount();
+    float maxW = 0.0;
+    for (uint i = 0; i < lightCount; ++i)
+    {
+        AnalyticLightSample ls;
+        evalLightApproximate(sd.posW, gScene.getLight(i), ls);
+        maxW = max(maxW, dot(mi.eval(sd, ls.dir, sg), 0.33));
+    }
+    return maxW;
+}
+
 [shader("raygeneration")]
 void rayGen()
 {
@@ -337,7 +388,9 @@ void rayGen()
         let mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
         let bsdf = mi.getProperties(sd);
 
-        emission += thp * bsdf.emission;
+        // emission and ambience at every step (directly available due to bsdf)
+        emission += thp * bsdf.emission * gEmissionIntensity;
+        emission += thp * bsdf.diffuseReflectionAlbedo * gAmbientIntensity;
         
         BSDFSample bsdfSample;
         if (!mi.sample(sd, sg, bsdfSample, true /*Importance sampling*/))
@@ -352,16 +405,18 @@ void rayGen()
         
         float rng = getRouletteThreshold(d);
 
-        float wLocal = saturate(1.0 - dot(bsdfSample.weight, 0.33)); // local light weight (TODO replace with mi.eval())
+        float wReflect = saturate(dot(bsdfSample.weight, 0.33));
+        float wLocal = max(0.01, saturate(1.0 - wReflect)); // local light weight (TODO replace with mi.eval())
         // decide wheter to take this path (1.0) or continue tracing (bsdfSample.weight)
-        float pSum = wLocal + dot(bsdfSample.weight, 0.33);
+        float pSum = wLocal + wReflect;
         thp *= pSum; // update throughput
         //if (rng < wLocal / pSum)
         if (rng * pSum <= wLocal) // works if pSum and wLocal are zero
         {
             // use this path => shade and output
             thp *= 1.0 / wLocal;
-            gColor[pixel] = float4(emission + thp * shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
+            //gColor[pixel] = float4(emission + thp * shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
+            gColor[pixel] = float4(emission + thp * evalAnalytic(pixel, sd, mi, sg), 1.0);
             gVBuffer[pixel] = data.hit; // this hit was accepted
             gDepth[pixel] = linearToNonLinearZ(linearZ);
             return;
@@ -369,7 +424,7 @@ void rayGen()
         else
         {
             // use reflection/refraction path
-            thp *= (bsdfSample.weight / dot(bsdfSample.weight, 0.33)); // adjust for non-monochrome weight
+            thp *= bsdfSample.weight / wReflect; // adjust for non-monochrome weight
             ray.tMin = 1e-6;
             bool transmission = bsdfSample.isLobe(LobeType::Transmission);
             ray.origin = sd.computeNewRayOrigin(!transmission);
