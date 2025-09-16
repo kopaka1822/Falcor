@@ -331,7 +331,15 @@ float getAnalyticWeight(uint2 pixel, const ShadingData sd, const IMaterialInstan
     for (uint i = 0; i < lightCount; ++i)
     {
         AnalyticLightSample ls;
+        // check which side
+        const uint lobeTypes = mi.getLobeTypes(sd);
+        const bool hasReflection = lobeTypes & uint(LobeType::Reflection);
+        const bool hasTransmission = (lobeTypes & uint(LobeType::Transmission)); // || (sd.opacity < 1.0);
         evalLightApproximate(sd.posW, gScene.getLight(i), ls);
+        float NdotL = dot(sd.getOrientedFaceNormal(), ls.dir);
+        const float kMinCosTheta = 0.0001;
+        if ((NdotL <= kMinCosTheta && !hasTransmission) || (NdotL >= -kMinCosTheta && !hasReflection))
+            continue;
         maxW = max(maxW, dot(mi.eval(sd, ls.dir, sg), 0.33));
     }
     return maxW;
@@ -397,8 +405,7 @@ void rayGen()
         BSDFSample bsdfSample;
         if (!mi.sample(sd, sg, bsdfSample, true /*Importance sampling*/))
             bsdfSample.weight = 0.0;
-        if (i == gPathLength)
-            bsdfSample.weight = 0.0; // force absorb
+        
         sd.mtl.setActiveLobes((uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)
         
         DitherInfo d = { };
@@ -408,9 +415,19 @@ void rayGen()
         
         float rng = getRouletteThreshold(d);
 
-        float wReflect = saturate(dot(bsdfSample.weight, 0.33));
-        float wLocal = max(0.01, saturate(1.0 - wReflect)); // local light weight (TODO replace with mi.eval())
+        //float wReflect = saturate(dot(bsdfSample.weight, 0.33));
+        //if (wReflect < 0.01)
+        //    wReflect = 0.0;
+        //float wLocal = max(0.01, saturate(1.0 - wReflect)); // local light weight (TODO replace with mi.eval())
+        float wReflect = saturate(dot(bsdfSample.weight * (bsdf.specularReflectionAlbedo + bsdf.specularTransmissionAlbedo), 0.33));
+        float wLocal = saturate(dot(bsdf.diffuseReflectionAlbedo + bsdf.diffuseTransmissionAlbedo, 0.33));
+        //if (sd.mtl.isDeltaSpecular())
+        //    wLocal = 0.0;
+        //wLocal = max(0.01, getAnalyticWeight(pixel, sd, mi, sg));
         // decide wheter to take this path (1.0) or continue tracing (bsdfSample.weight)
+
+        if (i == gPathLength - 1) wReflect = 0.0; // force absorb
+        
         float pSum = wLocal + wReflect;
         thp *= pSum; // update throughput
         //if (rng < wLocal / pSum)
@@ -420,6 +437,8 @@ void rayGen()
             thp *= 1.0 / wLocal;
             //gColor[pixel] = float4(emission + thp * shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
             gColor[pixel] = float4(emission + thp * evalAnalytic(pixel, sd, mi, sg), 1.0);
+            //gColor[pixel] = float4(sd.materialID);
+            //gColor[pixel] = float4(dot(bsdf.specularReflectionAlbedo, 0.33), dot(bsdf.diffuseReflectionAlbedo, 0.33), dot(bsdf.diffuseTransmissionAlbedo, 0.33), 1.0);
             gVBuffer[pixel] = data.hit; // this hit was accepted
             gDepth[pixel] = linearToNonLinearZ(linearZ);
             return;
