@@ -339,10 +339,9 @@ float traceShadowRay(uint2 pixel, float3 posW, float3 normalW, uint lightIndex)
     ray.Origin = posW.xyz;
     ray.TMin = gScene.camera.data.nearZ * 0.1;
 
+    #if USE_RAYCONES
     float3 V = gScene.camera.getPosition() - posW.xyz;
     float lenV = length(V);
-
-    #if USE_RAYCONES
     RayCone rc = RayCone(0.0, RAY_CONE_SPREAD);
     rc = rc.propagateDistance(lenV); // travel t
     rc = rc.hit(V / lenV, normalW); // hit surface

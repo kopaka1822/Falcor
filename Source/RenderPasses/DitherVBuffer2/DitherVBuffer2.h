@@ -161,10 +161,15 @@ private:
 
     RenderScale mRenderScale = RenderScale::Full;
 
-    float mAmbientIntensity = 0.25;
-    float mAnalyticIntensity = 0.5;
-    float mEmissionIntensity = 1.0;
-    float mEnvmapIntensity = 1.0;
+    // lighting settings
+    float mAmbientIntensity = 0.25f;
+    float mAnalyticIntensity = 0.5f;
+    float mEmissionIntensity = 1.0f;
+    float mEnvmapIntensity = 1.0f;
+    // shadow settings
+    bool mEnableShadows = true;
+    float mPointLightClip = 0.2f;
+    float mShadowLodBias = 0.0f;
 };
 
 FALCOR_ENUM_REGISTER(DitherVBuffer2::DitherMode);

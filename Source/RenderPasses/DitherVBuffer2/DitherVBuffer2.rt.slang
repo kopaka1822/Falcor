@@ -1,15 +1,17 @@
 #include "Scene/SceneDefines.slangh"
 #include "Utils/Math/MathConstants.slangh"
 //#include "Scene/Lighting/Lighting.slangh"
-#include "Scene/Lighting/RayShadow.slangh"
+//#include "Scene/Lighting/RayShadow.slangh"
 
 import Scene.Raytracing;
+import Scene.RaytracingInline;
 import Scene.Intersection;
 import Utils.Math.MathHelpers;
 import Utils.Math.PackedFormats;
 import Utils.Math.FormatConversion;
 import Rendering.Materials.IsotropicGGX;
 import Utils.Color.ColorHelpers;
+import Rendering.Lights.LightHelpers;
 
 #include "Dither2.slangh"
 
@@ -66,6 +68,10 @@ cbuffer PerFrame
     float gAnalyticIntensity;
     float gEmissionIntensity;
     float gEnvmapIntensity;
+
+    float gPointLightClip; // shadow
+    float gShadowLodBias;
+    bool gEnableShadows;
 
 }
 
@@ -269,11 +275,6 @@ float2 calcMotionVector(uint2 pixel, uint2 frameDim, TriangleHit triangleHit, bo
     return getAlignedMotionVector(mvec, isTransparent);
 }
 
-float computeShadowImpl(uint2 pixel, uint lightIndex, float3 posW, float3 normalW)
-{
-    return traceShadowRay(pixel, posW, normalW, lightIndex);
-}
-
 [shader("closesthit")]
 void closestHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs : SV_IntersectionAttributes){
     uint2 pixel = DispatchRaysIndex().xy;
@@ -296,6 +297,61 @@ float linearToNonLinearZ(float l)
     return ((n * f) / l - f) / (n - f);
 }
 
+// deep shadow ray
+float traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
+{
+    if (!gEnableShadows) return 1.0;
+    LightData light = gScene.getLight(lightIndex);
+    RayDesc ray;
+    ray.Origin = posW.xyz; // assume posW already offset with computeNewRayOrigin
+    ray.TMin = 0.0;
+    if (light.type == uint(LightType::Point))
+    {
+        ray.Direction = normalize(light.posW - posW.xyz);
+        ray.TMax = distance(light.posW, posW.xyz) - gPointLightClip;
+    }
+    else if (light.type == uint(LightType::Directional))
+    {
+        ray.Direction = -light.dirW;
+        ray.TMax = gScene.camera.data.farZ;
+    }
+
+    float visibility = 1.0;
+    float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
+    
+    RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
+    const uint instanceMask = getBestParticleShadowPlane(ray.Direction);
+    uint rayFlags = RAY_FLAG_NONE;
+    rayQuery.TraceRayInline(gScene.rtAccel, rayFlags, instanceMask, ray);
+    while (rayQuery.Proceed())
+    {
+        if (rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+        {
+            float t = rayQuery.CandidateTriangleRayT();
+            // alpha test
+            const TriangleHit hit = getCandidateTriangleHit(rayQuery);
+            const uint materialID = gScene.getMaterialID(hit.instanceID);
+            const VertexData v = gScene.getVertexData(hit);
+           
+            let material = gScene.materials.getMaterial(materialID);
+            let lod = ExplicitLodTextureSampler(gShadowLodBias);
+            float opacity = material.evalOpacity(gScene.materials, v, lod);
+            
+            visibility = visibility * (1.0 - opacity);
+            if (visibility <= visibilityCutoff)
+                return 0.0;
+        }
+        else
+            return 0.0; // hit opaque => occluded
+    }
+
+    if (rayQuery.CommittedStatus() != COMMITTED_NOTHING)
+        return 0.0; // hit opaque => occluded
+
+    visibility = saturate((visibility - visibilityCutoff) / (1.0 - visibilityCutoff));
+    return visibility;
+}
+
 float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance mi, inout UniformSampleGenerator sg)
 {
     if (gAnalyticIntensity <= 0.0)
@@ -315,10 +371,10 @@ float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance m
         const float kMinCosTheta = 0.0001;
         if ((NdotL <= kMinCosTheta && !hasTransmission) || (NdotL >= -kMinCosTheta && !hasReflection))
             continue;
-        
-        // TODO shadow ray
-        float V = 1.0;
-        //float V = traceShadowRay(pixel, sd.posW, , i);
+
+        // shadow ray
+        bool transmission = NdotL < 0.0;
+        float V = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i);
         color += max(V * mi.eval(sd, ls.dir, sg) * ls.Li, 0.0);
     }
     return gAnalyticIntensity * color;

@@ -27,7 +27,6 @@
  **************************************************************************/
 #include "DitherVBuffer2.h"
 #include "../DitherVBuffer/PermutationLookup.h"
-#include "Scene/Lighting/ShadowSettings.h"
 
 namespace
 {
@@ -140,18 +139,18 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
     var["PerFrame"]["gAnalyticIntensity"] = mAnalyticIntensity;
     var["PerFrame"]["gEmissionIntensity"] = mEmissionIntensity;
     var["PerFrame"]["gEnvmapIntensity"] = mEnvmapIntensity;
+    var["PerFrame"]["gPointLightClip"] = mPointLightClip;
+    var["PerFrame"]["gShadowLodBias"] = mShadowLodBias;
+    var["PerFrame"]["gEnableShadows"] = mEnableShadows ? 1 : 0;
 
     var["DitherConstants"]["gRotatePattern"] = 1;
     var["DitherConstants"]["gObjectHashType"] = uint(mObjectHashType);
     var["DitherConstants"]["gDitherTAAPermutations"] = 1;
-    
-    ShadowSettings::get().updateShaderVar(mpDevice, var, mFrameCount);
 
     mpProgram->addDefine("COVERAGE_CORRECTION", std::to_string(uint32_t(mCoverageCorrection)));
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
     mpProgram->addDefine("DITHER_MODE", std::to_string(uint32_t(mDitherMode)));
     mpProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
-    mpProgram->addDefines(ShadowSettings::get().getShaderDefines(*mpScene, renderData.getDefaultTextureDims()));
 
     uint3 dispatch = uint3(1);
     dispatch.x = pVbuffer->getWidth();
@@ -219,7 +218,9 @@ void DitherVBuffer2::renderUI(Gui::Widgets& widget)
     }
     if (auto g = widget.group("Shadows"))
     {
-        ShadowSettings::get().renderUI(g);
+        widget.checkbox("Enable Shadows", mEnableShadows);
+        widget.var("Point Light Clip", mPointLightClip, 0.0f);
+        widget.var("Shadow LOD Bias", mShadowLodBias, -16.0f, 16.0f, 0.5f);
     }
 }
 
