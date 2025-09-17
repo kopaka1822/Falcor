@@ -480,8 +480,8 @@ void rayGen()
         //if (sd.mtl.isDeltaSpecular())
         //    wLocal = 0.0;
         //wLocal = max(0.01, getAnalyticWeight(pixel, sd, mi, sg));
-        // decide wheter to take this path (1.0) or continue tracing (bsdfSample.weight)
-
+        wLocal = max(0.01, wLocal); // make sure wLocal always has a small probability, in case wReflect is 0
+        
         if (i == gPathLength - 1) wReflect = 0.0; // force absorb
         
         float pSum = wLocal + wReflect;
