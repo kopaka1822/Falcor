@@ -254,12 +254,13 @@ void anyHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAt
     #endif
 }
 
-float2 calcMotionVector(uint2 pixel, uint2 frameDim, TriangleHit triangleHit, bool isTransparent)
+float2 calcMotionVector(uint2 pixel, uint2 frameDim, TriangleHit triangleHit, bool isTransparent, float4x4 viewTransform)
 {
     float3 prevPosW = gScene.getPrevPosW(triangleHit);
 
     float2 pixelPos = float2(pixel) + 0.5;
-    float4 prevPosH = mul(gScene.camera.data.prevViewProjMatNoJitter, float4(prevPosW, 1.0));
+    float4 prevPosTWorld = mul(viewTransform, float4(prevPosW, 1.0));
+    float4 prevPosH = mul(gScene.camera.data.prevViewProjMatNoJitter, prevPosTWorld);
 
     float2 prevCrd = prevPosH.xy / prevPosH.w;
 #ifdef FALCOR_FLIP_Y
@@ -401,6 +402,19 @@ float getAnalyticWeight(uint2 pixel, const ShadingData sd, const IMaterialInstan
     return maxW;
 }
 
+// mirrors scene at plane with location O and normal N
+float4x4 matrixMirror(float3 O, float3 N)
+{
+    float4x4 M = float4x4(
+        1 - 2 * N.x * N.x, -2 * N.x * N.y, -2 * N.x * N.z, 0,
+        -2 * N.y * N.x, 1 - 2 * N.y * N.y, -2 * N.y * N.z, 0,
+        -2 * N.z * N.x, -2 * N.z * N.y, 1 - 2 * N.z * N.z, 0,
+        2 * dot(N, O) * N.x, 2 * dot(N, O) * N.y, 2 * dot(N, O) * N.z, 1
+    ); // TODO needs transpose?
+    //return M;
+    return transpose(M);
+}
+
 [shader("raygeneration")]
 void rayGen()
 {
@@ -409,6 +423,12 @@ void rayGen()
     float3 thp = 1.0; // path throughput
     float3 emission = 0.0; // emission along path
     float linearZ = 0.0;
+    float4x4 viewTransform = float4x4(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    );
 
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameCount);
     Ray ray = gScene.camera.computeRayPinhole(pixel, frameDim);
@@ -431,7 +451,7 @@ void rayGen()
 
         TriangleHit triangleHit = hit.getTriangleHit();
         if(i == 0) // motion vector from initial intersection
-            gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, true);
+            gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, true, viewTransform);
         
         // decide wheter to accept hit or continue tracing
         let v = gScene.getVertexData(triangleHit);
@@ -497,6 +517,8 @@ void rayGen()
             //gColor[pixel] = float4(dot(bsdf.specularReflectionAlbedo, 0.33), dot(bsdf.diffuseReflectionAlbedo, 0.33), dot(bsdf.diffuseTransmissionAlbedo, 0.33), 1.0);
             gVBuffer[pixel] = data.hit; // this hit was accepted
             gDepth[pixel] = linearToNonLinearZ(linearZ);
+
+            gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, true, viewTransform);
             return;
         }
         else
@@ -505,6 +527,11 @@ void rayGen()
             thp *= bsdfSample.weight / wReflect; // adjust for non-monochrome weight
             ray.tMin = 1e-6;
             bool transmission = bsdfSample.isLobe(LobeType::Transmission);
+
+            float3 H = -ray.dir + bsdfSample.wo;
+            float lenH = length(H);
+            if(lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
+                viewTransform = mul(matrixMirror(v.posW, H / lenH), viewTransform);
             ray.origin = sd.computeNewRayOrigin(!transmission);
             ray.dir = bsdfSample.wo;
         }
