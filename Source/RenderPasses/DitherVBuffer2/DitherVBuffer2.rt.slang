@@ -73,6 +73,7 @@ cbuffer PerFrame
     float gShadowLodBias;
     bool gEnableShadows;
 
+    float gRoughnessCutoff; // no reflections for surfaces with higher roughness
 }
 
 float4 shadeEnvmap(float3 viewDir)
@@ -496,13 +497,13 @@ void rayGen()
         //    wReflect = 0.0;
         //float wLocal = max(0.01, saturate(1.0 - wReflect)); // local light weight (TODO replace with mi.eval())
         float wReflect = saturate(dot(bsdfSample.weight * (bsdf.specularReflectionAlbedo + bsdf.specularTransmissionAlbedo), 0.33));
+        if (bsdf.roughness > gRoughnessCutoff) wReflect = 0.0;
+        if (i == gPathLength - 1) wReflect = 0.0; // force absorb
         float wLocal = saturate(dot(bsdf.diffuseReflectionAlbedo + bsdf.diffuseTransmissionAlbedo, 0.33));
         //if (sd.mtl.isDeltaSpecular())
         //    wLocal = 0.0;
         //wLocal = max(0.01, getAnalyticWeight(pixel, sd, mi, sg));
         wLocal = max(0.01, wLocal); // make sure wLocal always has a small probability, in case wReflect is 0
-        
-        if (i == gPathLength - 1) wReflect = 0.0; // force absorb
         
         float pSum = wLocal + wReflect;
         thp *= pSum; // update throughput

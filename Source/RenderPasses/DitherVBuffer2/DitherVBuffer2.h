@@ -170,6 +170,8 @@ private:
     bool mEnableShadows = true;
     float mPointLightClip = 0.2f;
     float mShadowLodBias = 0.0f;
+
+    float mRoughnessCutoff = 0.5f;
 };
 
 FALCOR_ENUM_REGISTER(DitherVBuffer2::DitherMode);

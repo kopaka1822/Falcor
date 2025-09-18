@@ -142,6 +142,7 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
     var["PerFrame"]["gPointLightClip"] = mPointLightClip;
     var["PerFrame"]["gShadowLodBias"] = mShadowLodBias;
     var["PerFrame"]["gEnableShadows"] = mEnableShadows ? 1 : 0;
+    var["PerFrame"]["gRoughnessCutoff"] = mRoughnessCutoff;
 
     var["DitherConstants"]["gRotatePattern"] = 1;
     var["DitherConstants"]["gObjectHashType"] = uint(mObjectHashType);
@@ -172,6 +173,9 @@ void DitherVBuffer2::renderUI(Gui::Widgets& widget)
         requestRecompile();
 
     widget.var("Path Length", mPathLength, 1, 64);
+
+    widget.var("Roughness Cutoff", mRoughnessCutoff, 0.0f, 1.0f);
+    widget.tooltip("Surfaces with lower roughness will not reflect");
 
     widget.dropdown("Dither", mDitherMode);
 
