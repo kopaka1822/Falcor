@@ -39,12 +39,14 @@ public:
     enum class DitherMode : uint32_t
     {
         RussianRoulette = 4,
+        SpatioTemporalBlueNoise = 11,
         Disabled = 0xff,
     };
 
     FALCOR_ENUM_INFO(DitherMode, {
         { DitherMode::Disabled, "Disabled" },
         { DitherMode::RussianRoulette, "RussianRoulette" },
+        { DitherMode::SpatioTemporalBlueNoise, "SpatioTemporalBlueNoise" }
     });
 
     enum class CoverageCorrection : uint32_t

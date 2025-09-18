@@ -12,6 +12,7 @@ import Utils.Math.FormatConversion;
 import Rendering.Materials.IsotropicGGX;
 import Utils.Color.ColorHelpers;
 import Rendering.Lights.LightHelpers;
+import Utils.Math.HashUtils;
 
 #include "Dither2.slangh"
 
@@ -20,8 +21,11 @@ import Utils.Sampling.Pseudorandom.Xoshiro;
 import Utils.Sampling.Pseudorandom.SplitMix64;
 import Utils.Math.BitTricks;
 
+#define DITHER
+
 struct UniformSampleGenerator : ISampleGenerator
 {
+#if DITHER_MODE == DITHER_MODE_RUSSIAN_ROULETTE || DITHER_MODE == DITHER_MODE_DISABLED 
     __init(uint2 pixel, uint sampleNumber)
     {
         SplitMix64 rng = createSplitMix64(interleave_32bit(pixel), sampleNumber);
@@ -38,6 +42,38 @@ struct UniformSampleGenerator : ISampleGenerator
     }
 
     Xoshiro128StarStar rng;
+#endif
+    uint floatRngToUint(float rng)
+    {
+        // rng function expects uniform random value in the upper 24 bits
+        //return uint(rng * 16777216.0) << 8u;
+        // return uint(rng / 0x1p-24) << 8u;
+        // return uint(rng * 4294967295);
+        return uint(rng * 255) << 24;
+    }
+#if DITHER_MODE == DITHER_MODE_STBN
+    __init(uint2 pixel, uint frameIndex)
+    {
+        initial = uint3(pixel, frameIndex);
+        offset = 0;
+    }
+
+    [mutating]
+    uint next()
+    {
+        uint3 p = initial;
+        p.x = (p.x + offset % 128u) % 128u;
+        p.y = (p.y + (offset / 128u) % 128u) % 128u;
+        p.z = (p.z + (offset / 16384u) % 64u) % 64u;
+        // p.z = (p.z + offset % 64u) % 64u;
+        this.offset = jenkinsHash(offset); // next offset
+        //this.offset += 0;
+        return floatRngToUint(gSpatioTemporalBlueNoiseTex[p]);
+    }
+
+    uint3 initial;
+    uint offset;
+#endif
 };
 
 float getObjectHash()
@@ -489,8 +525,9 @@ void rayGen()
         d.pixel = pixel;
         d.frameIndex = gFrameCount + 1; // hack to make it independent from transparency
         d.posW = v.posW;
-        
-        float rng = getRouletteThreshold(d);
+
+        // float rng = getRouletteThreshold(d);
+        float rng = sampleNext1D(sg);
 
         //float wReflect = saturate(dot(bsdfSample.weight, 0.33));
         //if (wReflect < 0.01)
