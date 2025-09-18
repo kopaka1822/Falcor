@@ -531,8 +531,8 @@ void rayGen()
 
             float3 H = -ray.dir + bsdfSample.wo;
             float lenH = length(H);
-            if(lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
-                viewTransform = mul(matrixMirror(v.posW, H / lenH), viewTransform);
+            if (lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
+                viewTransform = mul(viewTransform, matrixMirror(v.posW, H / lenH));
             ray.origin = sd.computeNewRayOrigin(!transmission);
             ray.dir = bsdfSample.wo;
         }
