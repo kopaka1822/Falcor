@@ -41,6 +41,8 @@ struct UniformSampleGenerator : ISampleGenerator
         return nextRandom(rng);
     }
 
+    [mutating] void updateRefractMask(uint mask) {}
+
     Xoshiro128StarStar rng;
 #endif
     uint floatRngToUint(float rng)
@@ -71,6 +73,11 @@ struct UniformSampleGenerator : ISampleGenerator
         return floatRngToUint(gSpatioTemporalBlueNoiseTex[p]);
     }
 
+    [mutating]
+    void updateRefractMask(uint mask) {
+        this.offset = jenkinsHash(mask + offset);
+    }
+
     uint3 initial;
     uint offset;
 #endif
@@ -96,6 +103,8 @@ struct UniformSampleGenerator : ISampleGenerator
         float rng = (v + gBlueNoise64x64Tex[(pixel + blueNoiseOffset) % 64u]) / 4.0;
         return floatRngToUint(rng);
     }
+
+    [mutating] void updateRefractMask(uint mask) {}
 
     uint2 pixel;
     uint frameIndex;
@@ -123,6 +132,8 @@ struct UniformSampleGenerator : ISampleGenerator
         float rng = (v + gBlueNoise64x64Tex[(pixel + blueNoiseOffset) % 64u]) / 9.0;
         return floatRngToUint(rng);
     }
+
+    [mutating] void updateRefractMask(uint mask) {}
 
     uint2 pixel;
     uint frameIndex;
@@ -514,6 +525,7 @@ void rayGen()
     float3 thp = 1.0; // path throughput
     float3 emission = 0.0; // emission along path
     float linearZ = 0.0;
+    uint refractMask = 1u; // tracks refractions (used for dither mask selection)
     float4x4 viewTransform = float4x4(
         1.0, 0.0, 0.0, 0.0,
         0.0, 1.0, 0.0, 0.0,
@@ -568,7 +580,8 @@ void rayGen()
         emission += thp * bsdf.diffuseReflectionAlbedo * gAmbientIntensity;
 
         // only delta reflections, refractions for next bounce
-        sd.mtl.setActiveLobes((uint) LobeType::Delta | (uint) LobeType::Specular);
+        sd.mtl.setActiveLobes((uint)LobeType::Delta | (uint)LobeType::Specular);
+        sg.updateRefractMask(refractMask);
         BSDFSample bsdfSample;
         if (!mi.sample(sd, sg, bsdfSample, true /*Importance sampling*/))
             bsdfSample.weight = 0.0;
@@ -619,6 +632,9 @@ void rayGen()
             thp *= bsdfSample.weight / wReflect; // adjust for non-monochrome weight
             ray.tMin = 1e-6;
             bool transmission = bsdfSample.isLobe(LobeType::Transmission);
+            // update refract mask (shift and add 1 bit if refraction)
+            refractMask = refractMask << 1u;
+            if (transmission) refractMask |= 1u;
 
             float3 H = -ray.dir + bsdfSample.wo;
             float lenH = length(H);
