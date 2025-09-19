@@ -38,6 +38,8 @@ class DitherVBuffer2 : public RenderPass
 public:
     enum class DitherMode : uint32_t
     {
+        PerPixel2x2 = 0,
+        PerPixel3x3 = 1,
         RussianRoulette = 4,
         SpatioTemporalBlueNoise = 11,
         Disabled = 0xff,
@@ -46,7 +48,9 @@ public:
     FALCOR_ENUM_INFO(DitherMode, {
         { DitherMode::Disabled, "Disabled" },
         { DitherMode::RussianRoulette, "RussianRoulette" },
-        { DitherMode::SpatioTemporalBlueNoise, "SpatioTemporalBlueNoise" }
+        { DitherMode::SpatioTemporalBlueNoise, "SpatioTemporalBlueNoise" },
+        { DitherMode::PerPixel2x2, "PerPixel2x2" },
+        { DitherMode::PerPixel3x3, "PerPixel3x3"}
     });
 
     enum class CoverageCorrection : uint32_t

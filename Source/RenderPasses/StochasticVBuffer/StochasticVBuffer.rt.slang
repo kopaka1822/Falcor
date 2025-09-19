@@ -9,6 +9,7 @@ import Utils.Math.PackedFormats;
 import Utils.Math.FormatConversion;
 import Rendering.Materials.IsotropicGGX;
 import Utils.Color.ColorHelpers;
+import Utils.Sampling.UniformSampleGenerator;
 
 cbuffer PerFrame
 {
@@ -97,7 +98,7 @@ void rayGen()
     uint2 frameDim = DispatchRaysDimensions().xy;
 
     Ray ray = gScene.camera.computeRayPinhole(pixel, frameDim);
-    SampleGenerator sg = SampleGenerator(pixel, gFrameCount);
+    UniformSampleGenerator sg = UniformSampleGenerator( pixel, gFrameCount );
 
     TraceData data = TraceData::create();
     HitInfo hitInfo;

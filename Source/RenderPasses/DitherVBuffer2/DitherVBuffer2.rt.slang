@@ -74,6 +74,60 @@ struct UniformSampleGenerator : ISampleGenerator
     uint3 initial;
     uint offset;
 #endif
+#if DITHER_MODE == DITHER_MODE_PER_PIXEL_2X2
+    __init(uint2 pixel, uint frameIndex)
+    {
+        this.pixel = pixel;
+        this.frameIndex = frameIndex;
+        offset = 0;
+    }
+
+    [mutating]
+    uint next()
+    {
+        uint4 mask = get2x2Permutation(offset); // mask with [0, 1, 2, 3] permutation
+        uint2 blueNoiseOffset = uint2(offset % 5, offset / 5) * 12u; // additional offset into the 64x64 blue noise texture, to pick different thresholds for each matrix
+        offset += 5; // 5 is coprime to 24 (number of matrices for 2x2 dither)
+        uint2 p = pixel;
+        if (gRotatePattern)
+            p = applyRotation(p, frameIndex, 2, 2); // rotate lookup based on frame index
+        uint lookup = (p.x % 2u) + 2u * (p.y % 2u);
+        uint v = mask[lookup]; // 0, 1, 2 or 3
+        float rng = (v + gBlueNoise64x64Tex[(pixel + blueNoiseOffset) % 64u]) / 4.0;
+        return floatRngToUint(rng);
+    }
+
+    uint2 pixel;
+    uint frameIndex;
+    uint offset;
+#endif
+#if DITHER_MODE == DITHER_MODE_PER_PIXEL_3X3
+    __init(uint2 pixel, uint frameIndex)
+    {
+        this.pixel = pixel;
+        this.frameIndex = frameIndex;
+        offset = 0;
+    }
+
+    [mutating]
+    uint next()
+    {
+        uint3x3 mask = get3x3Permutation(offset); // mask with [0, 1, 2, 3] permutation
+        uint2 blueNoiseOffset = uint2(offset % 5, offset / 5) * 12u; // additional offset into the 64x64 blue noise texture, to pick different thresholds for each matrix
+        offset += 7;
+        uint2 p = pixel;
+        if (gRotatePattern)
+            p = applyRotation(p, frameIndex, 3, 3); // rotate lookup based on frame index
+        p = p % 3u;
+        uint v = mask[p.y][p.x]; // 0-8
+        float rng = (v + gBlueNoise64x64Tex[(pixel + blueNoiseOffset) % 64u]) / 9.0;
+        return floatRngToUint(rng);
+    }
+
+    uint2 pixel;
+    uint frameIndex;
+    uint offset;
+#endif
 };
 
 float getObjectHash()

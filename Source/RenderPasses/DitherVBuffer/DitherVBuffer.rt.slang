@@ -16,8 +16,8 @@ import Utils.Color.ColorHelpers;
 
 float getObjectHash()
 {
-    if(gObjectHashType == OBJECT_HASH_QUADS) return hash3D(float3(InstanceID(), GeometryIndex(), PrimitiveIndex() / 2u));
-    return hash3D(float3(InstanceID(), GeometryIndex(), HitKind() == HIT_KIND_TRIANGLE_FRONT_FACE));
+    if(gObjectHashType == OBJECT_HASH_QUADS) return hash3D(float3(InstanceID(), GeometryIndex(), PrimitiveIndex() / 2u + 1.0));
+    return hash3D(float3(InstanceID() + 1.0, GeometryIndex(), HitKind() == HIT_KIND_TRIANGLE_FRONT_FACE));
     // raster ver:
     //if(gObjectHashType == OBJECT_HASH_QUADS) return hash(float2(InstanceID() + GeometryIndex(), PrimitiveIndex() / 2u));
     //return hash(float2(InstanceID() + GeometryIndex(), HitKind() == HIT_KIND_TRIANGLE_FRONT_FACE));
