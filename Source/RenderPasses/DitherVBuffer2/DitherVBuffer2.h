@@ -178,6 +178,8 @@ private:
     float mShadowLodBias = 0.0f;
 
     float mRoughnessCutoff = 0.5f;
+
+    bool mOptionsChanged = true;
 };
 
 FALCOR_ENUM_REGISTER(DitherVBuffer2::DitherMode);

@@ -27,6 +27,7 @@
  **************************************************************************/
 #include "DitherVBuffer2.h"
 #include "../DitherVBuffer/PermutationLookup.h"
+#include "RenderGraph/RenderPassStandardFlags.h"
 
 namespace
 {
@@ -103,6 +104,15 @@ RenderPassReflection DitherVBuffer2::reflect(const CompileData& compileData)
 
 void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    if (mOptionsChanged)
+    {
+        auto& dict = renderData.getDictionary();
+        auto refreshFlags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
+        refreshFlags |= RenderPassRefreshFlags::RenderOptionsChanged;
+        dict[kRenderPassRefreshFlags] = refreshFlags;
+        mOptionsChanged = false;
+    }
+
     auto pVbuffer = renderData.getTexture(kVbuffer);
     auto pMotion = renderData.getTexture(kMotion);
     auto pColor = renderData.getTexture(kColorOut);
@@ -172,27 +182,29 @@ void DitherVBuffer2::renderUI(Gui::Widgets& widget)
     if (widget.dropdown("Render Scale", mRenderScale))
         requestRecompile();
 
-    widget.var("Path Length", mPathLength, 1, 64);
+    bool c = false; // changed
 
-    widget.var("Roughness Cutoff", mRoughnessCutoff, 0.0f, 1.0f);
+    c |= widget.var("Path Length", mPathLength, 1, 64);
+
+    c |= widget.var("Roughness Cutoff", mRoughnessCutoff, 0.0f, 1.0f);
     widget.tooltip("Surfaces with lower roughness will not reflect");
 
-    widget.dropdown("Dither", mDitherMode);
+    c |= widget.dropdown("Dither", mDitherMode);
 
-    widget.dropdown("Correction", mCoverageCorrection);
+    c |= widget.dropdown("Correction", mCoverageCorrection);
     if (mCoverageCorrection != CoverageCorrection::Disabled)
     {
-        widget.slider("Correction Strength", mDLSSCorrectionStrength, 0.0f, 4.0f);
+        c |= widget.slider("Correction Strength", mDLSSCorrectionStrength, 0.0f, 4.0f);
     }
 
 
     if (auto g = widget.group("Scene"))
     {
-        widget.dropdown("Object Hash", mObjectHashType);
+        c |= widget.dropdown("Object Hash", mObjectHashType);
 
-        widget.checkbox("Cull Back Faces", mCullBackFaces);
+        c |= widget.checkbox("Cull Back Faces", mCullBackFaces);
 
-        widget.checkbox("Transparency Whitelist", mUseTransparencyWhitelist);
+        c |= widget.checkbox("Transparency Whitelist", mUseTransparencyWhitelist);
         widget.tooltip("Uses only whitelisted materials for dithering, when enabled. If not whitelisted, the material will use an alpha test.");
         if (mUseTransparencyWhitelist && mpScene)
         {
@@ -215,17 +227,19 @@ void DitherVBuffer2::renderUI(Gui::Widgets& widget)
 
     if (auto g = widget.group("Lighting"))
     {
-        widget.var("Ambient", mAmbientIntensity, 0.0f);
-        widget.var("Analytic", mAnalyticIntensity, 0.0f);
-        widget.var("Emission", mEmissionIntensity, 0.0f);
-        widget.var("Envmap", mEnvmapIntensity, 0.0f);
+        c |= widget.var("Ambient", mAmbientIntensity, 0.0f);
+        c |= widget.var("Analytic", mAnalyticIntensity, 0.0f);
+        c |= widget.var("Emission", mEmissionIntensity, 0.0f);
+        c |= widget.var("Envmap", mEnvmapIntensity, 0.0f);
     }
     if (auto g = widget.group("Shadows"))
     {
-        widget.checkbox("Enable Shadows", mEnableShadows);
-        widget.var("Point Light Clip", mPointLightClip, 0.0f);
-        widget.var("Shadow LOD Bias", mShadowLodBias, -16.0f, 16.0f, 0.5f);
+        c |= widget.checkbox("Enable Shadows", mEnableShadows);
+        c |= widget.var("Point Light Clip", mPointLightClip, 0.0f);
+        c |= widget.var("Shadow LOD Bias", mShadowLodBias, -16.0f, 16.0f, 0.5f);
     }
+
+    mOptionsChanged |= c;
 }
 
 void DitherVBuffer2::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
