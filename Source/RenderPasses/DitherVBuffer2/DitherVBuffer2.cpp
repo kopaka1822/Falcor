@@ -143,7 +143,7 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
 
     var["PerFrame"]["gFrameCount"] = mFrameCount;
     var["PerFrame"]["gDLSSCorrectionStrength"] = mDLSSCorrectionStrength;
-    var["PerFrame"]["gAlignMotionVectors"] = 0;
+    var["PerFrame"]["gAlignMotionVectors"] = mAlignMotionVectors ? 1 : 0;
     var["PerFrame"]["gPathLength"] = mPathLength;
     var["PerFrame"]["gAmbientIntensity"] = mAmbientIntensity;
     var["PerFrame"]["gAnalyticIntensity"] = mAnalyticIntensity;
@@ -154,7 +154,7 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
     var["PerFrame"]["gEnableShadows"] = mEnableShadows ? 1 : 0;
     var["PerFrame"]["gRoughnessCutoff"] = mRoughnessCutoff;
 
-    var["DitherConstants"]["gRotatePattern"] = 1;
+    var["DitherConstants"]["gRotatePattern"] = mRotatePattern ? 1 : 0;
     var["DitherConstants"]["gObjectHashType"] = uint(mObjectHashType);
     var["DitherConstants"]["gDitherTAAPermutations"] = 1;
 
@@ -183,6 +183,9 @@ void DitherVBuffer2::renderUI(Gui::Widgets& widget)
         requestRecompile();
 
     bool c = false; // changed
+    const bool is2DDither = mDitherMode == DitherMode::PerPixel2x2 ||
+        mDitherMode == DitherMode::PerPixel3x3;
+        //|| mDitherMode == DitherMode::PerPixel4x4;
 
     c |= widget.var("Path Length", mPathLength, 1, 64);
 
@@ -190,6 +193,15 @@ void DitherVBuffer2::renderUI(Gui::Widgets& widget)
     widget.tooltip("Surfaces with lower roughness will not reflect");
 
     c |= widget.dropdown("Dither", mDitherMode);
+
+    if (is2DDither)
+    {
+        widget.checkbox("Align Motion Vector", mAlignMotionVectors);
+        widget.tooltip("Align motion vector to grid size to prevent issues when moving camera");
+        widget.checkbox("Serpentine Pattern", mRotatePattern);
+        widget.tooltip("Rotates the per-pixel dither pattern based on the frame index");
+    }
+
 
     c |= widget.dropdown("Correction", mCoverageCorrection);
     if (mCoverageCorrection != CoverageCorrection::Disabled)

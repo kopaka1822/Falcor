@@ -159,6 +159,8 @@ private:
     CoverageCorrection mCoverageCorrection = CoverageCorrection::DLSS;
     float mDLSSCorrectionStrength = 1.0;
     ObjectHashType mObjectHashType = ObjectHashType::Geometry;
+    bool mAlignMotionVectors = false;
+    bool mRotatePattern = true;
 
     bool mCullBackFaces = false;
     int mPathLength = 10;
