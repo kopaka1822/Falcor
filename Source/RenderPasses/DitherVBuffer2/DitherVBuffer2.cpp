@@ -42,6 +42,8 @@ namespace
     const std::string kUseWhitelist = "useWhitelist";
     const std::string kWhitelist = "whitelist";
     const std::string kWhitelistBuffer = "whitelistBuffer"; // GPU Buffer for whitelist
+
+    const std::string kDebug = "debug";
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -99,6 +101,8 @@ RenderPassReflection DitherVBuffer2::reflect(const CompileData& compileData)
     reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).flags(RenderPassReflection::Field::Flags::Optional).texture2D(dims.x, dims.y);
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
+
+    reflector.addOutput(kDebug, "Debug output").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y, 1, 1, mPathLength);
     return reflector;
 }
 
@@ -117,6 +121,7 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
     auto pMotion = renderData.getTexture(kMotion);
     auto pColor = renderData.getTexture(kColorOut);
     auto pDepth = renderData.getTexture(kDepthOut);
+    auto pDebug = renderData.getTexture(kDebug);
 
     if (!mpScene)
     {
@@ -140,6 +145,11 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
     var["gPermutations3x3"] = mpPermutations3x3Buffer;
     var["gBlueNoise64x64Tex"] = mpBlueNoise64Tex;
     var["gSpatioTemporalBlueNoiseTex"] =mpSpatioTemporalBlueNoiseTex;
+    if (pDebug)
+    {
+        pRenderContext->clearTexture(pDebug.get(), float4(0, 0, 0, 0));
+        var["gDebugTex"] = pDebug;
+    }
 
     var["PerFrame"]["gFrameCount"] = mFrameCount;
     var["PerFrame"]["gDLSSCorrectionStrength"] = mDLSSCorrectionStrength;
@@ -196,9 +206,9 @@ void DitherVBuffer2::renderUI(Gui::Widgets& widget)
 
     if (is2DDither)
     {
-        widget.checkbox("Align Motion Vector", mAlignMotionVectors);
+        c |= widget.checkbox("Align Motion Vector", mAlignMotionVectors);
         widget.tooltip("Align motion vector to grid size to prevent issues when moving camera");
-        widget.checkbox("Serpentine Pattern", mRotatePattern);
+        c |= widget.checkbox("Serpentine Pattern", mRotatePattern);
         widget.tooltip("Rotates the per-pixel dither pattern based on the frame index");
     }
 

@@ -21,6 +21,8 @@ import Utils.Sampling.Pseudorandom.Xoshiro;
 import Utils.Sampling.Pseudorandom.SplitMix64;
 import Utils.Math.BitTricks;
 
+RWTexture2DArray<float4> gDebugTex;
+
 #define DITHER
 
 struct UniformSampleGenerator : ISampleGenerator
@@ -48,10 +50,10 @@ struct UniformSampleGenerator : ISampleGenerator
     uint floatRngToUint(float rng)
     {
         // rng function expects uniform random value in the upper 24 bits
-        //return uint(rng * 16777216.0) << 8u;
+        return uint(rng * 16777216.0) << 8u;
         // return uint(rng / 0x1p-24) << 8u;
         // return uint(rng * 4294967295);
-        return uint(rng * 255) << 24;
+        //return uint(rng * 255) << 24;
     }
 #if DITHER_MODE == DITHER_MODE_STBN
     __init(uint2 pixel, uint frameIndex)
@@ -67,15 +69,17 @@ struct UniformSampleGenerator : ISampleGenerator
         p.x = (p.x + offset % 128u) % 128u;
         p.y = (p.y + (offset / 128u) % 128u) % 128u;
         p.z = (p.z + (offset / 16384u) % 64u) % 64u;
-        // p.z = (p.z + offset % 64u) % 64u;
+        float rng = gSpatioTemporalBlueNoiseTex[p];
+        //this.offset += 1535;
         this.offset = jenkinsHash(offset); // next offset
-        //this.offset += 0;
-        return floatRngToUint(gSpatioTemporalBlueNoiseTex[p]);
+        return floatRngToUint(rng);
     }
 
     [mutating]
     void updateRefractMask(uint mask) {
-        this.offset = jenkinsHash(mask + offset);
+        //this.offset += mask * 17;
+        //this.offset = mask;// * 4 * 128 * 128;
+        this.offset = jenkinsHash(mask);
     }
 
     uint3 initial;
@@ -104,7 +108,9 @@ struct UniformSampleGenerator : ISampleGenerator
         return floatRngToUint(rng);
     }
 
-    [mutating] void updateRefractMask(uint mask) {}
+    [mutating] void updateRefractMask(uint mask) {
+        offset = mask * 4; // assume ~4 rngs per intersection
+    }
 
     uint2 pixel;
     uint frameIndex;
@@ -122,8 +128,9 @@ struct UniformSampleGenerator : ISampleGenerator
     uint next()
     {
         uint3x3 mask = get3x3Permutation(offset); // mask with [0, 1, 2, 3] permutation
-        uint2 blueNoiseOffset = uint2(offset % 5, offset / 5) * 12u; // additional offset into the 64x64 blue noise texture, to pick different thresholds for each matrix
-        offset += 7;
+        uint2 blueNoiseOffset = uint2(0, 0);///uint2(offset % 64, offset / 64); // additional offset into the 64x64 blue noise texture, to pick different thresholds for each matrix
+        //offset = jenkinsHash(offset); // next offset
+        offset += 1;
         uint2 p = pixel;
         if (gRotatePattern)
             p = applyRotation(p, frameIndex, 3, 3); // rotate lookup based on frame index
@@ -133,7 +140,10 @@ struct UniformSampleGenerator : ISampleGenerator
         return floatRngToUint(rng);
     }
 
-    [mutating] void updateRefractMask(uint mask) {}
+    [mutating] void updateRefractMask(uint mask) {
+        //this.offset = jenkinsHash(mask);
+        this.offset = mask * 4; // assume ~4 rngs per intersection
+    }
 
     uint2 pixel;
     uint frameIndex;
@@ -582,6 +592,12 @@ void rayGen()
         // only delta reflections, refractions for next bounce
         sd.mtl.setActiveLobes((uint)LobeType::Delta | (uint)LobeType::Specular);
         sg.updateRefractMask(refractMask);
+        {
+            UniformSampleGenerator sgCopy = sg;
+            float4 rngs = sampleNext4D(sgCopy);
+            gDebugTex[uint3(pixel, i)] = rngs;
+        }
+        float rng = sampleNext1D(sg); // rng for next path decision
         BSDFSample bsdfSample;
         if (!mi.sample(sd, sg, bsdfSample, true /*Importance sampling*/))
             bsdfSample.weight = 0.0;
@@ -594,7 +610,6 @@ void rayGen()
         d.posW = v.posW;
 
         // float rng = getRouletteThreshold(d);
-        float rng = sampleNext1D(sg);
 
         //float wReflect = saturate(dot(bsdfSample.weight, 0.33));
         //if (wReflect < 0.01)

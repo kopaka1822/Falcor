@@ -26,6 +26,7 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "DLSSPass.h"
+#include "RenderGraph/RenderPassStandardFlags.h"
 
 namespace
 {
@@ -355,6 +356,15 @@ void DLSSPass::executeInternal(RenderContext* pRenderContext, const RenderData& 
         // This causes a one frame delay, but unfortunately we don't know the size until after initializeDLSS().
         if (mOutputSizeSelection == RenderPassHelpers::IOSize::Fixed && any(mPassOutputSize != mDLSSOutputSize))
             requestRecompile();
+    }
+
+    {
+        // Query refresh flags passed down from the application and other passes.
+        auto& dict = renderData.getDictionary();
+        auto refreshFlags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
+
+        // If any refresh flag is set, we reset frame accumulation.
+        if (refreshFlags != RenderPassRefreshFlags::None) mReset = true;
     }
 
     {
