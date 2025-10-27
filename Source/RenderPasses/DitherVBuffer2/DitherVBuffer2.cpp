@@ -172,6 +172,7 @@ void DitherVBuffer2::execute(RenderContext* pRenderContext, const RenderData& re
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
     mpProgram->addDefine("DITHER_MODE", std::to_string(uint32_t(mDitherMode)));
     mpProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
+    mpProgram->addDefine("MVEC", std::to_string(uint32_t(mMotionVector)));
 
     uint3 dispatch = uint3(1);
     dispatch.x = pVbuffer->getWidth();
@@ -201,6 +202,8 @@ void DitherVBuffer2::renderUI(Gui::Widgets& widget)
 
     c |= widget.var("Roughness Cutoff", mRoughnessCutoff, 0.0f, 1.0f);
     widget.tooltip("Surfaces with lower roughness will not reflect");
+
+    c |= widget.dropdown("Motion Vectors", mMotionVector);
 
     c |= widget.dropdown("Dither", mDitherMode);
 

@@ -23,6 +23,13 @@ import Utils.Math.BitTricks;
 
 RWTexture2DArray<float4> gDebugTex;
 
+#define MVEC_FIRST_HIT 0
+#define MVEC_HALFWAY_REFLECT 1
+#define MVEC_RAY_DIFF 2
+#ifndef MVEC
+#define MVEC MVEC_HALFWAY_REFLECT
+#endif
+
 #define DITHER
 
 struct UniformSampleGenerator : ISampleGenerator
@@ -527,6 +534,16 @@ float4x4 matrixMirror(float3 O, float3 N)
     return transpose(M);
 }
 
+float4x4 float4x4Identity()
+{
+    return float4x4(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    );
+}
+
 [shader("raygeneration")]
 void rayGen()
 {
@@ -536,12 +553,10 @@ void rayGen()
     float3 emission = 0.0; // emission along path
     float linearZ = 0.0;
     uint refractMask = 1u; // tracks refractions (used for dither mask selection)
-    float4x4 viewTransform = float4x4(
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0
-    );
+
+    #if MVEC == MVEC_HALFWAY_REFLECT
+    float4x4 viewTransform = float4x4Identity();
+    #endif
 
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameCount);
     Ray ray = gScene.camera.computeRayPinhole(pixel, frameDim);
@@ -563,8 +578,8 @@ void rayGen()
             return;
 
         TriangleHit triangleHit = hit.getTriangleHit();
-        if(i == 0) // motion vector from initial intersection
-            gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, true, viewTransform);
+        if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
+            gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, true, float4x4Identity());
         
         // decide wheter to accept hit or continue tracing
         let v = gScene.getVertexData(triangleHit);
@@ -638,7 +653,9 @@ void rayGen()
             gVBuffer[pixel] = data.hit; // this hit was accepted
             gDepth[pixel] = linearToNonLinearZ(linearZ);
 
+            #if MVEC == MVEC_HALFWAY_REFLECT
             gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, true, viewTransform);
+            #endif
             return;
         }
         else
@@ -651,18 +668,21 @@ void rayGen()
             refractMask = refractMask << 1u;
             if (transmission) refractMask |= 1u;
 
+            #if MVEC == MVEC_HALFWAY_REFLECT
             float3 H = -ray.dir + bsdfSample.wo;
             float lenH = length(H);
             if (lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
                 viewTransform = mul(viewTransform, matrixMirror(v.posW, H / lenH));
+            #endif
+
             ray.origin = sd.computeNewRayOrigin(!transmission);
             ray.dir = bsdfSample.wo;
         }
     }
-    
+
     // => no hit, eval envmap
-    if (i == 0) // use envmap motion vector if no hit at all
-    {
+    if (i == 0 || MVEC != MVEC_FIRST_HIT) // use envmap motion vector if no hit at all (If the final hit is an envmap, we can use this with the assumption that the last ray reflected on the same surfaces)
+    { 
         float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/false).dir;
         float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
         float2 prevUV = ViewSpaceToUV(prevEnvMapDir);

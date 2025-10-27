@@ -97,6 +97,19 @@ public:
         {RenderScale::UtraPerformance, "UltraPerformance (33.3%)"},
     });
 
+    enum class MotionVector : uint32_t
+    {
+        FirstHit,
+        HalfwayReflection,
+        RayDifferentials
+    };
+
+    FALCOR_ENUM_INFO(MotionVector, {
+        {MotionVector::FirstHit, "FirstHit"},
+        {MotionVector::HalfwayReflection, "HalfwayReflection"},
+        {MotionVector::RayDifferentials, "RayDifferentials"},
+    });
+
     FALCOR_PLUGIN_CLASS(DitherVBuffer2, "DitherVBuffer2", "VBuffer with Dithering options for transparency and reflections");
 
     static ref<DitherVBuffer2> create(ref<Device> pDevice, const Properties& props) { return make_ref<DitherVBuffer2>(pDevice, props); }
@@ -164,6 +177,7 @@ private:
 
     bool mCullBackFaces = false;
     int mPathLength = 10;
+    MotionVector mMotionVector = MotionVector::HalfwayReflection;
     //bool mAlignMotionVectors = false; // align when using pixel grid techniques
     //bool mRotatePattern = true; // rotate pattern when using pixel grid techniques
 
@@ -188,3 +202,4 @@ FALCOR_ENUM_REGISTER(DitherVBuffer2::DitherMode);
 FALCOR_ENUM_REGISTER(DitherVBuffer2::CoverageCorrection);
 FALCOR_ENUM_REGISTER(DitherVBuffer2::ObjectHashType);
 FALCOR_ENUM_REGISTER(DitherVBuffer2::RenderScale);
+FALCOR_ENUM_REGISTER(DitherVBuffer2::MotionVector);
