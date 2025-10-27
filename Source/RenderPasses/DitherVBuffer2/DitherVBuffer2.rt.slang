@@ -13,6 +13,7 @@ import Rendering.Materials.IsotropicGGX;
 import Utils.Color.ColorHelpers;
 import Rendering.Lights.LightHelpers;
 import Utils.Math.HashUtils;
+import Rendering.Materials.TexLODHelpers;
 
 #include "Dither2.slangh"
 
@@ -534,13 +535,43 @@ float4x4 matrixMirror(float3 O, float3 N)
     return transpose(M);
 }
 
-float4x4 float4x4Identity()
+float4x4 matrixIdentity()
 {
     return float4x4(
         1.0, 0.0, 0.0, 0.0,
         0.0, 1.0, 0.0, 0.0,
         0.0, 0.0, 1.0, 0.0,
         0.0, 0.0, 0.0, 1.0
+    );
+}
+
+// solves t * T + b * B = R and returns (t, b)
+float2 solveLinearEq(float3 T, float3 B, float3 R)
+{
+    // Compute which axis to drop
+    float3 sum = abs(T) + abs(B);
+    uint drop = (sum.x < sum.y)
+                    ? ((sum.x < sum.z) ? 0u : 2u)
+                    : ((sum.y < sum.z) ? 1u : 2u);
+
+    float2 T2, B2, R2;
+    [branch]
+    switch (drop)
+    {
+        case 0: T2 = T.yz; B2 = B.yz; R2 = R.yz; break; // drop x
+        case 1: T2 = T.xz; B2 = B.xz; R2 = R.xz; break; // drop y
+        default: T2 = T.xy; B2 = B.xy; R2 = R.xy; break; // drop z
+    }
+
+    // Solve the 2×2 linear system
+    float det = T2.x * B2.y - T2.y * B2.x;
+    if (abs(det) < 1e-8)
+        return float2(0.0, 0.0); // Degenerate or parallel T/B
+
+    float invDet = rcp(det);
+    return float2(
+        (R2.x * B2.y - R2.y * B2.x) * invDet,  // t
+        (T2.x * R2.y - T2.y * R2.x) * invDet   // b
     );
 }
 
@@ -555,11 +586,23 @@ void rayGen()
     uint refractMask = 1u; // tracks refractions (used for dither mask selection)
 
     #if MVEC == MVEC_HALFWAY_REFLECT
-    float4x4 viewTransform = float4x4Identity();
+    float4x4 viewTransform = matrixIdentity();
     #endif
 
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameCount);
     Ray ray = gScene.camera.computeRayPinhole(pixel, frameDim);
+
+    #if MVEC == MVEC_RAY_DIFF
+    Ray ray2; // ray for previous frame
+    ray2.origin = mul(gScene.camera.data.prevViewMat, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    ray2.dir = ray.dir; // use parallel ray
+
+    // create tangent frame for ray2
+    float3 ray2T = normalize(cross(ray2.dir, float3(0.0, 1.0, 0.0)));
+    float3 ray2B = normalize(cross(ray2.dir, ray2T));
+    float3 dO = 0.0; // zero dOdx, dOdy
+    RayDiff rd = RayDiff(dO, dO, ray2T, ray2B);
+    #endif
 
     RayData data;
     uint rayFlags = 0;
@@ -579,7 +622,7 @@ void rayGen()
 
         TriangleHit triangleHit = hit.getTriangleHit();
         if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
-            gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, true, float4x4Identity());
+            gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, true, matrixIdentity());
         
         // decide wheter to accept hit or continue tracing
         let v = gScene.getVertexData(triangleHit);
@@ -587,7 +630,14 @@ void rayGen()
         let lod = ExplicitLodTextureSampler(0.0);
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.dir, lod);
         linearZ += distance(ray.origin, v.posW);
-        
+
+        #if MVEC == MVEC_RAY_DIFF
+        // TODO transfer on a simpler plane for the last intersection
+        float ray2t = dot(v.faceNormalW, v.posW - ray2.origin) / dot(v.faceNormalW, ray2.dir);
+        rd = rd.propagate(ray2.origin, ray2.dir, ray2t, v.faceNormalW);
+        ray2.origin = ray2.origin + ray2t * ray2.dir;
+        #endif
+
         // check if viewing from wrong side (since adjust shading normal does not always work as expected)
         //if (!sd.frontFacing)
         {
@@ -656,6 +706,16 @@ void rayGen()
             #if MVEC == MVEC_HALFWAY_REFLECT
             gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, true, viewTransform);
             #endif
+
+            #if MVEC == MVEC_RAY_DIFF
+            // solve the equation ray2.origin + t * rd.dOdx + b * rd.dOdy = v.posW
+            // => t * rd.dOdx + b * rd.dOdy = v.posW - ray2.origin
+            float2 tb = solveLinearEq(rd.dOdx, rd.dOdy, v.posW - ray2.origin);
+            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
+            float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
+            float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
+            gMotion[pixel] = getAlignedMotionVector(prevUV - (float2(pixel) + 0.5) / float2(frameDim), false);
+            #endif
             return;
         }
         else
@@ -664,6 +724,7 @@ void rayGen()
             thp *= bsdfSample.weight / wReflect; // adjust for non-monochrome weight
             ray.tMin = 1e-6;
             bool transmission = bsdfSample.isLobe(LobeType::Transmission);
+
             // update refract mask (shift and add 1 bit if refraction)
             refractMask = refractMask << 1u;
             if (transmission) refractMask |= 1u;
@@ -673,6 +734,18 @@ void rayGen()
             float lenH = length(H);
             if (lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
                 viewTransform = mul(viewTransform, matrixMirror(v.posW, H / lenH));
+            #endif
+
+            #if MVEC == MVEC_RAY_DIFF
+            if (transmission)
+            {
+                rd = rd.refract(ray2.dir, bsdfSample.wo, sd.faceN);
+            }
+            else
+            {
+                rd = rd.reflect(ray2.dir, bsdfSample.wo); // uses halway vector as normal
+            }
+            ray2.dir = bsdfSample.wo;
             #endif
 
             ray.origin = sd.computeNewRayOrigin(!transmission);
