@@ -339,6 +339,38 @@ float2 solveLinearEq(float3 T, float3 B, float3 R)
     );
 }
 
+struct VBufferReservoir
+{
+    float weightSum;
+    // data
+    float depth;
+    float2 mvec;
+    PackedHitInfo vbuffer;
+
+    // update function, returns true if reservoir should be updated, false if old data should be kept
+    [mutating]
+    bool update(float3 localContribution, float rng)
+    {
+        float local = dot(localContribution, 1.0);
+
+        // if max weight
+        weightSum = max(weightSum, local);
+        return weightSum == local; // true if local is max, false otherwise
+
+        // if reservoir sampling
+        //weightSum += local;
+        //return rng * weightSum <= local; // true if update/replace, false if keep old
+    }
+
+    void writeData(uint2 pixel, float3 color)
+    {
+        gColor[pixel] = float4(color, 1.0);
+        gVBuffer[pixel] = vbuffer;
+        gMotion[pixel] = mvec;
+        gDepth[pixel] = depth;
+    }
+};
+
 [shader("raygeneration")]
 void rayGen()
 {
@@ -347,6 +379,12 @@ void rayGen()
     float3 thp = 1.0; // path throughput
     float3 color = 0.0; // color along path
     float linearZ = 0.0;
+
+    VBufferReservoir curVBuffer;
+    curVBuffer.weightSum = 0.0;
+    curVBuffer.mvec = 0.0;
+    curVBuffer.depth = 0.0;
+    curVBuffer.vbuffer = {};
 
     #if MVEC == MVEC_HALFWAY_REFLECT
     float4x4 viewTransform = matrixIdentity();
@@ -385,7 +423,7 @@ void rayGen()
 
         TriangleHit triangleHit = hit.getTriangleHit();
         if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
-            gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, matrixIdentity());
+            curVBuffer.mvec = calcMotionVector(pixel, frameDim, triangleHit, matrixIdentity());
         
         // decide wheter to accept hit or continue tracing
         let v = gScene.getVertexData(triangleHit);
@@ -406,6 +444,36 @@ void rayGen()
         );
         color += localContribution;
 
+        if (curVBuffer.update(localContribution, sampleNext1D(sg)))
+        {
+            curVBuffer.vbuffer = data.hit;
+            curVBuffer.depth = linearToNonLinearZ(linearZ);
+
+            #if MVEC == MVEC_HALFWAY_REFLECT
+            curVBuffer.mvec = calcMotionVector(pixel, frameDim, triangleHit, viewTransform);
+            #endif
+
+            #if MVEC == MVEC_RAY_DIFF
+            // transfer to the final plane with point prevPosW and surface normal -ray2.dir
+            float3 prevPosW = gScene.getPrevPosW(triangleHit);
+            float ray2t = dot(ray2.dir, prevPosW - ray2.origin);
+            rd = rd.propagate(ray2.origin, ray2.dir, ray2t, -ray2.dir);
+            ray2.origin = ray2.origin + ray2t * ray2.dir;
+
+            // solve the equation ray2.origin + t * rd.dOdx + b * rd.dOdy = prevPosW
+            // => t * rd.dOdx + b * rd.dOdy = prevPosW - ray2.origin
+            float2 tb = solveLinearEq(rd.dOdx, rd.dOdy, prevPosW - ray2.origin);
+            // float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
+            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, false /*no jitter*/) .dir; // reconstruct a vector without jitter
+            float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
+            float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
+            curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
+            #endif
+        }
+
+        // use this as vbuffer?
+
+
         // only delta reflections, refractions for next bounce
         sd.mtl.setActiveLobes((uint)LobeType::Delta | (uint)LobeType::Specular);
         float rng = sampleNext1D(sg); // rng for next path decision
@@ -423,31 +491,7 @@ void rayGen()
 
         if (all(thp * bsdfSample.weight <= MIN_VISIBILITY))
         {
-            //gColor[pixel] = float4(emission + thp * shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
-            gColor[pixel] = float4(color, 1.0);
-            gVBuffer[pixel] = data.hit; // this hit was accepted
-            gDepth[pixel] = linearToNonLinearZ(linearZ);
-
-            #if MVEC == MVEC_HALFWAY_REFLECT
-            gMotion[pixel] = calcMotionVector(pixel, frameDim, triangleHit, viewTransform);
-            #endif
-
-            #if MVEC == MVEC_RAY_DIFF
-            // transfer to the final plane with point prevPosW and surface normal -ray2.dir
-            float3 prevPosW = gScene.getPrevPosW(triangleHit);
-            float ray2t = dot(ray2.dir, prevPosW - ray2.origin);
-            rd = rd.propagate(ray2.origin, ray2.dir, ray2t, -ray2.dir);
-            ray2.origin = ray2.origin + ray2t * ray2.dir;
-
-            // solve the equation ray2.origin + t * rd.dOdx + b * rd.dOdy = prevPosW
-            // => t * rd.dOdx + b * rd.dOdy = prevPosW - ray2.origin
-            float2 tb = solveLinearEq(rd.dOdx, rd.dOdy, prevPosW - ray2.origin);
-            // float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
-            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, false /*no jitter*/).dir; // reconstruct a vector without jitter
-            float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
-            float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
-            gMotion[pixel] = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
-            #endif
+            curVBuffer.writeData(pixel, color);
             return;
         }
         else
@@ -480,17 +524,21 @@ void rayGen()
         }
     }
 
-    // => no hit, eval envmap
-    if (i == 0 || MVEC != MVEC_FIRST_HIT) // use envmap motion vector if no hit at all (If the final hit is an envmap, we can use this with the assumption that the last ray reflected on the same surfaces)
+    // envmap hit
+    float3 localContribution = thp * shadeEnvmap(-ray.dir).rgb;
+    color += localContribution;
+    if(curVBuffer.update(localContribution, sampleNext1D(sg)))
     {
-        float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/ false).dir;
-        float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
-        float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
-        gMotion[pixel] = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
+        if (i == 0 || MVEC != MVEC_FIRST_HIT) // use envmap motion vector if no hit at all (If the final hit is an envmap, we can use this with the assumption that the last ray reflected on the same surfaces)
+        {
+            float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/ false).dir;
+            float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
+            float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
+            curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
+        }
+        curVBuffer.vbuffer = data.hit;
+        curVBuffer.depth = linearToNonLinearZ(linearZ);
     }
 
-    float3 localContribution = thp * shadeEnvmap(-ray.dir).rgb;
-    gColor[pixel] = float4(color + localContribution, 1.0);
-    gVBuffer[pixel] = data.hit;
-    gDepth[pixel] = 1.0; // far plane
+    curVBuffer.writeData(pixel, color);
 }
