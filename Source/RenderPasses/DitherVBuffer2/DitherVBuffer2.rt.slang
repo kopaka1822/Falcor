@@ -631,13 +631,6 @@ void rayGen()
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.dir, lod);
         linearZ += distance(ray.origin, v.posW);
 
-        #if MVEC == MVEC_RAY_DIFF
-        // TODO transfer on a simpler plane for the last intersection
-        float ray2t = dot(v.faceNormalW, v.posW - ray2.origin) / dot(v.faceNormalW, ray2.dir);
-        rd = rd.propagate(ray2.origin, ray2.dir, ray2t, v.faceNormalW);
-        ray2.origin = ray2.origin + ray2t * ray2.dir;
-        #endif
-
         // check if viewing from wrong side (since adjust shading normal does not always work as expected)
         //if (!sd.frontFacing)
         {
@@ -708,9 +701,15 @@ void rayGen()
             #endif
 
             #if MVEC == MVEC_RAY_DIFF
-            // solve the equation ray2.origin + t * rd.dOdx + b * rd.dOdy = v.posW
-            // => t * rd.dOdx + b * rd.dOdy = v.posW - ray2.origin
-            float2 tb = solveLinearEq(rd.dOdx, rd.dOdy, v.posW - ray2.origin);
+            // transfer to the final plane with point prevPosW and surface normal -ray2.dir
+            float3 prevPosW = gScene.getPrevPosW(triangleHit);
+            float ray2t = dot(ray2.dir, prevPosW - ray2.origin);
+            rd = rd.propagate(ray2.origin, ray2.dir, ray2t, -ray2.dir);
+            ray2.origin = ray2.origin + ray2t * ray2.dir;
+
+            // solve the equation ray2.origin + t * rd.dOdx + b * rd.dOdy = prevPosW
+            // => t * rd.dOdx + b * rd.dOdy = prevPosW - ray2.origin
+            float2 tb = solveLinearEq(rd.dOdx, rd.dOdy, prevPosW - ray2.origin);
             // float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
             float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, false /*no jitter*/).dir; // reconstruct a vector without jitter
             float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
@@ -738,7 +737,12 @@ void rayGen()
             #endif
 
             #if MVEC == MVEC_RAY_DIFF
-            if (transmission)  rd = rd.refract(ray2.dir, bsdfSample.wo, sd.faceN);
+            // transfer to the current plane
+            float ray2t = dot(v.faceNormalW, v.posW - ray2.origin) / dot(v.faceNormalW, ray2.dir);
+            rd = rd.propagate(ray2.origin, ray2.dir, ray2t, v.faceNormalW);
+            ray2.origin = ray2.origin + ray2t * ray2.dir;
+            // reflect or refract
+            if (transmission) rd = rd.refract(ray2.dir, bsdfSample.wo, v.faceNormalW);
             else rd = rd.reflect(ray2.dir, bsdfSample.wo); // uses halway vector as normal
             ray2.dir = bsdfSample.wo;
             #endif

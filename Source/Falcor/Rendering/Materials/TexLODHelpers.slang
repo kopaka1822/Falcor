@@ -541,7 +541,7 @@ struct RayDiff
     // reflect with incomming D and reflect R direction, assumung zero change in normal
     RayDiff reflect(float3 D, float3 R)
     {
-        float3 N = normalize(D + R);
+        float3 N = normalize(-D + R);
         float3 dNdx = 0.0; // TODO compute corrrect dN
         float3 dNdy = 0.0;
         float dDNdx = dot(dDdx, N) + dot(D, dNdx);
@@ -559,11 +559,11 @@ struct RayDiff
         // force correct normal direction
         if (dot(N, D) > 0.0) N = -N; // TODO is this required?
 
-        float eta = -dot(N, T) / dot(N, D);
-
         float NdD = dot(N, D);
         float NdT = dot(N, T);
+        float eta = sqrt(1.0 - NdD * NdD) / sqrt(1.0 - NdT * NdT);
         float mu = eta * NdD - NdT;
+
 
         float dDNdx = dot(dDdx, N) + dot(D, dNdx);
         float dDNdy = dot(dDdy, N) + dot(D, dNdy);
