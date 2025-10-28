@@ -47,8 +47,6 @@ struct UniformSampleGenerator : ISampleGenerator
         return nextRandom(rng);
     }
 
-    [mutating] void updateRefractMask(uint mask) {}
-
     Xoshiro128StarStar rng;
 };
 
@@ -278,8 +276,12 @@ float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance m
 
         // shadow ray
         bool transmission = NdotL < 0.0;
-        float V = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i);
-        color += max(V * mi.eval(sd, ls.dir, sg) * ls.Li, 0.0);
+        float3 unshadowed = max(mi.eval(sd, ls.dir, sg) * ls.Li, 0.0);
+        if(any(unshadowed > MIN_VISIBILITY))
+        {
+            float shadow = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i);
+            color += unshadowed * shadow;
+        }
     }
     return gAnalyticIntensity * color;
 }
@@ -343,9 +345,8 @@ void rayGen()
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
     float3 thp = 1.0; // path throughput
-    float3 emission = 0.0; // emission along path
+    float3 color = 0.0; // color along path
     float linearZ = 0.0;
-    uint refractMask = 1u; // tracks refractions (used for dither mask selection)
 
     #if MVEC == MVEC_HALFWAY_REFLECT
     float4x4 viewTransform = matrixIdentity();
@@ -397,50 +398,33 @@ void rayGen()
         let mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
         let bsdf = mi.getProperties(sd);
 
-        // emission and ambience at every step (directly available due to bsdf)
-        emission += thp * bsdf.emission * gEmissionIntensity;
-        emission += thp * bsdf.diffuseReflectionAlbedo * gAmbientIntensity;
+        // compute local color contribution
+        float3 localContribution = thp * (
+            bsdf.emission * gEmissionIntensity +
+            bsdf.diffuseReflectionAlbedo * gAmbientIntensity +
+            evalAnalytic(pixel, sd, mi, sg)
+        );
+        color += localContribution;
 
         // only delta reflections, refractions for next bounce
         sd.mtl.setActiveLobes((uint)LobeType::Delta | (uint)LobeType::Specular);
-        sg.updateRefractMask(refractMask);
-        {
-            UniformSampleGenerator sgCopy = sg;
-            float4 rngs = sampleNext4D(sgCopy);
-            gDebugTex[uint3(pixel, i)] = rngs;
-        }
         float rng = sampleNext1D(sg); // rng for next path decision
         BSDFSample bsdfSample;
         if (!mi.sample(sd, sg, bsdfSample, true /*Importance sampling*/))
             bsdfSample.weight = 0.0;
-        
+        if (bsdf.roughness > gRoughnessCutoff)
+            bsdfSample.weight = 0.0; // force absorb
+        if (i == gPathLength - 1)
+            bsdfSample.weight = 0.0; // force absorb
+
         sd.mtl.setActiveLobes((uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)
-       
 
-        // float rng = getRouletteThreshold(d);
+        // check if additional ray or last intersection
 
-        //float wReflect = saturate(dot(bsdfSample.weight, 0.33));
-        //if (wReflect < 0.01)
-        //    wReflect = 0.0;
-        //float wLocal = max(0.01, saturate(1.0 - wReflect)); // local light weight (TODO replace with mi.eval())
-        float wReflect = saturate(dot(bsdfSample.weight * (bsdf.specularReflectionAlbedo + bsdf.specularTransmissionAlbedo), 0.33));
-        if (bsdf.roughness > gRoughnessCutoff) wReflect = 0.0;
-        if (i == gPathLength - 1) wReflect = 0.0; // force absorb
-        float wLocal = saturate(dot(bsdf.diffuseReflectionAlbedo + bsdf.diffuseTransmissionAlbedo, 0.33));
-        //if (sd.mtl.isDeltaSpecular())
-        //    wLocal = 0.0;
-        //wLocal = max(0.01, getAnalyticWeight(pixel, sd, mi, sg));
-        wLocal = max(0.01, wLocal); // make sure wLocal always has a small probability, in case wReflect is 0
-        
-        float pSum = wLocal + wReflect;
-        thp *= pSum; // update throughput
-        //if (rng < wLocal / pSum)
-        if (rng * pSum <= wLocal) // works if pSum and wLocal are zero
+        if (all(thp * bsdfSample.weight <= MIN_VISIBILITY))
         {
-            // use this path => shade and output
-            thp *= 1.0 / wLocal;
             //gColor[pixel] = float4(emission + thp * shadeVBuffer(triangleHit, pixel, frameDim, -ray.dir).rgb, 1.0);
-            gColor[pixel] = float4(emission + thp * evalAnalytic(pixel, sd, mi, sg), 1.0);
+            gColor[pixel] = float4(color, 1.0);
             gVBuffer[pixel] = data.hit; // this hit was accepted
             gDepth[pixel] = linearToNonLinearZ(linearZ);
 
@@ -469,13 +453,9 @@ void rayGen()
         else
         {
             // use reflection/refraction path
-            thp *= bsdfSample.weight / wReflect; // adjust for non-monochrome weight
+            thp *= bsdfSample.weight;
             ray.tMin = 1e-6;
             bool transmission = bsdfSample.isLobe(LobeType::Transmission);
-
-            // update refract mask (shift and add 1 bit if refraction)
-            refractMask = refractMask << 1u;
-            if (transmission) refractMask |= 1u;
 
             #if MVEC == MVEC_HALFWAY_REFLECT
             float3 H = -ray.dir + bsdfSample.wo;
@@ -509,7 +489,8 @@ void rayGen()
         gMotion[pixel] = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
     }
 
-    gColor[pixel] = float4(emission + thp * shadeEnvmap(-ray.dir).rgb, 1.0);
+    float3 localContribution = thp * shadeEnvmap(-ray.dir).rgb;
+    gColor[pixel] = float4(color + localContribution, 1.0);
     gVBuffer[pixel] = data.hit;
     gDepth[pixel] = 1.0; // far plane
 }
