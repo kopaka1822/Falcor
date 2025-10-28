@@ -93,68 +93,53 @@ struct UniformSampleGenerator : ISampleGenerator
     uint3 initial;
     uint offset;
 #endif
+
 #if DITHER_MODE == DITHER_MODE_PER_PIXEL_2X2
     __init(uint2 pixel, uint frameIndex)
     {
-        this.pixel = pixel;
-        this.frameIndex = frameIndex;
-        offset = 0;
-    }
+        SplitMix64 rng = createSplitMix64(interleave_32bit(pixel / 2u), frameIndex);
+        uint64_t s0 = nextRandom64(rng);
+        uint64_t s1 = nextRandom64(rng);
+        uint seed[4] = { uint(s0), uint(s0 >> 32), uint(s1), uint(s1 >> 32) };
+        this.rng = createXoshiro128StarStar(seed);
 
-    [mutating]
-    uint next()
-    {
-        uint4 mask = get2x2Permutation(offset); // mask with [0, 1, 2, 3] permutation
-        uint2 blueNoiseOffset = uint2(offset % 5, offset / 5) * 12u; // additional offset into the 64x64 blue noise texture, to pick different thresholds for each matrix
-        offset += 5; // 5 is coprime to 24 (number of matrices for 2x2 dither)
-        uint2 p = pixel;
-        if (gRotatePattern)
-            p = applyRotation(p, frameIndex, 2, 2); // rotate lookup based on frame index
-        uint lookup = (p.x % 2u) + 2u * (p.y % 2u);
-        uint v = mask[lookup]; // 0, 1, 2 or 3
-        float rng = (v + gBlueNoise64x64Tex[(pixel + blueNoiseOffset) % 64u]) / 4.0;
-        return floatRngToUint(rng);
+        uint thresholds[4] = { 0, 2, 3, 1 };
+        uint maxSeed = uint(-1);
+        uint seedStep = maxSeed / 4u;
+        this.offset = thresholds[(pixel.x % 2u) + 2u * (pixel.y % 2u)] * seedStep;
     }
-
-    [mutating] void updateRefractMask(uint mask) {
-        offset = mask * 4; // assume ~4 rngs per intersection
-    }
-
-    uint2 pixel;
-    uint frameIndex;
-    uint offset;
 #endif
 #if DITHER_MODE == DITHER_MODE_PER_PIXEL_3X3
     __init(uint2 pixel, uint frameIndex)
     {
-        this.pixel = pixel;
-        this.frameIndex = frameIndex;
-        offset = 0;
-    }
+        SplitMix64 rng = createSplitMix64(interleave_32bit(pixel / 3u), frameIndex);
+        uint64_t s0 = nextRandom64(rng);
+        uint64_t s1 = nextRandom64(rng);
+        uint seed[4] = { uint(s0), uint(s0 >> 32), uint(s1), uint(s1 >> 32) };
+        this.rng = createXoshiro128StarStar(seed);
 
+        uint3x3 thresholds = uint3x3(
+            0, 6, 3,
+            8, 4, 1,
+            5, 2, 7
+        );
+        uint maxSeed = uint(-1);
+        uint seedStep = maxSeed / 9u;
+        this.offset = thresholds[(pixel.x % 3u)][(pixel.y % 3u)] * seedStep;
+    }
+#endif
+#if (DITHER_MODE == DITHER_MODE_PER_PIXEL_2X2) || (DITHER_MODE == DITHER_MODE_PER_PIXEL_3X3) || (DITHER_MODE == DITHER_MODE_PER_PIXEL_4X4)
     [mutating]
     uint next()
     {
-        uint3x3 mask = get3x3Permutation(offset); // mask with [0, 1, 2, 3] permutation
-        uint2 blueNoiseOffset = uint2(0, 0);///uint2(offset % 64, offset / 64); // additional offset into the 64x64 blue noise texture, to pick different thresholds for each matrix
-        //offset = jenkinsHash(offset); // next offset
-        offset += 1;
-        uint2 p = pixel;
-        if (gRotatePattern)
-            p = applyRotation(p, frameIndex, 3, 3); // rotate lookup based on frame index
-        p = p % 3u;
-        uint v = mask[p.y][p.x]; // 0-8
-        float rng = (v + gBlueNoise64x64Tex[(pixel + blueNoiseOffset) % 64u]) / 9.0;
-        return floatRngToUint(rng);
+        return nextRandom(rng) + offset;
     }
 
     [mutating] void updateRefractMask(uint mask) {
-        //this.offset = jenkinsHash(mask);
-        this.offset = mask * 4; // assume ~4 rngs per intersection
+        
     }
 
-    uint2 pixel;
-    uint frameIndex;
+    Xoshiro128StarStar rng;
     uint offset;
 #endif
 };
