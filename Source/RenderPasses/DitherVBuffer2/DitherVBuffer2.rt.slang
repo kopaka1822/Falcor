@@ -594,7 +594,7 @@ void rayGen()
 
     #if MVEC == MVEC_RAY_DIFF
     Ray ray2; // ray for previous frame
-    ray2.origin = mul(gScene.camera.data.prevViewMat, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    ray2.origin = gScene.camera.data.prevPosW;
     ray2.dir = ray.dir; // use parallel ray
 
     // create tangent frame for ray2
@@ -711,7 +711,8 @@ void rayGen()
             // solve the equation ray2.origin + t * rd.dOdx + b * rd.dOdy = v.posW
             // => t * rd.dOdx + b * rd.dOdy = v.posW - ray2.origin
             float2 tb = solveLinearEq(rd.dOdx, rd.dOdy, v.posW - ray2.origin);
-            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
+            // float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
+            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, false /*no jitter*/).dir; // reconstruct a vector without jitter
             float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
             float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
             gMotion[pixel] = getAlignedMotionVector(prevUV - (float2(pixel) + 0.5) / float2(frameDim), false);
@@ -737,14 +738,8 @@ void rayGen()
             #endif
 
             #if MVEC == MVEC_RAY_DIFF
-            if (transmission)
-            {
-                rd = rd.refract(ray2.dir, bsdfSample.wo, sd.faceN);
-            }
-            else
-            {
-                rd = rd.reflect(ray2.dir, bsdfSample.wo); // uses halway vector as normal
-            }
+            if (transmission)  rd = rd.refract(ray2.dir, bsdfSample.wo, sd.faceN);
+            else rd = rd.reflect(ray2.dir, bsdfSample.wo); // uses halway vector as normal
             ray2.dir = bsdfSample.wo;
             #endif
 
@@ -755,8 +750,8 @@ void rayGen()
 
     // => no hit, eval envmap
     if (i == 0 || MVEC != MVEC_FIRST_HIT) // use envmap motion vector if no hit at all (If the final hit is an envmap, we can use this with the assumption that the last ray reflected on the same surfaces)
-    { 
-        float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/false).dir;
+    {
+        float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/ false).dir;
         float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
         float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
         gMotion[pixel] = getAlignedMotionVector(prevUV - (float2(pixel) + 0.5) / float2(frameDim), false);
