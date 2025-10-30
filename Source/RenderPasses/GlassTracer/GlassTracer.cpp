@@ -153,6 +153,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["PerFrame"]["gShadowLodBias"] = mShadowLodBias;
     var["PerFrame"]["gEnableShadows"] = mEnableShadows ? 1 : 0;
     var["PerFrame"]["gRoughnessCutoff"] = mRoughnessCutoff;
+    var["PerFrame"]["gForceMotionVectorCalculation"] = mForceMotionVectorCalculation ? 1 : 0;
 
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
     mpProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
@@ -185,6 +186,9 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
     widget.tooltip("Surfaces with lower roughness will not reflect");
 
     c |= widget.dropdown("Motion Vectors", mMotionVector);
+    c |= widget.checkbox("Force Motion Vector Calculation", mForceMotionVectorCalculation);
+    widget.tooltip("Forces motion vector calculation even if neither camera nor vertex moved.");
+
 
     if (auto g = widget.group("Scene"))
     {

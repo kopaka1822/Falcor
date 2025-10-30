@@ -139,6 +139,7 @@ private:
     float mShadowLodBias = 0.0f;
 
     float mRoughnessCutoff = 0.5f;
+    bool mForceMotionVectorCalculation = false;
 
     bool mOptionsChanged = true;
 };

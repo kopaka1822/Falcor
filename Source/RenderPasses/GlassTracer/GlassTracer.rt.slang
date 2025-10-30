@@ -75,6 +75,7 @@ cbuffer PerFrame
     bool gEnableShadows;
 
     float gRoughnessCutoff; // no reflections for surfaces with higher roughness
+    bool gForceMotionVectorCalculation; // forces motion vectors to be calculated even if neither camera nor vertex was moving
 }
 
 float4 shadeEnvmap(float3 viewDir)
@@ -381,7 +382,8 @@ void rayGen()
     float3 color = 0.0; // color along path
     float linearZ = 0.0;
     bool camMovement = any(gScene.camera.data.viewMat != gScene.camera.data.prevViewMat);
-
+    if (gForceMotionVectorCalculation) camMovement = true;
+    
     VBufferReservoir curVBuffer;
     curVBuffer.weightSum = 0.0;
     curVBuffer.mvec = 0.0;
