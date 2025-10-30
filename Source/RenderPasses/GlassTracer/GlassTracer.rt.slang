@@ -373,14 +373,58 @@ struct VBufferReservoir
     }
 };
 
+// stack frame for indirections (if reflection and refraction occur at once)
+struct StackFrame
+{
+    Ray ray; 
+    float3 thp; // path throughput
+    float linearZ;
+#if MVEC == MVEC_HALFWAY_REFLECT
+    float4x4 viewTransform;
+#endif
+#if MVEC == MVEC_RAY_DIFF
+    Ray ray2;
+    RayDiff rd;
+#endif
+};
+
+///////////////// Stack implementation /////////////////////
+RWStructuredBuffer<StackFrame> gStack;
+static uint curStack = 0;
+
+uint GetStackIndex(uint index)
+{
+    uint2 size = DispatchRaysDimensions().xy;
+    uint offset = DispatchRaysIndex().y * size.x + DispatchRaysIndex().x;
+    return size.x * size.y * index + offset;
+}
+
+void PushStack(StackFrame f)
+{
+    gStack[GetStackIndex(curStack++)] = f;
+}
+
+StackFrame PopStack()
+{
+    return gStack[GetStackIndex(--curStack)];
+}
+
+bool StackEmpty()
+{
+    return curStack == 0;
+}
+////////////////////////////////////////////////////////
+
 [shader("raygeneration")]
 void rayGen()
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
-    float3 thp = 1.0; // path throughput
+    StackFrame s;
+    s.thp = 1.0;
+    s.linearZ = 0.0;
     float3 color = 0.0; // color along path
-    float linearZ = 0.0;
+    
     bool camMovement = any(gScene.camera.data.viewMat != gScene.camera.data.prevViewMat);
     if (gForceMotionVectorCalculation) camMovement = true;
     
@@ -391,22 +435,21 @@ void rayGen()
     curVBuffer.vbuffer = {};
 
     #if MVEC == MVEC_HALFWAY_REFLECT
-    float4x4 viewTransform = matrixIdentity();
+    s.viewTransform = matrixIdentity();
     #endif
 
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameCount);
-    Ray ray = gScene.camera.computeRayPinhole(pixel, frameDim);
+    s.ray = gScene.camera.computeRayPinhole(pixel, frameDim);
 
     #if MVEC == MVEC_RAY_DIFF
-    Ray ray2; // ray for previous frame
-    ray2.origin = gScene.camera.data.prevPosW;
-    ray2.dir = ray.dir; // use parallel ray
+    s.ray2.origin = gScene.camera.data.prevPosW;
+    s.ray2.dir = ray.dir; // use parallel ray
 
     // create tangent frame for ray2
     float3 ray2T = normalize(cross(ray2.dir, float3(0.0, 1.0, 0.0)));
     float3 ray2B = normalize(cross(ray2.dir, ray2T));
     float3 dO = 0.0; // zero dOdx, dOdy
-    RayDiff rd = RayDiff(dO, dO, ray2T, ray2B);
+    s.rd = RayDiff(dO, dO, ray2T, ray2B);
     #endif
 
     RayData data;
@@ -416,7 +459,7 @@ void rayGen()
     uint i = 0;
     for (; i < gPathLength; ++i)
     {
-        TraceRay(gScene.rtAccel, rayFlags, kInstanceCameraParticle, 0, rayTypeCount, 0, ray.toRayDesc(), data);
+        TraceRay(gScene.rtAccel, rayFlags, kInstanceCameraParticle, 0, rayTypeCount, 0, s.ray.toRayDesc(), data);
 
         HitInfo hit = HitInfo(data.hit);
         if (!hit.isValid())
@@ -434,15 +477,15 @@ void rayGen()
         
         let materialID = gScene.getMaterialID(triangleHit.instanceID);
         let lod = ExplicitLodTextureSampler(0.0);
-        ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.dir, lod);
-        linearZ += distance(ray.origin, v.posW);
+        ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -s.ray.dir, lod);
+        s.linearZ += distance(s.ray.origin, v.posW);
 
         // Create material instance at shading point.
         let mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
         let bsdf = mi.getProperties(sd);
 
         // compute local color contribution
-        float3 localContribution = thp * (
+        float3 localContribution = s.thp * (
             bsdf.emission * gEmissionIntensity +
             bsdf.diffuseReflectionAlbedo * gAmbientIntensity +
             evalAnalytic(pixel, sd, mi, sg)
@@ -452,23 +495,23 @@ void rayGen()
         if (curVBuffer.update(localContribution, sampleNext1D(sg)))
         {
             curVBuffer.vbuffer = data.hit;
-            curVBuffer.depth = linearToNonLinearZ(linearZ);
+            curVBuffer.depth = linearToNonLinearZ(s.linearZ);
 
             #if MVEC == MVEC_HALFWAY_REFLECT
-            curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, viewTransform, camMovement || vertexMoved);
-#endif
+            curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, s.viewTransform, camMovement || vertexMoved);
+            #endif
 
             #if MVEC == MVEC_RAY_DIFF
             // transfer to the final plane with point prevPosW and surface normal -ray2.dir
-            float ray2t = dot(ray2.dir, v.prevPosW - ray2.origin);
-            rd = rd.propagate(ray2.origin, ray2.dir, ray2t, -ray2.dir);
-            ray2.origin = ray2.origin + ray2t * ray2.dir;
+            float ray2t = dot(s.ray2.dir, v.prevPosW - s.ray2.origin);
+            s.rd = s.rd.propagate(s.ray2.origin, s.ray2.dir, ray2t, -s.ray2.dir);
+            s.ray2.origin = s.ray2.origin + ray2t * s.ray2.dir;
 
             // solve the equation ray2.origin + t * rd.dOdx + b * rd.dOdy = prevPosW
             // => t * rd.dOdx + b * rd.dOdy = v.prevPosW - ray2.origin
-            float2 tb = solveLinearEq(rd.dOdx, rd.dOdy, v.prevPosW - ray2.origin);
+            float2 tb = solveLinearEq(s.rd.dOdx, s.rd.dOdy, v.prevPosW - s.ray2.origin);
             // float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
-            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, false /*no jitter*/) .dir; // reconstruct a vector without jitter
+            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, false /*no jitter*/).dir; // reconstruct a vector without jitter
             float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
             float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
             curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
@@ -494,7 +537,7 @@ void rayGen()
 
         // check if additional ray or last intersection
 
-        if (all(thp * bsdfSample.weight <= MIN_VISIBILITY))
+        if (all(s.thp * bsdfSample.weight <= MIN_VISIBILITY))
         {
             curVBuffer.writeData(pixel, color);
             return;
@@ -502,35 +545,35 @@ void rayGen()
         else
         {
             // use reflection/refraction path
-            thp *= bsdfSample.weight;
-            ray.tMin = 1e-6;
+            s.thp *= bsdfSample.weight;
+            s.ray.tMin = 1e-6;
             bool transmission = bsdfSample.isLobe(LobeType::Transmission);
 
             #if MVEC == MVEC_HALFWAY_REFLECT
-            float3 H = -ray.dir + bsdfSample.wo;
+            float3 H = -s.ray.dir + bsdfSample.wo;
             float lenH = length(H);
             if (lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
-                viewTransform = mul(viewTransform, matrixMirror(v.posW, H / lenH));
+                s.viewTransform = mul(s.viewTransform, matrixMirror(v.posW, H / lenH));
             #endif
 
             #if MVEC == MVEC_RAY_DIFF
             // transfer to the current plane
-            float ray2t = dot(v.faceNormalW, v.posW - ray2.origin) / dot(v.faceNormalW, ray2.dir);
-            rd = rd.propagate(ray2.origin, ray2.dir, ray2t, v.faceNormalW);
-            ray2.origin = ray2.origin + ray2t * ray2.dir;
+            float ray2t = dot(v.faceNormalW, v.posW - s.ray2.origin) / dot(v.faceNormalW, s.ray2.dir);
+            s.rd = s.rd.propagate(s.ray2.origin, s.ray2.dir, ray2t, v.faceNormalW);
+            s.ray2.origin = s.ray2.origin + ray2t * s.ray2.dir;
             // reflect or refract
-            if (transmission) rd = rd.refract(ray2.dir, bsdfSample.wo, v.faceNormalW);
-            else rd = rd.reflect(ray2.dir, bsdfSample.wo); // uses halway vector as normal
-            ray2.dir = bsdfSample.wo;
+            if (transmission) s.rd = s.rd.refract(s.ray2.dir, bsdfSample.wo, v.faceNormalW);
+            else s.rd = s.rd.reflect(s.ray2.dir, bsdfSample.wo); // uses halway vector as normal
+            s.ray2.dir = bsdfSample.wo;
             #endif
 
-            ray.origin = sd.computeNewRayOrigin(!transmission);
-            ray.dir = bsdfSample.wo;
+            s.ray.origin = sd.computeNewRayOrigin(!transmission);
+            s.ray.dir = bsdfSample.wo;
         }
     }
 
     // envmap hit
-    float3 localContribution = thp * shadeEnvmap(-ray.dir).rgb;
+    float3 localContribution = s.thp * shadeEnvmap(-s.ray.dir).rgb;
     color += localContribution;
     if(curVBuffer.update(localContribution, sampleNext1D(sg)))
     {
@@ -544,7 +587,7 @@ void rayGen()
                 curVBuffer.mvec = 0.0;
         }
         curVBuffer.vbuffer = data.hit;
-        curVBuffer.depth = linearToNonLinearZ(linearZ);
+        curVBuffer.depth = linearToNonLinearZ(s.linearZ);
     }
 
     curVBuffer.writeData(pixel, color);
