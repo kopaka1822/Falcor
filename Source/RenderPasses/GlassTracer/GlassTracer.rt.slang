@@ -383,7 +383,7 @@ struct StackFrame
     float4x4 viewTransform;
 #endif
 #if MVEC == MVEC_RAY_DIFF
-    Ray ray2;
+    float3 ray2origin; // direction is the same as ray.dir
     RayDiff rd;
 #endif
 };
@@ -442,12 +442,11 @@ void rayGen()
     s.ray = gScene.camera.computeRayPinhole(pixel, frameDim);
 
     #if MVEC == MVEC_RAY_DIFF
-    s.ray2.origin = gScene.camera.data.prevPosW;
-    s.ray2.dir = ray.dir; // use parallel ray
+    s.ray2origin = gScene.camera.data.prevPosW;
 
     // create tangent frame for ray2
-    float3 ray2T = normalize(cross(ray2.dir, float3(0.0, 1.0, 0.0)));
-    float3 ray2B = normalize(cross(ray2.dir, ray2T));
+    float3 ray2T = normalize(cross(s.ray.dir, float3(0.0, 1.0, 0.0)));
+    float3 ray2B = normalize(cross(s.ray.dir, ray2T));
     float3 dO = 0.0; // zero dOdx, dOdy
     s.rd = RayDiff(dO, dO, ray2T, ray2B);
     #endif
@@ -502,14 +501,14 @@ void rayGen()
             #endif
 
             #if MVEC == MVEC_RAY_DIFF
-            // transfer to the final plane with point prevPosW and surface normal -ray2.dir
-            float ray2t = dot(s.ray2.dir, v.prevPosW - s.ray2.origin);
-            s.rd = s.rd.propagate(s.ray2.origin, s.ray2.dir, ray2t, -s.ray2.dir);
-            s.ray2.origin = s.ray2.origin + ray2t * s.ray2.dir;
+            // transfer to the final plane with point prevPosW and surface normal -s.ray.dir
+            float ray2t = dot(s.ray.dir, v.prevPosW - s.ray2origin);
+            s.rd = s.rd.propagate(s.ray2origin, s.ray.dir, ray2t, -s.ray.dir);
+            s.ray2origin = s.ray2origin + ray2t * s.ray.dir;
 
             // solve the equation ray2.origin + t * rd.dOdx + b * rd.dOdy = prevPosW
             // => t * rd.dOdx + b * rd.dOdy = v.prevPosW - ray2.origin
-            float2 tb = solveLinearEq(s.rd.dOdx, s.rd.dOdy, v.prevPosW - s.ray2.origin);
+            float2 tb = solveLinearEq(s.rd.dOdx, s.rd.dOdy, v.prevPosW - s.ray2origin);
             // float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
             float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, false /*no jitter*/).dir; // reconstruct a vector without jitter
             float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
@@ -558,13 +557,12 @@ void rayGen()
 
             #if MVEC == MVEC_RAY_DIFF
             // transfer to the current plane
-            float ray2t = dot(v.faceNormalW, v.posW - s.ray2.origin) / dot(v.faceNormalW, s.ray2.dir);
-            s.rd = s.rd.propagate(s.ray2.origin, s.ray2.dir, ray2t, v.faceNormalW);
-            s.ray2.origin = s.ray2.origin + ray2t * s.ray2.dir;
+            float ray2t = dot(v.faceNormalW, v.posW - s.ray2origin) / dot(v.faceNormalW, s.ray.dir);
+            s.rd = s.rd.propagate(s.ray2origin, s.ray.dir, ray2t, v.faceNormalW);
+            s.ray2origin = s.ray2origin + ray2t * s.ray.dir;
             // reflect or refract
-            if (transmission) s.rd = s.rd.refract(s.ray2.dir, bsdfSample.wo, v.faceNormalW);
-            else s.rd = s.rd.reflect(s.ray2.dir, bsdfSample.wo); // uses halway vector as normal
-            s.ray2.dir = bsdfSample.wo;
+            if (transmission) s.rd = s.rd.refract(s.ray.dir, bsdfSample.wo, v.faceNormalW);
+            else s.rd = s.rd.reflect(s.ray.dir, bsdfSample.wo); // uses halway vector as normal
             #endif
 
             s.ray.origin = sd.computeNewRayOrigin(!transmission);
