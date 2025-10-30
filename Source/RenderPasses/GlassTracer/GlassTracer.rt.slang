@@ -376,15 +376,16 @@ struct VBufferReservoir
 // stack frame for indirections (if reflection and refraction occur at once)
 struct StackFrame
 {
-    Ray ray; 
+    Ray ray; // 8 floats
     float3 thp; // path throughput
     float linearZ;
+    // ^ 12 floats
 #if MVEC == MVEC_HALFWAY_REFLECT
     float4x4 viewTransform;
 #endif
 #if MVEC == MVEC_RAY_DIFF
     float3 ray2origin; // direction is the same as ray.dir
-    RayDiff rd;
+    RayDiff rd; // 12 floats
 #endif
 };
 
@@ -462,11 +463,33 @@ void rayGen()
 
         HitInfo hit = HitInfo(data.hit);
         if (!hit.isValid())
-            break; // miss
+        {
+            ////////// MISS /////////////
+            float3 localContribution = s.thp * shadeEnvmap(-s.ray.dir).rgb;
+            color += localContribution;
+            if (curVBuffer.update(localContribution, sampleNext1D(sg)))
+            {
+                if (i == 0 || MVEC != MVEC_FIRST_HIT) // use envmap motion vector if no hit at all (If the final hit is an envmap, we can use this with the assumption that the last ray reflected on the same surfaces)
+                {
+                    float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/false).dir;
+                    float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
+                    float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
+                    curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
+                    if (!camMovement)
+                        curVBuffer.mvec = 0.0;
+                }
+                curVBuffer.vbuffer = data.hit;
+                curVBuffer.depth = linearToNonLinearZ(s.linearZ);
+            }
+
+            curVBuffer.writeData(pixel, color);
+            return;
+        }
 
         if (hit.getType() != HitType::Triangle)
             return;
 
+        /////////// TRIANGLE HIT /////////////
         TriangleHit triangleHit = hit.getTriangleHit();
         
         let v = gScene.getVertexData(triangleHit);
@@ -569,24 +592,4 @@ void rayGen()
             s.ray.dir = bsdfSample.wo;
         }
     }
-
-    // envmap hit
-    float3 localContribution = s.thp * shadeEnvmap(-s.ray.dir).rgb;
-    color += localContribution;
-    if(curVBuffer.update(localContribution, sampleNext1D(sg)))
-    {
-        if (i == 0 || MVEC != MVEC_FIRST_HIT) // use envmap motion vector if no hit at all (If the final hit is an envmap, we can use this with the assumption that the last ray reflected on the same surfaces)
-        {
-            float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/ false).dir;
-            float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
-            float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
-            curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
-            if (!camMovement)
-                curVBuffer.mvec = 0.0;
-        }
-        curVBuffer.vbuffer = data.hit;
-        curVBuffer.depth = linearToNonLinearZ(s.linearZ);
-    }
-
-    curVBuffer.writeData(pixel, color);
 }
