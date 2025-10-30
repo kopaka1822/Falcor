@@ -155,14 +155,15 @@ void anyHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAt
     // hit (return)
 }
 
-float2 calcMotionVector(uint2 pixel, uint2 frameDim, TriangleHit triangleHit, float4x4 viewTransform)
+float2 calcMotionVector(uint2 pixel, uint2 frameDim, float3 prevPosW, float4x4 viewTransform, bool camMotion)
 {
-    float3 prevPosW = gScene.getPrevPosW(triangleHit);
-
+    if (!camMotion)
+        return 0.0;
+    
     float2 pixelPos = float2(pixel) + 0.5;
     float4 prevPosTWorld = mul(viewTransform, float4(prevPosW, 1.0));
     float4 prevPosH = mul(gScene.camera.data.prevViewProjMatNoJitter, prevPosTWorld);
-
+    
     float2 prevCrd = prevPosH.xy / prevPosH.w;
 #ifdef FALCOR_FLIP_Y
     prevCrd *= float2(0.5, 0.5);
@@ -379,6 +380,7 @@ void rayGen()
     float3 thp = 1.0; // path throughput
     float3 color = 0.0; // color along path
     float linearZ = 0.0;
+    bool camMovement = any(gScene.camera.data.viewMat != gScene.camera.data.prevViewMat);
 
     VBufferReservoir curVBuffer;
     curVBuffer.weightSum = 0.0;
@@ -422,11 +424,12 @@ void rayGen()
             return;
 
         TriangleHit triangleHit = hit.getTriangleHit();
-        if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
-            curVBuffer.mvec = calcMotionVector(pixel, frameDim, triangleHit, matrixIdentity());
         
-        // decide wheter to accept hit or continue tracing
         let v = gScene.getVertexData(triangleHit);
+        bool vertexMoved = any(v.posW != v.prevPosW);
+        if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
+            curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, matrixIdentity(), camMovement || vertexMoved);
+        
         let materialID = gScene.getMaterialID(triangleHit.instanceID);
         let lod = ExplicitLodTextureSampler(0.0);
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.dir, lod);
@@ -450,25 +453,25 @@ void rayGen()
             curVBuffer.depth = linearToNonLinearZ(linearZ);
 
             #if MVEC == MVEC_HALFWAY_REFLECT
-            curVBuffer.mvec = calcMotionVector(pixel, frameDim, triangleHit, viewTransform);
-            #endif
+            curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, viewTransform, camMovement || vertexMoved);
+#endif
 
             #if MVEC == MVEC_RAY_DIFF
             // transfer to the final plane with point prevPosW and surface normal -ray2.dir
-            float3 prevPosW = gScene.getPrevPosW(triangleHit);
-            float ray2t = dot(ray2.dir, prevPosW - ray2.origin);
+            float ray2t = dot(ray2.dir, v.prevPosW - ray2.origin);
             rd = rd.propagate(ray2.origin, ray2.dir, ray2t, -ray2.dir);
             ray2.origin = ray2.origin + ray2t * ray2.dir;
 
             // solve the equation ray2.origin + t * rd.dOdx + b * rd.dOdy = prevPosW
-            // => t * rd.dOdx + b * rd.dOdy = prevPosW - ray2.origin
-            float2 tb = solveLinearEq(rd.dOdx, rd.dOdy, prevPosW - ray2.origin);
+            // => t * rd.dOdx + b * rd.dOdy = v.prevPosW - ray2.origin
+            float2 tb = solveLinearEq(rd.dOdx, rd.dOdy, v.prevPosW - ray2.origin);
             // float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
             float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, false /*no jitter*/) .dir; // reconstruct a vector without jitter
             float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
             float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
             curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
-            #endif
+            if(!camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
+#endif
         }
 
         // use this as vbuffer?
@@ -535,6 +538,8 @@ void rayGen()
             float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
             float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
             curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
+            if (!camMovement)
+                curVBuffer.mvec = 0.0;
         }
         curVBuffer.vbuffer = data.hit;
         curVBuffer.depth = linearToNonLinearZ(linearZ);
