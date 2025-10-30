@@ -76,6 +76,7 @@ cbuffer PerFrame
 
     float gRoughnessCutoff; // no reflections for surfaces with higher roughness
     bool gForceMotionVectorCalculation; // forces motion vectors to be calculated even if neither camera nor vertex was moving
+    uint gMaxStack; // maxiumum stack size for indirections
 }
 
 float4 shadeEnvmap(float3 viewDir)
@@ -83,7 +84,7 @@ float4 shadeEnvmap(float3 viewDir)
     return float4(gScene.envMap.eval(-viewDir) * gEnvmapIntensity, 1.0);
 }
 
-#define MIN_VISIBILITY 0.001
+#define MIN_VISIBILITY 0.01
 
 StructuredBuffer<uint> gTransparencyWhitelist;
 
@@ -376,16 +377,19 @@ struct VBufferReservoir
 // stack frame for indirections (if reflection and refraction occur at once)
 struct StackFrame
 {
-    Ray ray; // 8 floats
-    float3 thp; // path throughput
+    float3 rayOrigin;
+    uint curPathLength;
+    float3 rayDir;
     float linearZ;
-    // ^ 12 floats
+    float3 thp; // path throughput
+    // ^ 11 floats
 #if MVEC == MVEC_HALFWAY_REFLECT
-    float4x4 viewTransform;
+    float4x4 viewTransform; // 16 floats
 #endif
 #if MVEC == MVEC_RAY_DIFF
     float3 ray2origin; // direction is the same as ray.dir
     RayDiff rd; // 12 floats
+    // ^ 15 floats
 #endif
 };
 
@@ -414,7 +418,39 @@ bool StackEmpty()
 {
     return curStack == 0;
 }
+
+bool StackFull()
+{
+    return curStack >= gMaxStack;
+}
 ////////////////////////////////////////////////////////
+
+StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd)
+{
+    s.thp *= bsdfSample.weight;
+    bool transmission = bsdfSample.isLobe(LobeType::Transmission);
+
+#if MVEC == MVEC_HALFWAY_REFLECT
+    float3 H = -s.rayDir + bsdfSample.wo;
+    float lenH = length(H);
+    if (lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
+        s.viewTransform = mul(s.viewTransform, matrixMirror(sd.posW, H / lenH));
+#endif
+
+#if MVEC == MVEC_RAY_DIFF
+    // transfer to the current plane
+    float ray2t = dot(sd.faceN, sd.posW - s.ray2origin) / dot(sd.faceN, s.rayDir);
+    s.rd = s.rd.propagate(s.ray2origin, s.rayDir, ray2t, sd.faceN);
+    s.ray2origin = s.ray2origin + ray2t * s.rayDir;
+    // reflect or refract
+    if (transmission) s.rd = s.rd.refract(s.rayDir, bsdfSample.wo, sd.faceN);
+    else s.rd = s.rd.reflect(s.rayDir, bsdfSample.wo); // uses halfway vector as normal
+#endif
+
+    s.rayOrigin = sd.computeNewRayOrigin(!transmission);
+    s.rayDir = bsdfSample.wo;
+    return s;
+}
 
 [shader("raygeneration")]
 void rayGen()
@@ -424,6 +460,7 @@ void rayGen()
     StackFrame s;
     s.thp = 1.0;
     s.linearZ = 0.0;
+    s.curPathLength = 0;
     float3 color = 0.0; // color along path
     
     bool camMovement = any(gScene.camera.data.viewMat != gScene.camera.data.prevViewMat);
@@ -440,14 +477,15 @@ void rayGen()
     #endif
 
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameCount);
-    s.ray = gScene.camera.computeRayPinhole(pixel, frameDim);
+    s.rayOrigin = gScene.camera.data.posW;
+    s.rayDir = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
 
     #if MVEC == MVEC_RAY_DIFF
     s.ray2origin = gScene.camera.data.prevPosW;
 
     // create tangent frame for ray2
-    float3 ray2T = normalize(cross(s.ray.dir, float3(0.0, 1.0, 0.0)));
-    float3 ray2B = normalize(cross(s.ray.dir, ray2T));
+    float3 ray2T = normalize(cross(s.rayDir, float3(0.0, 1.0, 0.0)));
+    float3 ray2B = normalize(cross(s.rayDir, ray2T));
     float3 dO = 0.0; // zero dOdx, dOdy
     s.rd = RayDiff(dO, dO, ray2T, ray2B);
     #endif
@@ -456,16 +494,21 @@ void rayGen()
     uint rayFlags = 0;
     if (CULL_BACK_FACES) rayFlags |= RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
 
-    uint i = 0;
-    for (; i < gPathLength; ++i)
+    for (uint i = 0; i < 128 && s.curPathLength < gPathLength; ++i)
     {
-        TraceRay(gScene.rtAccel, rayFlags, kInstanceCameraParticle, 0, rayTypeCount, 0, s.ray.toRayDesc(), data);
+        s.curPathLength++;
+        RayDesc ray;
+        ray.Origin = s.rayOrigin;
+        ray.Direction = s.rayDir;
+        ray.TMin = 0.0;
+        ray.TMax = gScene.camera.data.farZ;
+        TraceRay(gScene.rtAccel, rayFlags, kInstanceCameraParticle, 0, rayTypeCount, 0, ray, data);
 
         HitInfo hit = HitInfo(data.hit);
         if (!hit.isValid())
         {
             ////////// MISS /////////////
-            float3 localContribution = s.thp * shadeEnvmap(-s.ray.dir).rgb;
+            float3 localContribution = s.thp * shadeEnvmap(-s.rayDir).rgb;
             color += localContribution;
             if (curVBuffer.update(localContribution, sampleNext1D(sg)))
             {
@@ -482,8 +525,10 @@ void rayGen()
                 curVBuffer.depth = linearToNonLinearZ(s.linearZ);
             }
 
-            curVBuffer.writeData(pixel, color);
-            return;
+            if (StackEmpty()) break;
+
+            s = PopStack();
+            continue;
         }
 
         if (hit.getType() != HitType::Triangle)
@@ -499,8 +544,8 @@ void rayGen()
         
         let materialID = gScene.getMaterialID(triangleHit.instanceID);
         let lod = ExplicitLodTextureSampler(0.0);
-        ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -s.ray.dir, lod);
-        s.linearZ += distance(s.ray.origin, v.posW);
+        ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -s.rayDir, lod);
+        s.linearZ += distance(s.rayOrigin, v.posW);
 
         // Create material instance at shading point.
         let mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
@@ -524,10 +569,10 @@ void rayGen()
             #endif
 
             #if MVEC == MVEC_RAY_DIFF
-            // transfer to the final plane with point prevPosW and surface normal -s.ray.dir
-            float ray2t = dot(s.ray.dir, v.prevPosW - s.ray2origin);
-            s.rd = s.rd.propagate(s.ray2origin, s.ray.dir, ray2t, -s.ray.dir);
-            s.ray2origin = s.ray2origin + ray2t * s.ray.dir;
+            // transfer to the final plane with point prevPosW and surface normal -s.rayDir
+            float ray2t = dot(s.rayDir, v.prevPosW - s.ray2origin);
+            s.rd = s.rd.propagate(s.ray2origin, s.rayDir, ray2t, -s.rayDir);
+            s.ray2origin = s.ray2origin + ray2t * s.rayDir;
 
             // solve the equation ray2.origin + t * rd.dOdx + b * rd.dOdy = prevPosW
             // => t * rd.dOdx + b * rd.dOdy = v.prevPosW - ray2.origin
@@ -541,55 +586,52 @@ void rayGen()
 #endif
         }
 
-        // use this as vbuffer?
+        // obtain 1 bsdf sample for reflection, and one for refraction
+        BSDFSample bsdfSampleReflect;
+        BSDFSample bsdfSampleRefract;
 
-
-        // only delta reflections, refractions for next bounce
-        sd.mtl.setActiveLobes((uint)LobeType::Delta | (uint)LobeType::Specular);
-        float rng = sampleNext1D(sg); // rng for next path decision
-        BSDFSample bsdfSample;
-        if (!mi.sample(sd, sg, bsdfSample, true /*Importance sampling*/))
-            bsdfSample.weight = 0.0;
-        if (bsdf.roughness > gRoughnessCutoff)
-            bsdfSample.weight = 0.0; // force absorb
-        if (i == gPathLength - 1)
-            bsdfSample.weight = 0.0; // force absorb
-
-        sd.mtl.setActiveLobes((uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)
-
-        // check if additional ray or last intersection
-
-        if (all(s.thp * bsdfSample.weight <= MIN_VISIBILITY))
+        if (bsdf.roughness > gRoughnessCutoff || (s.curPathLength == gPathLength - 1))
         {
-            curVBuffer.writeData(pixel, color);
-            return;
+            // force absorb
+            bsdfSampleReflect.weight = 0.0;
+            bsdfSampleRefract.weight = 0.0;
+
         }
         else
         {
-            // use reflection/refraction path
-            s.thp *= bsdfSample.weight;
-            s.ray.tMin = 1e-6;
-            bool transmission = bsdfSample.isLobe(LobeType::Transmission);
+            // only delta reflections, refractions for next bounce
+            sd.mtl.setActiveLobes(((uint) LobeType::Delta | (uint) LobeType::Specular) & (uint) LobeType::Transmission);
+            if (!mi.sample(sd, sg, bsdfSampleRefract, true /*Importance sampling*/))
+                bsdfSampleRefract.weight = 0.0;
+            sd.mtl.setActiveLobes(((uint) LobeType::Delta | (uint) LobeType::Specular) & (uint) LobeType::Reflection);
+            if (!mi.sample(sd, sg, bsdfSampleReflect, true /*Importance sampling*/))
+                bsdfSampleReflect.weight = 0.0;
+            sd.mtl.setActiveLobes((uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)
+        }
 
-            #if MVEC == MVEC_HALFWAY_REFLECT
-            float3 H = -s.ray.dir + bsdfSample.wo;
-            float lenH = length(H);
-            if (lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
-                s.viewTransform = mul(s.viewTransform, matrixMirror(v.posW, H / lenH));
-            #endif
-
-            #if MVEC == MVEC_RAY_DIFF
-            // transfer to the current plane
-            float ray2t = dot(v.faceNormalW, v.posW - s.ray2origin) / dot(v.faceNormalW, s.ray.dir);
-            s.rd = s.rd.propagate(s.ray2origin, s.ray.dir, ray2t, v.faceNormalW);
-            s.ray2origin = s.ray2origin + ray2t * s.ray.dir;
-            // reflect or refract
-            if (transmission) s.rd = s.rd.refract(s.ray.dir, bsdfSample.wo, v.faceNormalW);
-            else s.rd = s.rd.reflect(s.ray.dir, bsdfSample.wo); // uses halway vector as normal
-            #endif
-
-            s.ray.origin = sd.computeNewRayOrigin(!transmission);
-            s.ray.dir = bsdfSample.wo;
+        bool doReflection = any(s.thp * bsdfSampleReflect.weight > MIN_VISIBILITY);
+        bool doRefraction = any(s.thp * bsdfSampleRefract.weight > MIN_VISIBILITY);
+        if (doReflection && doRefraction)
+        {
+            // put one on the stack
+            if (!StackFull())
+                PushStack(prepareNextRay(s, bsdfSampleRefract, sd));
+            doRefraction = false;
+        }
+        
+        if(doReflection)
+            s = prepareNextRay(s, bsdfSampleReflect, sd);
+        if(doRefraction)
+            s = prepareNextRay(s, bsdfSampleRefract, sd);
+        
+        if(!doReflection && !doRefraction)
+        {
+            if (StackEmpty()) break;
+            
+            s = PopStack();
         }
     }
+
+    // write data
+    curVBuffer.writeData(pixel, color);
 }

@@ -116,6 +116,8 @@ private:
     ref<SampleGenerator> mpSampleGenerator;
     ref<Buffer> mpTransparencyWhitelist;
 
+    ref<Buffer> mpStackBuffer;
+
     uint mFrameCount = 0;
 
     ref<CPUSampleGenerator> mpSamplePattern;
@@ -124,6 +126,7 @@ private:
 
     bool mCullBackFaces = false;
     int mPathLength = 10;
+    int mStackSize = 2;
     MotionVector mMotionVector = MotionVector::HalfwayReflection;
 
     RenderScale mRenderScale = RenderScale::Full;

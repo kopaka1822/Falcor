@@ -117,6 +117,12 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pDepth = renderData.getTexture(kDepthOut);
     auto pDebug = renderData.getTexture(kDebug);
 
+    size_t requiredStack = pVbuffer->getWidth() * pVbuffer->getHeight() * std::max(1, mStackSize);
+    if (!mpStackBuffer || mpStackBuffer->getElementCount() != requiredStack)
+    {
+        mpStackBuffer = Buffer::createStructured(mpDevice, sizeof(float) * (12 + 16), requiredStack, ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false);
+    }
+
     if (!mpScene)
     {
         pRenderContext->clearTexture(pColor.get(), float4(0, 0, 0, 0));
@@ -134,6 +140,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["gMotion"] = pMotion;
     var["gColor"] = pColor;
     var["gDepth"] = pDepth;
+    var["gStack"] = mpStackBuffer;
     assert(mpTransparencyWhitelist);
     var["gTransparencyWhitelist"] = mpTransparencyWhitelist;
 
@@ -154,6 +161,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["PerFrame"]["gEnableShadows"] = mEnableShadows ? 1 : 0;
     var["PerFrame"]["gRoughnessCutoff"] = mRoughnessCutoff;
     var["PerFrame"]["gForceMotionVectorCalculation"] = mForceMotionVectorCalculation ? 1 : 0;
+    var["PerFrame"]["gMaxStack"] = mStackSize;
 
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
     mpProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
@@ -181,6 +189,7 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
     bool c = false; // changed
 
     c |= widget.var("Path Length", mPathLength, 1, 64);
+    c |= widget.var("Stack Size", mStackSize, 0, 16);
 
     c |= widget.var("Roughness Cutoff", mRoughnessCutoff, 0.0f, 1.0f);
     widget.tooltip("Surfaces with lower roughness will not reflect");
