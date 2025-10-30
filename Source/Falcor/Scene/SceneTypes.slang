@@ -313,6 +313,7 @@ struct SkinningVertexData
 struct VertexData
 {
     float3 posW;            ///< Position in world space.
+    float3 prevPosW;        ///< Previous position in world space.
     float3 normalW;         ///< Shading normal in world space (normalized).
     float4 tangentW;        ///< Shading tangent in world space (normalized). The last component is guaranteed to be +-1.0 or zero if tangents are missing.
     float2 texC;            ///< Texture coordinate.

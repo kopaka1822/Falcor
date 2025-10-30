@@ -436,12 +436,13 @@ struct Scene
     /** Interpolated vertex attributes for a given triangle and transform to world space.
         \param[in] vertices Unpacked fetched vertices which can be used for further computations involving individual vertices.
         \param[in] worldMat Triangle object to world transform.
+        \param[in] prevWorldMat Triangle object to previous frame world transform.
         \param[in] worldInvTransposeMat Triangle object to world inverse transpose transform.
         \param[in] isFrontFaceCW True if front-facing side has clockwise winding in object space.
         \param[in] barycentrics Barycentric coordinates in the triangle.
         \return Interpolated vertex attributes.
     */
-    VertexData computeVertexData(const StaticVertexData vertices[3], const float4x4 worldMat, const float3x3 worldInvTransposeMat, const bool isFrontFaceCW, const float3 barycentrics)
+    VertexData computeVertexData(const StaticVertexData vertices[3], const float4x4 worldMat, const float4x4 prevWorldMat, const float3x3 worldInvTransposeMat, const bool isFrontFaceCW, const float3 barycentrics)
     {
         VertexData v = {};
 
@@ -467,7 +468,8 @@ struct Scene
         v.curveRadius += vertices[2].curveRadius * barycentrics[2];
 
         v.faceNormalW = getFaceNormalInObjectSpace(vertices, isFrontFaceCW);
-
+        
+        v.prevPosW = mul(prevWorldMat, float4(v.posW, 1.f)).xyz;
         v.posW = mul(worldMat, float4(v.posW, 1.f)).xyz;
         v.normalW = mul(worldInvTransposeMat, v.normalW);
         v.faceNormalW = mul(worldInvTransposeMat, v.faceNormalW);
@@ -493,9 +495,10 @@ struct Scene
         vertices = { gScene.getVertex(vtxIndices[0]), gScene.getVertex(vtxIndices[1]), gScene.getVertex(vtxIndices[2]) };
 
         const float4x4 worldMat = gScene.getWorldMatrix(instanceID);
+        const float4x4 prevWorldMat = gScene.getPrevWorldMatrix(instanceID);
         const float3x3 worldInvTransposeMat = getInverseTransposeWorldMatrix(instanceID);
         const bool isFrontFaceCW = isObjectFrontFaceCW(instanceID);
-        return computeVertexData(vertices, worldMat, worldInvTransposeMat, isFrontFaceCW, barycentrics);
+        return computeVertexData(vertices, worldMat, prevWorldMat, worldInvTransposeMat, isFrontFaceCW, barycentrics);
     }
 
     /** Returns the interpolated vertex attributes for a given triangle.
@@ -539,9 +542,10 @@ struct Scene
         const StaticVertexData vertices[3] = { gScene.getVertex(vtxIndices[0]), gScene.getVertex(vtxIndices[1]), gScene.getVertex(vtxIndices[2]) };
         const float3 barycentrics = hit.getBarycentricWeights();
         const float4x4 worldMat = gScene.getWorldMatrix(hit.instanceID);
+        const float4x4 prevWorldMat = gScene.getPrevWorldMatrix(hit.instanceID);
         const float3x3 worldInvTransposeMat = getInverseTransposeWorldMatrix(hit.instanceID);
         const bool isFrontFaceCW = isObjectFrontFaceCW(hit.instanceID);
-        VertexData v = computeVertexData(vertices, worldMat, worldInvTransposeMat, isFrontFaceCW, barycentrics);
+        VertexData v = computeVertexData(vertices, worldMat, prevWorldMat, worldInvTransposeMat, isFrontFaceCW, barycentrics);
 
         // Offset surface along the displaced direction to avoid self-intersections because of precision.
         v.posW += v.normalW * (hit.displacement * DisplacementData::kSurfaceSafetyScaleBias.x + DisplacementData::kSurfaceSafetyScaleBias.y);
