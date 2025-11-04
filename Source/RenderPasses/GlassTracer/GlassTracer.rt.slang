@@ -29,6 +29,9 @@ RWTexture2DArray<float4> gDebugTex;
 #define MVEC MVEC_HALFWAY_REFLECT
 #endif
 
+#ifndef USE_TEXTURE_LOD
+#define USE_TEXTURE_LOD 0
+#endif
 
 struct UniformSampleGenerator : ISampleGenerator
 {
@@ -50,9 +53,6 @@ struct UniformSampleGenerator : ISampleGenerator
     Xoshiro128StarStar rng;
 };
 
-#ifndef ALPHA_TEXTURE_LOD
-#define ALPHA_TEXTURE_LOD 0
-#endif
 #ifndef CULL_BACK_FACES
 #define CULL_BACK_FACES 1
 #endif
@@ -383,12 +383,15 @@ struct StackFrame
     float linearZ;
     float3 thp; // path throughput
     // ^ 11 floats
+#if USE_TEXTURE_LOD != 0
+    RayDiff rd; // 12 floats
+#endif
 #if MVEC == MVEC_HALFWAY_REFLECT
     float4x4 viewTransform; // 16 floats
 #endif
 #if MVEC == MVEC_RAY_DIFF
     float3 ray2origin; // direction is the same as ray.dir
-    RayDiff rd; // 12 floats
+    RayDiff rd2; // 12 floats
     // ^ 15 floats
 #endif
 };
@@ -440,10 +443,18 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd)
 #if MVEC == MVEC_RAY_DIFF
     // transfer to the current plane
     float ray2t = dot(sd.faceN, sd.posW - s.ray2origin) / dot(sd.faceN, s.rayDir);
-    s.rd = s.rd.propagate(s.ray2origin, s.rayDir, ray2t, sd.faceN);
+    s.rd2 = s.rd2.propagate(s.ray2origin, s.rayDir, ray2t, sd.faceN);
     s.ray2origin = s.ray2origin + ray2t * s.rayDir;
     // reflect or refract
-    if (transmission) s.rd = s.rd.refract(s.rayDir, bsdfSample.wo, sd.faceN);
+    if (transmission) s.rd2 = s.rd2.refract(s.rayDir, bsdfSample.wo, sd.faceN);
+    else s.rd2 = s.rd2.reflect(s.rayDir, bsdfSample.wo); // uses halfway vector as normal
+#endif
+
+#if USE_TEXTURE_LOD != 0
+    // transfer to posW
+    s.rd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, sd.posW), sd.faceN);
+    // reflect or refract TODO use functions that respect dNdx and dNdy
+    if(transmission) s.rd = s.rd.refract(s.rayDir, bsdfSample.wo, sd.faceN);
     else s.rd = s.rd.reflect(s.rayDir, bsdfSample.wo); // uses halfway vector as normal
 #endif
 
@@ -478,7 +489,15 @@ void rayGen()
 
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameCount);
     s.rayOrigin = gScene.camera.data.posW;
-    s.rayDir = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
+    const float3 nonNormalizedRayDir = gScene.camera.computeNonNormalizedRayDirPinhole(pixel, frameDim);
+    s.rayDir = normalize(nonNormalizedRayDir);
+
+    #if USE_TEXTURE_LOD != 0
+    float3 dDdx, dDdy;
+    computeRayDirectionDifferentials(nonNormalizedRayDir, gScene.camera.data.cameraU, gScene.camera.data.cameraV, frameDim, dDdx, dDdy);
+
+    s.rd = RayDiff(float3(0.f), float3(0.f), dDdx, dDdy);
+    #endif
 
     #if MVEC == MVEC_RAY_DIFF
     s.ray2origin = gScene.camera.data.prevPosW;
@@ -487,7 +506,7 @@ void rayGen()
     float3 ray2T = normalize(cross(s.rayDir, float3(0.0, 1.0, 0.0)));
     float3 ray2B = normalize(cross(s.rayDir, ray2T));
     float3 dO = 0.0; // zero dOdx, dOdy
-    s.rd = RayDiff(dO, dO, ray2T, ray2B);
+    s.rd2 = RayDiff(dO, dO, ray2T, ray2B);
     #endif
 
     RayData data;
@@ -543,7 +562,12 @@ void rayGen()
             curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, matrixIdentity(), camMovement || vertexMoved);
         
         let materialID = gScene.getMaterialID(triangleHit.instanceID);
+        #if USE_TEXTURE_LOD == 0
         let lod = ExplicitLodTextureSampler(0.0);
+        #else
+        prepareRayDiffAtHitPoint(v, triangleVertices, barycentrics, rayDir, gScene.getWorldMatrix(instanceID), gScene.getInverseTransposeWorldMatrix(instanceID),
+            newRayDiff, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy);
+        #endif
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -s.rayDir, lod);
         s.linearZ += distance(s.rayOrigin, v.posW);
 
@@ -571,12 +595,12 @@ void rayGen()
             #if MVEC == MVEC_RAY_DIFF
             // transfer to the final plane with point prevPosW and surface normal -s.rayDir
             float ray2t = dot(s.rayDir, v.prevPosW - s.ray2origin);
-            s.rd = s.rd.propagate(s.ray2origin, s.rayDir, ray2t, -s.rayDir);
+            s.rd2 = s.rd2.propagate(s.ray2origin, s.rayDir, ray2t, -s.rayDir);
             s.ray2origin = s.ray2origin + ray2t * s.rayDir;
 
-            // solve the equation ray2.origin + t * rd.dOdx + b * rd.dOdy = prevPosW
-            // => t * rd.dOdx + b * rd.dOdy = v.prevPosW - ray2.origin
-            float2 tb = solveLinearEq(s.rd.dOdx, s.rd.dOdy, v.prevPosW - s.ray2origin);
+            // solve the equation ray2.origin + t * rd2.dOdx + b * rd2.dOdy = prevPosW
+            // => t * rd2.dOdx + b * rd2.dOdy = v.prevPosW - ray2.origin
+            float2 tb = solveLinearEq(s.rd2.dOdx, s.rd2.dOdy, v.prevPosW - s.ray2origin);
             // float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
             float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, false /*no jitter*/).dir; // reconstruct a vector without jitter
             float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
