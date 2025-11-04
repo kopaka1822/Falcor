@@ -75,6 +75,18 @@ namespace Falcor
         UpdateFlags prevUpdates = mUpdates;
         mUpdates = UpdateFlags::None;
 
+        auto loadTexture = [&](bool srgb)
+        {
+            std::filesystem::path path;
+            FileDialogFilterVec filters = { FileDialogFilter("png"), FileDialogFilter("jpg") };
+            if (openFileDialog(filters, path))
+            {
+                mUpdates |= UpdateFlags::ResourcesChanged;
+                return Texture::createFromFile(mpDevice, path, true, srgb);
+            }
+            return ref<Texture>(nullptr);
+        };
+
         if (auto pTexture = getBaseColorTexture())
         {
             bool hasAlpha = isAlphaSupported() && doesFormatHaveAlpha(pTexture->getFormat());
@@ -102,7 +114,10 @@ namespace Falcor
         {
             float4 baseColor = getBaseColor();
             if (widget.var("Base color", baseColor, 0.f, 1.f, 0.01f)) setBaseColor(baseColor);
+            widget.text("Base color: ");
         }
+        if (widget.button("Load texture##BaseColor", true)) setBaseColorTexture(loadTexture(true));
+
 
         if (auto pTexture = getSpecularTexture())
         {
@@ -110,12 +125,15 @@ namespace Falcor
             widget.text("Texture info: " + std::to_string(pTexture->getWidth()) + "x" + std::to_string(pTexture->getHeight()) + " (" + to_string(pTexture->getFormat()) + ")");
             widget.image("Specular params", pTexture.get(), float2(100.f));
             if (widget.button("Remove texture##Specular")) setSpecularTexture(nullptr);
+            if (widget.button("Load texture##Specular", true)) setSpecularTexture(loadTexture(false));
         }
         else
         {
             float4 specularParams = getSpecularParams();
             if (widget.var("Specular params", specularParams, 0.f, 1.f, 0.01f)) setSpecularParams(specularParams);
             widget.tooltip("The encoding depends on the material type");
+            widget.text("Specular tex: ");
+            if (widget.button("Load texture##Specular", true)) setSpecularTexture(loadTexture(false));
 
             renderSpecularUI(widget); // Let derived classes draw additional UI elements.
         }
@@ -127,6 +145,11 @@ namespace Falcor
             widget.image("Normal map", pTexture.get(), float2(100.f));
             if (widget.button("Remove texture##NormalMap")) setNormalMap(nullptr);
         }
+        else
+        {
+            widget.text("Normal map:");
+        }
+        if (widget.button("Load texture##NormalMap", true)) setNormalMap(loadTexture(false));
 
         if (auto pTexture = getDisplacementMap())
         {
@@ -134,12 +157,18 @@ namespace Falcor
             widget.text("Texture info: " + std::to_string(pTexture->getWidth()) + "x" + std::to_string(pTexture->getHeight()) + " (" + to_string(pTexture->getFormat()) + ")");
             widget.image("Displacement map", pTexture.get(), float2(100.f));
             if (widget.button("Remove texture##DisplacementMap")) setDisplacementMap(nullptr);
+            if (widget.button("Load texture##DisplacementMap", true)) setDisplacementMap(loadTexture(false));
 
             float scale = getDisplacementScale();
             if (widget.var("Displacement scale", scale)) setDisplacementScale(scale);
 
             float offset = getDisplacementOffset();
             if (widget.var("Displacement offset", offset)) setDisplacementOffset(offset);
+        }
+        else
+        {
+            widget.text("Displacement map:");
+            if (widget.button("Load texture##DisplacementMap", true)) setDisplacementMap(loadTexture(false));
         }
 
         if (auto pTexture = getTransmissionTexture())
@@ -153,7 +182,9 @@ namespace Falcor
         {
             float3 transmissionColor = getTransmissionColor();
             if (widget.var("Transmission", transmissionColor, 0.f, 1.f, 0.01f)) setTransmissionColor(transmissionColor);
+            widget.text("Transmission tex:");
         }
+        if (widget.button("Load texture##Transmission", true)) setTransmissionTexture(loadTexture(false));
 
         float diffuseTransmission = getDiffuseTransmission();
         if (widget.var("Diffuse transmission", diffuseTransmission, 0.f, 1.f, 0.01f)) setDiffuseTransmission(diffuseTransmission);
