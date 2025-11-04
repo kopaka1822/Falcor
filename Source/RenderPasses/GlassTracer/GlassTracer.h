@@ -127,9 +127,9 @@ private:
     bool mCullBackFaces = false;
     int mPathLength = 10;
     int mStackSize = 2;
-    MotionVector mMotionVector = MotionVector::HalfwayReflection;
+    MotionVector mMotionVector = MotionVector::FirstHit;
 
-    RenderScale mRenderScale = RenderScale::Full;
+    RenderScale mRenderScale = RenderScale::Performance;
 
     // lighting settings
     float mAmbientIntensity = 0.25f;
