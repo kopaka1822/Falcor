@@ -125,6 +125,8 @@ struct HairMaterialInstance : IMaterialInstance
         return p;
     }
 
+    [mutating] void setRoughness(float roughness) {}
+
     uint getLobeTypes(const ShadingData sd)
     {
         // The BSDF currently assumes all diffuse lobes (for animal fur).

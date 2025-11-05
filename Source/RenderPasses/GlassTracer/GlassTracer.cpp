@@ -168,6 +168,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["PerFrame"]["gForceMotionVectorCalculation"] = mForceMotionVectorCalculation ? 1 : 0;
     var["PerFrame"]["gMaxStack"] = mStackSize;
     var["PerFrame"]["gTextureGradientScaling"] = std::pow(2.0f, mTextureLodBias);
+    var["PerFrame"]["gForceZeroRoughness"] = mForceZeroRoughness ? 1 : 0;
 
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
     mpProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
@@ -194,12 +195,6 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         requestRecompile();
 
     bool c = false; // changed
-
-    c |= widget.var("Path Length", mPathLength, 1, 64);
-    c |= widget.var("Stack Size", mStackSize, 0, 16);
-
-    c |= widget.var("Roughness Cutoff", mRoughnessCutoff, 0.0f, 1.0f);
-    widget.tooltip("Surfaces with lower roughness will not reflect");
 
     c |= widget.dropdown("Motion Vectors", mMotionVector);
     c |= widget.checkbox("Force Motion Vector Calculation", mForceMotionVectorCalculation);
@@ -248,6 +243,16 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         c |= widget.checkbox("Enable Shadows", mEnableShadows);
         c |= widget.var("Point Light Clip", mPointLightClip, 0.0f);
         c |= widget.var("Shadow LOD Bias", mShadowLodBias, -16.0f, 16.0f, 0.5f);
+    }
+
+    if (auto g = widget.group("Pathtracer"))
+    {
+        c |= widget.var("Path Length", mPathLength, 1, 64);
+        c |= widget.var("Stack Size", mStackSize, 0, 16);
+
+        c |= widget.var("Roughness Cutoff", mRoughnessCutoff, 0.0f, 1.0f);
+        widget.tooltip("Surfaces with lower roughness will not reflect");
+        c |= widget.checkbox("Force Zero Rougness", mForceZeroRoughness);
     }
 
     mOptionsChanged |= c;

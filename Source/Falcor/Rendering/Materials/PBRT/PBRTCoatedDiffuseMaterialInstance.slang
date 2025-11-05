@@ -92,6 +92,11 @@ struct PBRTCoatedDiffuseMaterialInstance : IMaterialInstance
         return p;
     }
 
+    [mutating] void setRoughness(float roughness)
+    {
+        interfaceD.alpha = roughness;
+    }
+
     uint getLobeTypes(const ShadingData sd)
     {
         return (uint)(LobeType::DiffuseReflection) | (uint)(interfaceD.isSingular() ? LobeType::DeltaReflection : LobeType::SpecularReflection);

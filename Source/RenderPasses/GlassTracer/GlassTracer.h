@@ -142,6 +142,7 @@ private:
     float mShadowLodBias = 0.0f;
 
     float mRoughnessCutoff = 0.5f;
+    bool mForceZeroRoughness = true;
     bool mForceMotionVectorCalculation = false;
 
     bool mUseTextureLOD = true;

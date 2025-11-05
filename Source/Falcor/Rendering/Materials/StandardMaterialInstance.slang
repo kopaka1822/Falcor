@@ -136,6 +136,11 @@ struct StandardMaterialInstance : IMaterialInstance
         return p;
     }
 
+    [mutating] void setRoughness(float roughness)
+    {
+        data.roughness = roughness;
+    }
+
     uint getLobeTypes(const ShadingData sd)
     {
         return StandardBSDF::getLobeTypes(data);

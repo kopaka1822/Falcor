@@ -73,8 +73,8 @@ cbuffer PerFrame
     float gPointLightClip; // shadow
     float gShadowLodBias;
     bool gEnableShadows;
-
-    float gRoughnessCutoff; // no reflections for surfaces with higher roughness
+    float gRoughnessCutoff;             // no reflections for surfaces with higher roughness
+    bool gForceZeroRoughness;           // forces roughness to be zero for reflection/refraction rays
     bool gForceMotionVectorCalculation; // forces motion vectors to be calculated even if neither camera nor vertex was moving
     uint gMaxStack;                     // maxiumum stack size for indirections
     float gTextureGradientScaling;      // scaling factor for texture gradients
@@ -586,7 +586,7 @@ void rayGen()
         s.linearZ += distance(s.rayOrigin, v.posW);
 
         // Create material instance at shading point.
-        let mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
+        IMaterialInstance mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
         let bsdf = mi.getProperties(sd);
 
         // compute local color contribution
@@ -637,11 +637,13 @@ void rayGen()
         }
         else
         {
+            if (gForceZeroRoughness) mi.setRoughness(0.0);
             // only delta reflections, refractions for next bounce
-            sd.mtl.setActiveLobes(((uint) LobeType::Delta | (uint) LobeType::Specular) & (uint) LobeType::Transmission);
+            uint activeLobes = (uint)LobeType::Delta | (uint)LobeType::Specular;
+            sd.mtl.setActiveLobes(activeLobes & (uint) LobeType::Transmission);
             if (!mi.sample(sd, sg, bsdfSampleRefract, true /*Importance sampling*/))
                 bsdfSampleRefract.weight = 0.0;
-            sd.mtl.setActiveLobes(((uint) LobeType::Delta | (uint) LobeType::Specular) & (uint) LobeType::Reflection);
+            sd.mtl.setActiveLobes(activeLobes & (uint) LobeType::Reflection);
             if (!mi.sample(sd, sg, bsdfSampleReflect, true /*Importance sampling*/))
                 bsdfSampleReflect.weight = 0.0;
             sd.mtl.setActiveLobes((uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)

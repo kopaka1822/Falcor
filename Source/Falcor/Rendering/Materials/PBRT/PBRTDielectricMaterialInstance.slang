@@ -199,6 +199,11 @@ struct PBRTDielectricMaterialInstance : IMaterialInstance
         return p;
     }
 
+    [mutating] void setRoughness(float roughness)
+    {
+        bsdf.D.alpha = roughness;
+    }
+
     uint getLobeTypes(const ShadingData sd)
     {
         return bsdf.D.isSingular() ? ((uint)LobeType::DeltaReflection | (uint)LobeType::DeltaTransmission)

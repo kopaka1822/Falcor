@@ -94,6 +94,11 @@ struct PBRTCoatedConductorMaterialInstance : IMaterialInstance
         return p;
     }
 
+    [mutating] void setRoughness(float roughness)
+    {
+        interfaceD.alpha = roughness;
+    }
+
     uint getLobeTypes(const ShadingData sd)
     {
         return (uint)(interfaceD.isSingular() ? LobeType::DeltaReflection : LobeType::SpecularReflection)

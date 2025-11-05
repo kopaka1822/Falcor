@@ -120,6 +120,11 @@ struct MERLMixMaterialInstance : IMaterialInstance
         return p;
     }
 
+    [mutating] void setRoughness(float roughness)
+    {
+        fittedBrdf.roughness = roughness;
+    }
+
     uint getLobeTypes(const ShadingData sd)
     {
         return (uint)LobeType::DiffuseReflection | (uint)LobeType::SpecularReflection;

@@ -207,6 +207,8 @@ struct RGLMaterialInstance : IMaterialInstance
         return p;
     }
 
+    [mutating] void setRoughness(float roughness) {}
+
     uint getLobeTypes(const ShadingData sd)
     {
         // Report a single diffuse reflection lobe. We don't really know what the

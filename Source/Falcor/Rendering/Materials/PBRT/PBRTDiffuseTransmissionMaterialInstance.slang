@@ -109,6 +109,8 @@ struct PBRTDiffuseTransmissionMaterialInstance : IMaterialInstance
         return p;
     }
 
+    [mutating] void setRoughness(float roughness) {}
+
     uint getLobeTypes(const ShadingData sd)
     {
         return (uint)LobeType::DiffuseReflection | (uint)LobeType::DiffuseTransmission;

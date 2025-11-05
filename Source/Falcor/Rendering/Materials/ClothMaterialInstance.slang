@@ -81,6 +81,11 @@ struct ClothMaterialInstance : IMaterialInstance
         return p;
     }
 
+    [mutating] void setRoughness(float roughness)
+    {
+        brdf.roughness = 2.0 * roughness - 1.0;
+    }
+
     uint getLobeTypes(const ShadingData sd)
     {
         return (uint)LobeType::DiffuseReflection;

@@ -179,4 +179,6 @@ interface IMaterialInstance
     */
     uint getLobeTypes(const ShadingData sd);
 
+    // Sets roughness if applicable
+    [mutating] void setRoughness(float roughness);
 }

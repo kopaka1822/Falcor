@@ -149,6 +149,11 @@ struct PBRTConductorMaterialInstance : IMaterialInstance
         return p;
     }
 
+    [mutating] void setRoughness(float roughness)
+    {
+        bsdf.D.alpha = roughness;
+    }
+
     uint getLobeTypes(const ShadingData sd)
     {
         return (uint)(bsdf.D.isSingular() ? LobeType::DeltaReflection : LobeType::SpecularReflection);
