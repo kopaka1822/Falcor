@@ -30,7 +30,7 @@ RWTexture2DArray<float4> gDebugTex;
 #endif
 
 #ifndef USE_TEXTURE_LOD
-#define USE_TEXTURE_LOD 0
+#define USE_TEXTURE_LOD 1
 #endif
 
 struct UniformSampleGenerator : ISampleGenerator
@@ -76,7 +76,8 @@ cbuffer PerFrame
 
     float gRoughnessCutoff; // no reflections for surfaces with higher roughness
     bool gForceMotionVectorCalculation; // forces motion vectors to be calculated even if neither camera nor vertex was moving
-    uint gMaxStack; // maxiumum stack size for indirections
+    uint gMaxStack;                     // maxiumum stack size for indirections
+    float gTextureGradientScaling;      // scaling factor for texture gradients
 }
 
 float4 shadeEnvmap(float3 viewDir)
@@ -451,8 +452,8 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd)
 #endif
 
 #if USE_TEXTURE_LOD != 0
-    // transfer to posW
-    s.rd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, sd.posW), sd.faceN);
+    // transfer to posW (done in main)
+    // s.rd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, sd.posW), sd.faceN);
     // reflect or refract TODO use functions that respect dNdx and dNdy
     if(transmission) s.rd = s.rd.refract(s.rayDir, bsdfSample.wo, sd.faceN);
     else s.rd = s.rd.reflect(s.rayDir, bsdfSample.wo); // uses halfway vector as normal
@@ -495,7 +496,6 @@ void rayGen()
     #if USE_TEXTURE_LOD != 0
     float3 dDdx, dDdy;
     computeRayDirectionDifferentials(nonNormalizedRayDir, gScene.camera.data.cameraU, gScene.camera.data.cameraV, frameDim, dDdx, dDdy);
-
     s.rd = RayDiff(float3(0.f), float3(0.f), dDdx, dDdy);
     #endif
 
@@ -555,19 +555,33 @@ void rayGen()
 
         /////////// TRIANGLE HIT /////////////
         TriangleHit triangleHit = hit.getTriangleHit();
-        
-        let v = gScene.getVertexData(triangleHit);
+
+        float3 barycentrics = triangleHit.getBarycentricWeights();
+        StaticVertexData triangleVertices[3];
+        let v = gScene.getVertexData(triangleHit.instanceID, triangleHit.primitiveIndex, barycentrics, triangleVertices);
         bool vertexMoved = any(v.posW != v.prevPosW);
         if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
             curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, matrixIdentity(), camMovement || vertexMoved);
         
         let materialID = gScene.getMaterialID(triangleHit.instanceID);
+
+        // texture LOD calculation
         #if USE_TEXTURE_LOD == 0
         let lod = ExplicitLodTextureSampler(0.0);
         #else
-        prepareRayDiffAtHitPoint(v, triangleVertices, barycentrics, rayDir, gScene.getWorldMatrix(instanceID), gScene.getInverseTransposeWorldMatrix(instanceID),
-            newRayDiff, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy);
+        // transfer rd to surface
+        s.rd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, v.posW), v.faceNormalW);
+        float3 unnormalizedN;
+        float3 normals[3];
+        float2 dUVdx, dUVdy;
+        float2 dBarydx, dBarydy;
+        prepareRayDiffAtHitPoint(v, triangleVertices, barycentrics, s.rayDir,
+            gScene.getWorldMatrix(triangleHit.instanceID), gScene.getInverseTransposeWorldMatrix(triangleHit.instanceID),
+            s.rd, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
+        );
+        let lod = ExplicitGradientTextureSampler(dUVdx * gTextureGradientScaling, dUVdy * gTextureGradientScaling);
         #endif
+
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -s.rayDir, lod);
         s.linearZ += distance(s.rayOrigin, v.posW);
 

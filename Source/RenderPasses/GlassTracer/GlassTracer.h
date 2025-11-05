@@ -125,7 +125,7 @@ private:
     whitelist_t mTransparencyWhitelist;
 
     bool mCullBackFaces = false;
-    int mPathLength = 10;
+    int mPathLength = 50;
     int mStackSize = 2;
     MotionVector mMotionVector = MotionVector::FirstHit;
 
@@ -143,6 +143,9 @@ private:
 
     float mRoughnessCutoff = 0.5f;
     bool mForceMotionVectorCalculation = false;
+
+    bool mUseTextureLOD = true;
+    float mTextureLodBias = -1.5f;
 
     bool mOptionsChanged = true;
 };

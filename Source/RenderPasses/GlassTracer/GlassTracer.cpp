@@ -118,9 +118,14 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pDebug = renderData.getTexture(kDebug);
 
     size_t requiredStack = pVbuffer->getWidth() * pVbuffer->getHeight() * std::max(1, mStackSize);
-    if (!mpStackBuffer || mpStackBuffer->getElementCount() != requiredStack)
+    // number of floats in the stack struct
+    uint32_t structSize = 12;
+    if (mUseTextureLOD) structSize += 12;
+    if (mMotionVector == MotionVector::HalfwayReflection) structSize += 16;
+    if (mMotionVector == MotionVector::RayDifferentials) structSize += 16;
+    if (!mpStackBuffer || mpStackBuffer->getElementCount() != requiredStack || mpStackBuffer->getElementSize() != structSize * sizeof(float))
     {
-        mpStackBuffer = Buffer::createStructured(mpDevice, sizeof(float) * (12 + 16), requiredStack, ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false);
+        mpStackBuffer = Buffer::createStructured(mpDevice, sizeof(float) * structSize, requiredStack, ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false);
     }
 
     if (!mpScene)
@@ -162,10 +167,12 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["PerFrame"]["gRoughnessCutoff"] = mRoughnessCutoff;
     var["PerFrame"]["gForceMotionVectorCalculation"] = mForceMotionVectorCalculation ? 1 : 0;
     var["PerFrame"]["gMaxStack"] = mStackSize;
+    var["PerFrame"]["gTextureGradientScaling"] = std::pow(2.0f, mTextureLodBias);
 
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
     mpProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
     mpProgram->addDefine("MVEC", std::to_string(uint32_t(mMotionVector)));
+    mpProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
 
     uint3 dispatch = uint3(1);
     dispatch.x = pVbuffer->getWidth();
@@ -198,9 +205,14 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
     c |= widget.checkbox("Force Motion Vector Calculation", mForceMotionVectorCalculation);
     widget.tooltip("Forces motion vector calculation even if neither camera nor vertex moved.");
 
-
     if (auto g = widget.group("Scene"))
     {
+        c |= widget.checkbox("Use Texture LOD", mUseTextureLOD);
+        if (mUseTextureLOD)
+        {
+            c |= widget.var("Texture LOD Bias", mTextureLodBias, -8.0f, 8.0f, 0.25f);
+        }
+
         c |= widget.checkbox("Cull Back Faces", mCullBackFaces);
 
         c |= widget.checkbox("Transparency Whitelist", mUseTransparencyWhitelist);
