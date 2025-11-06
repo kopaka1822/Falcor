@@ -121,7 +121,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     // number of floats in the stack struct
     uint32_t structSize = 12;
     if (mUseTextureLOD) structSize += 12;
-    if (mMotionVector == MotionVector::HalfwayReflection) structSize += 16;
+    if (mMotionVector == MotionVector::HalfwayReflection) structSize += 12;
     if (mMotionVector == MotionVector::RayDifferentials) structSize += 16;
     if (!mpStackBuffer || mpStackBuffer->getElementCount() != requiredStack || mpStackBuffer->getElementSize() != structSize * sizeof(float))
     {

@@ -158,13 +158,13 @@ void anyHit(inout RayData rayData : SV_RayPayload, BuiltInTriangleIntersectionAt
     // hit (return)
 }
 
-float2 calcMotionVector(uint2 pixel, uint2 frameDim, float3 prevPosW, float4x4 viewTransform, bool camMotion)
+float2 calcMotionVector(uint2 pixel, uint2 frameDim, float3 prevPosW, float3x4 viewTransform, bool camMotion)
 {
     if (!camMotion)
         return 0.0;
     
     float2 pixelPos = float2(pixel) + 0.5;
-    float4 prevPosTWorld = mul(viewTransform, float4(prevPosW, 1.0));
+    float4 prevPosTWorld = float4(mul(viewTransform, float4(prevPosW, 1.0)), 1.0);
     float4 prevPosH = mul(gScene.camera.data.prevViewProjMatNoJitter, prevPosTWorld);
     
     float2 prevCrd = prevPosH.xy / prevPosH.w;
@@ -291,25 +291,41 @@ float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance m
 }
 
 // mirrors scene at plane with location O and normal N
-float4x4 matrixMirror(float3 O, float3 N)
+float3x4 matrixMirror(float3 O, float3 N)
 {
-    float4x4 M = float4x4(
-        1 - 2 * N.x * N.x, -2 * N.x * N.y, -2 * N.x * N.z, 0,
-        -2 * N.y * N.x, 1 - 2 * N.y * N.y, -2 * N.y * N.z, 0,
-        -2 * N.z * N.x, -2 * N.z * N.y, 1 - 2 * N.z * N.z, 0,
-        2 * dot(N, O) * N.x, 2 * dot(N, O) * N.y, 2 * dot(N, O) * N.z, 1
-    ); // TODO needs transpose?
-    //return M;
-    return transpose(M);
+    float3x4 M = float3x4(
+        1 - 2 * N.x * N.x, -2 * N.y * N.x, -2 * N.z * N.x, 2 * dot(N, O) * N.x,
+        -2 * N.x * N.y, 1 - 2 * N.y * N.y, -2 * N.z * N.y, 2 * dot(N, O) * N.y,
+        -2 * N.x * N.z, -2 * N.y * N.z, 1 - 2 * N.z * N.z, 2 * dot(N, O) * N.z,
+    );
+
+    return M; 
 }
 
-float4x4 matrixIdentity()
+float3x4 matrixIdentity()
 {
-    return float4x4(
+    return float3x4(
         1.0, 0.0, 0.0, 0.0,
         0.0, 1.0, 0.0, 0.0,
         0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0
+    );
+}
+
+// multiplies two affine transforms A and B (3x4 matrices)
+float3x4 mulAffine(float3x4 A, float3x4 B)
+{
+    float3x3 RA = (float3x3)A;
+    float3x3 RB = (float3x3)B;
+    float3 tA = float3(A[0][3], A[1][3], A[2][3]);
+    float3 tB = float3(B[0][3], B[1][3], B[2][3]);
+
+    float3x3 AB = mul(RA, RB);
+    float3 t = mul(RA, tB) + tA;
+
+    return float3x4(
+        AB[0][0], AB[0][1], AB[0][2], t[0],
+        AB[1][0], AB[1][1], AB[1][2], t[1],
+        AB[2][0], AB[2][1], AB[2][2], t[2]
     );
 }
 
@@ -388,7 +404,7 @@ struct StackFrame
     RayDiff rd; // 12 floats
 #endif
 #if MVEC == MVEC_HALFWAY_REFLECT
-    float4x4 viewTransform; // 16 floats
+    float3x4 viewTransform; // 12 floats
 #endif
 #if MVEC == MVEC_RAY_DIFF
     float3 ray2origin; // direction is the same as ray.dir
@@ -438,7 +454,7 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd)
     float3 H = -s.rayDir + bsdfSample.wo;
     float lenH = length(H);
     if (lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
-        s.viewTransform = mul(s.viewTransform, matrixMirror(sd.posW, H / lenH));
+        s.viewTransform = mulAffine(s.viewTransform, matrixMirror(sd.posW, H / lenH));
 #endif
 
 #if MVEC == MVEC_RAY_DIFF
