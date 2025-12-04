@@ -644,7 +644,7 @@ void rayGen()
         BSDFSample bsdfSampleReflect;
         BSDFSample bsdfSampleRefract;
 
-        if (bsdf.roughness > gRoughnessCutoff || (s.curPathLength == gPathLength - 1))
+        if (bsdf.roughness > gRoughnessCutoff || (s.curPathLength == gPathLength))
         {
             // force absorb
             bsdfSampleReflect.weight = 0.0;
