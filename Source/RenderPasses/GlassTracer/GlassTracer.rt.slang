@@ -445,7 +445,27 @@ bool StackFull()
 }
 ////////////////////////////////////////////////////////
 
-StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd)
+float3 calcBarycentrics(float3 p, StaticVertexData v[3])
+{
+    float3 a = v[0].position;
+    float3 b = v[1].position;
+    float3 c = v[2].position;
+    float3 v0 = b - a;
+    float3 v1 = c - a;
+    float3 v2 = p - a;
+    float d00 = dot(v0, v0);
+    float d01 = dot(v0, v1);
+    float d11 = dot(v1, v1);
+    float d20 = dot(v2, v0);
+    float d21 = dot(v2, v1);
+    float denom = d00 * d11 - d01 * d01;
+    float vcoord = (d11 * d20 - d01 * d21) / denom;
+    float wcoord = (d00 * d21 - d01 * d20) / denom;
+    float ucoord = 1.0 - vcoord - wcoord; // same as barycentric calculation in falcor
+    return float3(ucoord, vcoord, wcoord);
+}
+
+StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, StaticVertexData triangleVertices[3], GeometryInstanceID instanceID)
 {
     s.thp *= bsdfSample.weight;
     bool transmission = bsdfSample.isLobe(LobeType::Transmission);
@@ -458,13 +478,37 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd)
 #endif
 
 #if MVEC == MVEC_RAY_DIFF
-    // transfer to the current plane
+    // transfer to the current (virtual) plane
     float ray2t = dot(sd.faceN, sd.posW - s.ray2origin) / dot(sd.faceN, s.rayDir);
     s.rd2 = s.rd2.propagate(s.ray2origin, s.rayDir, ray2t, sd.faceN);
     s.ray2origin = s.ray2origin + ray2t * s.rayDir;
+    // prepare ray differential data at the virtual intersection
+    float3 barycentrics = calcBarycentrics(s.ray2origin, triangleVertices);
+    float3 unnormalizedN; // will be initialized by the prepareRayDiffAtHitPoint
+    float3 normals[3];
+    float2 dUVdx, dUVdy;
+    float2 dBarydx, dBarydy;
+    prepareRayDiffAtHitPoint(sd.faceN, triangleVertices, barycentrics, s.rayDir,
+        gScene.getWorldMatrix(instanceID), gScene.getInverseTransposeWorldMatrix(instanceID),
+        s.rd2, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
+    );
+    float3 ShadingN = normalize(unnormalizedN);
+    
     // reflect or refract
-    if (transmission) s.rd2 = s.rd2.refract(s.rayDir, bsdfSample.wo, sd.faceN);
-    else s.rd2 = s.rd2.reflect(s.rayDir, bsdfSample.wo); // uses halfway vector as normal
+    if (transmission)
+    {
+        // calculate eta from bsdfSamople.wo instead of sd.IoR to account for glossy surfaces
+        float NdD = dot(ShadingN, s.rayDir);
+        float NdT = dot(ShadingN, bsdfSample.wo);
+        float eta = sqrt(1.0 - NdT * NdT) / sqrt(1.0 - NdD * NdD);
+        refractRayDifferential(s.rd2, s.rayDir, unnormalizedN, ShadingN, dBarydx, dBarydy, normals, eta, bsdfSample.wo);
+        //s.rd2 = s.rd2.refract(s.rayDir, bsdfSample.wo, sd.faceN);
+    }
+    else // reflection
+    {
+        reflectRayDifferential(s.rd2, s.rayDir, unnormalizedN, ShadingN, dBarydx, dBarydy, normals);
+        //s.rd2 = s.rd2.reflect(s.rayDir, bsdfSample.wo); // uses halfway vector as normal
+    }
 #endif
 
 #if USE_TEXTURE_LOD != 0
@@ -671,14 +715,14 @@ void rayGen()
         {
             // put one on the stack
             if (!StackFull())
-                PushStack(prepareNextRay(s, bsdfSampleRefract, sd));
+                PushStack(prepareNextRay(s, bsdfSampleRefract, sd, triangleVertices, triangleHit.instanceID));
             doRefraction = false;
         }
-        
-        if(doReflection)
-            s = prepareNextRay(s, bsdfSampleReflect, sd);
-        if(doRefraction)
-            s = prepareNextRay(s, bsdfSampleRefract, sd);
+
+        if (doReflection)
+            s = prepareNextRay(s, bsdfSampleReflect, sd, triangleVertices, triangleHit.instanceID);
+        if (doRefraction)
+            s = prepareNextRay(s, bsdfSampleRefract, sd, triangleVertices, triangleHit.instanceID);
         
         if(!doReflection && !doRefraction)
         {

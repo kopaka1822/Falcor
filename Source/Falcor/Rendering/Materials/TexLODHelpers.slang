@@ -740,7 +740,7 @@ void reflectRayDifferential(inout RayDiff rayDiff, float3 rayDir, float3 nonNorm
     \param[in] refractedDir The direction of the refracted direction.
     \param[in] NdotD The dot product of the normal with the ray direction.
     \param[in] NdotDprime The dot product between the normal and the refracted direction (Eq. 17, Igehy)
-    \param[in] mu An intermediate term used by Igehy to compute the refracted ray differential (Eq. 17, Igehy). See the overloaded refractRayDifferential() function just below.
+    \param[in] mu An intermediate term used by Igehy to compute the refracted ray differential (Eq. 17, Igehy). See the overloaded (() function just below.
     */
 void computeRayDifferentialRefraction(inout RayDiff rayDiff, float3 rayDir, float3 nonNormalizedInterpolatedNormalW,
     float3 normalizedInterpolatedNormalW, float2 dBarydx, float2 dBarydy, float3 normalsW[3],
@@ -906,6 +906,16 @@ void prepareRayDiffAtHitPoint(VertexData v, StaticVertexData triangleVertices[3]
     float2 txcoords[3];
     prepareVerticesForRayDiffs(rayDir, triangleVertices, worldMat, worldInvTransposeMat, barycentrics, edge01, edge02, normals, unnormalizedN, txcoords);
     computeBarycentricDifferentials(rayDiff, rayDir, edge01, edge02, v.faceNormalW, dBarydx, dBarydy);
+    interpolateDifferentials(dBarydx, dBarydy, txcoords, dUVdx, dUVdy);
+}
+// copy of above function with faceNormalW as input instead VertexData v
+void prepareRayDiffAtHitPoint(float3 faceNormalW, StaticVertexData triangleVertices[3], float3 barycentrics, float3 rayDir, float4x4 worldMat, float3x3 worldInvTransposeMat,
+    RayDiff rayDiff, out float3 unnormalizedN, out float3 normals[3], out float2 dBarydx, out float2 dBarydy, out float2 dUVdx, out float2 dUVdy)
+{
+    float3 edge01, edge02;
+    float2 txcoords[3];
+    prepareVerticesForRayDiffs(rayDir, triangleVertices, worldMat, worldInvTransposeMat, barycentrics, edge01, edge02, normals, unnormalizedN, txcoords);
+    computeBarycentricDifferentials(rayDiff, rayDir, edge01, edge02, faceNormalW, dBarydx, dBarydy);
     interpolateDifferentials(dBarydx, dBarydy, txcoords, dUVdx, dUVdy);
 }
 
