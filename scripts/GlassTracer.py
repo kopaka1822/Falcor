@@ -5,7 +5,7 @@ def render_graph_GlassTracer():
     g = RenderGraph('GlassTracer')
     g.create_pass('GlassTracer', 'GlassTracer', {'useWhitelist': True, 'whitelist': '/root/_materials/Burn,/root/_materials/Fire_Magic,/root/_materials/Healing,/root/_materials/Hit1,/root/_materials/Hit1_001,/root/_materials/Light,/root/_materials/Sadness_water,/root/_materials/Water_drip,/root/_materials/Wirble,/root/_materials/boss_healthbar,/root/_materials/eff_clouds,/root/_materials/effect_Fire,/root/_materials/effect_barrier,/root/_materials/effect_light,/root/_materials/effect_shield,/root/_materials/effect_thunder,Board,CollectInner,Collectible,Smoke,TransparentPlane1,'})
     g.create_pass('ToneMapper', 'ToneMapper', {'outputSize': 'Default', 'useSceneMetadata': True, 'exposureCompensation': 0.0, 'autoExposure': False, 'filmSpeed': 100.0, 'whiteBalance': False, 'whitePoint': 6500.0, 'operator': 'Linear', 'clamp': False, 'whiteMaxLuminance': 1.0, 'whiteScale': 11.199999809265137, 'fNumber': 1.0, 'shutter': 1.0, 'exposureMode': 'AperturePriority'})
-    g.create_pass('DLSSPass', 'DLSSPass', {'enabled': True, 'outputSize': 'Default', 'profile': 'DLAA', 'preset': 'Default(CNN)', 'motionVectorScale': 'Relative', 'isHDR': True, 'useJitteredMV': False, 'sharpness': 0.3499999940395355, 'exposure': 0.0})
+    g.create_pass('DLSSPass', 'DLSSPass', {'enabled': True, 'outputSize': 'Default', 'profile': 'MaxPerformance', 'preset': 'Default(CNN)', 'motionVectorScale': 'Relative', 'isHDR': True, 'useJitteredMV': False, 'sharpness': 0.3499999940395355, 'exposure': 0.0})
     g.create_pass('UnpackVBuffer', 'UnpackVBuffer', {})
     g.create_pass('AccumulatePass', 'AccumulatePass', {'enabled': True, 'outputSize': 'Default', 'autoReset': True, 'precisionMode': 'Single', 'maxFrameCount': 0, 'overflowMode': 'Stop'})
     g.create_pass('FSR', 'FSR', {})
@@ -16,6 +16,7 @@ def render_graph_GlassTracer():
     g.create_pass('PathBenchmark', 'PathBenchmark', {})
     g.create_pass('ParticlePass', 'ParticlePass', {})
     g.create_pass('IntelXeSS', 'IntelXeSS', {})
+    g.create_pass('MotionVecVis', 'MotionVecVis', {})
     g.add_edge('GlassTracer.mvec', 'DLSSPass.mvec')
     g.add_edge('GlassTracer.vbuffer', 'UnpackVBuffer.vbuffer')
     g.add_edge('GlassTracer.mvec', 'FSR.mvec')
@@ -46,7 +47,9 @@ def render_graph_GlassTracer():
     g.add_edge('GlassTracer.depth', 'DLSSPass.depth')
     g.add_edge('GlassTracer.depth', 'FSR.depth')
     g.add_edge('GlassTracer.depth', 'IntelXeSS.depth')
+    g.add_edge('GlassTracer.mvec', 'MotionVecVis.mvec')
     g.mark_output('ToneMapper.dst')
+    g.mark_output('MotionVecVis.color')
     return g
 
 GlassTracer = render_graph_GlassTracer()
