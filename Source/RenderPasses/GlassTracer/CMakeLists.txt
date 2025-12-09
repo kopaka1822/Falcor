@@ -4,6 +4,8 @@ target_sources(GlassTracer PRIVATE
     GlassTracer.cpp
     GlassTracer.h
     GlassTracer.rt.slang
+    Shared.slang
+    IterateMV.rt.slang
 )
 
 target_copy_shaders(GlassTracer RenderPasses/GlassTracer)

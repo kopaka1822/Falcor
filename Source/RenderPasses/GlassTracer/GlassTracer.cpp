@@ -37,6 +37,7 @@ namespace
 
     const uint32_t kMaxPayloadSizeBytes = 6 * sizeof(float);
     const std::string kProgramRaytraceFile = "RenderPasses/GlassTracer/GlassTracer.rt.slang";
+    const std::string kIterationRaytraceFile = "RenderPasses/GlassTracer/IterateMV.rt.slang";
 
     const std::string kUseWhitelist = "useWhitelist";
     const std::string kWhitelist = "whitelist";
