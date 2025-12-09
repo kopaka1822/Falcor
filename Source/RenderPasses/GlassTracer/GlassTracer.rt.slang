@@ -24,6 +24,11 @@ RWTexture2D<PackedHitInfo> gVBuffer;
 RWTexture2D<float2> gMotion;
 RWTexture2D<float4> gColor; // shaded vbuffer
 RWTexture2D<float> gDepth; // non-linear depth for DLSS
+// extra outputs for iterations
+RWTexture2D<float3> gNewRayDir;
+RWTexture2D<float3> gLastRayDir; // direction to P
+RWTexture2D<uint> gReflectiveMask;
+RWTexture2D<uint> gLocalPathLength;
 
 float4 shadeEnvmap(float3 viewDir)
 {
@@ -156,6 +161,12 @@ struct VBufferReservoir
     float2 mvec;
     PackedHitInfo vbuffer;
 
+    // iteration specific
+    float3 newRayDir;
+    uint localPathLength;
+    float3 lastRayDir;
+    uint reflectiveMask;
+
     // update function, returns true if reservoir should be updated, false if old data should be kept
     [mutating]
     bool update(float3 localContribution, float rng)
@@ -177,6 +188,11 @@ struct VBufferReservoir
         gVBuffer[pixel] = vbuffer;
         gMotion[pixel] = mvec;
         gDepth[pixel] = depth;
+        // per iteration outputs
+        gReflectiveMask[pixel] = reflectiveMask;
+        gLocalPathLength[pixel] = localPathLength;
+        gNewRayDir[pixel] = newRayDir;
+        gLastRayDir[pixel] = lastRayDir;
     }
 };
 
@@ -187,8 +203,9 @@ struct StackFrame
     uint curPathLength;
     float3 rayDir;
     float linearZ;
-    float3 thp; // path throughput
-    // ^ 11 floats
+    float3 thp;          // path throughput
+    uint reflectiveMask; // 1 = reflection at start (lowest bit), 0101 = reflection->refraction->reflection->refraction
+    // ^ 12 floats
 #if USE_TEXTURE_LOD != 0
     RayDiff rd; // 12 floats
 #endif
@@ -310,6 +327,7 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
 
     s.rayOrigin = sd.computeNewRayOrigin(!transmission);
     s.rayDir = bsdfSample.wo;
+    if (!transmission) s.reflectiveMask |= (1 << (s.curPathLength - 1)); // mark reflection at this path length (curPathLength starts at 1)
     return s;
 }
 
@@ -322,6 +340,7 @@ void rayGen()
     s.thp = 1.0;
     s.linearZ = 0.0;
     s.curPathLength = 0;
+    s.reflectiveMask = 0;
     float3 color = 0.0; // color along path
     
     bool camMovement = any(gScene.camera.data.viewMat != gScene.camera.data.prevViewMat);
@@ -380,17 +399,20 @@ void rayGen()
             color += localContribution;
             if (curVBuffer.update(localContribution, sampleNext1D(sg)))
             {
-                if (i == 0 || MVEC != MVEC_FIRST_HIT) // use envmap motion vector if no hit at all (If the final hit is an envmap, we can use this with the assumption that the last ray reflected on the same surfaces)
-                {
-                    float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/false).dir;
-                    float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
-                    float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
-                    curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
-                    if (!camMovement)
-                        curVBuffer.mvec = 0.0;
-                }
+                float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/false).dir;
+                float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
+                float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
+                curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
+                if (!camMovement)
+                    curVBuffer.mvec = 0.0;
+
                 curVBuffer.vbuffer = data.hit;
                 curVBuffer.depth = linearToNonLinearZ(s.linearZ);
+                // for iterations:
+                curVBuffer.localPathLength = s.curPathLength;
+                curVBuffer.reflectiveMask = s.reflectiveMask;
+                curVBuffer.newRayDir = rayDirNoJitter; // initial ray direction
+                curVBuffer.lastRayDir = s.rayDir;
             }
 
             if (StackEmpty()) break;
@@ -450,9 +472,15 @@ void rayGen()
         {
             curVBuffer.vbuffer = data.hit;
             curVBuffer.depth = linearToNonLinearZ(s.linearZ);
+            // for iterations
+            curVBuffer.localPathLength = s.curPathLength;
+            curVBuffer.reflectiveMask = s.reflectiveMask;
+            curVBuffer.lastRayDir = s.rayDir;
 
             #if MVEC == MVEC_HALFWAY_REFLECT
             curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, s.viewTransform, camMovement || vertexMoved);
+            float3 P = mul(s.viewTransform, float4(v.prevPosW, 1.0));
+            curVBuffer.newRayDir = normalize(P - gScene.camera.data.prevPosW); // initial ray direction
             #endif
 
             #if MVEC == MVEC_RAY_DIFF
@@ -470,7 +498,9 @@ void rayGen()
             float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
             curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
             if(!camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
-#endif
+
+            curVBuffer.newRayDir = prevDirW; // initial ray direction
+            #endif
         }
 
         // obtain 1 bsdf sample for reflection, and one for refraction
