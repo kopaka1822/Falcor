@@ -44,6 +44,7 @@ void rayGen()
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 frameDim = DispatchRaysDimensions().xy;
     const uint n = gLocalPathLength[pixel];
+    //if (n <= 1) return; // direct hit
     const uint reflectiveMask = gReflectiveMask[pixel];
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, 0); // only used for deterministic brdf sampling interface
 
@@ -53,7 +54,7 @@ void rayGen()
     TriangleHit triangleHit = hit.getTriangleHit();
     let vP = gScene.getVertexData(triangleHit.instanceID, triangleHit.primitiveIndex, triangleHit.getBarycentricWeights());
     const float3 P = vP.posW; // TODO prevPosW?
-    const float3 N = -gLastRayDir[pixel];
+    float3 N = -gLastRayDir[pixel];
     float3 lastPlaneN = vP.faceNormalW;
     if (dot(lastPlaneN, N) < 0.0) lastPlaneN = -lastPlaneN;
 
@@ -80,7 +81,7 @@ void rayGen()
         // shift ray with stepMultiplier
         float3 rayT = getRayTangent(ray.Direction);
         float3 rayB = getRayBitangent(ray.Direction, rayT);
-        ray.Direction = ray.Direction + stepMultiplier * (nextS.x * rayT + nextS.y * rayB);
+        ray.Direction = normalize(ray.Direction + stepMultiplier * (nextS.x * rayT + nextS.y * rayB));
         // update rayT, rayB
         rayT = getRayTangent(ray.Direction);
         rayB = getRayBitangent(ray.Direction, rayT);
@@ -101,8 +102,12 @@ void rayGen()
             // calculate hit with plane (P, N)
             PlaneHit phit; // hit with virtual P-plane
             PlaneHit hit;  // actual hit
-            float3 nextRayDir = 0.0;
+
             bool hasHit = false;
+            TriangleHit triangleHit; // valid if hasHit = true
+            StaticVertexData triangleVertices[3];
+            VertexData v;
+
             phit.T = dot(P - ray.Origin, N) / dot(ray.Direction, N);
             phit.P = ray.Origin + phit.T * ray.Direction;
 
@@ -118,62 +123,10 @@ void rayGen()
                 if (HitInfo(data.hit).isValid())
                 {
                     hasHit = true;
-                    TriangleHit triangleHit = HitInfo(data.hit).getTriangleHit();
-                    float3 barycentrics = triangleHit.getBarycentricWeights();
-                    StaticVertexData triangleVertices[3];
-                    let v = gScene.getVertexData(triangleHit.instanceID, triangleHit.primitiveIndex, barycentrics, triangleVertices);
+                    triangleHit = HitInfo(data.hit).getTriangleHit();
+                    v = gScene.getVertexData(triangleHit.instanceID, triangleHit.primitiveIndex, triangleHit.getBarycentricWeights(), triangleVertices);
                     hit.P = v.posW;
                     hit.T = distance(v.posW, ray.Origin);
-                    // transfer ray and differential
-                    rd = rd.propagate(ray.Origin, ray.Direction, hit.T, v.faceNormalW);
-                    // shading data needs to be loaded for brdf evaluation
-                    let materialID = gScene.getMaterialID(triangleHit.instanceID);
-                    let lod = ExplicitLodTextureSampler(0.0);
-                    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.Direction, lod);
-                    IMaterialInstance mi = gScene.materials.getMaterialInstance(sd, lod, (uint)MaterialInstanceHints::AdjustShadingNormal);
-                    let bsdf = mi.getProperties(sd);
-                    BSDFSample bsdfSample;
-                    mi.setRoughness(0.0); // set zero roughness for ray differentials (use the most probable path)
-                    uint activeLobes = (uint)LobeType::Delta | (uint)LobeType::Specular;
-                    bool doReflection = (reflectiveMask & (1 << iHit)) != 0;
-                    if (!doReflection)
-                    {
-                        sd.mtl.setActiveLobes(activeLobes & (uint)LobeType::Transmission);
-                        if (!mi.sample(sd, sg, bsdfSample, true /*Importance sampling*/))
-                            doReflection = true; // fallback to reflection
-                    }
-                    if (doReflection)
-                    {
-                        sd.mtl.setActiveLobes(activeLobes & (uint)LobeType::Reflection);
-                        if (!mi.sample(sd, sg, bsdfSample, true /*Importance sampling*/))
-                            bsdfSample.weight = 0.0;
-                    }
-                    // prepare ray differentials after reflection/refraction
-                    float3 unnormalizedN; // will be initialized by the prepareRayDiffAtHitPoint
-                    float3 normals[3];
-                    float2 dUVdx, dUVdy;
-                    float2 dBarydx, dBarydy;
-                    prepareRayDiffAtHitPoint(sd.faceN, triangleVertices, barycentrics, ray.Direction,
-                        gScene.getWorldMatrix(triangleHit.instanceID), gScene.getInverseTransposeWorldMatrix(triangleHit.instanceID),
-                        rd, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
-                    );
-                    float3 ShadingN = normalize(unnormalizedN);
-                    if (doReflection)
-                    {
-                        reflectRayDifferential(rd, ray.Direction, unnormalizedN, ShadingN, dBarydx, dBarydy, normals);
-                    }
-                    else // refraction
-                    {
-                        // calculate eta from bsdfSamople.wo instead of sd.IoR to account for glossy surfaces
-                        float NdD = dot(ShadingN, ray.Direction);
-                        float NdT = dot(ShadingN, bsdfSample.wo);
-                        float eta = sqrt(1.0 - NdT * NdT) / sqrt(1.0 - NdD * NdD);
-                        refractRayDifferential(rd, ray.Direction, unnormalizedN, ShadingN, dBarydx, dBarydy, normals, eta, bsdfSample.wo);
-                    }
-
-                    // prepare next ray
-                    nextRayDir = bsdfSample.wo;
-                    ray.Origin = sd.computeNewRayOrigin(doReflection);
                 }
             }
 
@@ -193,15 +146,72 @@ void rayGen()
             if (diff < bestDiff)
             {
                 bestDiff = diff;
-                bestDir = ray.Direction;
+                bestDir = initial_dir;
+                // transfer ray differentials to final p-plane first
+                let rd2 = rd.propagate(ray.Origin, ray.Direction, phit.T, N);
                 // calc current solution for ray2 differential (phit.P + st * dO = P <=> st * dO = P - phit.P)
-                nextS = solveLinearEq(rd.dOdx, rd.dOdy, P - phit.P);
+                nextS = solveLinearEq(rd2.dOdx, rd2.dOdy, P - phit.P);
                 foundBetter = true;
             }
 
             if (!hasHit) break; // finished with this iteration
-            ray.Direction = nextRayDir;
-            if (all(nextRayDir == 0.0)) break; // terminated
+            if (iHit == maxHits - 1) break; // reached max path length
+
+            // calculate information for next hit
+            rd = rd.propagate(ray.Origin, ray.Direction, hit.T, v.faceNormalW);
+            // shading data needs to be loaded for brdf evaluation
+            let materialID = gScene.getMaterialID(triangleHit.instanceID);
+            let lod = ExplicitLodTextureSampler(0.0);
+            ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.Direction, lod);
+            IMaterialInstance mi = gScene.materials.getMaterialInstance(sd, lod, (uint)MaterialInstanceHints::AdjustShadingNormal);
+            let bsdf = mi.getProperties(sd);
+            BSDFSample bsdfSample;
+            mi.setRoughness(0.0); // set zero roughness for ray differentials (use the most probable path)
+            uint activeLobes = (uint)LobeType::Delta | (uint)LobeType::Specular;
+            bool doReflection = (reflectiveMask & (1u << iHit)) != 0;
+            if (!doReflection)
+            {
+                sd.mtl.setActiveLobes(activeLobes & (uint)LobeType::Transmission);
+                if (!mi.sample(sd, sg, bsdfSample, true))
+                    doReflection = true; // fallback to reflection
+            }
+            if (doReflection)
+            {
+                sd.mtl.setActiveLobes(activeLobes & (uint)LobeType::Reflection);
+                if (!mi.sample(sd, sg, bsdfSample, true))
+                {
+                    bsdfSample.wo = 0.0;
+                    bsdfSample.weight = 0.0;
+                }
+            }
+            // prepare ray differentials after reflection/refraction
+            float3 unnormalizedN; // will be initialized by the prepareRayDiffAtHitPoint
+            float3 normals[3];
+            float2 dUVdx, dUVdy;
+            float2 dBarydx, dBarydy;
+            float3 barycentrics = triangleHit.getBarycentricWeights();
+            prepareRayDiffAtHitPoint(sd.faceN, triangleVertices, barycentrics, ray.Direction,
+                gScene.getWorldMatrix(triangleHit.instanceID), gScene.getInverseTransposeWorldMatrix(triangleHit.instanceID),
+                rd, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
+            );
+            float3 ShadingN = normalize(unnormalizedN);
+            if (doReflection)
+            {
+                reflectRayDifferential(rd, ray.Direction, unnormalizedN, ShadingN, dBarydx, dBarydy, normals);
+            }
+            else // refraction
+            {
+                // calculate eta from bsdfSamople.wo instead of sd.IoR to account for glossy surfaces
+                float NdD = dot(ShadingN, ray.Direction);
+                float NdT = dot(ShadingN, bsdfSample.wo);
+                float eta = sqrt(1.0 - NdT * NdT) / sqrt(1.0 - NdD * NdD);
+                refractRayDifferential(rd, ray.Direction, unnormalizedN, ShadingN, dBarydx, dBarydy, normals, eta, bsdfSample.wo);
+            }
+
+            // prepare next ray
+            ray.Direction = bsdfSample.wo;
+            ray.Origin = sd.computeNewRayOrigin(doReflection);
+            if (all(ray.Direction == 0.0)) break; // terminated
         }
 
         if (!foundBetter) fails += 1;
@@ -209,7 +219,7 @@ void rayGen()
     }
 
     // TODO if foundBetter, take a risk and update bestDir
-
+    
     // write final results
     gNewRayDir[pixel] = bestDir;
     float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(bestDir, 0.0)).xyz);
