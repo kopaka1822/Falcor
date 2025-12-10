@@ -9,11 +9,12 @@ cbuffer PerFrame
 #define EXTRA_BOUNCES 4
 
 Texture2D<PackedHitInfo> gVBuffer; // final hit
+RWTexture2D<float2> gMotion;
 Texture2D<uint> gReflectiveMask;
 Texture2D<uint> gLocalPathLength;
 RWTexture2D<float3> gNewRayDir; // TODO remove this and calculate it from gMotion
-RWTexture2D<float3> gLastRayDir; // direction to P
-RWTexture2D<float2> gMotion;
+Texture2D<float3> gLastRayDir; // direction to P
+
 
 struct PlaneHit
 {
@@ -66,7 +67,7 @@ void rayGen()
     uint fails = 0;
     float stepMultiplier = 1.0; // beta from wenzel et al.
 
-    for (uint i = 1; i < gIterations; ++i)
+    for (uint i = 0; i < gIterations; ++i)
     {
         RayDesc ray;
         ray.Origin = C0;
@@ -206,6 +207,8 @@ void rayGen()
         if (!foundBetter) fails += 1;
         else fails = 0;
     }
+
+    // TODO if foundBetter, take a risk and update bestDir
 
     // write final results
     gNewRayDir[pixel] = bestDir;

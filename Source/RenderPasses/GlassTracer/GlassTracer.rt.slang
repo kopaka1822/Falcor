@@ -327,7 +327,7 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
 
     s.rayOrigin = sd.computeNewRayOrigin(!transmission);
     s.rayDir = bsdfSample.wo;
-    if (!transmission) s.reflectiveMask |= (1 << (s.curPathLength - 1)); // mark reflection at this path length (curPathLength starts at 1)
+    if (!transmission) s.reflectiveMask = s.reflectiveMask | (1u << (s.curPathLength - 1)); // mark reflection at this path length (curPathLength starts at 1)
     return s;
 }
 

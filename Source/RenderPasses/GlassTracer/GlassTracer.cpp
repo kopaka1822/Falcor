@@ -200,7 +200,33 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     uint3 dispatch = uint3(1);
     dispatch.x = pVbuffer->getWidth();
     dispatch.y = pVbuffer->getHeight();
-    mpScene->raytrace(pRenderContext, mpProgram.get(), mpVars, dispatch);
+    {
+        FALCOR_PROFILE(pRenderContext, "Primary");
+        mpScene->raytrace(pRenderContext, mpProgram.get(), mpVars, dispatch);
+    }
+
+    if (mIterations > 1)
+    {
+        FALCOR_PROFILE(pRenderContext, "Iterate");
+        var = mpIterationVars->getRootVar();
+
+        var["gVBuffer"] = pVbuffer;
+        var["gMotion"] = pMotion;
+        var["gTransparencyWhitelist"] = mpTransparencyWhitelist;
+        var["gReflectiveMask"] = pReflectiveMask;
+        var["gLocalPathLength"] = pLocalPathLength;
+        var["gNewRayDir"] = pNewRayDir;
+        var["gLastRayDir"] = pLastRayDir;
+
+        mpIterationProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
+        mpIterationProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
+        mpIterationProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
+
+        var["PerFrame"]["gIterations"] = mIterations;
+        var["PerFrame"]["gForcePathLength"] = mForceIterationPathLength ? 1 : 0;
+
+        mpScene->raytrace(pRenderContext, mpIterationProgram.get(), mpIterationVars, dispatch);
+    }
 
     // add whitelist to dict
     if (mUseTransparencyWhitelist)
@@ -221,6 +247,13 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
     c |= widget.dropdown("Motion Vectors", mMotionVector);
     c |= widget.checkbox("Force Motion Vector Calculation", mForceMotionVectorCalculation);
     widget.tooltip("Forces motion vector calculation even if neither camera nor vertex moved.");
+
+    widget.slider("Iterations", mIterations, 1, 20);
+    if (mIterations > 1)
+    {
+        c |= widget.checkbox("Force It. Path Length", mForceIterationPathLength);
+        widget.tooltip("If enabled, Paths must have the exact same path length as the original ray.");
+    }
 
     if (auto g = widget.group("Scene"))
     {
@@ -291,30 +324,36 @@ void GlassTracer::setupProgram()
 {
     if (!mpScene) return;
 
-    DefineList defines;
-    defines.add(mpScene->getSceneDefines());
-    defines.add(mpSampleGenerator->getDefines());
+    auto setup = [&](const std::string& filename, ref<RtProgram>& dstProgram, ref<RtProgramVars>& dstVars)
+    {
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
 
-    RtProgram::Desc desc;
-    desc.addShaderModules(mpScene->getShaderModules());
-    desc.addShaderLibrary(kProgramRaytraceFile);
-    desc.addTypeConformances(mpScene->getTypeConformances());
-    desc.setMaxPayloadSize(kMaxPayloadSizeBytes);
-    desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
-    desc.setMaxTraceRecursionDepth(1);
-    desc.setShaderModel("6_6");
+        RtProgram::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(filename);
+        desc.addTypeConformances(mpScene->getTypeConformances());
+        desc.setMaxPayloadSize(kMaxPayloadSizeBytes);
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1);
+        desc.setShaderModel("6_6");
 
-    ref<RtBindingTable> sbt = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
-    sbt->setRayGen(desc.addRayGen("rayGen"));
-    sbt->setMiss(0, desc.addMiss("miss"));
-    sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+        ref<RtBindingTable> sbt = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setMiss(0, desc.addMiss("miss"));
+        sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
 
-    mpProgram = RtProgram::create(mpDevice, desc, defines);
-    mpVars = RtProgramVars::create(mpDevice, mpProgram, sbt);
+        dstProgram = RtProgram::create(mpDevice, desc, defines);
+        dstVars = RtProgramVars::create(mpDevice, dstProgram, sbt);
 
-    // Bind static resources.
-    ShaderVar var = mpVars->getRootVar();
-    mpSampleGenerator->setShaderData(var);
+        // Bind static resources.
+        ShaderVar var = dstVars->getRootVar();
+        mpSampleGenerator->setShaderData(var);
+    };
+
+    setup(kProgramRaytraceFile, mpProgram, mpVars);
+    setup(kIterationRaytraceFile, mpIterationProgram, mpIterationVars);
 }
 
 bool GlassTracer::updateWhitelistBuffer()

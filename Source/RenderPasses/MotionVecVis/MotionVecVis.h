@@ -54,5 +54,5 @@ private:
 
     ref<FullScreenPass> mpPass;
     ref<Fbo> mpFbo;
-    float mScale = 1.0f;
+    float mScale = 100.0f;
 };

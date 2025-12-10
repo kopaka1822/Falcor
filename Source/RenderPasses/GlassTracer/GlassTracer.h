@@ -129,6 +129,12 @@ private:
     int mStackSize = 2;
     MotionVector mMotionVector = MotionVector::FirstHit;
 
+    // iterations
+    int mIterations = 1;
+    bool mForceIterationPathLength = true;
+    ref<RtProgram> mpIterationProgram;
+    ref<RtProgramVars> mpIterationVars;
+
     RenderScale mRenderScale = RenderScale::Performance;
 
     // lighting settings
