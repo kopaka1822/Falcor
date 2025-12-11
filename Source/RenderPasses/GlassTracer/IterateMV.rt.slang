@@ -223,6 +223,6 @@ void rayGen()
     // write final results
     gNewRayDir[pixel] = bestDir;
     float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(bestDir, 0.0)).xyz);
-    float2 mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
+    float2 mvec = prevUV - CurrentUVJittered();
     gMotion[pixel] = mvec;
 }

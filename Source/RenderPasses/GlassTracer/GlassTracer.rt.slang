@@ -40,20 +40,12 @@ float2 calcMotionVector(uint2 pixel, uint2 frameDim, float3 prevPosW, float3x4 v
     if (!camMotion)
         return 0.0;
     
-    float2 pixelPos = float2(pixel) + 0.5;
     float4 prevPosTWorld = float4(mul(viewTransform, float4(prevPosW, 1.0)), 1.0);
     float4 prevPosH = mul(gScene.camera.data.prevViewProjMatNoJitter, prevPosTWorld);
-    
-    float2 prevCrd = prevPosH.xy / prevPosH.w;
-#ifdef FALCOR_FLIP_Y
-    prevCrd *= float2(0.5, 0.5);
-#else
-    prevCrd *= float2(0.5, -0.5);
-#endif
-    prevCrd += 0.5f;
-    float2 normalizedCrd = pixelPos / frameDim;
-    float2 mvec = prevCrd - normalizedCrd;
-    mvec += float2(gScene.camera.data.jitterX, -gScene.camera.data.jitterY); // Remove camera jitter from motion vector
+
+    float2 prevCrd = prevPosH.xy / prevPosH.w;           // in [-1, 1]
+    float2 prevUV = (prevCrd * float2(0.5, -0.5)) + 0.5; // in [ 0, 1]
+    float2 mvec = prevUV - CurrentUVJittered();
 
     return mvec;
 }
@@ -492,11 +484,10 @@ void rayGen()
             // solve the equation ray2.origin + t * rd2.dOdx + b * rd2.dOdy = prevPosW
             // => t * rd2.dOdx + b * rd2.dOdy = v.prevPosW - ray2.origin
             float2 tb = solveLinearEq(s.rd2.dOdx, s.rd2.dOdy, v.prevPosW - s.ray2origin);
-            // float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim).dir;
-            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, false /*no jitter*/).dir; // reconstruct a vector without jitter
+            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, true /*jitter*/).dir;
             float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
             float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
-            curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
+            curVBuffer.mvec = prevUV - CurrentUVJittered();
             if(!camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
 
             curVBuffer.newRayDir = prevDirW; // initial ray direction

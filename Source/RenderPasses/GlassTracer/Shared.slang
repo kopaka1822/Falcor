@@ -209,3 +209,11 @@ float2 solveLinearEq(float3 T, float3 B, float3 R)
                   (T2.x * R2.y - T2.y * R2.x) * invDet  // b
     );
 }
+
+// returns current UV coordinate with jitter applied according to Camera::computeRayPinhole
+float2 CurrentUVJittered()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 frameDim = DispatchRaysDimensions().xy;
+    return (float2(pixel) + 0.5) / frameDim + float2(-gScene.camera.data.jitterX, gScene.camera.data.jitterY);
+}
