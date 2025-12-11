@@ -183,6 +183,8 @@ float3x4 mulAffine(float3x4 A, float3x4 B)
 // solves t * T + b * B = R and returns (t, b)
 float2 solveLinearEq(float3 T, float3 B, float3 R)
 {
+    const float epsilon = 1e-6;
+
     // Compute which axis to drop
     float3 sum = abs(T) + abs(B);
     uint drop = (sum.x < sum.y)
@@ -198,12 +200,15 @@ float2 solveLinearEq(float3 T, float3 B, float3 R)
     default: T2 = T.xy; B2 = B.xy; R2 = R.xy; break; // drop z
     }
 
+    if (abs(R2.x) < epsilon) R2.x = 0.0;
+    if (abs(R2.y) < epsilon) R2.y = 0.0;
+
     // Solve the 2×2 linear system
     float det = T2.x * B2.y - T2.y * B2.x;
     if (abs(det) < 1e-8)
-        return float2(0.0, 0.0); // Degenerate or parallel T/B
+        return 0.0; // Degenerate or parallel T/B
 
-    float invDet = rcp(det);
+    float invDet = 1.0 / det;
     return float2(
         (R2.x * B2.y - R2.y * B2.x) * invDet, // t
                   (T2.x * R2.y - T2.y * R2.x) * invDet  // b

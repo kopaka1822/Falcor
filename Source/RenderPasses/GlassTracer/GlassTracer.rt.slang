@@ -317,7 +317,10 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
     else s.rd = s.rd.reflect(s.rayDir, bsdfSample.wo); // uses halfway vector as normal
 #endif
 
-    s.rayOrigin = sd.computeNewRayOrigin(!transmission);
+    s.rayOrigin = sd.computeNewRayOrigin(!transmission); // move origin a bit along normal (note: using sd.posW might result in self-intersection)
+#if MVEC == MVEC_RAY_DIFF
+    s.ray2origin += s.rayOrigin - sd.posW; // account for the above error by also moving the ray2origin accordingly
+#endif
     s.rayDir = bsdfSample.wo;
     if (!transmission) s.reflectiveMask = s.reflectiveMask | (1u << (s.curPathLength - 1)); // mark reflection at this path length (curPathLength starts at 1)
     return s;
@@ -488,8 +491,8 @@ void rayGen()
             float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
             float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
             curVBuffer.mvec = prevUV - CurrentUVJittered();
-            if(!camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
-
+            if (!camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
+            //gDebugTex[uint3(pixel, 0)] = float4(v.prevPosW - s.ray2origin, 1.0);
             curVBuffer.newRayDir = prevDirW; // initial ray direction
             #endif
         }
