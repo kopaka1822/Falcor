@@ -65,9 +65,22 @@ public:
         {MotionVector::FirstHit, "FirstHit"},
         {MotionVector::HalfwayReflection, "HalfwayReflection"},
         {MotionVector::RayDifferentials, "RayDifferentials"},
-        });
+    });
 
     FALCOR_PLUGIN_CLASS(GlassTracer, "GlassTracer", "Path Tracer specialized for noise-free glass rendering");
+
+    enum class IterationTechnique : uint32_t
+    {
+        None,
+        Forward,
+        Reverse
+    };
+
+    FALCOR_ENUM_INFO(IterationTechnique, {
+        {IterationTechnique::None, "None"},
+        {IterationTechnique::Forward, "Forward"},
+        {IterationTechnique::Reverse, "Reverse"},
+    });
 
     static ref<GlassTracer> create(ref<Device> pDevice, const Properties& props) { return make_ref<GlassTracer>(pDevice, props); }
 
@@ -128,6 +141,7 @@ private:
     int mPathLength = 50;
     int mStackSize = 2;
     MotionVector mMotionVector = MotionVector::FirstHit;
+    IterationTechnique mIterationTechnique = IterationTechnique::Forward;
 
     // iterations
     int mIterations = 1;
@@ -159,3 +173,4 @@ private:
 
 FALCOR_ENUM_REGISTER(GlassTracer::RenderScale);
 FALCOR_ENUM_REGISTER(GlassTracer::MotionVector);
+FALCOR_ENUM_REGISTER(GlassTracer::IterationTechnique);

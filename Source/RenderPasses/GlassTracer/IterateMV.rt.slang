@@ -108,6 +108,7 @@ void rayGen()
             StaticVertexData triangleVertices[3];
             VertexData v;
 
+            // TODO guard against division by zero?
             phit.T = dot(P - ray.Origin, N) / dot(ray.Direction, N);
             phit.P = ray.Origin + phit.T * ray.Direction;
 

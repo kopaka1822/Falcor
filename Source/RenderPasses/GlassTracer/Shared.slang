@@ -33,6 +33,13 @@ RWTexture2DArray<float4> gDebugTex;
 #define USE_TEXTURE_LOD 1
 #endif
 
+#define IT_NONE 0
+#define IT_FORWARD 1
+#define IT_REVERSE 2
+#ifndef IT_TECH
+#define IT_TECH IT_FORWARD
+#endif
+
 struct UniformSampleGenerator : ISampleGenerator
 {
     __init(uint2 pixel, uint sampleNumber)

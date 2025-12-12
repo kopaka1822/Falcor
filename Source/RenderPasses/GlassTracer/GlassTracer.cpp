@@ -205,7 +205,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         mpScene->raytrace(pRenderContext, mpProgram.get(), mpVars, dispatch);
     }
 
-    if (mIterations > 1)
+    if (mIterationTechnique != IterationTechnique::None && mIterations > 1)
     {
         FALCOR_PROFILE(pRenderContext, "Iterate");
         var = mpIterationVars->getRootVar();
@@ -221,6 +221,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         mpIterationProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
         mpIterationProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
         mpIterationProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
+        mpIterationProgram->addDefine("IT_TECH", std::to_string(uint32_t(mIterationTechnique)));
 
         var["PerFrame"]["gIterations"] = mIterations;
         var["PerFrame"]["gForcePathLength"] = mForceIterationPathLength ? 1 : 0;
@@ -248,12 +249,19 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
     c |= widget.checkbox("Force Motion Vector Calculation", mForceMotionVectorCalculation);
     widget.tooltip("Forces motion vector calculation even if neither camera nor vertex moved.");
 
-    widget.slider("Iterations", mIterations, 1, 20);
-    if (mIterations > 1)
+    c |= widget.dropdown("Iteration Technique", mIterationTechnique);
+
+    if (mIterationTechnique != IterationTechnique::None)
     {
-        c |= widget.checkbox("Force It. Path Length", mForceIterationPathLength);
-        widget.tooltip("If enabled, Paths must have the exact same path length as the original ray.");
+
+        c |= widget.slider("Iterations", mIterations, 1, 20);
+        if (mIterations > 1)
+        {
+            c |= widget.checkbox("Force It. Path Length", mForceIterationPathLength);
+            widget.tooltip("If enabled, Paths must have the exact same path length as the original ray.");
+        }
     }
+
 
     if (auto g = widget.group("Scene"))
     {
