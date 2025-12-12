@@ -45,7 +45,8 @@ void rayGen()
     uint2 frameDim = DispatchRaysDimensions().xy;
     const uint n = gLocalPathLength[pixel];
     //if (n <= 1) return; // direct hit
-    const uint reflectiveMask = gReflectiveMask[pixel];
+    uint reflectiveMask = gReflectiveMask[pixel];
+    IF_REVERSE(reflectiveMask = reversebits(reflectiveMask) >> (33 - min(n, 33))); // reverse mask and discard last bit (this was information at the point P)
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, 0); // only used for deterministic brdf sampling interface
 
     HitInfo hit = HitInfo(gVBuffer[pixel]);
@@ -55,6 +56,7 @@ void rayGen()
     let vP = gScene.getVertexData(triangleHit.instanceID, triangleHit.primitiveIndex, triangleHit.getBarycentricWeights());
     const float3 P = vP.posW; // TODO prevPosW?
     float3 N = -gLastRayDir[pixel];
+    IF_REVERSE(N = gNewRayDir[pixel]); // in reverse mode, N is the normal of the camera plane
     float3 lastPlaneN = vP.faceNormalW;
     if (dot(lastPlaneN, N) < 0.0) lastPlaneN = -lastPlaneN;
 
@@ -64,6 +66,7 @@ void rayGen()
     // remember best result so far
     float bestDiff = 3.402823e+38; // FLT_MAX
     float3 bestDir = newDir;
+    IF_REVERSE(float3 bestDir0 = -gLastRayDir[pixel]);
     float2 nextS = 0.0;
     uint fails = 0;
     float stepMultiplier = 1.0; // beta from wenzel et al.
@@ -74,6 +77,9 @@ void rayGen()
         ray.Origin = C0;
         ray.Direction = bestDir;
         ray.TMin = 0.0;
+        IF_REVERSE(ray.Origin = P); // start at P for reverse
+        IF_REVERSE(ray.Direction = bestDir0);
+        IF_REVERSE(ray.TMin = 0.1 * gScene.camera.data.nearZ);
         ray.TMax = gScene.camera.data.farZ;
         if (fails > 0) stepMultiplier = stepMultiplier * 0.5;
         else stepMultiplier = min(1.0, stepMultiplier * 2.0);
@@ -110,6 +116,7 @@ void rayGen()
 
             // TODO guard against division by zero?
             phit.T = dot(P - ray.Origin, N) / dot(ray.Direction, N);
+            IF_REVERSE(phit.T = dot(C0 - ray.Origin, N) / dot(ray.Direction, N));
             phit.P = ray.Origin + phit.T * ray.Direction;
 
             float diff = 3.402823e+38;
@@ -117,6 +124,7 @@ void rayGen()
             if (gForcePathLength && iHit == maxHits - 1)
             {
                 diff = length(phit.P - P);
+                IF_REVERSE(diff = length(phit.P - C0));
             }
             else // continue tracing rays
             {
@@ -137,9 +145,14 @@ void rayGen()
                 bool testPPlane = phit.T > 0.0 && dot(N, ray.Direction) < 0.0;
                 if (testPPlane)
                 {
-                    diff = sqr(length(phit.P - P));
+                    IF_FORWARD(diff = sqr(length(phit.P - P)));
+                    IF_REVERSE(diff = sqr(length(phit.P - C0)));
                     if (hasHit)
-                        diff += sqr( max(0.0, dot(lastPlaneN, hit.P - P))); // penalize if in front of geometric plane (but not on or behind)
+                    {
+                        IF_FORWARD(diff += sqr( max(0.0, dot(lastPlaneN, hit.P - P)))); // penalize if in front of geometric plane (but not on or behind)
+                        IF_REVERSE(diff += sqr(max(0.0, dot(N, hit.P - C0))));
+                    }
+                        
                     diff *= (1 + 0.1 * abs(n - (iHit + 1))); // larger errors if throughput / path length differs
                 }
             }
@@ -147,11 +160,14 @@ void rayGen()
             if (diff < bestDiff)
             {
                 bestDiff = diff;
-                bestDir = initial_dir;
+                IF_FORWARD(bestDir = initial_dir);
+                IF_REVERSE(bestDir = -ray.Direction);
+                IF_REVERSE(bestDir0 = initial_dir);
                 // transfer ray differentials to final p-plane first
                 let rd2 = rd.propagate(ray.Origin, ray.Direction, phit.T, N);
                 // calc current solution for ray2 differential (phit.P + st * dO = P <=> st * dO = P - phit.P)
-                nextS = solveLinearEq(rd2.dOdx, rd2.dOdy, P - phit.P);
+                IF_FORWARD(nextS = solveLinearEq(rd2.dOdx, rd2.dOdy, P - phit.P));
+                IF_REVERSE(nextS = solveLinearEq(rd2.dOdx, rd2.dOdy, C0 - phit.P));
                 foundBetter = true;
             }
 
@@ -212,6 +228,7 @@ void rayGen()
             // prepare next ray
             ray.Direction = bsdfSample.wo;
             ray.Origin = sd.computeNewRayOrigin(doReflection);
+            ray.TMin = 0.0;
             if (all(ray.Direction == 0.0)) break; // terminated
         }
 
