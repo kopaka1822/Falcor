@@ -240,3 +240,160 @@ float2 CurrentUVJittered()
     uint2 frameDim = DispatchRaysDimensions().xy;
     return (float2(pixel) + 0.5) / frameDim + float2(-gScene.camera.data.jitterX, gScene.camera.data.jitterY);
 }
+
+
+// reverse ray differential matrices
+float3x3 m33Identity()
+{
+    return float3x3(
+        1.0, 0.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0
+    );
+}
+
+float3x3 m33Zero()
+{
+    return float3x3(
+        0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0
+    );
+}
+
+float3x3 outer(float3 a, float3 b)
+{
+    return float3x3(
+        a.x * b.x, a.x * b.y, a.x * b.z,
+        a.y * b.x, a.y * b.y, a.y * b.z,
+        a.z * b.x, a.z * b.y, a.z * b.z
+    );
+}
+
+void transferRRDiff(
+    inout float3x3 Jpp, inout float3x3 Jpd,
+    inout float3x3 Jdp, inout float3x3 Jdd,
+    float3 D, float3 N, float t)
+{
+    float3x3 I = m33Identity();
+
+    float denom = dot(D, N);
+    float3x3 DNTDN = outer(D, N) / denom;
+
+    float3x3 Lpp = I - DNTDN;
+    float3x3 Lpd = t * I - t * DNTDN;
+
+    float3x3 Jpp_new = mul(Jpp, Lpp);
+    float3x3 Jpd_new = mul(Jpp, Lpd) + Jpd;
+    float3x3 Jdp_new = mul(Jdp, Lpp);
+    float3x3 Jdd_new = mul(Jdp, Lpd) + Jdd;
+    Jpp = Jpp_new;
+    Jpd = Jpd_new;
+    Jdp = Jdp_new;
+    Jdd = Jdd_new;
+}
+
+void reflectRRDiff(
+    inout float3x3 Jpp, inout float3x3 Jpd,
+    inout float3x3 Jdp, inout float3x3 Jdd,
+    float3 D, float3 N, float3x3 M)
+{
+    float3x3 I = m33Identity();
+
+    float3x3 Ldd = I - 2.0 * outer(N, N);
+
+    float dN = dot(D, N);
+    float3x3 Ldp = -2.0 * (dN * M + mul(outer(N, D), M));
+
+    float3x3 Jpp_new = Jpp + mul(Jpd, Ldp);
+    float3x3 Jpd_new = mul(Jpd, Ldd);
+    float3x3 Jdp_new = Jdp + mul(Jdd, Ldp);
+    float3x3 Jdd_new = mul(Jdd, Ldd);
+    Jpp = Jpp_new;
+    Jpd = Jpd_new;
+    Jdp = Jdp_new;
+    Jdd = Jdd_new;
+}
+
+void refractRRDiff(
+    inout float3x3 Jpp, inout float3x3 Jpd,
+    inout float3x3 Jdp, inout float3x3 Jdd,
+    float3 D, float3 R, float3 N,
+    float eta, float3x3 M)
+{
+    float3x3 I = m33Identity();
+
+    float dN = dot(D, N);
+    float rN = dot(R, N);
+
+    float mu = eta * dN - rN;
+    float k = eta - (eta * eta * dN) / rN;
+
+    float3x3 Ldd = eta * I - k * outer(N, N);
+    float3x3 Ldp = -mu * M - k * mul(outer(N, D), M);
+
+    float3x3 Jpp_new = Jpp + mul(Jpd, Ldp);
+    float3x3 Jpd_new = mul(Jpd, Ldd);
+    float3x3 Jdp_new = Jdp + mul(Jdd, Ldp);
+    float3x3 Jdd_new = mul(Jdd, Ldd);
+    Jpp = Jpp_new;
+    Jpd = Jpd_new;
+    Jdp = Jdp_new;
+    Jdd = Jdd_new;
+}
+
+float3x3 inverse33(float3x3 M)
+{
+    float a00 = M[0][0], a01 = M[0][1], a02 = M[0][2];
+    float a10 = M[1][0], a11 = M[1][1], a12 = M[1][2];
+    float a20 = M[2][0], a21 = M[2][1], a22 = M[2][2];
+
+    float b00 = a11 * a22 - a12 * a21;
+    float b01 = a02 * a21 - a01 * a22;
+    float b02 = a01 * a12 - a02 * a11;
+
+    float b10 = a12 * a20 - a10 * a22;
+    float b11 = a00 * a22 - a02 * a20;
+    float b12 = a02 * a10 - a00 * a12;
+
+    float b20 = a10 * a21 - a11 * a20;
+    float b21 = a01 * a20 - a00 * a21;
+    float b22 = a00 * a11 - a01 * a10;
+
+    float det = a00 * b00 + a01 * b10 + a02 * b20;
+    float invDet = 1.0 / det;
+
+    return float3x3(
+        b00 * invDet, b01 * invDet, b02 * invDet,
+        b10 * invDet, b11 * invDet, b12 * invDet,
+        b20 * invDet, b21 * invDet, b22 * invDet
+    );
+}
+
+float3 solveForDD0(float3x3 Jdp, float3 dPn, float3 D0)
+{
+    float3x3 A = Jdp;
+    float3 b = dPn;
+
+    // squared row lengths
+    float firstRowSq = dot(A[0], A[0]);
+    float secondRowSq = dot(A[1], A[1]);
+    float thirdRowSq = dot(A[2], A[2]);
+
+    uint drop = (firstRowSq < secondRowSq)
+              ? ((firstRowSq < thirdRowSq) ? 0u : 2u)
+              : ((secondRowSq < thirdRowSq) ? 1u : 2u);
+
+    [branch]
+    switch (drop) // drop one row and replace with condition: dD0 should be orthogonal to D0
+    {
+    case 0: A[0] = D0; b[0] = 0.0; break; // drop first
+    case 1: A[1] = D0; b[1] = 0.0; break; // drop second
+    case 2: A[2] = D0; b[2] = 0.0; break; // drop third
+    }
+
+    // invert A
+    float3x3 invA = inverse33(A);
+    float3 dD0 = mul(invA, b);
+    return dD0;
+}
