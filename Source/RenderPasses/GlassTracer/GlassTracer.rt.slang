@@ -209,6 +209,14 @@ struct StackFrame
     RayDiff rd2; // 12 floats
     // ^ 15 floats
 #endif
+#if MVEC == MVEC_REVERSE_RD
+    float3x3 Jpp;
+    float3x3 Jpd;
+    float3x3 Jdp;
+    float3x3 Jdd;
+    float3 prevNormal;
+    // ^ 39 floats
+#endif
 };
 
 ///////////////// Stack implementation /////////////////////
@@ -309,6 +317,24 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
     }
 #endif
 
+#if MVEC == MVEC_REVERSE_RD
+    float3x3 M = m33Zero(); // TODO shape matrix
+    float3 ShadingN = sd.frame.N;
+    if (transmission)
+    {
+        float NdD = dot(ShadingN, s.rayDir);
+        float NdT = dot(ShadingN, bsdfSample.wo);
+        float etaInv = sqrt(1.0 - NdD * NdD) / sqrt(1.0 - NdT * NdT);
+        refractRRDiff(s.Jpp, s.Jpd, s.Jdp, s.Jdd,
+            -bsdfSample.wo, -s.rayDir, ShadingN, etaInv, M);
+        // TODO invert normal?
+    }
+    else // reflection
+    {
+        reflectRRDiff(s.Jpp, s.Jpd, s.Jdp, s.Jdd, -bsdfSample.wo, ShadingN, M);
+    }
+#endif
+
 #if USE_TEXTURE_LOD != 0
     // transfer to posW (done in main)
     // s.rd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, sd.posW), sd.faceN);
@@ -349,6 +375,13 @@ void rayGen()
 
     #if MVEC == MVEC_HALFWAY_REFLECT
     s.viewTransform = matrixIdentity();
+    #endif
+    #if MVEC == MVEC_REVERSE_RD
+    s.Jpp = m33Identity();
+    s.Jpd = m33Zero();
+    s.Jdp = m33Zero();
+    s.Jdd = m33Identity();
+    float3 virtualC1 = 0.0; // will be initialized in first iteration
     #endif
 
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameCount);
@@ -448,6 +481,22 @@ void rayGen()
         let lod = ExplicitGradientTextureSampler(dUVdx * gTextureGradientScaling, dUVdy * gTextureGradientScaling);
         #endif
 
+        #if MVEC == MVEC_REVERSE_RD
+        if (i == 0) // for the first hit, define a virtual plane around C0 as intersection
+        {
+            float virtualT = dot(gScene.camera.data.prevPosW - v.posW, -ray.Direction);
+            virtualC1 = v.posW - ray.Direction * virtualT;
+            transferRRDiff(s.Jpp, s.Jpd, s.Jdp, s.Jdd, -ray.Direction, ray.Direction, virtualT);
+        }
+        else // transfer from current vertex to previous vertex
+        {
+            float t = distance(s.rayOrigin, v.posW);
+            transferRRDiff(s.Jpp, s.Jpd, s.Jdp, s.Jdd,
+                -s.rayDir, s.prevNormal, t);
+        }
+        s.prevNormal = v.faceNormalW;
+        #endif
+
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -s.rayDir, lod);
         s.linearZ += distance(s.rayOrigin, v.posW);
 
@@ -481,19 +530,34 @@ void rayGen()
             #if MVEC == MVEC_RAY_DIFF
             // transfer to the final plane with point prevPosW and surface normal -s.rayDir
             float ray2t = dot(s.rayDir, v.prevPosW - s.ray2origin);
-            s.rd2 = s.rd2.propagate(s.ray2origin, s.rayDir, ray2t, -s.rayDir);
-            s.ray2origin = s.ray2origin + ray2t * s.rayDir;
+            // make copies of variables to avoid changing stack data (stack will be updated in prepareNextRay)
+            let rd2 = s.rd2.propagate(s.ray2origin, s.rayDir, ray2t, -s.rayDir);
+            let ray2origin = s.ray2origin + ray2t * s.rayDir;
 
             // solve the equation ray2.origin + t * rd2.dOdx + b * rd2.dOdy = prevPosW
             // => t * rd2.dOdx + b * rd2.dOdy = v.prevPosW - ray2.origin
-            float2 tb = solveLinearEq(s.rd2.dOdx, s.rd2.dOdy, v.prevPosW - s.ray2origin);
+            float2 tb = solveLinearEq(rd2.dOdx, rd2.dOdy, v.prevPosW - ray2origin);
             float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, true /*jitter*/).dir;
             float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
             float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
             curVBuffer.mvec = prevUV - CurrentUVJittered();
             if (!camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
-            //gDebugTex[uint3(pixel, 0)] = float4(v.prevPosW - s.ray2origin, 1.0);
+            //gDebugTex[uint3(pixel, 0)] = float4(v.prevPosW - ray2origin, 1.0);
             curVBuffer.newRayDir = prevDirW; // initial ray direction
+            #endif
+
+            #if MVEC == MVEC_REVERSE_RD
+            // final step: solve dD0 = Jpd^-1 * (C0 - virtualC1)
+            float3 dPn = gScene.camera.data.prevPosW - virtualC1;
+            float3 dD0 = solveForDD0(s.Jpd, dPn, -s.rayDir);
+            float3 dDn = mul(s.Jdd, dD0);
+
+            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, true /*jitter*/).dir;
+            curVBuffer.newRayDir = normalize(initDirW - dDn); // negate because we traced backwards
+            curVBuffer.lastRayDir = normalize(s.rayDir - dD0);
+
+            float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(curVBuffer.newRayDir, 0.0)).xyz);
+            curVBuffer.mvec = prevUV - CurrentUVJittered();
             #endif
         }
 

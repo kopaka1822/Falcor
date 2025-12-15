@@ -25,6 +25,7 @@ RWTexture2DArray<float4> gDebugTex;
 #define MVEC_FIRST_HIT 0
 #define MVEC_HALFWAY_REFLECT 1
 #define MVEC_RAY_DIFF 2
+#define MVEC_REVERSE_RD 3
 #ifndef MVEC
 #define MVEC MVEC_HALFWAY_REFLECT
 #endif
