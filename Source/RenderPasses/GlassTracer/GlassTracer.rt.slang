@@ -299,7 +299,14 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
         s.rd2, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
     );
     float3 ShadingN = normalize(unnormalizedN);
-    
+
+    if (IGNORE_NORMAL_DIFFS) // overwrite normals with shading normal to force zero normal differentials
+    {
+        normals[0] = ShadingN;
+        normals[1] = ShadingN;
+        normals[2] = ShadingN;
+    }
+
     // reflect or refract
     if (transmission)
     {
@@ -318,11 +325,12 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
 #endif
 
 #if MVEC == MVEC_REVERSE_RD
-    // float3x3 M = m33Zero();
+    float3x3 M = m33Zero(); // zero if we ignore normal differentials
     float3 ShadingN = sd.frame.N; // will be overwritten by getShapeMatrix with the correctly flipped version
-    float3x3 M = getShapeMatrix(sd.faceN, triangleVertices, triangleBarycentrics, -bsdfSample.wo,
-        gScene.getWorldMatrix(instanceID), gScene.getInverseTransposeWorldMatrix(instanceID),
-        ShadingN);
+    if (!IGNORE_NORMAL_DIFFS)
+        M = getShapeMatrix(sd.faceN, triangleVertices, triangleBarycentrics, -bsdfSample.wo,
+            gScene.getWorldMatrix(instanceID), gScene.getInverseTransposeWorldMatrix(instanceID),
+            ShadingN);
     
     if (transmission)
     {

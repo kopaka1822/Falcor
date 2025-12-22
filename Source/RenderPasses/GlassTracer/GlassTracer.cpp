@@ -197,6 +197,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     mpProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
     mpProgram->addDefine("MVEC", std::to_string(uint32_t(mMotionVector)));
     mpProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
+    mpProgram->addDefine("IGNORE_NORMAL_DIFFS", mIgnoreNormalDiffs ? "1" : "0");
 
     uint3 dispatch = uint3(1);
     dispatch.x = pVbuffer->getWidth();
@@ -223,6 +224,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         mpIterationProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
         mpIterationProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
         mpIterationProgram->addDefine("IT_TECH", std::to_string(uint32_t(mIterationTechnique)));
+        mpIterationProgram->addDefine("IGNORE_NORMAL_DIFFS", mIgnoreNormalDiffs ? "1" : "0");
 
         var["PerFrame"]["gIterations"] = mIterations;
         var["PerFrame"]["gForcePathLength"] = mForceIterationPathLength ? 1 : 0;
@@ -249,6 +251,8 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
     c |= widget.dropdown("Motion Vectors", mMotionVector);
     c |= widget.checkbox("Force Motion Vector Calculation", mForceMotionVectorCalculation);
     widget.tooltip("Forces motion vector calculation even if neither camera nor vertex moved.");
+    c |= widget.checkbox("Ignore Normal Differentials", mIgnoreNormalDiffs);
+    widget.tooltip("Ignores normal differentials when computing ray differentials for motion vectors.");
 
     c |= widget.dropdown("Iteration Technique", mIterationTechnique);
 

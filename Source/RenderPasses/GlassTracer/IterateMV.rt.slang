@@ -212,6 +212,12 @@ void rayGen()
                 rd, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
             );
             float3 ShadingN = normalize(unnormalizedN);
+            if (IGNORE_NORMAL_DIFFS)
+            {
+                normals[0] = ShadingN;
+                normals[1] = ShadingN;
+                normals[2] = ShadingN;
+            }
             if (doReflection)
             {
                 reflectRayDifferential(rd, ray.Direction, unnormalizedN, ShadingN, dBarydx, dBarydy, normals);

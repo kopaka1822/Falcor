@@ -34,6 +34,10 @@ RWTexture2DArray<float4> gDebugTex;
 #define USE_TEXTURE_LOD 1
 #endif
 
+#ifndef IGNORE_NORMAL_DIFFS
+#define IGNORE_NORMAL_DIFFS 0
+#endif
+
 #define IT_NONE 0
 #define IT_FORWARD 1
 #define IT_REVERSE 2
