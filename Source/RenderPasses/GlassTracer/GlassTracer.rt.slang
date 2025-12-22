@@ -271,7 +271,7 @@ float3 calcBarycentrics(float3 p, StaticVertexData v[3])
     return float3(ucoord, vcoord, wcoord);
 }
 
-StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, StaticVertexData triangleVertices[3], GeometryInstanceID instanceID)
+StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, StaticVertexData triangleVertices[3], float3 triangleBarycentrics, GeometryInstanceID instanceID)
 {
     s.thp *= bsdfSample.weight;
     bool transmission = bsdfSample.isLobe(LobeType::Transmission);
@@ -318,8 +318,12 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
 #endif
 
 #if MVEC == MVEC_REVERSE_RD
-    float3x3 M = m33Zero(); // TODO shape matrix
-    float3 ShadingN = sd.frame.N;
+    // float3x3 M = m33Zero();
+    float3 ShadingN = sd.frame.N; // will be overwritten by getShapeMatrix with the correctly flipped version
+    float3x3 M = getShapeMatrix(sd.faceN, triangleVertices, triangleBarycentrics, -bsdfSample.wo,
+        gScene.getWorldMatrix(instanceID), gScene.getInverseTransposeWorldMatrix(instanceID),
+        ShadingN);
+    
     if (transmission)
     {
         float NdD = dot(ShadingN, s.rayDir);
@@ -327,7 +331,6 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
         float etaInv = sqrt(1.0 - NdD * NdD) / sqrt(1.0 - NdT * NdT);
         refractRRDiff(s.Jpp, s.Jpd, s.Jdp, s.Jdd,
             -bsdfSample.wo, -s.rayDir, ShadingN, etaInv, M);
-        // TODO invert normal?
     }
     else // reflection
     {
@@ -592,14 +595,14 @@ void rayGen()
         {
             // put one on the stack
             if (!StackFull())
-                PushStack(prepareNextRay(s, bsdfSampleRefract, sd, triangleVertices, triangleHit.instanceID));
+                PushStack( prepareNextRay(s, bsdfSampleRefract, sd, triangleVertices, barycentrics, triangleHit.instanceID));
             doRefraction = false;
         }
 
         if (doReflection)
-            s = prepareNextRay(s, bsdfSampleReflect, sd, triangleVertices, triangleHit.instanceID);
+            s = prepareNextRay(s, bsdfSampleReflect, sd, triangleVertices, barycentrics, triangleHit.instanceID);
         if (doRefraction)
-            s = prepareNextRay(s, bsdfSampleRefract, sd, triangleVertices, triangleHit.instanceID);
+            s = prepareNextRay(s, bsdfSampleRefract, sd, triangleVertices, barycentrics, triangleHit.instanceID);
         
         if(!doReflection && !doRefraction)
         {

@@ -262,6 +262,7 @@ float3x3 m33Zero()
     );
 }
 
+// a * b^T
 float3x3 outer(float3 a, float3 b)
 {
     return float3x3(
@@ -341,6 +342,31 @@ void refractRRDiff(
     Jpd = Jpd_new;
     Jdp = Jdp_new;
     Jdd = Jdd_new;
+}
+
+// returns the shape matrix, and also the normalized (possibly flipped) shading normal in shadingN (last parameter)
+float3x3 getShapeMatrix(float3 faceNormalW, StaticVertexData triangleVertices[3], float3 rayDir, float3 barycentrics, float4x4 worldMat, float3x3 worldInvTransposeMat, out float3 shadingN)
+{
+    float3 edge01, edge02;
+    float2 txcoords[3];
+    float3 normals[3];
+    float3 n; // unnormalized normal
+    prepareVerticesForRayDiffs(rayDir, triangleVertices, worldMat, worldInvTransposeMat, barycentrics, edge01, edge02, normals, n, txcoords);
+    float nn = dot(n, n);
+    shadingN = normalize(n);
+    float rcpnn = 1.0 / (nn * sqrt(nn)); // 1.0 / (n*n)^3/2
+    
+    float3 Nu = cross(edge02, faceNormalW); // Igehy "Normal-Interpolated Triangles", page 182 SIGGRAPH 1999.
+    float3 Nv = cross(edge01, faceNormalW);
+    float3 Lu = Nu / (dot(Nu, edge01)); // Plane equations for the triangle edges, scaled in order to make the dot with the opposive vertex = 1.
+    float3 Lv = Nv / (dot(Nv, edge02));
+
+    float3 delta1 = normals[1] - normals[0];
+    float3 delta2 = normals[2] - normals[0];
+
+    float3x3 m = outer(delta1, Lu) + outer(delta2, Lv);
+    float3x3 M = mul(rcpnn * (nn * m33Identity() - outer(n, n)), m);
+    return M;
 }
 
 float3x3 inverse33(float3x3 M)
