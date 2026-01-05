@@ -122,6 +122,51 @@ struct TriangleHit : GeometryHit
     }
 };
 
+/** Ray Miss hit information (3d position on farplane)
+
+    Encoding (without compression):
+    | header  | pos.x    | pos.y    | pos.z    |
+    | 32 bits | 32 float | 32 float | 32 float |
+
+    Encoding (with compression):
+    | header     | pos.x    | pos.y    | pos.z    |
+    | 16 bits    | 16 float | 16 float | 16 float |
+*/
+struct RayMissHit
+{
+    float3 posW;
+
+    __init(const PackedHitInfo packed)
+    {
+        // no need to unpack header
+        //HitInfo::unpackHeader(packed, instanceID, primitiveIndex);
+#if HIT_INFO_USE_COMPRESSION
+        posW.x = f16tof32(packed[0] >> 16);
+        posW.y = f16tof32(packed[1] & 0xffff);
+        posW.z = f16tof32(packed[1] >> 16);
+#else
+        posW.x = asfloat(packed[1]);
+        posW.y = asfloat(packed[2]);
+        posW.z = asfloat(packed[3]);
+#endif
+    }
+
+    PackedHitInfo pack()
+    {
+        PackedHitInfo packed = {};
+        HitInfo::packHeader(packed, HitType::RayMiss);
+#if HIT_INFO_USE_COMPRESSION
+        packed[0] |= f32tof16(posW.x) << 16;
+        packed[1] = (f32tof16(posW.y) & 0xffff) | (f32tof16(posW.z) << 16);
+#else
+        packed[1] = asuint(posW.x);
+        packed[2] = asuint(posW.y);
+        packed[3] = asuint(posW.z);
+#endif
+        return packed;
+    }
+};
+
 /** Displaced triangle hit information.
 
     Encoding:

@@ -34,12 +34,13 @@ enum class HitType : uint32_t
 {
     None                = 0,    ///< No hit.
     Triangle            = 1,    ///< Triangle hit.
-    Volume              = 2,    ///< Volume hit.
+    Volume              = 2,                 ///< Volume hit.
+    RayMiss             = 3, // posW of the missed ray with the far plane (Can be handled as None if posW is not relevant)
 
     // The following hit types are only available if hit info compression is disabled.
 
-    DisplacedTriangle   = 3,    ///< Displaced triangle hit.
-    Curve               = 4,    ///< Curve hit.
+    DisplacedTriangle   = 4,    ///< Displaced triangle hit.
+    Curve               = 5,    ///< Curve hit.
     SDFGrid             = 6,    ///< SDF grid hit.
 
     //
