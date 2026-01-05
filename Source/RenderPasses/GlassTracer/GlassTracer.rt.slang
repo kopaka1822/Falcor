@@ -445,7 +445,9 @@ void rayGen()
                 if (!camMovement)
                     curVBuffer.mvec = 0.0;
 
-                curVBuffer.vbuffer = data.hit;
+                RayMissHit rmh;
+                rmh.posW = ray.Origin + ray.Direction * ray.TMax; // far plane position
+                curVBuffer.vbuffer = rmh.pack();
                 curVBuffer.depth = linearToNonLinearZ(s.linearZ);
                 // for iterations:
                 curVBuffer.localPathLength = s.curPathLength;

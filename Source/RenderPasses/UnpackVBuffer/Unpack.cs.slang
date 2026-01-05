@@ -75,7 +75,12 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     }
     else // invalid hit => default values
     {
-        gPosW[pixel] = 0.0;
+        if (hit.isValid() && hit.getType() == HitType::RayMiss)
+        {
+            gPosW[pixel] = float4(RayMissHit(hit.getData()).posW, 1.0);
+        }
+        else
+            gPosW[pixel] = 0.0;
         gNormalW[pixel] = 0.0;
         gNormalV[pixel] = 0.0;
         gFaceNormalW[pixel] = 0.0;
