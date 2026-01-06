@@ -167,6 +167,8 @@ private:
     ref<ComputePass> mpOpticalFlowPass;
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::None;
     int mOpticalIterations = 1;
+    float mOpticalMaxMovement = 1.0f;
+    int mOpticalRadius = 1;
     ref<RenderGraph> mpVbufferToPosGraph;
     float2 mPrevJitter;
 

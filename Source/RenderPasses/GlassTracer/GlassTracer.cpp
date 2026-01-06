@@ -272,6 +272,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         var["PerFrame"]["gIterations"] = mOpticalIterations;
         var["PerFrame"]["gPrevJitter"] = mPrevJitter;
         var["PerFrame"]["gCurJitter"] = curJitter;
+        var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
+        var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
 
         mpOpticalFlowPass->execute(pRenderContext, dispatch);
 
@@ -322,6 +324,11 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
     if (mOpticalFlowTechnique != OpticalFlowTechnique::None)
     {
         c |= widget.slider("Iterations##1", mOpticalIterations, 1, 20);
+
+        c |= widget.var("Max Pixel Movement", mOpticalMaxMovement, 1.0f / 32.0f, 40.0f, 1.0f / 32.0f);
+        widget.tooltip("Maximum allowed pixel movement per iteration");
+
+        c |= widget.slider("Window Radius", mOpticalRadius, 1, 10);
     }
 
 
