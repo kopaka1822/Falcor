@@ -27,6 +27,7 @@
  **************************************************************************/
 #include "GlassTracer.h"
 #include "RenderGraph/RenderPassStandardFlags.h"
+#include "RenderGraph/RenderGraph.h"
 
 namespace
 {
@@ -43,6 +44,7 @@ namespace
     const uint32_t kMaxPayloadSizeBytes = 6 * sizeof(float);
     const std::string kProgramRaytraceFile = "RenderPasses/GlassTracer/GlassTracer.rt.slang";
     const std::string kIterationRaytraceFile = "RenderPasses/GlassTracer/IterateMV.rt.slang";
+    const std::string kOpticalFlowFile = "RenderPasses/GlassTracer/OpticalFlow.cs.slang";
 
     const std::string kUseWhitelist = "useWhitelist";
     const std::string kWhitelist = "whitelist";
@@ -61,6 +63,8 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
 {
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
     mpSamplePattern = HaltonSamplePattern::create(16);
+    mpOpticalFlowPass = ComputePass::create(mpDevice, kOpticalFlowFile, "main");
+    mpOpticalFlowPass->getRootVar()["S"] = Sampler::create(mpDevice, Sampler::Desc().setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear));
 
     // load properties
     for (const auto& [key, value] : props)
@@ -109,6 +113,19 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
 
     reflector.addOutput(kDebug, "Debug output").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y, 1, 1, mPathLength);
     return reflector;
+}
+
+void GlassTracer::compile(RenderContext* pRenderContext, const CompileData& compileData)
+{
+    mpVbufferToPosGraph = RenderGraph::create(mpDevice, "VBuffer to Position");
+    ref<RenderPass> unpackPass = RenderPass::create("UnpackVBuffer", mpDevice);
+    mpVbufferToPosGraph->addPass(unpackPass, "UnpackVBuffer");
+    mpVbufferToPosGraph->markOutput("UnpackVBuffer.posW");
+    mpVbufferToPosGraph->setScene(mpScene);
+
+    uint2 dims = getRenderSize(compileData.defaultTexDims, mRenderScale);
+    auto tmpFbo = Fbo::create2D(mpDevice, dims.x, dims.y, ResourceFormat::RGBA32Float);
+    mpVbufferToPosGraph->onResize(tmpFbo.get());
 }
 
 void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -232,6 +249,40 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         mpScene->raytrace(pRenderContext, mpIterationProgram.get(), mpIterationVars, dispatch);
     }
 
+    // jitter applied in Camera::computeRayPinhole
+    const float2 curJitter = float2(-mpScene->getCamera()->getJitterX(), mpScene->getCamera()->getJitterY());
+    if(mOpticalFlowTechnique != OpticalFlowTechnique::None)
+    {
+        // obtain current positions
+        ref<Texture> pPosition;
+        mpVbufferToPosGraph->setInput("UnpackVBuffer.vbuffer", pVbuffer);
+        mpVbufferToPosGraph->execute(pRenderContext);
+        pPosition = mpVbufferToPosGraph->getOutput("UnpackVBuffer.posW")->asTexture();
+        bool usePrevPos = mpPrevPosition && 
+            mpPrevPosition->getWidth() == pPosition->getWidth() && 
+            mpPrevPosition->getHeight() == pPosition->getHeight();
+
+        FALCOR_PROFILE(pRenderContext, "OpticalFlow");
+        var = mpOpticalFlowPass->getRootVar();
+        var["gMotion"] = pMotion;
+        var["gCurPos"] = pPosition;
+        var["gPrevPos"] = usePrevPos ? mpPrevPosition : pPosition;
+
+        var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+        var["PerFrame"]["gIterations"] = mOpticalIterations;
+        var["PerFrame"]["gPrevJitter"] = mPrevJitter;
+        var["PerFrame"]["gCurJitter"] = curJitter;
+
+        mpOpticalFlowPass->execute(pRenderContext, dispatch);
+
+        // blit cur pos to prev pos
+        if (!usePrevPos) mpPrevPosition = Texture::create2D(mpDevice, pPosition->getWidth(), pPosition->getHeight(), pPosition->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
+        pRenderContext->blit(pPosition->getSRV(), mpPrevPosition->getRTV());
+    }
+    mPrevJitter = curJitter;
+
+
+
     // add whitelist to dict
     if (mUseTransparencyWhitelist)
     {
@@ -265,6 +316,12 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
             c |= widget.checkbox("Force It. Path Length", mForceIterationPathLength);
             widget.tooltip("If enabled, Paths must have the exact same path length as the original ray.");
         }
+    }
+
+    c |= widget.dropdown("OpticalFlow Technique", mOpticalFlowTechnique);
+    if (mOpticalFlowTechnique != OpticalFlowTechnique::None)
+    {
+        c |= widget.slider("Iterations##1", mOpticalIterations, 1, 20);
     }
 
 

@@ -84,13 +84,24 @@ public:
         {IterationTechnique::Reverse, "Reverse"},
     });
 
+    enum class OpticalFlowTechnique : uint32_t
+    {
+        None,
+        LucasKanade,
+    };
+
+    FALCOR_ENUM_INFO(OpticalFlowTechnique, {
+        {OpticalFlowTechnique::None, "None"},
+        {OpticalFlowTechnique::LucasKanade, "Lucas-Kanade"},
+    });
+
     static ref<GlassTracer> create(ref<Device> pDevice, const Properties& props) { return make_ref<GlassTracer>(pDevice, props); }
 
     GlassTracer(ref<Device> pDevice, const Properties& props);
 
     virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
+    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
@@ -151,6 +162,14 @@ private:
     ref<RtProgram> mpIterationProgram;
     ref<RtProgramVars> mpIterationVars;
 
+    // optical flow
+    ref<Texture> mpPrevPosition;
+    ref<ComputePass> mpOpticalFlowPass;
+    OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::None;
+    int mOpticalIterations = 1;
+    ref<RenderGraph> mpVbufferToPosGraph;
+    float2 mPrevJitter;
+
     RenderScale mRenderScale = RenderScale::Performance;
 
     // lighting settings
@@ -177,3 +196,4 @@ private:
 FALCOR_ENUM_REGISTER(GlassTracer::RenderScale);
 FALCOR_ENUM_REGISTER(GlassTracer::MotionVector);
 FALCOR_ENUM_REGISTER(GlassTracer::IterationTechnique);
+FALCOR_ENUM_REGISTER(GlassTracer::OpticalFlowTechnique);

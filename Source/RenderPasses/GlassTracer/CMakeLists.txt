@@ -6,6 +6,7 @@ target_sources(GlassTracer PRIVATE
     GlassTracer.rt.slang
     Shared.slang
     IterateMV.rt.slang
+    OpticalFlow.cs.slang
 )
 
 target_copy_shaders(GlassTracer RenderPasses/GlassTracer)
