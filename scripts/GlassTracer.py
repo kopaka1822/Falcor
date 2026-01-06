@@ -48,8 +48,10 @@ def render_graph_GlassTracer():
     g.add_edge('GlassTracer.depth', 'FSR.depth')
     g.add_edge('GlassTracer.depth', 'IntelXeSS.depth')
     g.add_edge('GlassTracer.mvec', 'MotionVecVis.mvec')
+    g.add_edge('UnpackVBuffer.posW', 'MotionVecVis.posW')
     g.mark_output('ToneMapper.dst')
     g.mark_output('MotionVecVis.color')
+    g.mark_output('MotionVecVis.posDiff')
     return g
 
 GlassTracer = render_graph_GlassTracer()

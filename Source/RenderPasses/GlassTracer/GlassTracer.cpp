@@ -64,7 +64,9 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
     mpSamplePattern = HaltonSamplePattern::create(16);
     mpOpticalFlowPass = ComputePass::create(mpDevice, kOpticalFlowFile, "main");
-    mpOpticalFlowPass->getRootVar()["S"] = Sampler::create(mpDevice, Sampler::Desc().setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear));
+    mpOpticalFlowPass->getRootVar()["S"] = Sampler::create(mpDevice, Sampler::Desc()
+        .setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear)
+        .setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp));
 
     // load properties
     for (const auto& [key, value] : props)
