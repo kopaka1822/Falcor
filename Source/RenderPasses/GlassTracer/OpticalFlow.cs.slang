@@ -16,11 +16,13 @@ cbuffer PerFrame
     int gWindowRadius; // radius in pixels (1 = default)
 }
 
-float3 getAvgDeriv(float3 curPos, float3 prevPos, float2 texC, float2 mvec, float2 step)
+// get derivative with smallest magnitude (+step/-step)
+float3 getMinDeriv(float3 prevPos, float2 uvPrev, float2 step)
 {
-    float3 curPos2 = gCurPos.SampleLevel(S, texC + step, 0.0);
-    float3 prevPos2 = gPrevPos.SampleLevel(S, texC + mvec + step, 0.0);
-    return 0.5 * ((curPos2 - curPos) + (prevPos2 - prevPos));
+    // [x + 1] - [x]
+    float3 deriv1 = gPrevPos.SampleLevel(S, uvPrev + step, 0.0) - prevPos;
+    float3 deriv2 = prevPos - gPrevPos.SampleLevel(S, uvPrev - step, 0.0);
+    return (length(deriv1) <= length(deriv2)) ? deriv1 : deriv2;
 }
 
 [numthreads(16, 16, 1)]
@@ -37,6 +39,10 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     for (uint i = 0; i < gIterations; ++i)
     {
         float2 mvec0 = mvec - gPrevJitter + gCurJitter; // adjust jitter of motion vector
+        float2 uv0 = texC + mvec0;
+        float2 uvSnap = (floor(uv0 * float2(gFrameDim)) + 0.5) / float2(gFrameDim);
+        float2 uvDiff = uv0 - uvSnap; // uvSnap + uvDiff = uv0
+
         float2x2 AtA = 0.0;
         float2 Atb = 0.0;
 
@@ -45,12 +51,12 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
             {
                 float2 off = dx * stepX + dy * stepY;
                 float3 curPos = gCurPos.SampleLevel(S, texC + off, 0.0);
-                float3 prevPos = gPrevPos.SampleLevel(S, texC + off + mvec0, 0.0);
+                float3 prevPos = gPrevPos.SampleLevel(S, uvSnap + off, 0.0);
 
                 // build derivatives
                 float3 I_t = curPos - prevPos; // [t+1] - [t]
-                float3 I_x = getAvgDeriv(curPos, prevPos, texC + off, mvec0, stepX);
-                float3 I_y = getAvgDeriv(curPos, prevPos, texC + off, mvec0, stepY);
+                float3 I_x = getMinDeriv(prevPos, uvSnap + off, stepX);
+                float3 I_y = getMinDeriv(prevPos, uvSnap + off, stepY);
 
                 // update matrices
                 AtA[0][0] += dot(I_x, I_x);
@@ -72,8 +78,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float2 uvPixel = mul(invAtA, Atb);
         if (length(uvPixel) > gMaxMovement) // restrict pixel step size
             uvPixel = gMaxMovement * normalize(uvPixel);
-        
-        mvec = mvec + (uvPixel / float2(gFrameDim));
+
+        mvec = mvec + (uvPixel / float2(gFrameDim)) - uvDiff;
     }
 
     gMotion[pixel] = mvec;
