@@ -58,20 +58,40 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                 float3 I_x = getMinDeriv(prevPos, uvSnap + off, stepX);
                 float3 I_y = getMinDeriv(prevPos, uvSnap + off, stepY);
 
-                // update matrices
-                AtA[0][0] += dot(I_x, I_x);
-                AtA[0][1] += dot(I_x, I_y);
-                AtA[1][0] += dot(I_x, I_y);
-                AtA[1][1] += dot(I_y, I_y);
-                // use positive sign because our motion vector goes from current to previous
-                Atb[0] += dot(I_x, I_t);
-                Atb[1] += dot(I_y, I_t);
+                // matrix components
+                float I_xSq = dot(I_x, I_x);
+                float I_ySq = dot(I_y, I_y);
+                float I_xy = dot(I_x, I_y);
+
+                float trace = I_xSq + I_ySq; // A[0][0] + A[1][1]
+                float det = I_xSq * I_ySq - I_xy * I_xy; // determinant
+                // eigenvalues
+                float sqrtDisc = sqrt(max(0.0, trace * trace - 4.0 * det));
+                float lambda1 = 0.5 * (trace + sqrtDisc);
+                float lambda2 = 0.5 * (trace - sqrtDisc); // lambda1 >= lambda2 (by construction)
+
+                const float lambdaMin = 1e-8;
+                const float anisotropyMax = 1000.0;
+                const float lambdaMax = 1e8;
+
+                // test if well conditioned
+                if (lambda1 <= lambdaMax && lambda2 >= lambdaMin && lambda1 <= lambda2 * anisotropyMax)
+                {
+                    // update matrices
+                    AtA[0][0] += I_xSq;
+                    AtA[0][1] += I_xy;
+                    AtA[1][0] += I_xy;
+                    AtA[1][1] += I_ySq;
+                    // use positive sign because our motion vector goes from current to previous
+                    Atb[0] += dot(I_x, I_t);
+                    Atb[1] += dot(I_y, I_t);
+                } //else mvec = 0.0;
             }
 
+        if (all(AtA == 0.0)) break; // bad conditioned, retain original motion vector
 
         // invert AtA
         float det = AtA[0][0] * AtA[1][1] - AtA[0][1] * AtA[1][0];
-        // TODO check for singularity
         float2x2 invAtA = float2x2(AtA[1][1], -AtA[0][1],
                                -AtA[1][0], AtA[0][0]) / det;
 
