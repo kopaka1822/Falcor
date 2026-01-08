@@ -113,8 +113,9 @@ float traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
     return visibility;
 }
 
-float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance mi, inout UniformSampleGenerator sg)
+float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance mi, inout UniformSampleGenerator sg, out float importance)
 {
+    importance = 0.0;
     if (gAnalyticIntensity <= 0.0)
         return 0.0;
     
@@ -140,8 +141,10 @@ float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance m
         {
             float shadow = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i);
             color += unshadowed * shadow;
+            importance += shadow * dot(ls.Li, 0.33); // importance without material texture
         }
     }
+    importance = gAnalyticIntensity * importance;
     return gAnalyticIntensity * color;
 }
 
@@ -517,15 +520,21 @@ void rayGen()
         IMaterialInstance mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
         let bsdf = mi.getProperties(sd);
 
+        float analyticImportance = 0.0;
         // compute local color contribution
         float3 localContribution = s.thp * (
             bsdf.emission * gEmissionIntensity +
             bsdf.diffuseReflectionAlbedo * gAmbientIntensity +
-            evalAnalytic(pixel, sd, mi, sg)
+            evalAnalytic(pixel, sd, mi, sg, analyticImportance)
         );
         color += localContribution;
 
-        if (curVBuffer.update(localContribution, sampleNext1D(sg)))
+        // compute path importance slightly differently
+        float pathImportance = dot(s.thp * (bsdf.emission * gEmissionIntensity
+            + analyticImportance
+        ), 0.33);
+
+        if (curVBuffer.update(pathImportance, sampleNext1D(sg)))
         {
             curVBuffer.vbuffer = data.hit;
             curVBuffer.depth = linearToNonLinearZ(s.linearZ);
