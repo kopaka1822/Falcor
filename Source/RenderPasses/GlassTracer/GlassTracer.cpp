@@ -44,7 +44,8 @@ namespace
     const uint32_t kMaxPayloadSizeBytes = 6 * sizeof(float);
     const std::string kProgramRaytraceFile = "RenderPasses/GlassTracer/GlassTracer.rt.slang";
     const std::string kIterationRaytraceFile = "RenderPasses/GlassTracer/IterateMV.rt.slang";
-    const std::string kOpticalFlowFile = "RenderPasses/GlassTracer/OpticalFlow.cs.slang";
+    const std::string kOpticalFlowPosFile = "RenderPasses/GlassTracer/OpticalFlowPos.cs.slang";
+    const std::string kOpticalFlowColorFile = "RenderPasses/GlassTracer/OpticalFlowColor.cs.slang";
 
     const std::string kUseWhitelist = "useWhitelist";
     const std::string kWhitelist = "whitelist";
@@ -63,9 +64,16 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
 {
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
     mpSamplePattern = HaltonSamplePattern::create(16);
-    mpOpticalFlowPass = ComputePass::create(mpDevice, kOpticalFlowFile, "main");
-    mpOpticalFlowPass->getRootVar()["S"] = Sampler::create(mpDevice, Sampler::Desc()
-        .setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point)
+
+    mpOpticalFlowPosPass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "main");
+    mpOpticalFlowColorPass = ComputePass::create(mpDevice, kOpticalFlowColorFile, "main");
+    
+    mpOpticalFlowPosPass->getRootVar()["S"] = Sampler::create(mpDevice, Sampler::Desc()
+        //.setFilterMode(Sampler::Filter::Point, Sampler::Filter::Point, Sampler::Filter::Point)
+        .setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear)
+        .setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp));
+    mpOpticalFlowColorPass->getRootVar()["S"] = Sampler::create(mpDevice, Sampler::Desc()
+        .setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear)
         .setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp));
 
     // load properties
@@ -255,33 +263,74 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     const float2 curJitter = float2(-mpScene->getCamera()->getJitterX(), mpScene->getCamera()->getJitterY());
     if(mOpticalFlowTechnique != OpticalFlowTechnique::None)
     {
-        // obtain current positions
-        ref<Texture> pPosition;
-        mpVbufferToPosGraph->setInput("UnpackVBuffer.vbuffer", pVbuffer);
-        mpVbufferToPosGraph->execute(pRenderContext);
-        pPosition = mpVbufferToPosGraph->getOutput("UnpackVBuffer.posW")->asTexture();
-        bool usePrevPos = mpPrevPosition && 
-            mpPrevPosition->getWidth() == pPosition->getWidth() && 
-            mpPrevPosition->getHeight() == pPosition->getHeight();
+        if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
+        {
+            // obtain current positions
+            ref<Texture> pPosition;
+            mpVbufferToPosGraph->setInput("UnpackVBuffer.vbuffer", pVbuffer);
+            mpVbufferToPosGraph->execute(pRenderContext);
+            pPosition = mpVbufferToPosGraph->getOutput("UnpackVBuffer.posW")->asTexture();
+            bool usePrevPos = mpPrevPosition &&
+                mpPrevPosition->getWidth() == pPosition->getWidth() &&
+                mpPrevPosition->getHeight() == pPosition->getHeight();
 
-        FALCOR_PROFILE(pRenderContext, "OpticalFlow");
-        var = mpOpticalFlowPass->getRootVar();
-        var["gMotion"] = pMotion;
-        var["gCurPos"] = pPosition;
-        var["gPrevPos"] = usePrevPos ? mpPrevPosition : pPosition;
+            FALCOR_PROFILE(pRenderContext, "OpticalFlow");
+            var = mpOpticalFlowPosPass->getRootVar();
+            var["gMotion"] = pMotion;
+            var["gCurPos"] = pPosition;
+            var["gPrevPos"] = usePrevPos ? mpPrevPosition : pPosition;
 
-        var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-        var["PerFrame"]["gIterations"] = mOpticalIterations;
-        var["PerFrame"]["gPrevJitter"] = mPrevJitter;
-        var["PerFrame"]["gCurJitter"] = curJitter;
-        var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
-        var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
+            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+            var["PerFrame"]["gIterations"] = mOpticalIterations;
+            var["PerFrame"]["gPrevJitter"] = mPrevJitter;
+            var["PerFrame"]["gCurJitter"] = curJitter;
+            var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
+            var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
 
-        mpOpticalFlowPass->execute(pRenderContext, dispatch);
+            mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
 
-        // blit cur pos to prev pos
-        if (!usePrevPos) mpPrevPosition = Texture::create2D(mpDevice, pPosition->getWidth(), pPosition->getHeight(), pPosition->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
-        pRenderContext->blit(pPosition->getSRV(), mpPrevPosition->getRTV());
+            // blit cur pos to prev pos
+            if (!usePrevPos) mpPrevPosition = Texture::create2D(mpDevice, pPosition->getWidth(), pPosition->getHeight(), pPosition->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
+            pRenderContext->blit(pPosition->getSRV(), mpPrevPosition->getRTV());
+        }
+        else if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeColor)
+        {
+            // obtain the anti-aliased color image from the render graph
+            /*ref<Texture> pPrevColor;
+            auto pRenderGraph = (RenderGraph*)renderData.getDictionary()[kRenderGraph];
+            if (pRenderGraph)
+            {
+                // assume the primary output is the anti-aliased output
+                auto outputs = pRenderGraph->getAvailableOutputs();
+                // get first output where isGraphOutput is true
+                auto primaryOutputName = std::find_if(outputs.begin(), outputs.end(),
+                    [&](const std::string& name) {return pRenderGraph->isGraphOutput(name); } );
+                
+                auto pPrimOutput = pRenderGraph->getOutput(*primaryOutputName);
+                if(pPrimOutput) pPrevColor = pPrimOutput->asTexture();
+            }*/
+            bool usePrevColor = mpPrevColor &&
+                mpPrevColor->getWidth() == pColor->getWidth() &&
+                mpPrevColor->getHeight() == pColor->getHeight();
+
+            var = mpOpticalFlowColorPass->getRootVar();
+            var["gMotion"] = pMotion;
+            var["gCurColor"] = pColor;
+            //var["gPrevColor"] = pPrevColor ? pPrevColor : pColor;
+            var["gPrevColor"] = usePrevColor ? mpPrevColor : pColor;
+
+            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+            var["PerFrame"]["gIterations"] = mOpticalIterations;
+            var["PerFrame"]["gPrevJitter"] = mPrevJitter;
+            var["PerFrame"]["gCurJitter"] = curJitter;
+            var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
+            var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
+
+            mpOpticalFlowColorPass->execute(pRenderContext, dispatch);
+
+            if (!usePrevColor) mpPrevColor = Texture::create2D(mpDevice, pColor->getWidth(), pColor->getHeight(), pColor->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
+            pRenderContext->blit(pColor->getSRV(), mpPrevColor->getRTV());
+        }
     }
     mPrevJitter = curJitter;
 

@@ -87,12 +87,14 @@ public:
     enum class OpticalFlowTechnique : uint32_t
     {
         None,
-        LucasKanade,
+        LucasKanadePos,
+        LucasKanadeColor,
     };
 
     FALCOR_ENUM_INFO(OpticalFlowTechnique, {
         {OpticalFlowTechnique::None, "None"},
-        {OpticalFlowTechnique::LucasKanade, "Lucas-Kanade"},
+        {OpticalFlowTechnique::LucasKanadePos, "Lucas-Kanade (Position)"},
+        {OpticalFlowTechnique::LucasKanadeColor, "Lucas-Kanade (Color)"},
     });
 
     static ref<GlassTracer> create(ref<Device> pDevice, const Properties& props) { return make_ref<GlassTracer>(pDevice, props); }
@@ -164,10 +166,12 @@ private:
 
     // optical flow
     ref<Texture> mpPrevPosition;
-    ref<ComputePass> mpOpticalFlowPass;
+    ref<Texture> mpPrevColor;
+    ref<ComputePass> mpOpticalFlowPosPass;
+    ref<ComputePass> mpOpticalFlowColorPass;
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::None;
-    int mOpticalIterations = 1;
-    float mOpticalMaxMovement = 1.0f;
+    int mOpticalIterations = 2;
+    float mOpticalMaxMovement = 10.0f;
     int mOpticalRadius = 1;
     ref<RenderGraph> mpVbufferToPosGraph;
     float2 mPrevJitter;
