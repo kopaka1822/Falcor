@@ -176,6 +176,16 @@ float3x4 matrixMirror(float3 O, float3 N)
     return M;
 }
 
+// translates scene by P
+float3x4 matrixTranslate(float3 P)
+{
+    return float3x4(
+        1.0, 0.0, 0.0, P.x,
+        0.0, 1.0, 0.0, P.y,
+        0.0, 0.0, 1.0, P.z
+    );
+}
+
 float3x4 matrixIdentity()
 {
     return float3x4(

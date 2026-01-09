@@ -358,6 +358,9 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
 #endif
 
     s.rayOrigin = sd.computeNewRayOrigin(!transmission); // move origin a bit along normal (note: using sd.posW might result in self-intersection)
+#if MVEC == MVEC_HALFWAY_REFLECT
+    s.viewTransform = mulAffine(s.viewTransform, matrixTranslate(sd.posW - s.rayOrigin));
+#endif
 #if MVEC == MVEC_RAY_DIFF
     s.ray2origin += s.rayOrigin - sd.posW; // account for the above error by also moving the ray2origin accordingly
 #endif
