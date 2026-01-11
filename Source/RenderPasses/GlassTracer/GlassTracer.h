@@ -89,12 +89,14 @@ public:
         None,
         LucasKanadePos,
         LucasKanadeColor,
+        HornSchunkPos
     };
 
     FALCOR_ENUM_INFO(OpticalFlowTechnique, {
         {OpticalFlowTechnique::None, "None"},
         {OpticalFlowTechnique::LucasKanadePos, "Lucas-Kanade (Position)"},
         {OpticalFlowTechnique::LucasKanadeColor, "Lucas-Kanade (Color)"},
+        {OpticalFlowTechnique::HornSchunkPos, "Horn-Schunk (Position)"},
     });
 
     static ref<GlassTracer> create(ref<Device> pDevice, const Properties& props) { return make_ref<GlassTracer>(pDevice, props); }
@@ -156,7 +158,7 @@ private:
     int mPathLength = 50;
     int mStackSize = 2;
     MotionVector mMotionVector = MotionVector::FirstHit;
-    IterationTechnique mIterationTechnique = IterationTechnique::Forward;
+    IterationTechnique mIterationTechnique = IterationTechnique::None;
 
     // iterations
     int mIterations = 1;
@@ -167,7 +169,9 @@ private:
     // optical flow
     ref<Texture> mpPrevPosition;
     ref<Texture> mpPrevColor;
+    ref<Texture> mpMotionPong;
     ref<ComputePass> mpOpticalFlowPosPass;
+    ref<ComputePass> mpOpticalFlowHornSchunkPosPass;
     ref<ComputePass> mpOpticalFlowColorPass;
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::None;
     int mOpticalIterations = 2;
@@ -176,7 +180,7 @@ private:
     ref<RenderGraph> mpVbufferToPosGraph;
     float2 mPrevJitter;
 
-    RenderScale mRenderScale = RenderScale::Performance;
+    RenderScale mRenderScale = RenderScale::UtraPerformance;
 
     // lighting settings
     float mAmbientIntensity = 0.25f;

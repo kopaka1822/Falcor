@@ -1,6 +1,7 @@
 //import Utils.Math.MathHelpers;
 
-RWTexture2D<float2> gMotion;
+Texture2D<float2> gMotion; // only for hornSchunkMain
+RWTexture2D<float2> gMotionOut;
 Texture2D<float3> gCurPos;
 Texture2D<float3> gPrevPos;
 
@@ -65,7 +66,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 {
     const uint2 pixel = id.xy;
     float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
-    float2 mvec = gMotion[pixel];
+    float2 mvec = gMotionOut[pixel];
 
     const float2 step = 1.0 / float2(gFrameDim);
     const float2 stepX = float2(step.x, 0.0);
@@ -76,62 +77,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float2 mvec0 = mvec - gPrevJitter + gCurJitter; // adjust jitter of motion vector
         float2 uv0 = texC + mvec0;
         float2 uvSnap = (floor(uv0 * float2(gFrameDim)) + 0.5) / float2(gFrameDim);
-        //uvSnap = uv0;
+        uvSnap = uv0;
         float2 uvDiff = uv0 - uvSnap; // uvSnap + uvDiff = uv0
-
-        float2x2 AtA = 0.0;
-        float2 Atb = 0.0;
-
-        /*for (int dx = -gWindowRadius + 1; dx < gWindowRadius; ++dx)
-            for (int dy = -gWindowRadius + 1; dy < gWindowRadius; ++dy)
-            {
-                float2 off = dx * stepX + dy * stepY;
-                float3 curPos = gCurPos.SampleLevel(S, texC + off, 0.0);
-                float3 prevPos = gPrevPos.SampleLevel(S, uvSnap + off, 0.0);
-
-                // build derivatives
-                float3 I_t = curPos - prevPos; // [t+1] - [t]
-                float3 I_x = getMinDeriv(prevPos, uvSnap + off, stepX);
-                float3 I_y = getMinDeriv(prevPos, uvSnap + off, stepY);
-
-                // matrix components
-                float I_xSq = dot(I_x, I_x);
-                float I_ySq = dot(I_y, I_y);
-                float I_xy = dot(I_x, I_y);
-
-                float trace = I_xSq + I_ySq; // A[0][0] + A[1][1]
-                float det = I_xSq * I_ySq - I_xy * I_xy; // determinant
-                // eigenvalues
-                float sqrtDisc = sqrt(max(0.0, trace * trace - 4.0 * det));
-                float lambda1 = 0.5 * (trace + sqrtDisc);
-                float lambda2 = 0.5 * (trace - sqrtDisc); // lambda1 >= lambda2 (by construction)
-
-                const float lambdaMin = 1e-8;
-                const float anisotropyMax = 1000.0;
-                const float lambdaMax = 1e8;
-
-                // test if well conditioned
-                if (lambda1 <= lambdaMax && lambda2 >= lambdaMin && lambda1 <= lambda2 * anisotropyMax)
-                {
-                    // update matrices
-                    AtA[0][0] += I_xSq;
-                    AtA[0][1] += I_xy;
-                    AtA[1][0] += I_xy;
-                    AtA[1][1] += I_ySq;
-                    // use positive sign because our motion vector goes from current to previous
-                    Atb[0] += dot(I_x, I_t);
-                    Atb[1] += dot(I_y, I_t);
-                } //else mvec = 0.0;
-            }
-
-        if (all(AtA == 0.0)) break; // bad conditioned, retain original motion vector
-
-        // invert AtA
-        float det = AtA[0][0] * AtA[1][1] - AtA[0][1] * AtA[1][0];
-        float2x2 invAtA = float2x2(AtA[1][1], -AtA[0][1],
-                               -AtA[1][0], AtA[0][0]) / det;
-
-        float2 uvPixel = mul(invAtA, Atb);*/
 
         float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
         float3 prevPos = gPrevPos.SampleLevel(S, uvSnap, 0.0);
@@ -149,5 +96,59 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         mvec = mvec + (uvPixel / float2(gFrameDim)) - uvDiff;
     }
 
-    gMotion[pixel] = mvec;
+    gMotionOut[pixel] = mvec;
+}
+
+float2 getAverageMotion(float2 texC, float2 stepX, float2 stepY)
+{
+    float2 sum = gMotion.SampleLevel(S, texC + stepX, 0.0);
+    sum += gMotion.SampleLevel(S, texC - stepX, 0.0);
+    sum += gMotion.SampleLevel(S, texC + stepY, 0.0);
+    sum += gMotion.SampleLevel(S, texC - stepY, 0.0);
+    return sum * 0.25;
+}
+
+[numthreads(16, 16, 1)]
+void hornSchunkMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3 localId: SV_GroupThreadID)
+{
+    const float alpha = 1.0; // smoothness factor
+    const uint2 pixel = id.xy;
+    float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
+    float2 mvec = gMotion[pixel];
+
+    const float2 step = 1.0 / float2(gFrameDim);
+    const float2 stepX = float2(step.x, 0.0);
+    const float2 stepY = float2(0.0, step.y);
+
+    float2 mvec0 = mvec - gPrevJitter + gCurJitter; // adjust jitter of motion vector
+    float2 uv0 = texC + mvec0;
+    float2 uvSnap = (floor(uv0 * float2(gFrameDim)) + 0.5) / float2(gFrameDim);
+    uvSnap = uv0;
+    float2 uvDiff = uv0 - uvSnap; // uvSnap + uvDiff = uv0
+
+    float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
+    float3 prevPos = gPrevPos.SampleLevel(S, uvSnap, 0.0);
+
+    // build derivatives
+    float3 I_t = curPos - prevPos; // [t+1] - [t]
+    float3 I_x = getMinDeriv(prevPos, uvSnap, stepX);
+    float3 I_y = getMinDeriv(prevPos, uvSnap, stepY);
+    float2 uv_avg = getAverageMotion(texC, stepX, stepY);
+    uv_avg = uv_avg - gPrevJitter + gCurJitter;   // adjust jitter of average motion vector
+    uv_avg = uv_avg * float2(gFrameDim);        // convert to pixel units
+    float2 uv_k = mvec0 * float2(gFrameDim); // convert to pixel units
+
+    // since I_x and I_y are derivatives for one pixel difference, the motion vector should also be in pixel units (mvec and avg)
+    float3 common = (I_x * uv_k.x + I_y * uv_k.y - I_t) / (alpha * alpha + I_x * I_x + I_y * I_y);
+    float3 u_next = uv_avg.x - I_x * common;
+    float3 v_next = uv_avg.y - I_y * common;
+
+    float2 uvPixel = float2(dot(u_next, 1.0 / 3.0), dot(v_next, 1.0 / 3.0)) - uv_k;
+    //float2 uvPixel = 0.0;
+    if (length(uvPixel) > gMaxMovement) // restrict pixel step size
+        uvPixel = gMaxMovement * normalize(uvPixel);
+
+    mvec = mvec + (uvPixel / float2(gFrameDim)) - uvDiff;
+
+    gMotionOut[pixel] = mvec;
 }
