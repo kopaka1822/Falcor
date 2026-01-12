@@ -69,7 +69,6 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpSamplePattern = HaltonSamplePattern::create(16);
 
     mpOpticalFlowPosPass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "main");
-    mpOpticalFlowHornSchunkPosPass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "hornSchunkMain");
     mpOpticalFlowColorPass = ComputePass::create(mpDevice, kOpticalFlowColorFile, "main");
     mpOpticalBlurPass = ComputePass::create(mpDevice, kOpticalBlurFile, "main");
 
@@ -78,7 +77,6 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
         .setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp));
 
     mpOpticalFlowPosPass->getRootVar()["S"] = linearSampler;
-    mpOpticalFlowHornSchunkPosPass->getRootVar()["S"] = linearSampler;
     mpOpticalFlowColorPass->getRootVar()["S"] = linearSampler;
     mpOpticalBlurPass->getRootVar()["S"] = linearSampler;
 
@@ -273,7 +271,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     const float2 curJitter = float2(-mpScene->getCamera()->getJitterX(), mpScene->getCamera()->getJitterY());
     if(mOpticalFlowTechnique != OpticalFlowTechnique::None)
     {
-        if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos || mOpticalFlowTechnique == OpticalFlowTechnique::HornSchunkPos)
+        if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
         {
             // obtain current positions
             ref<Texture> pPosition;
@@ -285,18 +283,9 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
                 mpPrevPosition->getHeight() == pPosition->getHeight();
 
             FALCOR_PROFILE(pRenderContext, "OpticalFlow");
-            if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
-            {
-                var = mpOpticalFlowPosPass->getRootVar();
-                var["gMotion"] = pMotion;
-                var["gMotionOut"] = pMotionOptical;
-            }
-            else if (mOpticalFlowTechnique == OpticalFlowTechnique::HornSchunkPos)
-            {
-                var = mpOpticalFlowHornSchunkPosPass->getRootVar();
-                if(!mpMotionPong || mpMotionPong->getWidth() != pMotion->getWidth() || mpMotionPong->getHeight() != pMotion->getHeight())
-                    mpMotionPong = Texture::create2D(mpDevice, pMotion->getWidth(), pMotion->getHeight(), pMotion->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
-            }
+            var = mpOpticalFlowPosPass->getRootVar();
+            var["gMotion"] = pMotion;
+            var["gMotionOut"] = pMotionOptical;
             var["gCurPos"] = pPosition;
             var["gPrevPos"] = usePrevPos ? mpPrevPosition : pPosition;
 
@@ -307,44 +296,17 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
             var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
 
-            if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
-            {
-                mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
+            mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
 
-                // output is in pMotionOptical
-                var = mpOpticalBlurPass->getRootVar();
-                var["gMotion"] = pMotionOptical;
-                var["gMotionBackupAndOut"] = pMotion; // backup data and output
-                var["gPathLength"] = pLocalPathLength;
+            // output is in pMotionOptical
+            var = mpOpticalBlurPass->getRootVar();
+            var["gMotion"] = pMotionOptical;
+            var["gMotionBackupAndOut"] = pMotion; // backup data and output
+            var["gPathLength"] = pLocalPathLength;
 
-                var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-                mpOpticalBlurPass->execute(pRenderContext, dispatch);
-                // output is in pMotion
-            }
-            else if (mOpticalFlowTechnique == OpticalFlowTechnique::HornSchunkPos) // TODO remove horn schunk? (worse results)
-            {
-                auto pMotionPong = mpMotionPong;
-
-                for (int i = 0; i < mOpticalIterations; ++i)
-                {
-                    var["gMotion"] = pMotion;
-                    var["gMotionOut"] = pMotionPong;
-                    mpOpticalFlowHornSchunkPosPass->execute(pRenderContext, dispatch); // ouput is in pong
-                    var["gMotion"].setSrv(nullptr);
-                    var["gMotionOut"].setUav(nullptr);
-                    std::swap(pMotionPong, pMotion);  // output is in ping (pMotion)
-                }
-
-                // move output if it is in the wrong texture
-                if (pMotionPong.get() != mpMotionPong.get())
-                {
-                    // do one more copy
-                    pRenderContext->blit(pMotion->getSRV(), pMotionPong->getRTV());
-                    std::swap(pMotionPong, pMotion);
-                    assert(pMotionPong.get() == mpMotionPong.get());
-                }
-                    
-            }
+            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+            mpOpticalBlurPass->execute(pRenderContext, dispatch);
+            // output is in pMotion
                 
 
             // blit cur pos to prev pos
