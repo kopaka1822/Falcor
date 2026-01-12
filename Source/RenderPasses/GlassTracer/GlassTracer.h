@@ -173,6 +173,7 @@ private:
     ref<ComputePass> mpOpticalFlowPosPass;
     ref<ComputePass> mpOpticalFlowHornSchunkPosPass;
     ref<ComputePass> mpOpticalFlowColorPass;
+    ref<ComputePass> mpOpticalBlurPass;
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::None;
     int mOpticalIterations = 2;
     float mOpticalMaxMovement = 10.0f;

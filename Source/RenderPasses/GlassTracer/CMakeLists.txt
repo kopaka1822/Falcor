@@ -8,6 +8,7 @@ target_sources(GlassTracer PRIVATE
     IterateMV.rt.slang
     OpticalFlowPos.cs.slang
     OpticalFlowColor.cs.slang
+    OpticalFlowBlur.cs.slang
 )
 
 target_copy_shaders(GlassTracer RenderPasses/GlassTracer)

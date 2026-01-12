@@ -1,6 +1,6 @@
 //import Utils.Math.MathHelpers;
 
-Texture2D<float2> gMotion; // only for hornSchunkMain
+Texture2D<float2> gMotion;
 RWTexture2D<float2> gMotionOut;
 Texture2D<float3> gCurPos;
 Texture2D<float3> gPrevPos;
@@ -66,7 +66,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 {
     const uint2 pixel = id.xy;
     float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
-    float2 mvec = gMotionOut[pixel];
+    float2 mvec = gMotion[pixel];
 
     const float2 step = 1.0 / float2(gFrameDim);
     const float2 stepX = float2(step.x, 0.0);

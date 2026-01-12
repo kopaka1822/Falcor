@@ -40,12 +40,15 @@ namespace
     const std::string kLastRayDir = "lastRayDir";
     const std::string kLocalPathLength = "localPathLength";
     const std::string kReflectiveMask = "reflectiveMask";
+    // optical temporaray
+    const std::string kMotionOptical = "mvecOptical"; // mvecs directly after optical flow, without post-processing
 
     const uint32_t kMaxPayloadSizeBytes = 6 * sizeof(float);
     const std::string kProgramRaytraceFile = "RenderPasses/GlassTracer/GlassTracer.rt.slang";
     const std::string kIterationRaytraceFile = "RenderPasses/GlassTracer/IterateMV.rt.slang";
     const std::string kOpticalFlowPosFile = "RenderPasses/GlassTracer/OpticalFlowPos.cs.slang";
     const std::string kOpticalFlowColorFile = "RenderPasses/GlassTracer/OpticalFlowColor.cs.slang";
+    const std::string kOpticalBlurFile = "RenderPasses/GlassTracer/OpticalFlowBlur.cs.slang";
 
     const std::string kUseWhitelist = "useWhitelist";
     const std::string kWhitelist = "whitelist";
@@ -68,6 +71,7 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpOpticalFlowPosPass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "main");
     mpOpticalFlowHornSchunkPosPass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "hornSchunkMain");
     mpOpticalFlowColorPass = ComputePass::create(mpDevice, kOpticalFlowColorFile, "main");
+    mpOpticalBlurPass = ComputePass::create(mpDevice, kOpticalBlurFile, "main");
 
     auto linearSampler = Sampler::create(mpDevice, Sampler::Desc()
         .setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear)
@@ -76,6 +80,7 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpOpticalFlowPosPass->getRootVar()["S"] = linearSampler;
     mpOpticalFlowHornSchunkPosPass->getRootVar()["S"] = linearSampler;
     mpOpticalFlowColorPass->getRootVar()["S"] = linearSampler;
+    mpOpticalBlurPass->getRootVar()["S"] = linearSampler;
 
     // load properties
     for (const auto& [key, value] : props)
@@ -113,7 +118,7 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addOutput(kVbuffer, "V-buffer").format(HitInfo::kDefaultFormat).texture2D(dims.x, dims.y);
-    reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).flags(RenderPassReflection::Field::Flags::Optional).texture2D(dims.x, dims.y);
+    reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
 
@@ -121,6 +126,8 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kLastRayDir, "Last Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kLocalPathLength, "Local Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y); 
     reflector.addOutput(kReflectiveMask, "Reflective Mask").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y); // TODO higher limit to support path length > 32
+
+    reflector.addOutput(kMotionOptical, "Motion vector (tmp from optical)").format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
 
     reflector.addOutput(kDebug, "Debug output").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y, 1, 1, mPathLength);
     return reflector;
@@ -160,6 +167,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pLastRayDir = renderData.getTexture(kLastRayDir);
     auto pLocalPathLength = renderData.getTexture(kLocalPathLength);
     auto pReflectiveMask = renderData.getTexture(kReflectiveMask);
+
+    auto pMotionOptical = renderData.getTexture(kMotionOptical);
 
     size_t requiredStack = pVbuffer->getWidth() * pVbuffer->getHeight() * std::max(1, mStackSize);
     // number of floats in the stack struct
@@ -279,7 +288,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
             {
                 var = mpOpticalFlowPosPass->getRootVar();
-                var["gMotionOut"] = pMotion; // only use the RW motion texture
+                var["gMotion"] = pMotion;
+                var["gMotionOut"] = pMotionOptical;
             }
             else if (mOpticalFlowTechnique == OpticalFlowTechnique::HornSchunkPos)
             {
@@ -298,8 +308,20 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
 
             if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
+            {
                 mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
-            else if (mOpticalFlowTechnique == OpticalFlowTechnique::HornSchunkPos)
+
+                // output is in pMotionOptical
+                var = mpOpticalBlurPass->getRootVar();
+                var["gMotion"] = pMotionOptical;
+                var["gMotionBackupAndOut"] = pMotion; // backup data and output
+                var["gPathLength"] = pLocalPathLength;
+
+                var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+                mpOpticalBlurPass->execute(pRenderContext, dispatch);
+                // output is in pMotion
+            }
+            else if (mOpticalFlowTechnique == OpticalFlowTechnique::HornSchunkPos) // TODO remove horn schunk? (worse results)
             {
                 auto pMotionPong = mpMotionPong;
 
