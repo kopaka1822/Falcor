@@ -61,40 +61,59 @@ float3 getMinDeriv(float3 prevPos, float2 uvPrev, float2 step)
     return (length(deriv1) <= length(deriv2)) ? deriv1 : deriv2;
 }
 
+float2 snapUV(float2 uv)
+{
+    return (floor(uv * float2(gFrameDim)) + 0.5) / float2(gFrameDim);
+}
+
+// adjust jitter for prev-lookup
+float2 adjustJitter(float2 mvec)
+{
+    return mvec - gPrevJitter + gCurJitter;
+}
+
 [numthreads(16, 16, 1)]
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
     const uint2 pixel = id.xy;
-    float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
+    const float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
     float2 mvec = gMotion[pixel];
+    const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
+    const float2 mvec_backup = mvec; // original value
 
     const float2 step = 1.0 / float2(gFrameDim);
     const float2 stepX = float2(step.x, 0.0);
     const float2 stepY = float2(0.0, step.y);
 
+
     for (uint i = 0; i < gIterations; ++i)
     {
-        float2 mvec0 = mvec - gPrevJitter + gCurJitter; // adjust jitter of motion vector
+        float2 mvec0 = adjustJitter(mvec); // adjust jitter of motion vector
         float2 uv0 = texC + mvec0;
-        float2 uvSnap = (floor(uv0 * float2(gFrameDim)) + 0.5) / float2(gFrameDim);
-        uvSnap = uv0;
-        float2 uvDiff = uv0 - uvSnap; // uvSnap + uvDiff = uv0
 
-        float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
-        float3 prevPos = gPrevPos.SampleLevel(S, uvSnap, 0.0);
+        float3 prevPos = gPrevPos.SampleLevel(S, uv0, 0.0);
 
         // build derivatives
         float3 I_t = curPos - prevPos; // [t+1] - [t]
-        float3 I_x = getMinDeriv(prevPos, uvSnap, stepX);
-        float3 I_y = getMinDeriv(prevPos, uvSnap, stepY);
+        float3 I_x = getMinDeriv(prevPos, uv0, stepX);
+        float3 I_y = getMinDeriv(prevPos, uv0, stepY);
 
         float2 uvPixel = solveLinearEq(I_x, I_y, I_t);
 
         if (length(uvPixel) > gMaxMovement) // restrict pixel step size
             uvPixel = gMaxMovement * normalize(uvPixel);
 
-        mvec = mvec + (uvPixel / float2(gFrameDim)) - uvDiff;
+        mvec = mvec + (uvPixel / float2(gFrameDim));
     }
+
+    // verify error
+    float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
+    float newError = distance(curPos, newPos);
+    float3 backupPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec_backup), 0.0);
+    float backupError = distance(curPos, backupPos);
+
+    if (newError > 1e-4) mvec = mvec_backup;
+    //if (backupError < newError) mvec = mvec_backup;
 
     gMotionOut[pixel] = mvec;
 }
