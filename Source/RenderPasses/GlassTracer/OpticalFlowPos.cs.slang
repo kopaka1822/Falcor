@@ -112,6 +112,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     float3 backupPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec_backup), 0.0);
     float backupError = distance(curPos, backupPos);
 
+    // TODO should not be an absolute error measure
     if (newError > 1e-4) mvec = mvec_backup;
     //if (backupError < newError) mvec = mvec_backup;
 

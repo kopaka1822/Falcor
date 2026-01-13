@@ -53,40 +53,34 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     uint2 pixelDim = uint2(640, 360);
     pixelDim.y = (pixelDim.x * gFrameDim.y) / gFrameDim.x; // match with frame dim aspect
 
-    float2 mSum = 0.0;
-    float wSum = 0.0;
 
-    int radius = 3; // smallest is 1 (1 pixel)
-    int nSamples = 1 + (radius - 1) * 2;
-    nSamples = nSamples * nSamples; // number of samples in the window
-    float percentValid = 0.0;
+    // get median of 3x3 neighborhood
+#define RADIUS 1
+#define COUNT ((1 + 2 * RADIUS)*(1 + 2 * RADIUS))
 
-    for (int dx = -radius + 1; dx < radius; ++dx)
-        for (int dy = -radius + 1; dy < radius; ++dy)
+    float3 A[COUNT];
+    uint i = 0;
+    [unroll] for (int dx = -RADIUS; dx <= RADIUS; ++dx)
+        [unroll] for (int dy = -RADIUS; dy <= RADIUS; ++dy)
         {
             float2 off = dx * stepX + dy * stepY;
-
             float2 m = gMotion.SampleLevel(S, texC + off, 0.0);
-            // float w = max(0.0, 1.0 / (length(m * pixelDim)) - 1.0);
-            float w = getPathLenSafe(int2(pixel) + int2(dx, dy)) == pathLen ? 1.0 : 0.0;
-            if (w > 0) percentValid += (1.0 / nSamples);
-            float rdiff = dot(abs(m - mvec) / abs(mvec), 0.5);
-            w *= exp(-rdiff * rdiff); // favor similar motion vectors
-
-            mSum += w * m;
-            wSum += w;
+            // xy = motion vector, z = length in pixels (sort key)
+            A[i++] = float3(m, length(m * gFrameDim));
         }
-    // TODO smooth mvec or choose backup_mvec
 
-    //mvec = mSum / max(wSum, 1e-8);
+    // sort registers (insertion sort)
+    [unroll] for (i = 1; i < COUNT; ++i)
+    {
+        let m = A[i];
+        [unroll] for (uint j = i; j > 0 && A[j - 1].z > m.z; --j)
+        {
+            A[j] = A[j - 1];
+            A[j - 1] = m;
+        }
+    }
 
-    // if (isPathEdge(pixel))
-    //     mvec = backup_mvec;
-    // if (percentValid < 0.9)
-    //     mvec = backup_mvec;
-    //float localPixelLen = length(mvec * pixelDim);
-    //if (localPixelLen > 0.5)
-    //    mvec = backup_mvec;
+    mvec = A[COUNT / 2].xy; // median
 
     gMotionBackupAndOut[pixel] = mvec;
 }
