@@ -35,6 +35,7 @@ namespace
     const std::string kMotion = "mvec";
     const std::string kColorOut = "color";
     const std::string kDepthOut = "depth";
+    const std::string kPosDiff = "posDiff";
     // iteration data
     const std::string kNewRayDir = "newRayDir";
     const std::string kLastRayDir = "lastRayDir";
@@ -119,6 +120,7 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
+    reflector.addOutput(kPosDiff, "Length of Position Differential").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
 
     reflector.addOutput(kNewRayDir, "New Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kLastRayDir, "Last Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
@@ -160,6 +162,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pColor = renderData.getTexture(kColorOut);
     auto pDepth = renderData.getTexture(kDepthOut);
     auto pDebug = renderData.getTexture(kDebug);
+    auto pPosDiff = renderData.getTexture(kPosDiff);
 
     auto pNewRayDir = renderData.getTexture(kNewRayDir);
     auto pLastRayDir = renderData.getTexture(kLastRayDir);
@@ -197,6 +200,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["gMotion"] = pMotion;
     var["gColor"] = pColor;
     var["gDepth"] = pDepth;
+    var["gPosDiff"] = pPosDiff;
     var["gStack"] = mpStackBuffer;
     assert(mpTransparencyWhitelist);
     var["gTransparencyWhitelist"] = mpTransparencyWhitelist;

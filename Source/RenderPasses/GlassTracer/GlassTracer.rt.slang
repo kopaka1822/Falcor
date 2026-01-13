@@ -22,8 +22,9 @@ cbuffer PerFrame
 
 RWTexture2D<PackedHitInfo> gVBuffer;
 RWTexture2D<float2> gMotion;
-RWTexture2D<float4> gColor; // shaded vbuffer
-RWTexture2D<float> gDepth; // non-linear depth for DLSS
+RWTexture2D<float4> gColor;  // shaded vbuffer
+RWTexture2D<float> gDepth;  // non-linear depth for DLSS
+RWTexture2D<float> gPosDiff; // expected position difference when moving one pixel
 // extra outputs for iterations
 RWTexture2D<float3> gNewRayDir;
 RWTexture2D<float3> gLastRayDir; // direction to P
@@ -155,6 +156,7 @@ struct VBufferReservoir
     float depth;
     float2 mvec;
     PackedHitInfo vbuffer;
+    float posDiff;
 
     // iteration specific
     float3 newRayDir;
@@ -183,6 +185,7 @@ struct VBufferReservoir
         gVBuffer[pixel] = vbuffer;
         gMotion[pixel] = mvec;
         gDepth[pixel] = depth;
+        gPosDiff[pixel] = posDiff;
         // per iteration outputs
         gReflectiveMask[pixel] = reflectiveMask;
         gLocalPathLength[pixel] = localPathLength;
@@ -455,6 +458,7 @@ void rayGen()
                 rmh.posW = ray.Origin + ray.Direction * ray.TMax; // far plane position
                 curVBuffer.vbuffer = rmh.pack();
                 curVBuffer.depth = linearToNonLinearZ(s.linearZ);
+                curVBuffer.posDiff = 1e38;
                 // for iterations:
                 curVBuffer.localPathLength = s.curPathLength;
                 curVBuffer.reflectiveMask = s.reflectiveMask;
@@ -486,9 +490,11 @@ void rayGen()
         // texture LOD calculation
         #if USE_TEXTURE_LOD == 0
         let lod = ExplicitLodTextureSampler(0.0);
+        float posDiff = 0.0;
         #else
         // transfer rd to surface
         s.rd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, v.posW), v.faceNormalW);
+        float posDiff = max(length(s.rd.dOdx), length(s.rd.dOdy));
         float3 unnormalizedN;
         float3 normals[3];
         float2 dUVdx, dUVdy;
@@ -541,6 +547,8 @@ void rayGen()
         {
             curVBuffer.vbuffer = data.hit;
             curVBuffer.depth = linearToNonLinearZ(s.linearZ);
+            curVBuffer.posDiff = posDiff;
+
             // for iterations
             curVBuffer.localPathLength = s.curPathLength;
             curVBuffer.reflectiveMask = s.reflectiveMask;
