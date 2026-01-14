@@ -239,6 +239,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     mpProgram->addDefine("MVEC", std::to_string(uint32_t(mMotionVector)));
     mpProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
     mpProgram->addDefine("IGNORE_NORMAL_DIFFS", mIgnoreNormalDiffs ? "1" : "0");
+    mpProgram->addDefine("NEEDS_ITERATIONS", mIterationTechnique != IterationTechnique::None && mIterations > 1 ? "1" : "0");
 
     uint3 dispatch = uint3(1);
     dispatch.x = pVbuffer->getWidth();
@@ -277,6 +278,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     const float2 curJitter = float2(-mpScene->getCamera()->getJitterX(), mpScene->getCamera()->getJitterY());
     if(mOpticalFlowTechnique != OpticalFlowTechnique::None)
     {
+        FALCOR_PROFILE(pRenderContext, "OpticalFlow");
+
         if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
         {
             // obtain current positions
@@ -288,7 +291,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
                 mpPrevPosition->getWidth() == pPosition->getWidth() &&
                 mpPrevPosition->getHeight() == pPosition->getHeight();
 
-            FALCOR_PROFILE(pRenderContext, "OpticalFlow");
             var = mpOpticalFlowPosPass->getRootVar();
             var["gMotion"] = pMotion;
             var["gMotionOut"] = pMotionOptical;

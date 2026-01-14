@@ -180,7 +180,7 @@ private:
 
     // post process denoise
     ref<ComputePass> mpDenoiseGlassPass;
-    bool mUseDenoiseGlass = true;
+    bool mUseDenoiseGlass = false;
 
     RenderScale mRenderScale = RenderScale::UtraPerformance;
 

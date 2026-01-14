@@ -25,10 +25,15 @@ RWTexture2D<float2> gMotion;
 RWTexture2D<float4> gColor;  // shaded vbuffer
 RWTexture2D<float> gDepth;  // non-linear depth for DLSS
 RWTexture2D<float> gPosDiff; // expected position difference when moving one pixel
+
+#ifndef NEEDS_ITERATIONS
+#define NEEDS_ITERATIONS 1
+#endif
 // extra outputs for iterations
 RWTexture2D<float3> gNewRayDir;
 RWTexture2D<float3> gLastRayDir; // direction to P
 RWTexture2D<uint> gReflectiveMask;
+// for iterations and for glass denoise shader
 RWTexture2D<uint> gLocalPathLength;
 
 float4 shadeEnvmap(float3 viewDir)
@@ -159,10 +164,11 @@ struct VBufferReservoir
     float posDiff;
 
     // iteration specific
+    #if NEEDS_ITERATIONS
     float3 newRayDir;
-    uint localPathLength;
-    float3 lastRayDir;
     uint reflectiveMask;
+    float3 lastRayDir;
+    #endif    uint localPathLength; // TODO this is only required for iterations and glass denoiser
 
     // update function, returns true if reservoir should be updated, false if old data should be kept
     [mutating]
@@ -187,10 +193,12 @@ struct VBufferReservoir
         gDepth[pixel] = depth;
         gPosDiff[pixel] = posDiff;
         // per iteration outputs
+        #if NEEDS_ITERATIONS
         gReflectiveMask[pixel] = reflectiveMask;
-        gLocalPathLength[pixel] = localPathLength;
         gNewRayDir[pixel] = newRayDir;
         gLastRayDir[pixel] = lastRayDir;
+        #endif
+        gLocalPathLength[pixel] = localPathLength;
     }
 };
 
@@ -462,9 +470,11 @@ void rayGen()
                 curVBuffer.posDiff = 1e38;
                 // for iterations:
                 curVBuffer.localPathLength = s.curPathLength;
+                #if NEEDS_ITERATIONS
                 curVBuffer.reflectiveMask = s.reflectiveMask;
                 curVBuffer.newRayDir = rayDirNoJitter; // initial ray direction
                 curVBuffer.lastRayDir = s.rayDir;
+                #endif
             }
 
             if (StackEmpty()) break;
@@ -558,13 +568,17 @@ void rayGen()
 
             // for iterations
             curVBuffer.localPathLength = s.curPathLength;
+            #if NEEDS_ITERATIONS
             curVBuffer.reflectiveMask = s.reflectiveMask;
             curVBuffer.lastRayDir = s.rayDir;
+            #endif
 
             #if MVEC == MVEC_HALFWAY_REFLECT
             curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, s.viewTransform, camMovement || vertexMoved);
             float3 P = mul(s.viewTransform, float4(v.prevPosW, 1.0));
+            #if NEEDS_ITERATIONS
             curVBuffer.newRayDir = normalize(P - gScene.camera.data.prevPosW); // initial ray direction
+            #endif
             #endif
 
             #if MVEC == MVEC_RAY_DIFF
@@ -583,7 +597,9 @@ void rayGen()
             curVBuffer.mvec = prevUV - CurrentUVJittered();
             if (!camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
             //gDebugTex[uint3(pixel, 0)] = float4(v.prevPosW - ray2origin, 1.0);
+            #if NEEDS_ITERATIONS
             curVBuffer.newRayDir = prevDirW; // initial ray direction
+            #endif
             #endif
 
             #if MVEC == MVEC_REVERSE_RD
@@ -593,8 +609,10 @@ void rayGen()
             float3 dDn = mul(s.Jdd, dD0);
 
             float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, true /*jitter*/).dir;
+            #if NEEDS_ITERATIONS
             curVBuffer.newRayDir = normalize(initDirW - dDn); // negate because we traced backwards
             curVBuffer.lastRayDir = normalize(s.rayDir - dD0);
+            #endif
 
             float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(curVBuffer.newRayDir, 0.0)).xyz);
             curVBuffer.mvec = prevUV - CurrentUVJittered();
