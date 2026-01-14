@@ -245,6 +245,12 @@ void VideoRecorder::renderUI(RenderContext* pRenderContext, Gui::Widgets& widget
         }
     }
 
+    if (widget.button("DDS Screenshot"))
+    {
+        saveFrameDDS(pRenderContext);
+    }
+    widget.tooltip("Saves a screenshot of the current frame as DDS file");
+
     if (widget.button("Output Directory"))
     {
         system("explorer .");
@@ -407,6 +413,26 @@ void VideoRecorder::saveFrame(RenderContext* pRenderContext)
 
         //tex->captureToFile(0, 0, filename.str(), Bitmap::FileFormat::BmpFile);
         mpBlitTexture->captureToFile(0, 0, filename.str(), Bitmap::FileFormat::BmpFile);
+    }
+}
+
+void VideoRecorder::saveFrameDDS(RenderContext* pRenderContext)
+{
+    assert(mpRenderGraph);
+
+    for (const auto& target : mOutputs)
+    {
+        auto output = mpRenderGraph->getOutput(target);
+        if (!output) continue;
+
+        auto tex = output->asTexture();
+        assert(tex);
+        if (!tex) continue;
+
+        const auto& outputName = output->getName();
+        std::string filename = outputName + ".dds";
+
+        tex->captureToFile(0, 0, filename, Bitmap::FileFormat::DdsFile);
     }
 }
 

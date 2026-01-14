@@ -81,6 +81,7 @@ private:
     float getTime() const;
 
     void saveFrame(RenderContext* pRenderContext);
+    void saveFrameDDS(RenderContext* pRenderContext);
     void updateCamera();
 
     void startRecording();
