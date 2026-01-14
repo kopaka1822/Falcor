@@ -50,6 +50,7 @@ namespace
     const std::string kOpticalFlowPosFile = "RenderPasses/GlassTracer/OpticalFlowPos.cs.slang";
     const std::string kOpticalFlowColorFile = "RenderPasses/GlassTracer/OpticalFlowColor.cs.slang";
     const std::string kOpticalBlurFile = "RenderPasses/GlassTracer/OpticalFlowBlur.cs.slang";
+    const std::string kDenoiseGlassFile = "RenderPasses/GlassTracer/DenoiseGlass.cs.slang";
 
     const std::string kUseWhitelist = "useWhitelist";
     const std::string kWhitelist = "whitelist";
@@ -72,6 +73,7 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpOpticalFlowPosPass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "main");
     mpOpticalFlowColorPass = ComputePass::create(mpDevice, kOpticalFlowColorFile, "main");
     mpOpticalBlurPass = ComputePass::create(mpDevice, kOpticalBlurFile, "main");
+    mpDenoiseGlassPass = ComputePass::create(mpDevice, kDenoiseGlassFile, "main");
 
     auto linearSampler = Sampler::create(mpDevice, Sampler::Desc()
         .setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear)
@@ -359,7 +361,14 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     }
     mPrevJitter = curJitter;
 
+    if (mUseDenoiseGlass)
+    {
+        var = mpDenoiseGlassPass->getRootVar();
+        var["gPathLength"] = pLocalPathLength;
+        var["gColor"] = pColor;
 
+        mpDenoiseGlassPass->execute(pRenderContext, dispatch);
+    }
 
     // add whitelist to dict
     if (mUseTransparencyWhitelist)
@@ -406,6 +415,8 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
 
         c |= widget.slider("Window Radius", mOpticalRadius, 1, 10);
     }
+
+    c |= widget.checkbox("Denoise Path Variance", mUseDenoiseGlass);
 
 
     if (auto g = widget.group("Scene"))

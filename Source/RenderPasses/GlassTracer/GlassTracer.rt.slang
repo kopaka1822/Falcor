@@ -457,7 +457,8 @@ void rayGen()
                 RayMissHit rmh;
                 rmh.posW = ray.Origin + ray.Direction * ray.TMax; // far plane position
                 curVBuffer.vbuffer = rmh.pack();
-                curVBuffer.depth = linearToNonLinearZ(s.linearZ);
+                if (i == 0 || MVEC != MVEC_FIRST_HIT)
+                    curVBuffer.depth = 1.0;
                 curVBuffer.posDiff = 1e38;
                 // for iterations:
                 curVBuffer.localPathLength = s.curPathLength;
@@ -482,8 +483,13 @@ void rayGen()
         StaticVertexData triangleVertices[3];
         let v = gScene.getVertexData(triangleHit.instanceID, triangleHit.primitiveIndex, barycentrics, triangleVertices);
         bool vertexMoved = any(v.posW != v.prevPosW);
+        s.linearZ += distance(s.rayOrigin, v.posW);
         if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
+        {
             curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, matrixIdentity(), camMovement || vertexMoved);
+            curVBuffer.depth = linearToNonLinearZ(s.linearZ);
+        }
+            
         
         let materialID = gScene.getMaterialID(triangleHit.instanceID);
 
@@ -523,7 +529,6 @@ void rayGen()
         #endif
 
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -s.rayDir, lod);
-        s.linearZ += distance(s.rayOrigin, v.posW);
 
         // Create material instance at shading point.
         IMaterialInstance mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
@@ -546,7 +551,9 @@ void rayGen()
         if (curVBuffer.update(pathImportance, sampleNext1D(sg)))
         {
             curVBuffer.vbuffer = data.hit;
+            #if MVEC != MVEC_FIRST_HIT
             curVBuffer.depth = linearToNonLinearZ(s.linearZ);
+            #endif
             curVBuffer.posDiff = posDiff;
 
             // for iterations
