@@ -26,6 +26,8 @@ RWTexture2D<float4> gColor;  // shaded vbuffer
 RWTexture2D<float> gDepth;  // non-linear depth for DLSS
 RWTexture2D<float> gPosDiff; // expected position difference when moving one pixel
 
+SamplerState S; // linear sampler
+
 #ifndef NEEDS_ITERATIONS
 #define NEEDS_ITERATIONS 1
 #endif
@@ -614,7 +616,7 @@ void rayGen()
             curVBuffer.lastRayDir = normalize(s.rayDir - dD0);
             #endif
 
-            float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(curVBuffer.newRayDir, 0.0)).xyz);
+            float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(normalize(initDirW - dDn), 0.0)).xyz);
             curVBuffer.mvec = prevUV - CurrentUVJittered();
             #endif
         }

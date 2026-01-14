@@ -249,6 +249,35 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         mpScene->raytrace(pRenderContext, mpProgram.get(), mpVars, dispatch);
     }
 
+    // needs positions for iterations or optical flow?
+    bool needPositions = false;
+    needPositions |= mIterationTechnique != IterationTechnique::None && mIterations > 1;
+    needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos;
+    ref<Texture> pPosition; // current frame
+    ref<Texture> pPrevPosition; // previous frame
+    if (needPositions)
+    {
+        // obtain current positions
+        mpVbufferToPosGraph->setInput("UnpackVBuffer.vbuffer", pVbuffer);
+        mpVbufferToPosGraph->execute(pRenderContext);
+        pPosition = mpVbufferToPosGraph->getOutput("UnpackVBuffer.posW")->asTexture();
+        bool usePrevPos = mpPrevPosition &&
+            mpPrevPosition->getWidth() == pPosition->getWidth() &&
+            mpPrevPosition->getHeight() == pPosition->getHeight();
+        if (!usePrevPos)
+        {
+            mpPrevPosition = Texture::create2D(mpDevice, pPosition->getWidth(), pPosition->getHeight(), pPosition->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
+            pPrevPosition = pPosition; // prev pos not valid, use current pos
+        }
+        else
+        {
+            pPrevPosition = mpPrevPosition;
+        }
+    }
+
+    // jitter applied in Camera::computeRayPinhole
+    const float2 curJitter = float2(-mpScene->getCamera()->getJitterX(), mpScene->getCamera()->getJitterY());
+
     if (mIterationTechnique != IterationTechnique::None && mIterations > 1)
     {
         FALCOR_PROFILE(pRenderContext, "Iterate");
@@ -261,6 +290,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         var["gLocalPathLength"] = pLocalPathLength;
         var["gNewRayDir"] = pNewRayDir;
         var["gLastRayDir"] = pLastRayDir;
+        var["gPrevPos"] = pPrevPosition;
+        var["gPosDiff"] = pPosDiff;
 
         mpIterationProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
         mpIterationProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
@@ -270,32 +301,23 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
         var["PerFrame"]["gIterations"] = mIterations;
         var["PerFrame"]["gForcePathLength"] = mForceIterationPathLength ? 1 : 0;
+        var["PerFrame"]["gPrevJitter"] = mPrevJitter;
+        var["PerFrame"]["gCurJitter"] = curJitter;
 
         mpScene->raytrace(pRenderContext, mpIterationProgram.get(), mpIterationVars, dispatch);
     }
 
-    // jitter applied in Camera::computeRayPinhole
-    const float2 curJitter = float2(-mpScene->getCamera()->getJitterX(), mpScene->getCamera()->getJitterY());
     if(mOpticalFlowTechnique != OpticalFlowTechnique::None)
     {
         FALCOR_PROFILE(pRenderContext, "OpticalFlow");
 
         if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
         {
-            // obtain current positions
-            ref<Texture> pPosition;
-            mpVbufferToPosGraph->setInput("UnpackVBuffer.vbuffer", pVbuffer);
-            mpVbufferToPosGraph->execute(pRenderContext);
-            pPosition = mpVbufferToPosGraph->getOutput("UnpackVBuffer.posW")->asTexture();
-            bool usePrevPos = mpPrevPosition &&
-                mpPrevPosition->getWidth() == pPosition->getWidth() &&
-                mpPrevPosition->getHeight() == pPosition->getHeight();
-
             var = mpOpticalFlowPosPass->getRootVar();
             var["gMotion"] = pMotion;
             var["gMotionOut"] = pMotionOptical;
             var["gCurPos"] = pPosition;
-            var["gPrevPos"] = usePrevPos ? mpPrevPosition : pPosition;
+            var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiff;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
@@ -316,11 +338,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
             mpOpticalBlurPass->execute(pRenderContext, dispatch);
             // output is in pMotion
-                
-
-            // blit cur pos to prev pos
-            if (!usePrevPos) mpPrevPosition = Texture::create2D(mpDevice, pPosition->getWidth(), pPosition->getHeight(), pPosition->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
-            pRenderContext->blit(pPosition->getSRV(), mpPrevPosition->getRTV());
         }
         else if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeColor)
         {
@@ -361,7 +378,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             pRenderContext->blit(pColor->getSRV(), mpPrevColor->getRTV());
         }
     }
-    mPrevJitter = curJitter;
 
     if (mUseDenoiseGlass)
     {
@@ -371,6 +387,12 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
         mpDenoiseGlassPass->execute(pRenderContext, dispatch);
     }
+
+
+    mPrevJitter = curJitter;
+    // blit cur pos to prev pos
+    if(needPositions)
+        pRenderContext->blit(pPosition->getSRV(), mpPrevPosition->getRTV());
 
     // add whitelist to dict
     if (mUseTransparencyWhitelist)
@@ -490,6 +512,10 @@ void GlassTracer::setupProgram()
 {
     if (!mpScene) return;
 
+    auto linearSampler = Sampler::create(mpDevice, Sampler::Desc()
+        .setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear)
+        .setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp));
+
     auto setup = [&](const std::string& filename, ref<RtProgram>& dstProgram, ref<RtProgramVars>& dstVars)
     {
         DefineList defines;
@@ -516,6 +542,7 @@ void GlassTracer::setupProgram()
         // Bind static resources.
         ShaderVar var = dstVars->getRootVar();
         mpSampleGenerator->setShaderData(var);
+        var["S"] = linearSampler;
     };
 
     setup(kProgramRaytraceFile, mpProgram, mpVars);

@@ -4,6 +4,8 @@ cbuffer PerFrame
 {
     uint gIterations;
     bool gForcePathLength; // if true forces identical path length
+    float2 gPrevJitter;
+    float2 gCurJitter;
 };
 
 #define EXTRA_BOUNCES 4
@@ -14,7 +16,11 @@ Texture2D<uint> gReflectiveMask;
 Texture2D<uint> gLocalPathLength;
 RWTexture2D<float3> gNewRayDir; // TODO remove this and calculate it from gMotion
 Texture2D<float3> gLastRayDir; // direction to P
+// error estimation
+Texture2D<float3> gPrevPos;
+Texture2D<float> gPosDiff;
 
+SamplerState S; // linear sampler
 
 struct PlaneHit
 {
@@ -248,5 +254,18 @@ void rayGen()
     gNewRayDir[pixel] = bestDir;
     float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(bestDir, 0.0)).xyz);
     float2 mvec = prevUV - CurrentUVJittered();
+    float2 initialMvec = gMotion[pixel];
+
+    // verify error
+    const float2 texC = (float2(pixel) + 0.5) / float2(frameDim);
+    float3 newPos = gPrevPos.SampleLevel(S, texC + mvec - gPrevJitter + gCurJitter, 0.0);
+    //float3 initialPos = gPrevPos.SampleLevel(S, texC + initialMvec - gPrevJitter + gCurJitter, 0.0);
+    float newError = distance(P, newPos);
+    //float initialError = distance(P, initialPos);
+    float onePixelPosDiff = gPosDiff[pixel];
+
+    if (newError > onePixelPosDiff * 0.01) mvec = initialMvec;
+    //if (initialError < newError) mvec = initialMvec;
+
     gMotion[pixel] = mvec;
 }
