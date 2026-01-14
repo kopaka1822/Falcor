@@ -155,7 +155,7 @@ private:
     bool mCullBackFaces = false;
     int mPathLength = 50;
     int mStackSize = 2;
-    MotionVector mMotionVector = MotionVector::FirstHit;
+    MotionVector mMotionVector = MotionVector::HalfwayReflection;
     IterationTechnique mIterationTechnique = IterationTechnique::None;
 
     // iterations

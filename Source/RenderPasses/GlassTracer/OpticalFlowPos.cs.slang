@@ -4,6 +4,7 @@ Texture2D<float2> gMotion;
 RWTexture2D<float2> gMotionOut;
 Texture2D<float3> gCurPos;
 Texture2D<float3> gPrevPos;
+Texture2D<float> gPosDiff; // estimated max position difference when moving one pixel
 
 SamplerState S; // linear sampler
 
@@ -109,12 +110,9 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     // verify error
     float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
     float newError = distance(curPos, newPos);
-    float3 backupPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec_backup), 0.0);
-    float backupError = distance(curPos, backupPos);
-
-    // TODO should not be an absolute error measure
-    if (newError > 1e-4) mvec = mvec_backup;
-    //if (backupError < newError) mvec = mvec_backup;
+    float onePixelPosDiff = gPosDiff[pixel];
+    
+    if (newError > onePixelPosDiff * 0.01) mvec = mvec_backup;
 
     gMotionOut[pixel] = mvec;
 }

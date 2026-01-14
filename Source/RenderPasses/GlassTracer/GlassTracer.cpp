@@ -292,6 +292,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gMotionOut"] = pMotionOptical;
             var["gCurPos"] = pPosition;
             var["gPrevPos"] = usePrevPos ? mpPrevPosition : pPosition;
+            var["gPosDiff"] = pPosDiff;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
             var["PerFrame"]["gIterations"] = mOpticalIterations;
