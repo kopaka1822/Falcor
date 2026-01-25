@@ -57,5 +57,6 @@ private:
     ref<Fbo> mpFbo;
     ref<Scene> mpScene;
     float2 mPrevJitter;
-    float mScale = 100.0f;
+    float mScale = 1000.0f;
+    bool mDarkTheme = false;
 };

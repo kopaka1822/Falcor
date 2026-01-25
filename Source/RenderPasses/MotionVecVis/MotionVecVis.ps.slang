@@ -9,6 +9,7 @@ struct PSInput
 cbuffer PerFrameCB
 {
     float scale;
+    bool darkTheme;
 };
 
 // Convert HSV (h:0–1, s:0–1, v:0–1) to RGB
@@ -29,8 +30,10 @@ float4 main(float2 uv: TEXCOORD, float4 svPos: SV_POSITION) : SV_TARGET
     float len = saturate(length(mvec) * scale);
     float angle = atan2(mvec.y, mvec.x);            // radians (-pi..pi)
     float hue = (angle / (2.0 * 3.14159265)) + 0.5; // normalize to 0–1
-    float saturation = 1.0;
-    float3 rgb = HSVtoRGB(float3(hue, saturation, len));
+    // white ver:
+    float3 rgb = HSVtoRGB(float3(hue, pow(len, 0.5), 1.0));
+    // black ver:
+    if (darkTheme) rgb = HSVtoRGB(float3(hue, 1.0, len));
 
     return float4(rgb, 1.0);
 }

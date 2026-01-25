@@ -90,6 +90,7 @@ void MotionVecVis::execute(RenderContext* pRenderContext, const RenderData& rend
 
         auto vars = mpPass->getRootVar();
         vars["PerFrameCB"]["scale"] = mScale;
+        vars["PerFrameCB"]["darkTheme"] = mDarkTheme;
 
         mpPass->execute(pRenderContext, mpFbo);
     }
@@ -121,5 +122,6 @@ void MotionVecVis::execute(RenderContext* pRenderContext, const RenderData& rend
 
 void MotionVecVis::renderUI(Gui::Widgets& widget)
 {
-    widget.var("Scale", mScale, 0.0f, 100.0f);
+    widget.var("Scale", mScale, 0.0f, 10000.0f);
+    widget.checkbox("Dark Theme", mDarkTheme);
 }
