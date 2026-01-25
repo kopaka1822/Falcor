@@ -54,6 +54,7 @@ private:
     ref<Texture> mpPrevPos;
     ref<FullScreenPass> mpPass;
     ref<FullScreenPass> mpPosDiffPass;
+    ref<FullScreenPass> mpAngularDiffPass;
     ref<Fbo> mpFbo;
     ref<Scene> mpScene;
     float2 mPrevJitter;

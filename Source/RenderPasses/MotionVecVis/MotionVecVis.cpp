@@ -33,9 +33,11 @@ namespace
     const std::string kColorOut = "color";
     const std::string kPosWIn = "posW"; // optional, to get position differences
     const std::string kPosDiffOut = "posDiff";
+    const std::string kAngularOut = "angularDiff";
 
     const std::string kShaderFilename = "RenderPasses/MotionVecVis/MotionVecVis.ps.slang";
     const std::string kPosDiffShaderFilename = "RenderPasses/MotionVecVis/PosDiff.ps.slang";
+    const std::string kAngularDiffShaderFilename = "RenderPasses/MotionVecVis/AngularDiff.ps.slang";
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -56,6 +58,9 @@ MotionVecVis::MotionVecVis(ref<Device> pDevice, const Properties& props)
     samplerDesc.setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp);
     mpPosDiffPass->getRootVar()["s"] = Sampler::create(mpDevice, samplerDesc);
 
+    mpAngularDiffPass = FullScreenPass::create(mpDevice, kAngularDiffShaderFilename);
+    mpAngularDiffPass->getRootVar()["s"] = Sampler::create(mpDevice, samplerDesc);
+
     mpFbo = Fbo::create(mpDevice);
 }
 
@@ -73,6 +78,7 @@ RenderPassReflection MotionVecVis::reflect(const CompileData& compileData)
 
     reflector.addOutput(kColorOut, "Output color").bindFlags(Resource::BindFlags::AllColorViews).format(ResourceFormat::RGBA32Float);
     reflector.addOutput(kPosDiffOut, "World Position Diff with previous frame").bindFlags(Resource::BindFlags::AllColorViews).format(ResourceFormat::RGBA32Float);
+    reflector.addOutput(kAngularOut, "Angular Difference to the center pixel").bindFlags(Resource::BindFlags::AllColorViews).format(ResourceFormat::RGBA32Float);
     return reflector;
 }
 
@@ -82,6 +88,7 @@ void MotionVecVis::execute(RenderContext* pRenderContext, const RenderData& rend
     auto pOutput = renderData[kColorOut]->asTexture();
     auto pPosW = renderData.getTexture(kPosWIn);
     auto pPosDiff = renderData.getTexture(kPosDiffOut);
+    auto pAngularDiff = renderData.getTexture(kAngularOut);
 
     // main visualization
     {
@@ -96,11 +103,15 @@ void MotionVecVis::execute(RenderContext* pRenderContext, const RenderData& rend
     }
 
     // optional pos difference
-    if (pPosW && pPosDiff && mpScene)
+    if (pPosW && mpScene)
     {
+        assert(pPosDiff);
+        assert(pAngularDiff);
         bool usePrevPos = mpPrevPos && mpPrevPos->getWidth() == pPosW->getWidth() && mpPrevPos->getHeight() == pPosW->getHeight();
         const float2 curJitter = float2(-mpScene->getCamera()->getJitterX(), mpScene->getCamera()->getJitterY());
 
+
+        // POS DIFF
         auto vars = mpPosDiffPass->getRootVar();
         vars["PerFrameCB"]["scale"] = mScale;
         vars["PerFrameCB"]["prevJitter"] = mPrevJitter;
@@ -111,6 +122,17 @@ void MotionVecVis::execute(RenderContext* pRenderContext, const RenderData& rend
 
         mpFbo->attachColorTarget(pPosDiff, 0);
         mpPosDiffPass->execute(pRenderContext, mpFbo);
+
+        // ANGULAR DIFF
+        vars = mpAngularDiffPass->getRootVar();
+        vars["PerFrameCB"]["camPos"] = mpScene->getCamera()->getPosition();
+        vars["PerFrameCB"]["scale"] = mScale;
+        vars["gCurPosW"] = pPosW;
+        vars["gPrevPosW"] = usePrevPos ? mpPrevPos : pPosW;
+
+        mpFbo->attachColorTarget(pAngularDiff, 0);
+        mpAngularDiffPass->execute(pRenderContext, mpFbo);
+
 
         // create prev pos texture if not existing
         if(!usePrevPos) mpPrevPos = Texture::create2D(mpDevice, pPosW->getWidth(), pPosW->getHeight(), pPosW->getFormat(), 1, 1, nullptr, Resource::BindFlags::AllColorViews);
