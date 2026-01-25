@@ -217,7 +217,7 @@ struct StackFrame
 #if USE_TEXTURE_LOD != 0
     RayDiff rd; // 12 floats
 #endif
-#if MVEC == MVEC_HALFWAY_REFLECT
+#ifdef USE_VIEW_TRANSFORM
     float3x4 viewTransform; // 12 floats
 #endif
 #if MVEC == MVEC_RAY_DIFF
@@ -292,7 +292,7 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
     s.thp *= bsdfSample.weight;
     bool transmission = bsdfSample.isLobe(LobeType::Transmission);
 
-#if MVEC == MVEC_HALFWAY_REFLECT
+#ifdef USE_VIEW_TRANSFORM
     float3 H = -s.rayDir + bsdfSample.wo;
     float lenH = length(H);
     if (lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
@@ -371,7 +371,7 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
 #endif
 
     s.rayOrigin = sd.computeNewRayOrigin(!transmission); // move origin a bit along normal (note: using sd.posW might result in self-intersection)
-#if MVEC == MVEC_HALFWAY_REFLECT
+#ifdef USE_VIEW_TRANSFORM
     s.viewTransform = mulAffine(s.viewTransform, matrixTranslate(sd.posW - s.rayOrigin));
 #endif
 #if MVEC == MVEC_RAY_DIFF
@@ -393,6 +393,7 @@ void rayGen()
     s.curPathLength = 0;
     s.reflectiveMask = 0;
     float3 color = 0.0; // color along path
+    bool writeMvec = true; // can be set to false (after first refraction) to disable mvec writes
     
     bool camMovement = any(gScene.camera.data.viewMat != gScene.camera.data.prevViewMat);
     if (gForceMotionVectorCalculation) camMovement = true;
@@ -403,7 +404,7 @@ void rayGen()
     curVBuffer.depth = 0.0;
     curVBuffer.vbuffer = {};
 
-    #if MVEC == MVEC_HALFWAY_REFLECT
+    #ifdef USE_VIEW_TRANSFORM
     s.viewTransform = matrixIdentity();
     #endif
     #if MVEC == MVEC_REVERSE_RD
@@ -460,23 +461,24 @@ void rayGen()
                 float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/false).dir;
                 float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
                 float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
-                curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
-                if (!camMovement)
-                    curVBuffer.mvec = 0.0;
-
+                if (writeMvec)
+                {
+                    curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
+                    if (!camMovement)
+                        curVBuffer.mvec = 0.0;
+                    curVBuffer.depth = 1.0;
+                    curVBuffer.localPathLength = s.curPathLength;
+                    #if NEEDS_ITERATIONS
+                    curVBuffer.reflectiveMask = s.reflectiveMask;
+                    curVBuffer.newRayDir = rayDirNoJitter; // initial ray direction
+                    curVBuffer.lastRayDir = s.rayDir;
+                    #endif
+                }
+                    
                 RayMissHit rmh;
                 rmh.posW = ray.Origin + ray.Direction * ray.TMax; // far plane position
-                curVBuffer.vbuffer = rmh.pack();
-                if (i == 0 || MVEC != MVEC_FIRST_HIT)
-                    curVBuffer.depth = 1.0;
+                curVBuffer.vbuffer = rmh.pack();    
                 curVBuffer.posDiff = 1e38;
-                // for iterations:
-                curVBuffer.localPathLength = s.curPathLength;
-                #if NEEDS_ITERATIONS
-                curVBuffer.reflectiveMask = s.reflectiveMask;
-                curVBuffer.newRayDir = rayDirNoJitter; // initial ray direction
-                curVBuffer.lastRayDir = s.rayDir;
-                #endif
             }
 
             if (StackEmpty()) break;
@@ -498,6 +500,7 @@ void rayGen()
         s.linearZ += distance(s.rayOrigin, v.posW);
         if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
         {
+            writeMvec = false;
             curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, matrixIdentity(), camMovement || vertexMoved);
             curVBuffer.depth = linearToNonLinearZ(s.linearZ);
         }
@@ -568,57 +571,59 @@ void rayGen()
             #endif
             curVBuffer.posDiff = posDiff;
 
-            // for iterations
-            curVBuffer.localPathLength = s.curPathLength;
-            #if NEEDS_ITERATIONS
-            curVBuffer.reflectiveMask = s.reflectiveMask;
-            curVBuffer.lastRayDir = s.rayDir;
-            #endif
+            if (writeMvec) {
+                // for iterations
+                curVBuffer.localPathLength = s.curPathLength;
+                #if NEEDS_ITERATIONS
+                curVBuffer.reflectiveMask = s.reflectiveMask;
+                curVBuffer.lastRayDir = s.rayDir;
+                #endif
 
-            #if MVEC == MVEC_HALFWAY_REFLECT
-            curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, s.viewTransform, camMovement || vertexMoved);
-            float3 P = mul(s.viewTransform, float4(v.prevPosW, 1.0));
-            #if NEEDS_ITERATIONS
-            curVBuffer.newRayDir = normalize(P - gScene.camera.data.prevPosW); // initial ray direction
-            #endif
-            #endif
+                #ifdef USE_VIEW_TRANSFORM
+                curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, s.viewTransform, camMovement || vertexMoved);
+                #if NEEDS_ITERATIONS
+                float3 P = mul(s.viewTransform, float4(v.prevPosW, 1.0));
+                curVBuffer.newRayDir = normalize(P - gScene.camera.data.prevPosW); // initial ray direction
+                #endif
+                #endif
 
-            #if MVEC == MVEC_RAY_DIFF
-            // transfer to the final plane with point prevPosW and surface normal -s.rayDir
-            float ray2t = dot(s.rayDir, v.prevPosW - s.ray2origin);
-            // make copies of variables to avoid changing stack data (stack will be updated in prepareNextRay)
-            let rd2 = s.rd2.propagate(s.ray2origin, s.rayDir, ray2t, -s.rayDir);
-            let ray2origin = s.ray2origin + ray2t * s.rayDir;
+                #if MVEC == MVEC_RAY_DIFF
+                // transfer to the final plane with point prevPosW and surface normal -s.rayDir
+                float ray2t = dot(s.rayDir, v.prevPosW - s.ray2origin);
+                // make copies of variables to avoid changing stack data (stack will be updated in prepareNextRay)
+                let rd2 = s.rd2.propagate(s.ray2origin, s.rayDir, ray2t, -s.rayDir);
+                let ray2origin = s.ray2origin + ray2t * s.rayDir;
 
-            // solve the equation ray2.origin + t * rd2.dOdx + b * rd2.dOdy = prevPosW
-            // => t * rd2.dOdx + b * rd2.dOdy = v.prevPosW - ray2.origin
-            float2 tb = solveLinearEq(rd2.dOdx, rd2.dOdy, v.prevPosW - ray2origin);
-            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, true /*jitter*/).dir;
-            float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
-            float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
-            curVBuffer.mvec = prevUV - CurrentUVJittered();
-            if (!camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
-            //gDebugTex[uint3(pixel, 0)] = float4(v.prevPosW - ray2origin, 1.0);
-            #if NEEDS_ITERATIONS
-            curVBuffer.newRayDir = prevDirW; // initial ray direction
-            #endif
-            #endif
+                // solve the equation ray2.origin + t * rd2.dOdx + b * rd2.dOdy = prevPosW
+                // => t * rd2.dOdx + b * rd2.dOdy = v.prevPosW - ray2.origin
+                float2 tb = solveLinearEq(rd2.dOdx, rd2.dOdy, v.prevPosW - ray2origin);
+                float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, true /*jitter*/).dir;
+                float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
+                float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
+                curVBuffer.mvec = prevUV - CurrentUVJittered();
+                if (!camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
+                //gDebugTex[uint3(pixel, 0)] = float4(v.prevPosW - ray2origin, 1.0);
+                #if NEEDS_ITERATIONS
+                curVBuffer.newRayDir = prevDirW; // initial ray direction
+                #endif
+                #endif
 
-            #if MVEC == MVEC_REVERSE_RD
-            // final step: solve dD0 = Jpd^-1 * (C0 - virtualC1)
-            float3 dPn = gScene.camera.data.prevPosW - virtualC1;
-            float3 dD0 = solveForDD0(s.Jpd, dPn, -s.rayDir);
-            float3 dDn = mul(s.Jdd, dD0);
+                #if MVEC == MVEC_REVERSE_RD
+                // final step: solve dD0 = Jpd^-1 * (C0 - virtualC1)
+                float3 dPn = gScene.camera.data.prevPosW - virtualC1;
+                float3 dD0 = solveForDD0(s.Jpd, dPn, -s.rayDir);
+                float3 dDn = mul(s.Jdd, dD0);
 
-            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, true /*jitter*/).dir;
-            #if NEEDS_ITERATIONS
-            curVBuffer.newRayDir = normalize(initDirW - dDn); // negate because we traced backwards
-            curVBuffer.lastRayDir = normalize(s.rayDir - dD0);
-            #endif
+                float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, true /*jitter*/).dir;
+                #if NEEDS_ITERATIONS
+                curVBuffer.newRayDir = normalize(initDirW - dDn); // negate because we traced backwards
+                curVBuffer.lastRayDir = normalize(s.rayDir - dD0);
+                #endif
 
-            float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(normalize(initDirW - dDn), 0.0)).xyz);
-            curVBuffer.mvec = prevUV - CurrentUVJittered();
-            #endif
+                float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(normalize(initDirW - dDn), 0.0)).xyz);
+                curVBuffer.mvec = prevUV - CurrentUVJittered();
+                #endif
+            }
         }
 
         // obtain 1 bsdf sample for reflection, and one for refraction
@@ -648,6 +653,26 @@ void rayGen()
 
         bool doReflection = any(s.thp * bsdfSampleReflect.weight > MIN_VISIBILITY);
         bool doRefraction = any(s.thp * bsdfSampleRefract.weight > MIN_VISIBILITY);
+
+        // force write motion vector for first refraction mode
+        #if MVEC == MVEC_FIRST_REFRACT
+        if(doRefraction)
+        {
+            if (writeMvec)
+            {
+                writeMvec = false;
+                curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, s.viewTransform, camMovement || vertexMoved);
+                curVBuffer.localPathLength = s.curPathLength;
+                #if NEEDS_ITERATIONS
+                curVBuffer.reflectiveMask = s.reflectiveMask;
+                curVBuffer.lastRayDir = s.rayDir;
+                float3 P = mul(s.viewTransform, float4(v.prevPosW, 1.0));
+                curVBuffer.newRayDir = normalize(P - gScene.camera.data.prevPosW); // initial ray direction
+                #endif
+            }
+        }
+        #endif
+
         if (doReflection && doRefraction)
         {
             // put one on the stack

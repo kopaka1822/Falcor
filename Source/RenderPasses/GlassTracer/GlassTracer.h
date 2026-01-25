@@ -57,6 +57,7 @@ public:
     enum class MotionVector : uint32_t
     {
         FirstHit,
+        FirstRefractiveHit,
         HalfwayReflection,
         RayDifferentials,
         ReverseRayDifferentials
@@ -64,6 +65,7 @@ public:
 
     FALCOR_ENUM_INFO(MotionVector, {
         {MotionVector::FirstHit, "FirstHit"},
+        {MotionVector::FirstRefractiveHit, "FirstRefractiveHit"},
         {MotionVector::HalfwayReflection, "HalfwayReflection"},
         {MotionVector::RayDifferentials, "RayDifferentials"},
         {MotionVector::ReverseRayDifferentials, "ReverseRayDifferentials"},

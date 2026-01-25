@@ -23,11 +23,17 @@ import Utils.Math.BitTricks;
 RWTexture2DArray<float4> gDebugTex;
 
 #define MVEC_FIRST_HIT 0
-#define MVEC_HALFWAY_REFLECT 1
-#define MVEC_RAY_DIFF 2
-#define MVEC_REVERSE_RD 3
+#define MVEC_FIRST_REFRACT 1
+#define MVEC_HALFWAY_REFLECT 2
+#define MVEC_RAY_DIFF 3
+#define MVEC_REVERSE_RD 4
 #ifndef MVEC
 #define MVEC MVEC_HALFWAY_REFLECT
+#endif
+
+// for simplicity of implementation (ideally the first refract does not need the view transform in the stack)
+#if MVEC == MVEC_HALFWAY_REFLECT || MVEC == MVEC_FIRST_REFRACT
+#define USE_VIEW_TRANSFORM
 #endif
 
 #ifndef USE_TEXTURE_LOD
