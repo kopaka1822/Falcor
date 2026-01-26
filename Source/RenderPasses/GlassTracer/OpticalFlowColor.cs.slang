@@ -16,41 +16,6 @@ cbuffer PerFrame
     int gWindowRadius; // radius in pixels (1 = default)
 }
 
-// solves t * T + b * B = R and returns (t, b)
-float2 solveLinearEq(float3 T, float3 B, float3 R)
-{
-    const float epsilon = 1e-6;
-
-    // Compute which axis to drop
-    float3 sum = abs(T) + abs(B);
-    uint drop = (sum.x < sum.y)
-                    ? ((sum.x < sum.z) ? 0u : 2u)
-                    : ((sum.y < sum.z) ? 1u : 2u);
-
-    float2 T2, B2, R2;
-    [branch]
-    switch (drop)
-    {
-    case 0: T2 = T.yz; B2 = B.yz; R2 = R.yz; break; // drop x
-    case 1: T2 = T.xz; B2 = B.xz; R2 = R.xz; break; // drop y
-    default: T2 = T.xy; B2 = B.xy; R2 = R.xy; break; // drop z
-    }
-
-    //if (abs(R2.x) < epsilon) R2.x = 0.0;
-    //if (abs(R2.y) < epsilon) R2.y = 0.0;
-
-    // Solve the 2×2 linear system
-    float det = T2.x * B2.y - T2.y * B2.x;
-    if (abs(det) < 1e-8)
-        return 0.0; // Degenerate or parallel T/B
-
-    float invDet = 1.0 / det;
-    return float2(
-        (R2.x * B2.y - R2.y * B2.x) * invDet, // t
-        (T2.x * R2.y - T2.y * R2.x) * invDet  // b
-    );
-}
-
 // get derivative with smallest magnitude (+step/-step)
 float3 getMinDeriv(float3 prevColor, float2 uvPrev, float2 step)
 {

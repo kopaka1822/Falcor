@@ -71,6 +71,7 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpSamplePattern = HaltonSamplePattern::create(16);
 
     mpOpticalFlowPosPass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "main");
+    mpOpticalFlowAnglePass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "angleMain");
     mpOpticalFlowColorPass = ComputePass::create(mpDevice, kOpticalFlowColorFile, "main");
     mpOpticalBlurPass = ComputePass::create(mpDevice, kOpticalBlurFile, "main");
     mpDenoiseGlassPass = ComputePass::create(mpDevice, kDenoiseGlassFile, "main");
@@ -80,6 +81,7 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
         .setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp));
 
     mpOpticalFlowPosPass->getRootVar()["S"] = linearSampler;
+    mpOpticalFlowAnglePass->getRootVar()["S"] = linearSampler;
     mpOpticalFlowColorPass->getRootVar()["S"] = linearSampler;
     mpOpticalBlurPass->getRootVar()["S"] = linearSampler;
 
@@ -253,6 +255,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     bool needPositions = false;
     needPositions |= mIterationTechnique != IterationTechnique::None && mIterations > 1;
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos;
+    needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeAngle;
     ref<Texture> pPosition; // current frame
     ref<Texture> pPrevPosition; // previous frame
     if (needPositions)
@@ -338,6 +341,27 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
             mpOpticalBlurPass->execute(pRenderContext, dispatch);
             // output is in pMotion
+        }
+        else if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeAngle)
+        {
+            var = mpOpticalFlowAnglePass->getRootVar();
+            var["gMotion"] = pMotion;
+            var["gMotionOut"] = pMotionOptical;
+            var["gCurPos"] = pPosition;
+            var["gPrevPos"] = pPrevPosition;
+            var["gPosDiff"] = pPosDiff;
+
+            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+            var["PerFrame"]["gIterations"] = mOpticalIterations;
+            var["PerFrame"]["gPrevJitter"] = mPrevJitter;
+            var["PerFrame"]["gCurJitter"] = curJitter;
+            var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
+            var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
+            var["PerFrame"]["camPos"] = mpScene->getCamera()->getPosition();
+
+            mpOpticalFlowAnglePass->execute(pRenderContext, dispatch);
+
+            pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
         }
         else if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeColor)
         {

@@ -15,7 +15,8 @@ cbuffer PerFrame
     float2 gCurJitter;
     uint gIterations;
     float gMaxMovement; // max movement in pixels
-    int gWindowRadius; // radius in pixels (1 = default)
+    int gWindowRadius;  // radius in pixels (1 = default)
+    float3 camPos; // camera position current frame
 }
 
 // solves t * T + b * B = R and returns (t, b)
@@ -113,6 +114,109 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     float onePixelPosDiff = gPosDiff[pixel];
     
     if (newError > onePixelPosDiff * 0.01) mvec = mvec_backup;
+
+    gMotionOut[pixel] = mvec;
+}
+
+// derivative of normalized direction d_unit
+float3 calcdd_unit(float3 /*not normalized*/ d, float3 /*not normalized*/ dd)
+{
+    float dDotd = dot(d, d);
+    return (dDotd * dd - dot(d, dd) * d) / (pow(dDotd, 1.5));
+}
+
+[numthreads(16, 16, 1)]
+void angleMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3 localId: SV_GroupThreadID)
+{
+    const uint2 pixel = id.xy;
+    const float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
+    float2 mvec = gMotion[pixel];
+    const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
+    const float3 w_unit = normalize(curPos - camPos); // reference direction
+    const float2 mvec_backup = mvec; // original value
+
+    const float2 step = 1.0 / float2(gFrameDim);
+    const float2 stepX = float2(step.x, 0.0);
+    const float2 stepY = float2(0.0, step.y);
+
+    // calculate current Target function value
+    float Tcur = dot(w_unit, normalize(gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0) - camPos));
+
+    for (uint i = 0; i < gIterations; ++i)
+    {
+        float2 mvec0 = adjustJitter(mvec); // adjust jitter of motion vector
+        float2 uv0 = texC + mvec0;
+
+        float2x2 AtA = 0.0;
+        float2 Atb = 0.0;
+
+        for (int dx = -gWindowRadius + 1; dx < gWindowRadius; ++dx)
+            for (int dy = -gWindowRadius + 1; dy < gWindowRadius; ++dy)
+            {
+                float2 off = dx * stepX + dy * stepY;
+                float3 prevPos = gPrevPos.SampleLevel(S, uv0 + off, 0.0);
+
+                float3 d = prevPos - camPos;
+                float3 d_unit = normalize(d);
+
+                // target function
+                float T = dot(w_unit, d_unit);
+                // float3 ddx = gPrevPos.SampleLevel(S, uv0 + off + stepX, 0.0) - gPrevPos.SampleLevel(S, uv0 + off - stepX, 0.0);
+                //float3 ddx = gPrevPos.SampleLevel(S, uv0 + off + stepX, 0.0) - prevPos;
+                //float3 ddy = gPrevPos.SampleLevel(S, uv0 + off + stepY, 0.0) - prevPos;
+                float3 ddx = getMinDeriv(prevPos, uv0 + off, stepX);
+                float3 ddy = getMinDeriv(prevPos, uv0 + off, stepY);
+                float t_x = dot(w_unit, calcdd_unit(d, ddx));
+                float t_y = dot(w_unit, calcdd_unit(d, ddy));
+
+                float w = 1.0;
+                w *= exp(-0.5 * (dx * dx + dy * dy) / 50.0);
+                if (T < Tcur - 0.01) w = 0.0; // ignore pixels with far worse target function
+                //float maxPosDiff = 2.0 * gPosDiff.SampleLevel(S, texC, 0.0);
+                //if (length(ddx) > maxPosDiff || length(ddy) > maxPosDiff)
+                //    w = 0.0;
+
+                AtA += w * float2x2(t_x * t_x, t_x * t_y,
+                                    t_x * t_y, t_y * t_y);
+                Atb += w * float2((1.0 - T) * t_x, (1.0 - T) * t_y);
+            }
+
+        if (all(AtA == 0.0)) break; // bad conditioned, retain original motion vector
+
+        // invert AtA
+        float det = AtA[0][0] * AtA[1][1] - AtA[0][1] * AtA[1][0];
+        if (det == 0.0) break; // bad conditioned, retain original motion vector
+
+        float2x2 invAtA = float2x2(AtA[1][1], -AtA[0][1],
+                               -AtA[1][0], AtA[0][0]) / det;
+
+        float2 uvPixel = mul(invAtA, Atb);
+
+        if (length(uvPixel) > gMaxMovement) // restrict pixel step size
+            uvPixel = gMaxMovement * normalize(uvPixel);
+
+        // only use nextMvec if it improves the target function
+        float alpha = 1.0;
+        float Tnext = -1.0;
+        float2 nextMvec = 0.0;
+        while (Tnext < Tcur)
+        {
+            if (alpha < 0.01) break; // give up (~7 tries)
+            nextMvec = mvec + alpha * (uvPixel / float2(gFrameDim));
+            Tnext = dot(w_unit, normalize(gPrevPos.SampleLevel(S, texC + adjustJitter(nextMvec), 0.0) - camPos));
+            alpha *= 0.5;
+        }
+        Tcur = Tnext;
+        mvec = nextMvec;
+    }
+
+    // verify error
+    float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
+    float newError = distance(curPos, newPos);
+    float onePixelPosDiff = gPosDiff[pixel];
+
+    //if (newError > onePixelPosDiff * 0.01) mvec = mvec_backup;
+    //if (Tcur < 0.9999) mvec = mvec_backup;
 
     gMotionOut[pixel] = mvec;
 }
