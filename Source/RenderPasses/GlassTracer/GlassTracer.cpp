@@ -361,7 +361,15 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
             mpOpticalFlowAnglePass->execute(pRenderContext, dispatch);
 
-            pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
+            // output is in pMotionOptical
+            var = mpOpticalBlurPass->getRootVar();
+            var["gMotion"] = pMotionOptical;
+            var["gMotionBackupAndOut"] = pMotion; // backup data and output
+            var["gPathLength"] = pLocalPathLength;
+
+            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+            mpOpticalBlurPass->execute(pRenderContext, dispatch);
+            //pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
         }
         else if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeColor)
         {
