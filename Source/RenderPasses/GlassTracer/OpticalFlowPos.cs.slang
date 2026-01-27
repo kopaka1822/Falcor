@@ -93,14 +93,39 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float2 mvec0 = adjustJitter(mvec); // adjust jitter of motion vector
         float2 uv0 = texC + mvec0;
 
-        float3 prevPos = gPrevPos.SampleLevel(S, uv0, 0.0);
+        float2x2 AtA = 0.0;
+        float2 Atb = 0.0;
 
-        // build derivatives
-        float3 I_t = curPos - prevPos; // [t+1] - [t]
-        float3 I_x = getMinDeriv(prevPos, uv0, stepX);
-        float3 I_y = getMinDeriv(prevPos, uv0, stepY);
+        for (int dx = -gWindowRadius + 1; dx < gWindowRadius; ++dx)
+            for (int dy = -gWindowRadius + 1; dy < gWindowRadius; ++dy)
+            {
+                float2 off = dx * stepX + dy * stepY;
+                float3 prevPos = gPrevPos.SampleLevel(S, uv0 + off, 0.0);
 
-        float2 uvPixel = solveLinearEq(I_x, I_y, I_t);
+                // build derivatives
+                float3 I_t = curPos - prevPos; // [t+1] - [t]
+                float3 I_x = getMinDeriv(prevPos, uv0 + off, stepX);
+                float3 I_y = getMinDeriv(prevPos, uv0 + off, stepY);
+
+                float w = 1.0;
+                w *= exp(-0.5 * (dx * dx + dy * dy) / 50.0);
+                // TODO maybe drop weakest component?
+                AtA += w * float2x2(dot(I_x, I_x), dot(I_x, I_y),
+                                    dot(I_x, I_y), dot(I_y, I_y));
+                Atb += w * float2(dot(I_t, I_x), dot(I_t, I_y));
+            }
+
+        if (all(AtA == 0.0)) break; // bad conditioned, retain original motion vector
+
+        // invert AtA
+        float det = AtA[0][0] * AtA[1][1] - AtA[0][1] * AtA[1][0];
+        if (det == 0.0) break; // bad conditioned, retain original motion vector
+
+        float2x2 invAtA = float2x2(AtA[1][1], -AtA[0][1],
+                               -AtA[1][0], AtA[0][0]) / det;
+
+        // float2 uvPixel = solveLinearEq(I_x, I_y, I_t);
+        float2 uvPixel = mul(invAtA, Atb);
 
         if (length(uvPixel) > gMaxMovement) // restrict pixel step size
             uvPixel = gMaxMovement * normalize(uvPixel);
