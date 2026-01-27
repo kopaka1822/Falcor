@@ -179,7 +179,7 @@ private:
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::None;
     int mOpticalIterations = 2;
     float mOpticalMaxMovement = 10.0f;
-    int mOpticalRadius = 2;
+    int mOpticalRadius = 1;
     ref<RenderGraph> mpVbufferToPosGraph;
     float2 mPrevJitter;
 

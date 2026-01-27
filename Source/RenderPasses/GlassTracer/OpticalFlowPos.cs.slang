@@ -63,9 +63,10 @@ float3 getMinDeriv(float3 prevPos, float2 uvPrev, float2 step)
     return (length(deriv1) <= length(deriv2)) ? deriv1 : deriv2;
 }
 
-float2 snapUV(float2 uv)
+// snaps uv to top left (smallest) uv within the 2x2 pixel area
+float2 snapTopLeft(float2 uv)
 {
-    return (floor(uv * float2(gFrameDim)) + 0.5) / float2(gFrameDim);
+    return (floor(uv * float2(gFrameDim) - 0.5) + 0.5) / float2(gFrameDim);
 }
 
 // adjust jitter for prev-lookup
@@ -91,25 +92,31 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     for (uint i = 0; i < gIterations; ++i)
     {
         float2 mvec0 = adjustJitter(mvec); // adjust jitter of motion vector
-        float2 uv0 = texC + mvec0;
+        float2 uvPrev = texC + mvec0; // actual uv
+        float2 uv00 = snapTopLeft(texC + mvec0); // snap uv to top left (pixel center)
 
         float2x2 AtA = 0.0;
         float2 Atb = 0.0;
 
-        for (int dx = -gWindowRadius + 1; dx < gWindowRadius; ++dx)
-            for (int dy = -gWindowRadius + 1; dy < gWindowRadius; ++dy)
+        // for radius=1 => 2x2: dx = 0, 1; dy = 0, 1
+        // for radius=2 => 4x4: dx = -1,0,1,2; dy = -1,0,1,2
+        for (int dx = -gWindowRadius + 1; dx <= gWindowRadius; ++dx)
+            for (int dy = -gWindowRadius + 1; dy <= gWindowRadius; ++dy)
             {
                 float2 off = dx * stepX + dy * stepY;
-                float3 prevPos = gPrevPos.SampleLevel(S, uv0 + off, 0.0);
+                float3 prevPos = gPrevPos.SampleLevel(S, uv00 + off, 0.0);
 
                 // build derivatives
                 float3 I_t = curPos - prevPos; // [t+1] - [t]
-                float3 I_x = getMinDeriv(prevPos, uv0 + off, stepX);
-                float3 I_y = getMinDeriv(prevPos, uv0 + off, stepY);
+                float3 I_x = getMinDeriv(prevPos, uv00 + off, stepX);
+                float3 I_y = getMinDeriv(prevPos, uv00 + off, stepY);
 
+                float2 distInPixels = abs(uv00 + off - uvPrev) * float2(gFrameDim);
                 float w = 1.0;
-                w *= exp(-0.5 * (dx * dx + dy * dy) / 50.0);
-                // TODO maybe drop weakest component?
+                w *= 1.0 - (distInPixels.x / gWindowRadius); // barycentric weights for radius=1
+                w *= 1.0 - (distInPixels.y / gWindowRadius);
+
+                // TODO maybe drop weakest component? or align to tangents of cur pos
                 AtA += w * float2x2(dot(I_x, I_x), dot(I_x, I_y),
                                     dot(I_x, I_y), dot(I_y, I_y));
                 Atb += w * float2(dot(I_t, I_x), dot(I_t, I_y));
