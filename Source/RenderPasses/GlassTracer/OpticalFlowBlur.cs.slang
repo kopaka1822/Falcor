@@ -58,6 +58,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 #define RADIUS 1
 #define COUNT ((1 + 2 * RADIUS)*(1 + 2 * RADIUS))
 
+    //#define SORT_LENGTH
+    #ifdef SORT_LENGTH
     float3 A[COUNT];
     uint i = 0;
     [unroll] for (int dx = -RADIUS; dx <= RADIUS; ++dx)
@@ -69,7 +71,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
             A[i++] = float3(m, length(m * gFrameDim));
         }
 
-    // sort registers (insertion sort)
+    // sort registers (length) (insertion sort)
     [unroll] for (i = 1; i < COUNT; ++i)
     {
         let m = A[i];
@@ -79,6 +81,39 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
             A[j - 1] = m;
         }
     }
+
+    #else // not sort length => sort uv
+
+    float2 A[COUNT];
+    uint i = 0;
+    [unroll] for (int dx = -RADIUS; dx <= RADIUS; ++dx)
+        [unroll] for (int dy = -RADIUS; dy <= RADIUS; ++dy)
+        {
+            float2 off = dx * stepX + dy * stepY;
+            float2 m = gMotion.SampleLevel(S, texC + off, 0.0);
+            A[i++] = m;
+        }
+
+    // sort registers u,v
+    [unroll] for (i = 1; i < COUNT; ++i)
+    {
+        let m = A[i];
+        [unroll] for (uint j = i; j > 0 && A[j - 1].x > m.x; --j)
+        {
+            A[j].x = A[j - 1].x;
+            A[j - 1].x = m.x;
+        }
+    }
+    [unroll] for (i = 1; i < COUNT; ++i)
+    {
+        let m = A[i];
+        [unroll] for (uint j = i; j > 0 && A[j - 1].y > m.y; --j)
+        {
+            A[j].y = A[j - 1].y;
+            A[j - 1].y = m.y;
+        }
+    }
+    #endif
 
     mvec = A[COUNT / 2].xy; // median
 

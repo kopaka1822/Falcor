@@ -138,7 +138,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     float newError = distance(curPos, newPos);
     float onePixelPosDiff = gPosDiff[pixel];
     
-    if (newError > onePixelPosDiff * 0.01) mvec = mvec_backup;
+    if (newError > onePixelPosDiff * 0.1) mvec = mvec_backup;
 
     gMotionOut[pixel] = mvec;
 }
