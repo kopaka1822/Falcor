@@ -22,10 +22,11 @@ float4 main(float2 uv: TEXCOORD, float4 svPos: SV_POSITION) : SV_TARGET
     gCurPosW.GetDimensions(dim.x, dim.y);
     float3 posW = gCurPosW[uint2(dim.x / 2u, dim.y / 2u)];
     float3 w_unit = normalize(posW - camPos);
+    float3 ref_point = posW - 0.1 * w_unit;
 
     // sample previous position
     float3 prevPosW = gPrevPosW.Sample(s, uv).xyz;
-    float3 d = prevPosW - camPos;
+    float3 d = prevPosW - ref_point;
     float3 d_unit = normalize(d);
 
     // target function

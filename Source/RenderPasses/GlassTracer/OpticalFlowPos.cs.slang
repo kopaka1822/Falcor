@@ -137,6 +137,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         if (length(uvPixel) > gMaxMovement) // restrict pixel step size
             uvPixel = gMaxMovement * normalize(uvPixel);
 
+        // TODO check wheter error improved
+
         mvec = mvec + (uvPixel / float2(gFrameDim));
     }
 
@@ -157,6 +159,24 @@ float3 calcdd_unit(float3 /*not normalized*/ d, float3 /*not normalized*/ dd)
     return (dDotd * dd - dot(d, dd) * d) / (pow(dDotd, 1.5));
 }
 
+float fetchBilinearTarget(float2 uv, float3 w_unit, float3 ref_point)
+{
+    float2 uv00 = snapTopLeft(uv);
+    float2 step = 1.0 / float2(gFrameDim);
+    float2 stepX = float2(step.x, 0.0);
+    float2 stepY = float2(0.0, step.y);
+    float w_x = abs(uv.x - uv00.x) * float(gFrameDim.x); // in [0, 1]
+    float w_y = abs(uv.y - uv00.y) * float(gFrameDim.y); // in [0, 1]
+
+    float TSum = 0.0;
+    TSum += (1.0 - w_x) * (1.0 - w_y) * dot(w_unit, normalize(gPrevPos.SampleLevel(S, uv00, 0.0) - ref_point));
+    TSum += (w_x)       * (1.0 - w_y) * dot(w_unit, normalize(gPrevPos.SampleLevel(S, uv00 + stepX, 0.0) - ref_point));
+    TSum += (1.0 - w_x) * (w_y)       * dot(w_unit, normalize(gPrevPos.SampleLevel(S, uv00 + stepY, 0.0) - ref_point));
+    TSum += (w_x)       * (w_y)       * dot(w_unit, normalize(gPrevPos.SampleLevel(S, uv00 + step, 0.0) - ref_point));
+
+    return TSum * 0.25;
+}
+
 [numthreads(16, 16, 1)]
 void angleMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3 localId: SV_GroupThreadID)
 {
@@ -165,6 +185,7 @@ void angleMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3 loc
     float2 mvec = gMotion[pixel];
     const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
     const float3 w_unit = normalize(curPos - camPos); // reference direction
+    const float3 ref_point = curPos - 0.1 * w_unit; // TODO determine what is numerically most stable?
     const float2 mvec_backup = mvec; // original value
 
     const float2 step = 1.0 / float2(gFrameDim);
@@ -172,38 +193,43 @@ void angleMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3 loc
     const float2 stepY = float2(0.0, step.y);
 
     // calculate current Target function value
-    float Tcur = dot(w_unit, normalize(gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0) - camPos));
+    // float Tcur = dot(w_unit, normalize(gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0) - ref_point));
+    float Tcur = fetchBilinearTarget(texC + adjustJitter(mvec), w_unit, ref_point);
 
     for (uint i = 0; i < gIterations; ++i)
     {
-        float2 mvec0 = adjustJitter(mvec); // adjust jitter of motion vector
-        float2 uv0 = texC + mvec0;
+        float2 mvec0 = adjustJitter(mvec);       // adjust jitter of motion vector
+        float2 uvPrev = texC + mvec0;            // actual uv
+        float2 uv00 = snapTopLeft(texC + mvec0); // snap uv to top left (pixel center)
 
         float2x2 AtA = 0.0;
         float2 Atb = 0.0;
 
-        for (int dx = -gWindowRadius + 1; dx < gWindowRadius; ++dx)
-            for (int dy = -gWindowRadius + 1; dy < gWindowRadius; ++dy)
+        // for radius=1 => 2x2: dx = 0, 1; dy = 0, 1
+        // for radius=2 => 4x4: dx = -1,0,1,2; dy = -1,0,1,2
+        for (int dx = -gWindowRadius + 1; dx <= gWindowRadius; ++dx)
+            for (int dy = -gWindowRadius + 1; dy <= gWindowRadius; ++dy)
             {
                 float2 off = dx * stepX + dy * stepY;
-                float3 prevPos = gPrevPos.SampleLevel(S, uv0 + off, 0.0);
+                float3 prevPos = gPrevPos.SampleLevel(S, uv00 + off, 0.0);
 
-                float3 d = prevPos - camPos;
+                float3 d = prevPos - ref_point;
                 float3 d_unit = normalize(d);
 
                 // target function
                 float T = dot(w_unit, d_unit);
-                // float3 ddx = gPrevPos.SampleLevel(S, uv0 + off + stepX, 0.0) - gPrevPos.SampleLevel(S, uv0 + off - stepX, 0.0);
-                //float3 ddx = gPrevPos.SampleLevel(S, uv0 + off + stepX, 0.0) - prevPos;
-                //float3 ddy = gPrevPos.SampleLevel(S, uv0 + off + stepY, 0.0) - prevPos;
-                float3 ddx = getMinDeriv(prevPos, uv0 + off, stepX);
-                float3 ddy = getMinDeriv(prevPos, uv0 + off, stepY);
+                float3 ddx = getMinDeriv(prevPos, uv00 + off, stepX);
+                float3 ddy = getMinDeriv(prevPos, uv00 + off, stepY);
                 float t_x = dot(w_unit, calcdd_unit(d, ddx));
                 float t_y = dot(w_unit, calcdd_unit(d, ddy));
 
+                float2 distInPixels = abs(uv00 + off - uvPrev) * float2(gFrameDim);
                 float w = 1.0;
-                w *= exp(-0.5 * (dx * dx + dy * dy) / 50.0);
-                if (T < Tcur - 0.01) w = 0.0; // ignore pixels with far worse target function
+                w *= 1.0 - (distInPixels.x / gWindowRadius); // barycentric weights for radius=1
+                w *= 1.0 - (distInPixels.y / gWindowRadius);
+
+                
+                if (T < Tcur) w = 0.0; // ignore pixels with far worse target function
                 //float maxPosDiff = 2.0 * gPosDiff.SampleLevel(S, texC, 0.0);
                 //if (length(ddx) > maxPosDiff || length(ddy) > maxPosDiff)
                 //    w = 0.0;
@@ -228,18 +254,20 @@ void angleMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3 loc
             uvPixel = gMaxMovement * normalize(uvPixel);
 
         // only use nextMvec if it improves the target function
-        float alpha = 1.0;
+        /*float alpha = 1.0;
         float Tnext = -1.0;
         float2 nextMvec = 0.0;
         while (Tnext < Tcur)
         {
             if (alpha < 0.01) break; // give up (~7 tries)
             nextMvec = mvec + alpha * (uvPixel / float2(gFrameDim));
-            Tnext = dot(w_unit, normalize(gPrevPos.SampleLevel(S, texC + adjustJitter(nextMvec), 0.0) - camPos));
+            Tnext = dot(w_unit, normalize(gPrevPos.SampleLevel(S, texC + adjustJitter(nextMvec), 0.0) - ref_point));
             alpha *= 0.5;
         }
         Tcur = Tnext;
-        mvec = nextMvec;
+        mvec = nextMvec;*/
+        mvec = mvec + (uvPixel / float2(gFrameDim));
+        Tcur = fetchBilinearTarget(texC + adjustJitter(mvec), w_unit, ref_point);
     }
 
     // verify error
