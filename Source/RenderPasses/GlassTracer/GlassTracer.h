@@ -180,6 +180,7 @@ private:
     int mOpticalIterations = 2;
     float mOpticalMaxMovement = 10.0f;
     int mOpticalRadius = 1;
+    bool mProjectToTangentPlane = true;
     ref<RenderGraph> mpVbufferToPosGraph;
     float2 mPrevJitter;
 

@@ -325,6 +325,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gCurPos"] = pPosition;
             var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiff;
+            var["gLastRayDir"] = pLastRayDir;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
             var["PerFrame"]["gIterations"] = mOpticalIterations;
@@ -332,6 +333,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["PerFrame"]["gCurJitter"] = curJitter;
             var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
             var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
+
+            mpOpticalFlowPosPass->getProgram()->addDefine("PROJECT_TO_TANGENT", mProjectToTangentPlane ? "1" : "0");
 
             mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
 
@@ -353,6 +356,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gCurPos"] = pPosition;
             var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiff;
+            var["gLastRayDir"] = pLastRayDir;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
             var["PerFrame"]["gIterations"] = mOpticalIterations;
@@ -473,6 +477,7 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         widget.tooltip("Maximum allowed pixel movement per iteration");
 
         c |= widget.slider("Window Radius", mOpticalRadius, 1, 10);
+        c |= widget.checkbox("Project to Tangent Plane", mProjectToTangentPlane);
     }
 
     c |= widget.checkbox("Denoise Path Variance", mUseDenoiseGlass);

@@ -4,7 +4,12 @@ Texture2D<float2> gMotion;
 RWTexture2D<float2> gMotionOut;
 Texture2D<float3> gCurPos;
 Texture2D<float3> gPrevPos;
-Texture2D<float> gPosDiff; // estimated max position difference when moving one pixel
+Texture2D<float> gPosDiff;       // estimated max position difference when moving one pixel
+Texture2D<float3> gLastRayDir;   // direction to Pos (incomming ray direction)
+
+#ifndef PROJECT_TO_TANGENT
+#define PROJECT_TO_TANGENT 1
+#endif
 
 SamplerState S; // linear sampler
 
@@ -88,6 +93,11 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     const float2 stepX = float2(step.x, 0.0);
     const float2 stepY = float2(0.0, step.y);
 
+    #if PROJECT_TO_TANGENT
+    float3 tangent = normalize(cross(float3(0.0, 1.0, 0.0), gLastRayDir[pixel]));
+    float3 bitangent = cross(gLastRayDir[pixel], tangent);
+    float2x3 TB = float2x3(tangent, bitangent);
+    #endif
 
     for (uint i = 0; i < gIterations; ++i)
     {
@@ -116,10 +126,17 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                 w *= 1.0 - (distInPixels.x / gWindowRadius); // barycentric weights for radius=1
                 w *= 1.0 - (distInPixels.y / gWindowRadius);
 
-                // TODO maybe drop weakest component? or align to tangents of cur pos
+                #if PROJECT_TO_TANGENT
+                I_x.xy = mul(TB, I_x);
+                I_y.xy = mul(TB, I_y);
+                I_t.xy = mul(TB, I_t);
+                I_x.z = I_y.z = I_t.z = 0.0;
+                #endif
+
                 AtA += w * float2x2(dot(I_x, I_x), dot(I_x, I_y),
                                     dot(I_x, I_y), dot(I_y, I_y));
                 Atb += w * float2(dot(I_t, I_x), dot(I_t, I_y));
+                
             }
 
         if (all(AtA == 0.0)) break; // bad conditioned, retain original motion vector
