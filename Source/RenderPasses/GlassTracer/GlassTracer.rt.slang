@@ -24,6 +24,7 @@ cbuffer PerFrame
 
 RWTexture2D<PackedHitInfo> gVBuffer;
 RWTexture2D<float2> gMotion;
+RWTexture2D<float2> gBackupMotion;
 RWTexture2D<float4> gColor;  // shaded vbuffer
 RWTexture2D<float> gDepth;  // non-linear depth for DLSS
 RWTexture2D<float> gPosDiff;     // expected position difference when moving one pixel
@@ -164,6 +165,7 @@ struct VBufferReservoir
     // data
     float depth;
     float2 mvec;
+    float2 bmvec; // backup motion vector
     PackedHitInfo vbuffer;
     float3 lastRayDir;
     float posDiff;
@@ -197,6 +199,7 @@ struct VBufferReservoir
         gColor[pixel] = float4(color, 1.0);
         gVBuffer[pixel] = vbuffer;
         gMotion[pixel] = mvec;
+        gBackupMotion[pixel] = bmvec;
         gDepth[pixel] = depth;
         gPosDiff[pixel] = posDiff;
         gLastRayDir[pixel] = lastRayDir;
@@ -415,13 +418,15 @@ void rayGen()
     #endif
     float3 color = 0.0; // color along path
     bool writeMvec = true; // can be set to false (after first refraction) to disable mvec writes
-    
+    bool writeBMvec = true; // same for backup motion vector
+
     bool camMovement = any(gScene.camera.data.viewMat != gScene.camera.data.prevViewMat);
     if (gForceMotionVectorCalculation) camMovement = true;
     
     VBufferReservoir curVBuffer;
     curVBuffer.weightSum = 0.0;
     curVBuffer.mvec = 0.0;
+    curVBuffer.bmvec = 0.0;
     curVBuffer.depth = 0.0;
     curVBuffer.vbuffer = {};
 
@@ -487,6 +492,7 @@ void rayGen()
                     curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
                     if (!camMovement)
                         curVBuffer.mvec = 0.0;
+                    if (writeBMvec) curVBuffer.bmvec = curVBuffer.mvec;
                 }
                     
                 RayMissHit rmh;
@@ -519,14 +525,7 @@ void rayGen()
         let v = gScene.getVertexData(triangleHit.instanceID, triangleHit.primitiveIndex, barycentrics, triangleVertices);
         bool vertexMoved = any(v.posW != v.prevPosW);
         s.linearZ += distance(s.rayOrigin, v.posW);
-        if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
-        {
-            writeMvec = false;
-            curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, matrixIdentity(), camMovement || vertexMoved);
-            curVBuffer.depth = linearToNonLinearZ(s.linearZ);
-        }
-            
-        
+
         let materialID = gScene.getMaterialID(triangleHit.instanceID);
 
         // texture LOD calculation
@@ -583,19 +582,23 @@ void rayGen()
         float pathImportance = dot(s.thp * (bsdf.emission * gEmissionIntensity
             + analyticImportance
         ), 0.33);
-
+        // this will also overwrite with pathImportance==0, if nothing else was contributed yet (weightSum = 0.0)
         if (curVBuffer.update(pathImportance, sampleNext1D(sg), s.flags))
         {
             curVBuffer.vbuffer = data.hit;
-            #if MVEC != MVEC_FIRST_HIT
             curVBuffer.depth = linearToNonLinearZ(s.linearZ);
-            #endif
             curVBuffer.posDiff = posDiff;
             curVBuffer.localPathLength = s.curPathLength;
             curVBuffer.lastRayDir = s.rayDir;
             #if NEEDS_ITERATIONS
             curVBuffer.reflectiveMask = s.reflectiveMask;
             #endif
+
+            if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
+            {
+                writeMvec = false;
+                curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, matrixIdentity(), camMovement || vertexMoved);
+            }
 
             #ifdef USE_VIEW_TRANSFORM
             if(writeMvec)
@@ -645,7 +648,11 @@ void rayGen()
             #endif
 
             if (writeMvec && !camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
+            if (writeBMvec) curVBuffer.bmvec = curVBuffer.mvec;
         }
+
+        // prevent mvec writes in the future, if:
+        if (i == 0 && BMVEC == MVEC_FIRST_HIT) writeBMvec = false;
 
         // obtain 1 bsdf sample for reflection, and one for refraction
         BSDFSample bsdfSampleReflect;
@@ -675,17 +682,9 @@ void rayGen()
         bool doReflection = any(s.thp * bsdfSampleReflect.weight > MIN_VISIBILITY);
         bool doRefraction = any(s.thp * bsdfSampleRefract.weight > MIN_VISIBILITY);
 
-        // force write motion vector for first refraction mode
-        #if MVEC == MVEC_FIRST_REFRACT
-        if(doRefraction)
-        {
-            if (writeMvec)
-            {
-                writeMvec = false;
-                curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, s.viewTransform, camMovement || vertexMoved);
-            }
-        }
-        #endif
+        // prevent furhter mvec writes, if:
+        if (doRefraction && MVEC == MVEC_FIRST_REFRACT) writeMvec = false;
+        if (doRefraction && BMVEC == MVEC_FIRST_REFRACT) writeBMvec = false;
 
         if (doReflection && doRefraction)
         {

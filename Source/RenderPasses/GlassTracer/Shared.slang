@@ -30,9 +30,12 @@ RWTexture2DArray<float4> gDebugTex;
 #ifndef MVEC
 #define MVEC MVEC_HALFWAY_REFLECT
 #endif
+#ifndef BMVEC
+#define BMVEC MVEC_FIRST_REFRACT
+#endif
 
 // for simplicity of implementation (ideally the first refract does not need the view transform in the stack)
-#if MVEC == MVEC_HALFWAY_REFLECT || MVEC == MVEC_FIRST_REFRACT
+#if MVEC == MVEC_HALFWAY_REFLECT || MVEC == MVEC_FIRST_REFRACT || BMVEC == MVEC_FIRST_REFRACT
 #define USE_VIEW_TRANSFORM
 #endif
 

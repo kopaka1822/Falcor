@@ -1,7 +1,8 @@
 //import Utils.Math.MathHelpers;
 
 Texture2D<float2> gMotion;
-RWTexture2D<float2> gMotionBackupAndOut;
+Texture2D<float2> gBackupMotion;
+RWTexture2D<float2> gMotionOut;
 Texture2D<uint> gPathLength;
 
 SamplerState S; // linear sampler
@@ -41,7 +42,12 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 {
     const uint2 pixel = id.xy;
     float2 mvec = gMotion[pixel];
-    float2 backup_mvec = gMotionBackupAndOut[pixel];
+    //float2 backup_mvec = gBackupMotion[pixel];
+    //if (all(mvec == backup_mvec))
+    //{
+    //    gMotionOut[pixel] = mvec;
+    //    return; // no post-processing, just use plain backup motion vector
+    //}
     uint pathLen = gPathLength[pixel];
 
     // uv coords
@@ -117,5 +123,5 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
     mvec = A[COUNT / 2].xy; // median
 
-    gMotionBackupAndOut[pixel] = mvec;
+    gMotionOut[pixel] = mvec;
 }

@@ -1,6 +1,7 @@
 //import Utils.Math.MathHelpers;
 
 Texture2D<float2> gMotion;
+Texture2D<float2> gBackupMotion;
 RWTexture2D<float2> gMotionOut;
 Texture2D<float3> gCurPos;
 Texture2D<float3> gPrevPos;
@@ -93,7 +94,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     const float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
     float2 mvec = gMotion[pixel];
     const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
-    const float2 mvec_backup = mvec; // original value
 
     const float2 step = 1.0 / float2(gFrameDim);
     const float2 stepX = float2(step.x, 0.0);
@@ -184,8 +184,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     float newError = length(posDiff);
 
     float onePixelPosDiff = gPosDiff[pixel];
-    
-    if (newError > onePixelPosDiff * 0.01) mvec = mvec_backup;
+
+    if (newError > onePixelPosDiff * 0.02) mvec = gBackupMotion[pixel];
 
     gMotionOut[pixel] = mvec;
 }
@@ -205,7 +205,6 @@ void angleMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3 loc
     float2 mvec = gMotion[pixel];
     const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
     const float3 w_unit = normalize(curPos - camPos); // reference direction
-    const float2 mvec_backup = mvec; // original value
 
     const float2 step = 1.0 / float2(gFrameDim);
     const float2 stepX = float2(step.x, 0.0);
@@ -287,7 +286,7 @@ void angleMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3 loc
     float newError = distance(curPos, newPos);
     float onePixelPosDiff = gPosDiff[pixel];
 
-    if (newError > onePixelPosDiff * 0.1) mvec = mvec_backup;
+    if (newError > onePixelPosDiff * 0.1) mvec = gBackupMotion[pixel];
     //if (Tcur < 0.9999) mvec = mvec_backup;
 
     gMotionOut[pixel] = mvec;

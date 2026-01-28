@@ -160,6 +160,7 @@ private:
     int mPathLength = 50;
     int mStackSize = 2;
     MotionVector mMotionVector = MotionVector::HalfwayReflection;
+    MotionVector mBackupMotionVector = MotionVector::FirstRefractiveHit;
     IterationTechnique mIterationTechnique = IterationTechnique::None;
 
     // iterations
@@ -176,7 +177,7 @@ private:
     ref<ComputePass> mpOpticalFlowColorPass;
     ref<ComputePass> mpOpticalFlowAnglePass;
     ref<ComputePass> mpOpticalBlurPass;
-    OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::None;
+    OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::LucasKanadePos;
     int mOpticalIterations = 2;
     float mOpticalMaxMovement = 10.0f;
     int mOpticalRadius = 1;

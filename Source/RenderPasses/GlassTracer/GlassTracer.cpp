@@ -33,6 +33,7 @@ namespace
 {
     const std::string kVbuffer = "vbuffer";
     const std::string kMotion = "mvec";
+    const std::string kMotionBackup = "mvecBackup";
     const std::string kColorOut = "color";
     const std::string kDepthOut = "depth";
     const std::string kPosDiff = "posDiff";
@@ -122,6 +123,7 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     RenderPassReflection reflector;
     reflector.addOutput(kVbuffer, "V-buffer").format(HitInfo::kDefaultFormat).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
+    reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kPosDiff, "Length of Position Differential").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
@@ -163,6 +165,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
     auto pVbuffer = renderData.getTexture(kVbuffer);
     auto pMotion = renderData.getTexture(kMotion);
+    auto pMotionBackup = renderData.getTexture(kMotionBackup);
     auto pColor = renderData.getTexture(kColorOut);
     auto pDepth = renderData.getTexture(kDepthOut);
     auto pDebug = renderData.getTexture(kDebug);
@@ -181,7 +184,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     uint32_t structSize = 12;
     if (needsIterations) structSize += 1;
     if (mUseTextureLOD) structSize += 12;
-    if (mMotionVector == MotionVector::HalfwayReflection || mMotionVector == MotionVector::FirstRefractiveHit) structSize += 12;
+    if (mMotionVector == MotionVector::HalfwayReflection || mMotionVector == MotionVector::FirstRefractiveHit || mBackupMotionVector == MotionVector::FirstRefractiveHit) structSize += 12;
     if (mMotionVector == MotionVector::RayDifferentials) structSize += 16;
     if (mMotionVector == MotionVector::ReverseRayDifferentials) structSize += 39;
     if (!mpStackBuffer || mpStackBuffer->getElementCount() != requiredStack || mpStackBuffer->getElementSize() != structSize * sizeof(float))
@@ -204,6 +207,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto var = mpVars->getRootVar();
     var["gVBuffer"] = pVbuffer;
     var["gMotion"] = pMotion;
+    var["gBackupMotion"] = pMotionBackup;
     var["gColor"] = pColor;
     var["gDepth"] = pDepth;
     var["gPosDiff"] = pPosDiff;
@@ -242,6 +246,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
     mpProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
     mpProgram->addDefine("MVEC", std::to_string(uint32_t(mMotionVector)));
+    mpProgram->addDefine("BMVEC", std::to_string(uint32_t(mBackupMotionVector)));
     mpProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
     mpProgram->addDefine("IGNORE_NORMAL_DIFFS", mIgnoreNormalDiffs ? "1" : "0");
     mpProgram->addDefine("NEEDS_ITERATIONS", needsIterations ? "1" : "0");
@@ -321,6 +326,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         {
             var = mpOpticalFlowPosPass->getRootVar();
             var["gMotion"] = pMotion;
+            var["gBackupMotion"] = pMotionBackup;
             var["gMotionOut"] = pMotionOptical;
             var["gCurPos"] = pPosition;
             var["gPrevPos"] = pPrevPosition;
@@ -341,7 +347,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             // output is in pMotionOptical
             var = mpOpticalBlurPass->getRootVar();
             var["gMotion"] = pMotionOptical;
-            var["gMotionBackupAndOut"] = pMotion; // backup data and output
+            var["gBackupMotion"] = pMotionBackup;
+            var["gMotionOut"] = pMotion; // backup data and output
             var["gPathLength"] = pLocalPathLength;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
@@ -352,6 +359,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         {
             var = mpOpticalFlowAnglePass->getRootVar();
             var["gMotion"] = pMotion;
+            var["gBackupMotion"] = pMotionBackup;
             var["gMotionOut"] = pMotionOptical;
             var["gCurPos"] = pPosition;
             var["gPrevPos"] = pPrevPosition;
@@ -371,7 +379,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             // output is in pMotionOptical
             var = mpOpticalBlurPass->getRootVar();
             var["gMotion"] = pMotionOptical;
-            var["gMotionBackupAndOut"] = pMotion; // backup data and output
+            var["gBackupMotion"] = pMotionBackup;
+            var["gMotionOut"] = pMotion; // backup data and output
             var["gPathLength"] = pLocalPathLength;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
@@ -471,6 +480,16 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
     c |= widget.dropdown("OpticalFlow Technique", mOpticalFlowTechnique);
     if (mOpticalFlowTechnique != OpticalFlowTechnique::None)
     {
+        Gui::DropdownList backupDropdown = {
+            { uint32_t(GlassTracer::MotionVector::FirstHit), "FirstHit" },
+            { uint32_t(GlassTracer::MotionVector::FirstRefractiveHit), "FirstRefractiveHit" },
+        };
+
+        uint32_t backupSelection = uint32_t(mBackupMotionVector);
+        c |= widget.dropdown("Backup Motion Vector", backupDropdown, backupSelection);
+        mBackupMotionVector = GlassTracer::MotionVector(backupSelection);
+        if (mMotionVector == MotionVector::FirstHit) mBackupMotionVector = MotionVector::FirstHit; // enforce valid selection
+
         c |= widget.slider("Iterations##1", mOpticalIterations, 1, 20);
 
         c |= widget.var("Max Pixel Movement", mOpticalMaxMovement, 1.0f / 32.0f, 40.0f, 1.0f / 32.0f);
