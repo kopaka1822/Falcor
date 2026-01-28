@@ -11,6 +11,12 @@ Texture2D<float3> gLastRayDir;   // direction to Pos (incomming ray direction)
 #define PROJECT_TO_TANGENT 1
 #endif
 
+#if PROJECT_TO_TANGENT
+#define PROJECT(v) v.xy = mul(TB, v); v.z = 0.0;
+#else
+#define PROJECT(v)
+#endif
+
 SamplerState S; // linear sampler
 
 cbuffer PerFrame
@@ -127,12 +133,9 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                 w *= 1.0 - (distInPixels.y / gWindowRadius);
                 //w *= exp(-dot(I_t, I_t)); // penalty based on squared distance
 
-                #if PROJECT_TO_TANGENT
-                I_x.xy = mul(TB, I_x);
-                I_y.xy = mul(TB, I_y);
-                I_t.xy = mul(TB, I_t);
-                I_x.z = I_y.z = I_t.z = 0.0;
-                #endif
+                PROJECT(I_x);
+                PROJECT(I_y);
+                PROJECT(I_t);
 
                 AtA += w * float2x2(dot(I_x, I_x), dot(I_x, I_y),
                                     dot(I_x, I_y), dot(I_y, I_y));
@@ -151,25 +154,36 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
         // float2 uvPixel = solveLinearEq(I_x, I_y, I_t);
         float2 uvPixel = mul(invAtA, Atb);
-
         if (length(uvPixel) > gMaxMovement) // restrict pixel step size
             uvPixel = gMaxMovement * normalize(uvPixel);
 
-        mvec = mvec + (uvPixel / float2(gFrameDim));
+        float2 uvDiff = uvPixel / float2(gFrameDim);
+
+        float3 curDiff = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0) - curPos;
+        PROJECT(curDiff);
+        float curError = length(curDiff);
+
+        float alpha = 1.0;
+        for (; alpha > 0.01; alpha *= 0.5)
+        {
+            float3 newDiff = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec + alpha * uvDiff), 0.0) - curPos;
+            PROJECT(newDiff);
+            float newError = length(newDiff);
+            if (newError < curError) break; // use motion vector with this alpha
+        }
+
+        mvec = mvec + alpha * uvDiff;
     }
 
     // verify error
     float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
     float3 posDiff = newPos - curPos;
-    #if PROJECT_TO_TANGENT
-    posDiff.xy = mul(TB, posDiff);
-    posDiff.z = 0.0;
-    #endif
+    PROJECT(posDiff);
     float newError = length(posDiff);
 
     float onePixelPosDiff = gPosDiff[pixel];
     
-    if (newError > onePixelPosDiff * 0.1) mvec = mvec_backup;
+    if (newError > onePixelPosDiff * 0.01) mvec = mvec_backup;
 
     gMotionOut[pixel] = mvec;
 }
