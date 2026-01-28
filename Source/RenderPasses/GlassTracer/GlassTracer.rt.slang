@@ -18,7 +18,9 @@ cbuffer PerFrame
     bool gForceMotionVectorCalculation; // forces motion vectors to be calculated even if neither camera nor vertex was moving
     uint gMaxStack;                     // maxiumum stack size for indirections
     float gTextureGradientScaling;      // scaling factor for texture gradients
+    bool gPreventVbufferCurvedReflection; // prevents the paths of curved reflection from being taken as vbuffer reference position
 }
+#define FLAG_PREVENT_VBUFFER_WRITE 1
 
 RWTexture2D<PackedHitInfo> gVBuffer;
 RWTexture2D<float2> gMotion;
@@ -174,8 +176,11 @@ struct VBufferReservoir
 
     // update function, returns true if reservoir should be updated, false if old data should be kept
     [mutating]
-    bool update(float3 localContribution, float rng)
+    bool update(float3 localContribution, float rng, uint sflags /*flags from stack frame*/)
     {
+        if (sflags & FLAG_PREVENT_VBUFFER_WRITE)
+            return false;
+
         float local = dot(localContribution, 1.0);
 
         // if max weight
@@ -211,9 +216,14 @@ struct StackFrame
     uint curPathLength;
     float3 rayDir;
     float linearZ;
-    float3 thp;          // path throughput
-    uint reflectiveMask; // 1 = reflection at start (lowest bit), 0101 = reflection->refraction->reflection->refraction
+    float3 thp; // path throughput
+    uint flags;
     // ^ 12 floats
+
+#if NEEDS_ITERATIONS
+    uint reflectiveMask; // 1 = reflection at start (lowest bit), 0101 = reflection->refraction->reflection->refraction
+#endif
+    
 #if USE_TEXTURE_LOD != 0
     RayDiff rd; // 12 floats
 #endif
@@ -292,14 +302,20 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
     s.thp *= bsdfSample.weight;
     bool transmission = bsdfSample.isLobe(LobeType::Transmission);
 
-#ifdef USE_VIEW_TRANSFORM
+    if (!transmission && gPreventVbufferCurvedReflection)
+    {
+        if (any(triangleVertices[0].normal != triangleVertices[1].normal) || any(triangleVertices[0].normal != triangleVertices[2].normal))
+            s.flags |= FLAG_PREVENT_VBUFFER_WRITE;
+    }
+
+    #ifdef USE_VIEW_TRANSFORM
     float3 H = -s.rayDir + bsdfSample.wo;
     float lenH = length(H);
     if (lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
         s.viewTransform = mulAffine(s.viewTransform, matrixMirror(sd.posW, H / lenH));
-#endif
+    #endif
 
-#if MVEC == MVEC_RAY_DIFF
+    #if MVEC == MVEC_RAY_DIFF
     // transfer to the current (virtual) plane
     float ray2t = dot(sd.faceN, sd.posW - s.ray2origin) / dot(sd.faceN, s.rayDir);
     s.rd2 = s.rd2.propagate(s.ray2origin, s.rayDir, ray2t, sd.faceN);
@@ -338,9 +354,9 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
         reflectRayDifferential(s.rd2, s.rayDir, unnormalizedN, ShadingN, dBarydx, dBarydy, normals);
         //s.rd2 = s.rd2.reflect(s.rayDir, bsdfSample.wo); // uses halfway vector as normal
     }
-#endif
+    #endif
 
-#if MVEC == MVEC_REVERSE_RD
+    #if MVEC == MVEC_REVERSE_RD
     float3x3 M = m33Zero(); // zero if we ignore normal differentials
     float3 ShadingN = sd.frame.N; // will be overwritten by getShapeMatrix with the correctly flipped version
     if (!IGNORE_NORMAL_DIFFS)
@@ -360,25 +376,27 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
     {
         reflectRRDiff(s.Jpp, s.Jpd, s.Jdp, s.Jdd, -bsdfSample.wo, ShadingN, M);
     }
-#endif
+    #endif
 
-#if USE_TEXTURE_LOD != 0
+    #if USE_TEXTURE_LOD != 0
     // transfer to posW (done in main)
     // s.rd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, sd.posW), sd.faceN);
     // reflect or refract TODO use functions that respect dNdx and dNdy
     if(transmission) s.rd = s.rd.refract(s.rayDir, bsdfSample.wo, sd.faceN);
     else s.rd = s.rd.reflect(s.rayDir, bsdfSample.wo); // uses halfway vector as normal
-#endif
+    #endif
 
     s.rayOrigin = sd.computeNewRayOrigin(!transmission); // move origin a bit along normal (note: using sd.posW might result in self-intersection)
-#ifdef USE_VIEW_TRANSFORM
+    #ifdef USE_VIEW_TRANSFORM
     s.viewTransform = mulAffine(s.viewTransform, matrixTranslate(sd.posW - s.rayOrigin));
-#endif
-#if MVEC == MVEC_RAY_DIFF
+    #endif
+    #if MVEC == MVEC_RAY_DIFF
     s.ray2origin += s.rayOrigin - sd.posW; // account for the above error by also moving the ray2origin accordingly
-#endif
+    #endif
     s.rayDir = bsdfSample.wo;
+    #if NEEDS_ITERATIONS
     if (!transmission) s.reflectiveMask = s.reflectiveMask | (1u << (s.curPathLength - 1)); // mark reflection at this path length (curPathLength starts at 1)
+    #endif
     return s;
 }
 
@@ -391,7 +409,10 @@ void rayGen()
     s.thp = 1.0;
     s.linearZ = 0.0;
     s.curPathLength = 0;
+    s.flags = 0;
+    #if NEEDS_ITERATIONS
     s.reflectiveMask = 0;
+    #endif
     float3 color = 0.0; // color along path
     bool writeMvec = true; // can be set to false (after first refraction) to disable mvec writes
     
@@ -456,7 +477,7 @@ void rayGen()
             ////////// MISS /////////////
             float3 localContribution = s.thp * shadeEnvmap(-s.rayDir).rgb;
             color += localContribution;
-            if (curVBuffer.update(localContribution, sampleNext1D(sg)))
+            if (curVBuffer.update(localContribution, sampleNext1D(sg), s.flags))
             {
                 float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/false).dir;
                 float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
@@ -563,7 +584,7 @@ void rayGen()
             + analyticImportance
         ), 0.33);
 
-        if (curVBuffer.update(pathImportance, sampleNext1D(sg)))
+        if (curVBuffer.update(pathImportance, sampleNext1D(sg), s.flags))
         {
             curVBuffer.vbuffer = data.hit;
             #if MVEC != MVEC_FIRST_HIT

@@ -174,10 +174,12 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pReflectiveMask = renderData.getTexture(kReflectiveMask);
 
     auto pMotionOptical = renderData.getTexture(kMotionOptical);
+    bool needsIterations = mIterationTechnique != IterationTechnique::None && mIterations > 1;
 
     size_t requiredStack = pVbuffer->getWidth() * pVbuffer->getHeight() * std::max(1, mStackSize);
     // number of floats in the stack struct
     uint32_t structSize = 12;
+    if (needsIterations) structSize += 1;
     if (mUseTextureLOD) structSize += 12;
     if (mMotionVector == MotionVector::HalfwayReflection || mMotionVector == MotionVector::FirstRefractiveHit) structSize += 12;
     if (mMotionVector == MotionVector::RayDifferentials) structSize += 16;
@@ -235,13 +237,14 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["PerFrame"]["gMaxStack"] = mStackSize;
     var["PerFrame"]["gTextureGradientScaling"] = std::pow(2.0f, mTextureLodBias);
     var["PerFrame"]["gForceZeroRoughness"] = mForceZeroRoughness ? 1 : 0;
+    var["PerFrame"]["gPreventVbufferCurvedReflection"] = mPreventVbufferCurvedReflection ? 1 : 0;
 
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
     mpProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
     mpProgram->addDefine("MVEC", std::to_string(uint32_t(mMotionVector)));
     mpProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
     mpProgram->addDefine("IGNORE_NORMAL_DIFFS", mIgnoreNormalDiffs ? "1" : "0");
-    mpProgram->addDefine("NEEDS_ITERATIONS", mIterationTechnique != IterationTechnique::None && mIterations > 1 ? "1" : "0");
+    mpProgram->addDefine("NEEDS_ITERATIONS", needsIterations ? "1" : "0");
 
     uint3 dispatch = uint3(1);
     dispatch.x = pVbuffer->getWidth();
@@ -253,7 +256,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
     // needs positions for iterations or optical flow?
     bool needPositions = false;
-    needPositions |= mIterationTechnique != IterationTechnique::None && mIterations > 1;
+    needPositions |= needsIterations;
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos;
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeAngle;
     ref<Texture> pPosition; // current frame
@@ -528,6 +531,8 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         c |= widget.var("Roughness Cutoff", mRoughnessCutoff, 0.0f, 1.0f);
         widget.tooltip("Surfaces with lower roughness will not reflect");
         c |= widget.checkbox("Force Zero Rougness", mForceZeroRoughness);
+        c |= widget.checkbox("Disable V-buffer Curved Reflection", mPreventVbufferCurvedReflection);
+        widget.tooltip("Prevents storing hit points after curved reflections to be stored in the V-Buffer.");
     }
 
     mOptionsChanged |= c;

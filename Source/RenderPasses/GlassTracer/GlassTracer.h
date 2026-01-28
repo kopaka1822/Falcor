@@ -201,6 +201,7 @@ private:
 
     float mRoughnessCutoff = 0.5f;
     bool mForceZeroRoughness = true;
+    bool mPreventVbufferCurvedReflection = true;
     bool mForceMotionVectorCalculation = false;
     bool mIgnoreNormalDiffs = true; // more stable without normal diffs
 
