@@ -125,6 +125,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                 float w = 1.0;
                 w *= 1.0 - (distInPixels.x / gWindowRadius); // barycentric weights for radius=1
                 w *= 1.0 - (distInPixels.y / gWindowRadius);
+                //w *= exp(-dot(I_t, I_t)); // penalty based on squared distance
 
                 #if PROJECT_TO_TANGENT
                 I_x.xy = mul(TB, I_x);
@@ -159,7 +160,13 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
     // verify error
     float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
-    float newError = distance(curPos, newPos);
+    float3 posDiff = newPos - curPos;
+    #if PROJECT_TO_TANGENT
+    posDiff.xy = mul(TB, posDiff);
+    posDiff.z = 0.0;
+    #endif
+    float newError = length(posDiff);
+
     float onePixelPosDiff = gPosDiff[pixel];
     
     if (newError > onePixelPosDiff * 0.1) mvec = mvec_backup;
