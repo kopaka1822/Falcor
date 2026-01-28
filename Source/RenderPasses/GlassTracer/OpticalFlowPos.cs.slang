@@ -162,15 +162,17 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float3 curDiff = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0) - curPos;
         PROJECT(curDiff);
         float curError = length(curDiff);
+        float newError = curError;
 
         float alpha = 1.0;
-        for (; alpha > 0.01; alpha *= 0.5)
+        for (; alpha > 0.1; alpha *= 0.5)
         {
             float3 newDiff = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec + alpha * uvDiff), 0.0) - curPos;
             PROJECT(newDiff);
-            float newError = length(newDiff);
+            newError = length(newDiff);
             if (newError < curError) break; // use motion vector with this alpha
         }
+        if (newError >= curError) break; // cannot improve anymore
 
         mvec = mvec + alpha * uvDiff;
     }
