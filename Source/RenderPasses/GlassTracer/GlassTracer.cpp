@@ -367,6 +367,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
                 var["gMotionError"] = pMotionErrorMask;
                 var["gPathLength"] = pLocalPathLength;
                 var["gCurPos"] = pPosition;
+                var["gPosDiff"] = pPosDiff;
 
                 var["PerFrame"]["gFrameDim"] = int2(dispatch.x, dispatch.y);
                 var["PerFrame"]["gDirection"] = int2(1, 0); // first pass must be X

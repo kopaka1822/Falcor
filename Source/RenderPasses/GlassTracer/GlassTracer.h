@@ -182,7 +182,7 @@ private:
     int mOpticalIterations = 2;
     float mOpticalMaxMovement = 10.0f;
     int mOpticalRadius = 1;
-    int mOpticalBlurRadius = 20;
+    int mOpticalBlurRadius = 16;
     bool mUseOpticalMedian = true;
     bool mProjectToTangentPlane = true;
     ref<RenderGraph> mpVbufferToPosGraph;

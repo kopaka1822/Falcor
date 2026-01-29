@@ -8,6 +8,7 @@ RWTexture2D<uint> gMotionError; // 0 = frozen (readonly), 1 = unreliable (dont r
 #define STATE_INTERPOLATED 2
 Texture2D<uint> gPathLength;
 Texture2D<float3> gCurPos;
+Texture2D<float> gPosDiff;
 
 SamplerState S; // linear sampler
 
@@ -46,7 +47,10 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         return; // nothing should be written (retains original value from before the first pass)
     }
 
-    const uint pathLen = gPathLength[pixel];
+    // guidance data
+    const uint localPathLength = gPathLength[pixel];
+    const float3 localPos = gCurPos[pixel];
+    const float posDiff = gPosDiff[pixel];
 
     const int2 cstart = max(0, pixel - gDirection * gRadius);
     const int2 cend = min(gFrameDim, pixel + gDirection * (gRadius + 1));
@@ -58,6 +62,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float2 m = gMotionIn[pos];
         float w = 1.0;
         if (gMotionError[pos] == STATE_UNRELIABLE) w = 0.0;
+        w *= exp(-0.1 * distance(gCurPos[pos], localPos)/posDiff);
         mSum += w * m;
         wSum += w;
     }
