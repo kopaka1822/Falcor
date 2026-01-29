@@ -3,6 +3,7 @@
 Texture2D<float2> gMotion;
 Texture2D<float2> gBackupMotion;
 RWTexture2D<float2> gMotionOut;
+RWTexture2D<uint> gMotionError;
 Texture2D<float3> gCurPos;
 Texture2D<float3> gPrevPos;
 Texture2D<float> gPosDiff;       // estimated max position difference when moving one pixel
@@ -185,7 +186,15 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
     float onePixelPosDiff = gPosDiff[pixel];
 
-    if (newError > onePixelPosDiff * 0.02) mvec = gBackupMotion[pixel];
+    if (newError > onePixelPosDiff * 0.02)
+    {
+        mvec = gBackupMotion[pixel];
+        gMotionError[pixel] = 1;
+    }
+    else
+    {
+        gMotionError[pixel] = 0;
+    }
 
     gMotionOut[pixel] = mvec;
 }

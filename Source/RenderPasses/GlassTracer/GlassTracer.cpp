@@ -34,6 +34,7 @@ namespace
     const std::string kVbuffer = "vbuffer";
     const std::string kMotion = "mvec";
     const std::string kMotionBackup = "mvecBackup";
+    const std::string kMotionErrorMask = "mvecErrorMask"; // indicates where motion could not be reconstructed faithfully
     const std::string kColorOut = "color";
     const std::string kDepthOut = "depth";
     const std::string kPosDiff = "posDiff";
@@ -122,11 +123,13 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     // Define the required resources here
     RenderPassReflection reflector;
     reflector.addOutput(kVbuffer, "V-buffer").format(HitInfo::kDefaultFormat).texture2D(dims.x, dims.y);
-    reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
-    reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
+    reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kPosDiff, "Length of Position Differential").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
+
+    reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
+    reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
 
     reflector.addOutput(kNewRayDir, "New Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kLastRayDir, "Last Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
@@ -166,6 +169,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pVbuffer = renderData.getTexture(kVbuffer);
     auto pMotion = renderData.getTexture(kMotion);
     auto pMotionBackup = renderData.getTexture(kMotionBackup);
+    auto pMotionErrorMask = renderData.getTexture(kMotionErrorMask);
     auto pColor = renderData.getTexture(kColorOut);
     auto pDepth = renderData.getTexture(kDepthOut);
     auto pDebug = renderData.getTexture(kDebug);
@@ -327,6 +331,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var = mpOpticalFlowPosPass->getRootVar();
             var["gMotion"] = pMotion;
             var["gBackupMotion"] = pMotionBackup;
+            var["gMotionError"] = pMotionErrorMask;
             var["gMotionOut"] = pMotionOptical;
             var["gCurPos"] = pPosition;
             var["gPrevPos"] = pPrevPosition;
@@ -361,6 +366,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gMotion"] = pMotion;
             var["gBackupMotion"] = pMotionBackup;
             var["gMotionOut"] = pMotionOptical;
+            var["gMotionError"] = pMotionErrorMask;
             var["gCurPos"] = pPosition;
             var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiff;
