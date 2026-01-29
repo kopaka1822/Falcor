@@ -1,102 +1,44 @@
-//import Utils.Math.MathHelpers;
-
-Texture2D<float2> gMotion;
-Texture2D<float2> gBackupMotion;
+// input/output
+Texture2D<float2> gMotionIn;
 RWTexture2D<float2> gMotionOut;
+// guidance
+Texture2D<uint> gMotionError;
 Texture2D<uint> gPathLength;
+Texture2D<float3> gCurPos;
 
 SamplerState S; // linear sampler
 
 cbuffer PerFrame
 {
-    uint2 gFrameDim;
+    int2 gFrameDim;
+    int2 gDirection; // (1, 0) or (0,1)
+    int gRadius;
 }
 
 [numthreads(16, 16, 1)]
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
-    const uint2 pixel = id.xy;
-    float2 mvec = gMotion[pixel];
-    //float2 backup_mvec = gBackupMotion[pixel];
-    //if (all(mvec == backup_mvec))
-    //{
-    //    gMotionOut[pixel] = mvec;
-    //    return; // no post-processing, just use plain backup motion vector
-    //}
-    uint pathLen = gPathLength[pixel];
+    const int2 pixel = id.xy;
+    if (gMotionError[pixel] == 0)
+        return; // nothing to filter
 
-    // uv coords
-    float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
-    const float2 step = 1.0 / float2(gFrameDim);
-    const float2 stepX = float2(step.x, 0.0);
-    const float2 stepY = float2(0.0, step.y);
+    const uint pathLen = gPathLength[pixel];
 
-    uint2 pixelDim = uint2(640, 360);
-    pixelDim.y = (pixelDim.x * gFrameDim.y) / gFrameDim.x; // match with frame dim aspect
+    const int2 cstart = max(0, pixel - gDirection * gRadius);
+    const int2 cend = min(gFrameDim, pixel + gDirection * (gRadius + 1));
 
-
-    // get median of 3x3 neighborhood
-#define RADIUS 1
-#define COUNT ((1 + 2 * RADIUS)*(1 + 2 * RADIUS))
-
-    //#define SORT_LENGTH
-    #ifdef SORT_LENGTH
-    float3 A[COUNT];
-    uint i = 0;
-    [unroll] for (int dx = -RADIUS; dx <= RADIUS; ++dx)
-        [unroll] for (int dy = -RADIUS; dy <= RADIUS; ++dy)
-        {
-            float2 off = dx * stepX + dy * stepY;
-            float2 m = gMotion.SampleLevel(S, texC + off, 0.0);
-            // xy = motion vector, z = length in pixels (sort key)
-            A[i++] = float3(m, length(m * gFrameDim));
-        }
-
-    // sort registers (length) (insertion sort)
-    [unroll] for (i = 1; i < COUNT; ++i)
+    float2 mSum = 0.0;
+    float wSum = 0.0;
+    for (int2 pos = cstart; dot(pos, gDirection) < dot(cend, gDirection); pos += gDirection)
     {
-        let m = A[i];
-        [unroll] for (uint j = i; j > 0 && A[j - 1].z > m.z; --j)
-        {
-            A[j] = A[j - 1];
-            A[j - 1] = m;
-        }
+        float2 m = gMotionIn[pos];
+        float w = 1.0;
+        if (gMotionError[pos]) w = 0.0;
+        mSum += w * m;
+        wSum += w;
     }
 
-    #else // not sort length => sort uv
-
-    float2 A[COUNT];
-    uint i = 0;
-    [unroll] for (int dx = -RADIUS; dx <= RADIUS; ++dx)
-        [unroll] for (int dy = -RADIUS; dy <= RADIUS; ++dy)
-        {
-            float2 off = dx * stepX + dy * stepY;
-            float2 m = gMotion.SampleLevel(S, texC + off, 0.0);
-            A[i++] = m;
-        }
-
-    // sort registers u,v
-    [unroll] for (i = 1; i < COUNT; ++i)
-    {
-        let m = A[i];
-        [unroll] for (uint j = i; j > 0 && A[j - 1].x > m.x; --j)
-        {
-            A[j].x = A[j - 1].x;
-            A[j - 1].x = m.x;
-        }
-    }
-    [unroll] for (i = 1; i < COUNT; ++i)
-    {
-        let m = A[i];
-        [unroll] for (uint j = i; j > 0 && A[j - 1].y > m.y; --j)
-        {
-            A[j].y = A[j - 1].y;
-            A[j - 1].y = m.y;
-        }
-    }
-    #endif
-
-    mvec = A[COUNT / 2].xy; // median
-
+    if (wSum == 0.0) return; // keep previous value
+    float2 mvec = mSum / wSum;
     gMotionOut[pixel] = mvec;
 }

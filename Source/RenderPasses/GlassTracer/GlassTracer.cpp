@@ -350,23 +350,54 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
             mpOpticalFlowPosPass->getProgram()->addDefine("PROJECT_TO_TANGENT", mProjectToTangentPlane ? "1" : "0");
 
-            mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
+            {
+                FALCOR_PROFILE(pRenderContext, "Iterations");
+                mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
+            } 
 
             // blur
+            if (mOpticalBlurRadius > 0)
             {
+                FALCOR_PROFILE(pRenderContext, "BilateralBlur");
+                // output is in pMotionOptical
+                var = mpOpticalBlurPass->getRootVar();
+                var["gMotionIn"] = pMotionOptical;
+                var["gMotionOut"] = pMotion;
+                var["gMotionError"] = pMotionErrorMask;
+                var["gPathLength"] = pLocalPathLength;
+                var["gCurPos"] = pPosition;
 
+                var["PerFrame"]["gFrameDim"] = int2(dispatch.x, dispatch.y);
+                var["PerFrame"]["gDirection"] = int2(1, 0);
+                var["PerFrame"]["gRadius"] = mOpticalBlurRadius;
+
+                mpOpticalBlurPass->execute(pRenderContext, dispatch);
+
+                // vertical pass
+                var["gMotionOut"].setUav(nullptr);
+                var["gMotionIn"] = pMotion;
+                var["gMotionOut"] = pMotionOptical;
+                var["PerFrame"]["gDirection"] = int2(0, 1);
+                mpOpticalBlurPass->execute(pRenderContext, dispatch);
             }
 
-            // output is in pMotionOptical
-            var = mpOpticalMedianPass->getRootVar();
-            var["gMotion"] = pMotionOptical;
-            var["gBackupMotion"] = pMotionBackup;
-            var["gMotionOut"] = pMotion; // backup data and output
-            var["gPathLength"] = pLocalPathLength;
+            if(mUseOpticalMedian)
+            {
+                FALCOR_PROFILE(pRenderContext, "Median");
 
-            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-            mpOpticalMedianPass->execute(pRenderContext, dispatch);
-            // output is in pMotion
+                // output is in pMotionOptical
+                var = mpOpticalMedianPass->getRootVar();
+                var["gMotion"] = pMotionOptical;
+                var["gBackupMotion"] = pMotionBackup;
+                var["gMotionOut"] = pMotion; // backup data and output
+                var["gPathLength"] = pLocalPathLength;
+
+                var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+                mpOpticalMedianPass->execute(pRenderContext, dispatch);
+                // output is in pMotion
+            }
+            else pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
+
         }
         else if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeAngle)
         {
@@ -482,6 +513,7 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
 
     if (mIterationTechnique != IterationTechnique::None)
     {
+        widget.separator();
 
         c |= widget.slider("Iterations", mIterations, 1, 20);
         if (mIterations > 1)
@@ -489,11 +521,15 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
             c |= widget.checkbox("Force It. Path Length", mForceIterationPathLength);
             widget.tooltip("If enabled, Paths must have the exact same path length as the original ray.");
         }
+
+        widget.separator();
     }
 
     c |= widget.dropdown("OpticalFlow Technique", mOpticalFlowTechnique);
     if (mOpticalFlowTechnique != OpticalFlowTechnique::None)
     {
+        widget.separator();
+
         Gui::DropdownList backupDropdown = {
             { uint32_t(GlassTracer::MotionVector::FirstHit), "FirstHit" },
             { uint32_t(GlassTracer::MotionVector::FirstRefractiveHit), "FirstRefractiveHit" },
@@ -511,6 +547,11 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
 
         c |= widget.slider("Window Radius", mOpticalRadius, 1, 10);
         c |= widget.checkbox("Project to Tangent Plane", mProjectToTangentPlane);
+
+        c |= widget.slider("Bilateral Blur Radius", mOpticalBlurRadius, 0, 100);
+        c |= widget.checkbox("Median Filter", mUseOpticalMedian);
+
+        widget.separator();
     }
 
     c |= widget.checkbox("Denoise Path Variance", mUseDenoiseGlass);
