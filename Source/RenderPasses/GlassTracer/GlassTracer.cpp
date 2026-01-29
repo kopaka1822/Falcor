@@ -52,6 +52,7 @@ namespace
     const std::string kOpticalFlowPosFile = "RenderPasses/GlassTracer/OpticalFlowPos.cs.slang";
     const std::string kOpticalFlowColorFile = "RenderPasses/GlassTracer/OpticalFlowColor.cs.slang";
     const std::string kOpticalBlurFile = "RenderPasses/GlassTracer/OpticalFlowBlur.cs.slang";
+    const std::string kOpticalMedianFile = "RenderPasses/GlassTracer/OpticalFlowMedian.cs.slang";
     const std::string kDenoiseGlassFile = "RenderPasses/GlassTracer/DenoiseGlass.cs.slang";
 
     const std::string kUseWhitelist = "useWhitelist";
@@ -76,6 +77,7 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpOpticalFlowAnglePass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "angleMain");
     mpOpticalFlowColorPass = ComputePass::create(mpDevice, kOpticalFlowColorFile, "main");
     mpOpticalBlurPass = ComputePass::create(mpDevice, kOpticalBlurFile, "main");
+    mpOpticalMedianPass = ComputePass::create(mpDevice, kOpticalMedianFile, "main");
     mpDenoiseGlassPass = ComputePass::create(mpDevice, kDenoiseGlassFile, "main");
 
     auto linearSampler = Sampler::create(mpDevice, Sampler::Desc()
@@ -86,6 +88,7 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpOpticalFlowAnglePass->getRootVar()["S"] = linearSampler;
     mpOpticalFlowColorPass->getRootVar()["S"] = linearSampler;
     mpOpticalBlurPass->getRootVar()["S"] = linearSampler;
+    mpOpticalMedianPass->getRootVar()["S"] = linearSampler;
 
     // load properties
     for (const auto& [key, value] : props)
@@ -349,15 +352,20 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
             mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
 
+            // blur
+            {
+
+            }
+
             // output is in pMotionOptical
-            var = mpOpticalBlurPass->getRootVar();
+            var = mpOpticalMedianPass->getRootVar();
             var["gMotion"] = pMotionOptical;
             var["gBackupMotion"] = pMotionBackup;
             var["gMotionOut"] = pMotion; // backup data and output
             var["gPathLength"] = pLocalPathLength;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-            mpOpticalBlurPass->execute(pRenderContext, dispatch);
+            mpOpticalMedianPass->execute(pRenderContext, dispatch);
             // output is in pMotion
         }
         else if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeAngle)
@@ -383,14 +391,14 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             mpOpticalFlowAnglePass->execute(pRenderContext, dispatch);
 
             // output is in pMotionOptical
-            var = mpOpticalBlurPass->getRootVar();
+            var = mpOpticalMedianPass->getRootVar();
             var["gMotion"] = pMotionOptical;
             var["gBackupMotion"] = pMotionBackup;
             var["gMotionOut"] = pMotion; // backup data and output
             var["gPathLength"] = pLocalPathLength;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-            mpOpticalBlurPass->execute(pRenderContext, dispatch);
+            mpOpticalMedianPass->execute(pRenderContext, dispatch);
             //pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
         }
         else if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeColor)
