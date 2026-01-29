@@ -18,14 +18,32 @@ cbuffer PerFrame
     int gRadius;
 }
 
+#define IS_FIRST_PASS (gDirection.x != 0)
+#define IS_SECOND_PASS (gDirection.y != 0)
+
+// Strategy: Pixels will be markes as FROZEN or UNRELIABLE
+// After applying the bilateral filter:
+//     FROZEN pixels will retain their original values,
+//     UNRELIABLE pixels will have values from surrounding FROZEN pixels
+// 
+// First Pass:
+// A Filter over X is applied for ALL pixels.
+// Only FROZEN pixels will be used in the filter.
+// UNREALIABLE pixels with newly interpolated values will be marked as INTERPOLATED
+// Outputs will be written into a temporaray render target.
+//
+// Second Pass:
+// A Filter over Y is applied for non-FROZEN pixels.
+// Only FROZEN and INTERPOLATED pixels will be used in the filter.
+// FROZEN pixels will write nothing at all, so that they keep their original value from before the first pass.
 [numthreads(16, 16, 1)]
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
     const int2 pixel = id.xy;
-    if (gMotionError[pixel] == STATE_FROZEN)
+    const uint state = gMotionError[pixel];
+    if (IS_SECOND_PASS && state == STATE_FROZEN)
     {
-        gMotionOut[pixel] = gMotionIn[pixel];
-        return; // nothing to filter (frozen pixel)
+        return; // nothing should be written (retains original value from before the first pass)
     }
 
     const uint pathLen = gPathLength[pixel];
@@ -45,7 +63,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     }
 
     if (wSum == 0.0) return; // keep previous value and state
-    gMotionError[pixel] = STATE_INTERPOLATED; // mark as interpolated (can be used in second pass)
+    if(state == STATE_UNRELIABLE)
+        gMotionError[pixel] = STATE_INTERPOLATED; // mark as interpolated (can be used in second pass)
     float2 mvec = mSum / wSum;
     gMotionOut[pixel] = mvec;
 }

@@ -353,6 +353,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             {
                 FALCOR_PROFILE(pRenderContext, "Iterations");
                 mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
+                pRenderContext->uavBarrier(pMotionErrorMask.get());
             } 
 
             // blur
@@ -368,16 +369,17 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
                 var["gCurPos"] = pPosition;
 
                 var["PerFrame"]["gFrameDim"] = int2(dispatch.x, dispatch.y);
-                var["PerFrame"]["gDirection"] = int2(1, 0);
+                var["PerFrame"]["gDirection"] = int2(1, 0); // first pass must be X
                 var["PerFrame"]["gRadius"] = mOpticalBlurRadius;
 
                 mpOpticalBlurPass->execute(pRenderContext, dispatch);
+                pRenderContext->uavBarrier(pMotionErrorMask.get());
 
                 // vertical pass
                 var["gMotionOut"].setUav(nullptr);
                 var["gMotionIn"] = pMotion;
                 var["gMotionOut"] = pMotionOptical;
-                var["PerFrame"]["gDirection"] = int2(0, 1);
+                var["PerFrame"]["gDirection"] = int2(0, 1); // second pass must by Y
                 mpOpticalBlurPass->execute(pRenderContext, dispatch);
             }
 
