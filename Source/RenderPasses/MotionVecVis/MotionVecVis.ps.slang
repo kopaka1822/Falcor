@@ -25,7 +25,9 @@ float3 HSVtoRGB(float3 hsv)
 
 float4 main(float2 uv: TEXCOORD, float4 svPos: SV_POSITION) : SV_TARGET
 {
-    float2 mvec = gMotionVec.Sample(s, uv).xy;
+    float2 frameDim;
+    gMotionVec.GetDimensions(frameDim.x, frameDim.y);
+    float2 mvec = gMotionVec.Sample(s, uv).xy * frameDim; // scale to pixel coordinates
 
     float len = saturate(length(mvec) * scale);
     float angle = atan2(mvec.y, mvec.x);            // radians (-pi..pi)
