@@ -188,10 +188,6 @@ private:
     ref<RenderGraph> mpVbufferToPosGraph;
     float2 mPrevJitter;
 
-    // post process denoise
-    ref<ComputePass> mpDenoiseGlassPass;
-    bool mUseDenoiseGlass = false;
-
     RenderScale mRenderScale = RenderScale::UtraPerformance;
 
     // lighting settings

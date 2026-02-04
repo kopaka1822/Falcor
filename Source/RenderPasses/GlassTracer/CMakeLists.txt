@@ -9,7 +9,6 @@ target_sources(GlassTracer PRIVATE
     OpticalFlowPos.cs.slang
     OpticalFlowColor.cs.slang
     OpticalFlowBlur.cs.slang
-    DenoiseGlass.cs.slang
     OpticalFlowMedian.cs.slang
 )
 
