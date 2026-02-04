@@ -172,6 +172,7 @@ private:
     // optical flow
     ref<Texture> mpPrevPosition;
     ref<Texture> mpPrevColor;
+    ref<Texture> mpPrevPosDiff;
     ref<Texture> mpMotionPong;
     ref<ComputePass> mpOpticalFlowPosPass;
     ref<ComputePass> mpOpticalFlowColorPass;

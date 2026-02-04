@@ -6,8 +6,9 @@ RWTexture2D<float2> gMotionOut;
 RWTexture2D<uint> gMotionError;
 Texture2D<float3> gCurPos;
 Texture2D<float3> gPrevPos;
-Texture2D<float> gPosDiff;       // estimated max position difference when moving one pixel
-Texture2D<float3> gLastRayDir;   // direction to Pos (incomming ray direction)
+Texture2D<float> gPosDiff; // estimated max position difference when moving one pixel
+Texture2D<float> gPrevPosDiff; // from last frame (for gPrevPos)
+Texture2D<float3> gLastRayDir; // direction to Pos (incomming ray direction)
 
 #ifndef PROJECT_TO_TANGENT
 #define PROJECT_TO_TANGENT 1
@@ -106,6 +107,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     float2x3 TB = float2x3(tangent, bitangent);
     #endif
 
+    bool noDeriv = false;
+
     for (uint i = 0; i < gIterations; ++i)
     {
         float2 mvec0 = adjustJitter(mvec); // adjust jitter of motion vector
@@ -133,6 +136,14 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                 w *= 1.0 - (distInPixels.x / gWindowRadius); // barycentric weights for radius=1
                 w *= 1.0 - (distInPixels.y / gWindowRadius);
                 //w *= exp(-dot(I_t, I_t)); // penalty based on squared distance
+
+                // check wheter I_x and I_y can be trusted (not much larger than expected pos diff)
+                float expectedOnePixelDiff = gPosDiff.SampleLevel(S, uv00 + off, 0.0); // TODO prev frame bufer
+                float posDiffThreshold = 2.0;
+                
+                //if (length(I_x) > posDiffThreshold * expectedOnePixelDiff) noDeriv  = true;
+                //if (length(I_y) > posDiffThreshold * expectedOnePixelDiff) noDeriv = true;
+                if (noDeriv) break;
 
                 PROJECT(I_x);
                 PROJECT(I_y);
@@ -174,19 +185,20 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
             if (newError < curError) break; // use motion vector with this alpha
         }
         if (newError >= curError) break; // cannot improve anymore
-
+        
         mvec = mvec + alpha * uvDiff;
     }
 
     // verify error
     float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
     float3 posDiff = newPos - curPos;
+    float zErr = abs(dot(posDiff, gLastRayDir[pixel]));
     PROJECT(posDiff);
     float newError = length(posDiff);
-
+    //newError = 0.0;
     float onePixelPosDiff = gPosDiff[pixel];
 
-    if (newError > onePixelPosDiff * 0.02)
+    if (newError > onePixelPosDiff * 0.02 || noDeriv)
     {
         mvec = gBackupMotion[pixel];
         gMotionError[pixel] = 1;

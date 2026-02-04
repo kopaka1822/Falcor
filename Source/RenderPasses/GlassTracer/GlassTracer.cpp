@@ -271,6 +271,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeAngle;
     ref<Texture> pPosition; // current frame
     ref<Texture> pPrevPosition; // previous frame
+    ref<Texture> pPrevPosDiff; // previous frame pos diff
     if (needPositions)
     {
         // obtain current positions
@@ -288,6 +289,18 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         else
         {
             pPrevPosition = mpPrevPosition;
+        }
+        bool usePrevPosDiff = mpPrevPosDiff &&
+            mpPrevPosDiff->getWidth() == pPosDiff->getWidth() &&
+            mpPrevPosDiff->getHeight() == pPosDiff->getHeight();
+        if (!usePrevPosDiff)
+        {
+            mpPrevPosDiff = Texture::create2D(mpDevice, pPosDiff->getWidth(), pPosDiff->getHeight(), pPosDiff->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
+            pPrevPosDiff = pPosDiff; // prev pos diff not valid, use current pos diff
+        }
+        else
+        {
+            pPrevPosDiff = mpPrevPosDiff;
         }
     }
 
@@ -337,6 +350,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gCurPos"] = pPosition;
             var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiff;
+            var["gPrevPosDiff"] = pPrevPosDiff;
             var["gLastRayDir"] = pLastRayDir;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
@@ -476,8 +490,12 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
     mPrevJitter = curJitter;
     // blit cur pos to prev pos
-    if(needPositions)
+    if (needPositions)
+    {
         pRenderContext->blit(pPosition->getSRV(), mpPrevPosition->getRTV());
+        pRenderContext->blit(pPosDiff->getSRV(), mpPrevPosDiff->getRTV());
+    }
+        
 
     // add whitelist to dict
     if (mUseTransparencyWhitelist)
