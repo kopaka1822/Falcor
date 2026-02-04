@@ -5,6 +5,10 @@ Texture2D<float2> gBackupMotion;
 RWTexture2D<float2> gMotionOut;
 Texture2D<uint> gPathLength;
 
+// error pass
+Texture2D<float> gErrorIn;
+RWTexture2D<float> gErrorOut;
+
 SamplerState S; // linear sampler
 
 cbuffer PerFrame
@@ -12,18 +16,52 @@ cbuffer PerFrame
     uint2 gFrameDim;
 }
 
+// main function for error blue
+[numthreads(16, 16, 1)]
+void errorMedianMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3 localId: SV_GroupThreadID)
+{
+    const uint2 pixel = id.xy;
+    float curError = gErrorIn[pixel];
+
+    // uv coords
+    float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
+    const float2 step = 1.0 / float2(gFrameDim);
+    const float2 stepX = float2(step.x, 0.0);
+    const float2 stepY = float2(0.0, step.y);
+
+#define RADIUS 1
+#define COUNT ((1 + 2 * RADIUS) * (1 + 2 * RADIUS))
+
+    float A[COUNT];
+    uint i = 0;
+    [unroll] for (int dx = -RADIUS; dx <= RADIUS; ++dx)
+        [unroll] for (int dy = -RADIUS; dy <= RADIUS; ++dy)
+        {
+            float2 off = dx * stepX + dy * stepY;
+            A[i++] = gErrorIn.SampleLevel(S, texC + off, 0.0);
+        }
+
+    // sort registers (insertion sort)
+    [unroll] for (i = 1; i < COUNT; ++i)
+    {
+        let e = A[i];
+        [unroll] for (uint j = i; j > 0 && A[j - 1] > e; --j)
+        {
+            A[j] = A[j - 1];
+            A[j - 1] = e;
+        }
+    }
+
+    curError = min(curError, A[COUNT / 2]);
+    gErrorOut[pixel] = curError;
+}
+
+// main function for post-process blur
 [numthreads(16, 16, 1)]
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
     const uint2 pixel = id.xy;
     float2 mvec = gMotion[pixel];
-    //float2 backup_mvec = gBackupMotion[pixel];
-    //if (all(mvec == backup_mvec))
-    //{
-    //    gMotionOut[pixel] = mvec;
-    //    return; // no post-processing, just use plain backup motion vector
-    //}
-    uint pathLen = gPathLength[pixel];
 
     // uv coords
     float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);

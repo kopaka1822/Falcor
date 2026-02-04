@@ -176,6 +176,7 @@ private:
     ref<ComputePass> mpOpticalFlowPosPass;
     ref<ComputePass> mpOpticalFlowColorPass;
     ref<ComputePass> mpOpticalFlowAnglePass;
+    ref<ComputePass> mpOpticalFlowErrorMedianPass;
     ref<ComputePass> mpOpticalMedianPass;
     ref<ComputePass> mpOpticalBlurPass;
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::LucasKanadePos;

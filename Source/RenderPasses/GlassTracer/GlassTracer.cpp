@@ -38,6 +38,7 @@ namespace
     const std::string kColorOut = "color";
     const std::string kDepthOut = "depth";
     const std::string kPosDiff = "posDiff";
+    const std::string kPosDiffBlur = "posDiffBlur";
     // iteration data
     const std::string kNewRayDir = "newRayDir";
     const std::string kLastRayDir = "lastRayDir";
@@ -77,6 +78,7 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpOpticalFlowColorPass = ComputePass::create(mpDevice, kOpticalFlowColorFile, "main");
     mpOpticalBlurPass = ComputePass::create(mpDevice, kOpticalBlurFile, "main");
     mpOpticalMedianPass = ComputePass::create(mpDevice, kOpticalMedianFile, "main");
+    mpOpticalFlowErrorMedianPass = ComputePass::create(mpDevice, kOpticalMedianFile, "errorMedianMain");
 
     auto linearSampler = Sampler::create(mpDevice, Sampler::Desc()
         .setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear)
@@ -87,6 +89,7 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpOpticalFlowColorPass->getRootVar()["S"] = linearSampler;
     mpOpticalBlurPass->getRootVar()["S"] = linearSampler;
     mpOpticalMedianPass->getRootVar()["S"] = linearSampler;
+    mpOpticalFlowErrorMedianPass->getRootVar()["S"] = linearSampler;
 
     // load properties
     for (const auto& [key, value] : props)
@@ -128,6 +131,7 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kPosDiff, "Length of Position Differential").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
+    reflector.addOutput(kPosDiffBlur, "Blurred PosDiff").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
 
     reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
@@ -175,6 +179,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pDepth = renderData.getTexture(kDepthOut);
     auto pDebug = renderData.getTexture(kDebug);
     auto pPosDiff = renderData.getTexture(kPosDiff);
+    auto pPosDiffBlur = renderData.getTexture(kPosDiffBlur);
 
     auto pNewRayDir = renderData.getTexture(kNewRayDir);
     auto pLastRayDir = renderData.getTexture(kLastRayDir);
@@ -327,6 +332,18 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     {
         FALCOR_PROFILE(pRenderContext, "OpticalFlow");
 
+        // pos diff blur preprocessing
+        {
+            FALCOR_PROFILE(pRenderContext, "ErrorBlur");
+
+            var = mpOpticalFlowErrorMedianPass->getRootVar();
+            var["gErrorIn"] = pPosDiff;
+            var["gErrorOut"] = pPosDiffBlur;
+
+            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+            mpOpticalFlowErrorMedianPass->execute(pRenderContext, dispatch);
+        }
+
         if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
         {
             var = mpOpticalFlowPosPass->getRootVar();
@@ -336,7 +353,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gMotionOut"] = pMotionOptical;
             var["gCurPos"] = pPosition;
             var["gPrevPos"] = pPrevPosition;
-            var["gPosDiff"] = pPosDiff;
+            var["gPosDiff"] = pPosDiffBlur;
             var["gLastRayDir"] = pLastRayDir;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
@@ -365,7 +382,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
                 var["gMotionError"] = pMotionErrorMask;
                 var["gPathLength"] = pLocalPathLength;
                 var["gCurPos"] = pPosition;
-                var["gPosDiff"] = pPosDiff;
+                var["gPosDiff"] = pPosDiffBlur;
 
                 var["PerFrame"]["gFrameDim"] = int2(dispatch.x, dispatch.y);
                 var["PerFrame"]["gDirection"] = int2(1, 0); // first pass must be X
@@ -409,7 +426,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gMotionError"] = pMotionErrorMask;
             var["gCurPos"] = pPosition;
             var["gPrevPos"] = pPrevPosition;
-            var["gPosDiff"] = pPosDiff;
+            var["gPosDiff"] = pPosDiffBlur;
             var["gLastRayDir"] = pLastRayDir;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
