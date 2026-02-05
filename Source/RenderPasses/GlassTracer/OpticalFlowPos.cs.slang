@@ -71,11 +71,18 @@ float2 solveLinearEq(float3 T, float3 B, float3 R)
 }
 
 // get derivative with smallest magnitude (+step/-step)
-float3 getMinDeriv(float3 prevPos, int2 uvPrev, int2 step)
+float3 getMinDeriv(float3 prevPos, int2 uvPrev, int2 step, uint reqPathLen, inout bool invalidDiffs)
 {
     // [x + 1] - [x]
     float3 deriv1 = gPrevPos[clampPixel(uvPrev + step)] - prevPos;
+    bool valid1 = (gPrevPathLen[clampPixel(uvPrev + step)] == reqPathLen);
     float3 deriv2 = prevPos - gPrevPos[clampPixel(uvPrev - step)];
+    bool valid2 = (gPrevPathLen[clampPixel(uvPrev - step)] == reqPathLen);
+
+    // only return derivatives from the same path length as prevPos
+    if (valid1 && !valid2) return deriv1;
+    if (!valid1 && valid2) return deriv2;
+    if (!valid1 && !valid2) invalidDiffs = true;
     return (length(deriv1) <= length(deriv2)) ? deriv1 : deriv2;
 }
 
@@ -134,25 +141,29 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
             {
                 int2 off = int2(dx, dy);
                 float3 prevPos = gPrevPos[clampPixel(uv00pixel + off)];
+                uint prevPathLen = gPrevPathLen[clampPixel(uv00pixel + off)];
+                //if(prevPathLen != reqPathLen) continue;
 
                 // build derivatives
                 float3 I_t = curPos - prevPos; // [t+1] - [t]
-                float3 I_x = getMinDeriv(prevPos, uv00pixel + off, int2(1, 0));
-                float3 I_y = getMinDeriv(prevPos, uv00pixel + off, int2(0, 1));
+                bool invalidDiffs = false;
+                float3 I_x = getMinDeriv(prevPos, uv00pixel + off, int2(1, 0), prevPathLen, invalidDiffs);
+                float3 I_y = getMinDeriv(prevPos, uv00pixel + off, int2(0, 1), prevPathLen, invalidDiffs);
+                //if (invalidDiffs) continue;
 
                 float2 distInPixels = abs(uv00 + dx * stepX + dy * stepY - uvPrev) * float2(gFrameDim);
                 float w = 1.0;
                 w *= 1.0 - (distInPixels.x / gWindowRadius); // barycentric weights for radius=1
                 w *= 1.0 - (distInPixels.y / gWindowRadius);
                 //w *= exp(-dot(I_t, I_t)); // penalty based on squared distance
-
+                
                 // check wheter I_x and I_y can be trusted (not much larger than expected pos diff)
                 float expectedOnePixelDiff = gPrevPosDiff[clampPixel(uv00pixel + off)];
                 float posDiffThreshold = 2.0;
-                
-                //if (length(I_x) > posDiffThreshold * expectedOnePixelDiff) noDeriv  = true;
-                //if (length(I_y) > posDiffThreshold * expectedOnePixelDiff) noDeriv = true;
-                if (noDeriv) break;
+
+                if (length(I_x) > posDiffThreshold * expectedOnePixelDiff) invalidDiffs  = true;
+                if (length(I_y) > posDiffThreshold * expectedOnePixelDiff) invalidDiffs = true;
+                //if (invalidDiffs) continue;
 
                 PROJECT(I_x);
                 PROJECT(I_y);
@@ -230,7 +241,8 @@ float3 calcdd_unit(float3 /*not normalized*/ d, float3 /*not normalized*/ dd)
 [numthreads(16, 16, 1)]
 void angleMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3 localId: SV_GroupThreadID)
 {
-    const uint2 pixel = id.xy;
+    // TODO deprecated, update
+    /*const uint2 pixel = id.xy;
     const float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
     float2 mvec = gMotion[pixel];
     const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
@@ -319,5 +331,5 @@ void angleMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3 loc
     if (newError > onePixelPosDiff * 0.1) mvec = gBackupMotion[pixel];
     //if (Tcur < 0.9999) mvec = mvec_backup;
 
-    gMotionOut[pixel] = mvec;
+    gMotionOut[pixel] = mvec;*/
 }
