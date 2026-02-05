@@ -142,14 +142,14 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                 int2 off = int2(dx, dy);
                 float3 prevPos = gPrevPos[clampPixel(uv00pixel + off)];
                 uint prevPathLen = gPrevPathLen[clampPixel(uv00pixel + off)];
-                //if(prevPathLen != reqPathLen) continue;
+                if(prevPathLen != reqPathLen) continue;
 
                 // build derivatives
                 float3 I_t = curPos - prevPos; // [t+1] - [t]
                 bool invalidDiffs = false;
                 float3 I_x = getMinDeriv(prevPos, uv00pixel + off, int2(1, 0), prevPathLen, invalidDiffs);
                 float3 I_y = getMinDeriv(prevPos, uv00pixel + off, int2(0, 1), prevPathLen, invalidDiffs);
-                //if (invalidDiffs) continue;
+                if (invalidDiffs) continue;
 
                 float2 distInPixels = abs(uv00 + dx * stepX + dy * stepY - uvPrev) * float2(gFrameDim);
                 float w = 1.0;
@@ -163,7 +163,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
                 if (length(I_x) > posDiffThreshold * expectedOnePixelDiff) invalidDiffs  = true;
                 if (length(I_y) > posDiffThreshold * expectedOnePixelDiff) invalidDiffs = true;
-                //if (invalidDiffs) continue;
+                if (invalidDiffs) continue;
 
                 PROJECT(I_x);
                 PROJECT(I_y);
@@ -179,7 +179,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
         // invert AtA
         float det = AtA[0][0] * AtA[1][1] - AtA[0][1] * AtA[1][0];
-        if (det == 0.0) break; // bad conditioned, retain original motion vector
+        if (abs(det) < 1e-16) break; // bad conditioned, retain original motion vector
 
         float2x2 invAtA = float2x2(AtA[1][1], -AtA[0][1],
                                -AtA[1][0], AtA[0][0]) / det;

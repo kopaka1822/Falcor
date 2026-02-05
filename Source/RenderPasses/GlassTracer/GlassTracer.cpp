@@ -46,6 +46,10 @@ namespace
     const std::string kReflectiveMask = "reflectiveMask";
     // optical temporaray
     const std::string kMotionOptical = "mvecOptical"; // mvecs directly after optical flow, without post-processing
+    // previous frame data for optical flow
+    const std::string kPrevPosition = "prevPosition";
+    const std::string kPrevPosDiff = "prevPosDiff";
+    const std::string kPrevPathLen = "prevPathLen";
 
     const uint32_t kMaxPayloadSizeBytes = 6 * sizeof(float);
     const std::string kProgramRaytraceFile = "RenderPasses/GlassTracer/GlassTracer.rt.slang";
@@ -135,6 +139,11 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
 
     reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
+
+    // previous frame persistent
+    reflector.addOutput(kPrevPosition, "Prev Position").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addOutput(kPrevPosDiff, "Prev Position Differential").format(ResourceFormat::R32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addOutput(kPrevPathLen, "Prev Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
 
     reflector.addOutput(kNewRayDir, "New Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kLastRayDir, "Last Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
@@ -275,51 +284,15 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos;
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeAngle;
     ref<Texture> pPosition; // current frame
-    ref<Texture> pPrevPosition; // previous frame
-    ref<Texture> pPrevPosDiff; // previous frame pos diff
-    ref<Texture> pPrevPathLen; // previous frame path length
+    ref<Texture> pPrevPosition = renderData.getTexture(kPrevPosition);
+    ref<Texture> pPrevPosDiff = renderData.getTexture(kPrevPosDiff);
+    ref<Texture> pPrevPathLen = renderData.getTexture(kPrevPathLen);
     if (needPositions)
     {
         // obtain current positions
         mpVbufferToPosGraph->setInput("UnpackVBuffer.vbuffer", pVbuffer);
         mpVbufferToPosGraph->execute(pRenderContext);
         pPosition = mpVbufferToPosGraph->getOutput("UnpackVBuffer.posW")->asTexture();
-        bool usePrevPos = mpPrevPosition &&
-            mpPrevPosition->getWidth() == pPosition->getWidth() &&
-            mpPrevPosition->getHeight() == pPosition->getHeight();
-        if (!usePrevPos)
-        {
-            mpPrevPosition = Texture::create2D(mpDevice, pPosition->getWidth(), pPosition->getHeight(), pPosition->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
-            pPrevPosition = pPosition; // prev pos not valid, use current pos
-        }
-        else
-        {
-            pPrevPosition = mpPrevPosition;
-        }
-        bool usePrevPosDiff = mpPrevPosDiff &&
-            mpPrevPosDiff->getWidth() == pPosDiff->getWidth() &&
-            mpPrevPosDiff->getHeight() == pPosDiff->getHeight();
-        if (!usePrevPosDiff)
-        {
-            mpPrevPosDiff = Texture::create2D(mpDevice, pPosDiff->getWidth(), pPosDiff->getHeight(), pPosDiff->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
-            pPrevPosDiff = pPosDiff; // prev pos diff not valid, use current pos diff
-        }
-        else
-        {
-            pPrevPosDiff = mpPrevPosDiff;
-        }
-        bool userPrevPathLen = mpPrevPathLen &&
-            mpPrevPathLen->getWidth() == pLocalPathLength->getWidth() &&
-            mpPrevPathLen->getHeight() == pLocalPathLength->getHeight();
-        if (!userPrevPathLen)
-        {
-            mpPrevPathLen = Texture::create2D(mpDevice, pLocalPathLength->getWidth(), pLocalPathLength->getHeight(), pLocalPathLength->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
-            pPrevPathLen = pLocalPathLength; // prev path len not valid, use current path len
-        }
-        else
-        {
-            pPrevPathLen = mpPrevPathLen;
-        }
     }
 
     // jitter applied in Camera::computeRayPinhole
@@ -521,12 +494,12 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
 
     mPrevJitter = curJitter;
-    // blit cur pos to prev pos
+    // blit cur to prev (persistent textures)
     if (needPositions)
     {
-        pRenderContext->blit(pPosition->getSRV(), mpPrevPosition->getRTV());
-        pRenderContext->blit(pPosDiff->getSRV(), mpPrevPosDiff->getRTV());
-        pRenderContext->blit(pLocalPathLength->getSRV(), mpPrevPathLen->getRTV());
+        pRenderContext->blit(pPosition->getSRV(), pPrevPosition->getRTV());
+        pRenderContext->blit(pPosDiffBlur->getSRV(), pPrevPosDiff->getRTV());
+        pRenderContext->blit(pLocalPathLength->getSRV(), pPrevPathLen->getRTV());
     }
         
 
