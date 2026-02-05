@@ -123,8 +123,10 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     #endif
 
     bool noDeriv = false;
+    uint iterations = gIterations;
+    if (all(mvec == 0.0)) iterations = 0; // keep mvec
 
-    for (uint i = 0; i < gIterations; ++i)
+    for (uint i = 0; i < iterations; ++i)
     {
         float2 mvec0 = adjustJitter(mvec); // adjust jitter of motion vector
         float2 uvPrev = texC + mvec0; // actual uv
