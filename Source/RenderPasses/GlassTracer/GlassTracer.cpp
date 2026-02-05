@@ -272,6 +272,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     ref<Texture> pPosition; // current frame
     ref<Texture> pPrevPosition; // previous frame
     ref<Texture> pPrevPosDiff; // previous frame pos diff
+    ref<Texture> pPrevPathLen; // previous frame path length
     if (needPositions)
     {
         // obtain current positions
@@ -301,6 +302,18 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         else
         {
             pPrevPosDiff = mpPrevPosDiff;
+        }
+        bool userPrevPathLen = mpPrevPathLen &&
+            mpPrevPathLen->getWidth() == pLocalPathLength->getWidth() &&
+            mpPrevPathLen->getHeight() == pLocalPathLength->getHeight();
+        if (!userPrevPathLen)
+        {
+            mpPrevPathLen = Texture::create2D(mpDevice, pLocalPathLength->getWidth(), pLocalPathLength->getHeight(), pLocalPathLength->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
+            pPrevPathLen = pLocalPathLength; // prev path len not valid, use current path len
+        }
+        else
+        {
+            pPrevPathLen = mpPrevPathLen;
         }
     }
 
@@ -351,6 +364,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiff;
             var["gPrevPosDiff"] = pPrevPosDiff;
+            var["gCurPathLen"] = pLocalPathLength;
+            var["gPrevPathLen"] = pPrevPathLen;
             var["gLastRayDir"] = pLastRayDir;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
@@ -494,6 +509,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     {
         pRenderContext->blit(pPosition->getSRV(), mpPrevPosition->getRTV());
         pRenderContext->blit(pPosDiff->getSRV(), mpPrevPosDiff->getRTV());
+        pRenderContext->blit(pLocalPathLength->getSRV(), mpPrevPathLen->getRTV());
     }
         
 

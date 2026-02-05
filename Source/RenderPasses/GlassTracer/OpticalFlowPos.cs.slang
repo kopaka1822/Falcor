@@ -9,6 +9,8 @@ Texture2D<float3> gPrevPos;
 Texture2D<float> gPosDiff; // estimated max position difference when moving one pixel
 Texture2D<float> gPrevPosDiff; // from last frame (for gPrevPos)
 Texture2D<float3> gLastRayDir; // direction to Pos (incomming ray direction)
+Texture2D<uint> gCurPathLen;
+Texture2D<uint> gPrevPathLen;
 
 #ifndef PROJECT_TO_TANGENT
 #define PROJECT_TO_TANGENT 1
@@ -69,11 +71,11 @@ float2 solveLinearEq(float3 T, float3 B, float3 R)
 }
 
 // get derivative with smallest magnitude (+step/-step)
-float3 getMinDeriv(float3 prevPos, float2 uvPrev, float2 step)
+float3 getMinDeriv(float3 prevPos, int2 uvPrev, int2 step)
 {
     // [x + 1] - [x]
-    float3 deriv1 = gPrevPos.SampleLevel(S, uvPrev + step, 0.0) - prevPos;
-    float3 deriv2 = prevPos - gPrevPos.SampleLevel(S, uvPrev - step, 0.0);
+    float3 deriv1 = gPrevPos[clampPixel(uvPrev + step)] - prevPos;
+    float3 deriv2 = prevPos - gPrevPos[clampPixel(uvPrev - step)];
     return (length(deriv1) <= length(deriv2)) ? deriv1 : deriv2;
 }
 
@@ -89,12 +91,18 @@ float2 adjustJitter(float2 mvec)
     return mvec - gPrevJitter + gCurJitter;
 }
 
+uint2 clampPixel(int2 coord)
+{
+    return uint2(clamp(coord, 0, int2(gFrameDim) - 1));
+}
+
 [numthreads(16, 16, 1)]
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
     const uint2 pixel = id.xy;
     const float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
     float2 mvec = gMotion[pixel];
+    const uint reqPathLen = gCurPathLen[pixel]; // required path length: other positions should be taken from this exact path length, otherwise they are likeley invalid
     const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
 
     const float2 step = 1.0 / float2(gFrameDim);
@@ -114,6 +122,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float2 mvec0 = adjustJitter(mvec); // adjust jitter of motion vector
         float2 uvPrev = texC + mvec0; // actual uv
         float2 uv00 = snapTopLeft(texC + mvec0); // snap uv to top left (pixel center)
+        int2 uv00pixel = int2(uv00 * float2(gFrameDim));
 
         float2x2 AtA = 0.0;
         float2 Atb = 0.0;
@@ -123,22 +132,22 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         for (int dx = -gWindowRadius + 1; dx <= gWindowRadius; ++dx)
             for (int dy = -gWindowRadius + 1; dy <= gWindowRadius; ++dy)
             {
-                float2 off = dx * stepX + dy * stepY;
-                float3 prevPos = gPrevPos.SampleLevel(S, uv00 + off, 0.0);
+                int2 off = int2(dx, dy);
+                float3 prevPos = gPrevPos[clampPixel(uv00pixel + off)];
 
                 // build derivatives
                 float3 I_t = curPos - prevPos; // [t+1] - [t]
-                float3 I_x = getMinDeriv(prevPos, uv00 + off, stepX);
-                float3 I_y = getMinDeriv(prevPos, uv00 + off, stepY);
+                float3 I_x = getMinDeriv(prevPos, uv00pixel + off, int2(1, 0));
+                float3 I_y = getMinDeriv(prevPos, uv00pixel + off, int2(0, 1));
 
-                float2 distInPixels = abs(uv00 + off - uvPrev) * float2(gFrameDim);
+                float2 distInPixels = abs(uv00 + dx * stepX + dy * stepY - uvPrev) * float2(gFrameDim);
                 float w = 1.0;
                 w *= 1.0 - (distInPixels.x / gWindowRadius); // barycentric weights for radius=1
                 w *= 1.0 - (distInPixels.y / gWindowRadius);
                 //w *= exp(-dot(I_t, I_t)); // penalty based on squared distance
 
                 // check wheter I_x and I_y can be trusted (not much larger than expected pos diff)
-                float expectedOnePixelDiff = gPosDiff.SampleLevel(S, uv00 + off, 0.0); // TODO prev frame bufer
+                float expectedOnePixelDiff = gPrevPosDiff[clampPixel(uv00pixel + off)];
                 float posDiffThreshold = 2.0;
                 
                 //if (length(I_x) > posDiffThreshold * expectedOnePixelDiff) noDeriv  = true;
