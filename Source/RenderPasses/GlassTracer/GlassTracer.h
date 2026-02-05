@@ -169,7 +169,8 @@ private:
     ref<RtProgram> mpIterationProgram;
     ref<RtProgramVars> mpIterationVars;
 
-    // optical flow
+    // optical flow#
+    ref<Texture> mpPositions;
     ref<Texture> mpPrevColor;
     ref<ComputePass> mpOpticalFlowPosPass;
     ref<ComputePass> mpOpticalFlowColorPass;

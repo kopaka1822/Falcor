@@ -134,8 +134,8 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
-    reflector.addOutput(kPosDiff, "Length of Position Differential").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
-    reflector.addOutput(kPosDiffBlur, "Blurred PosDiff").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
+    reflector.addOutput(kPosDiff, "Length of Position Differential").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);;
+    reflector.addOutput(kPosDiffBlur, "Blurred PosDiff").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
 
     reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
@@ -147,7 +147,7 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
 
     reflector.addOutput(kNewRayDir, "New Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kLastRayDir, "Last Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
-    reflector.addOutput(kLocalPathLength, "Local Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y); 
+    reflector.addOutput(kLocalPathLength, "Local Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addOutput(kReflectiveMask, "Reflective Mask").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y); // TODO higher limit to support path length > 32
 
     reflector.addOutput(kMotionOptical, "Motion vector (tmp from optical)").format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
@@ -217,6 +217,15 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         return;
     }
 
+    // copy resources from last frames before being overwritten
+    ref<Texture> pPrevPosDiff = renderData.getTexture(kPrevPosDiff);
+    ref<Texture> pPrevPathLen = renderData.getTexture(kPrevPathLen);
+    ref<Texture> pPrevPosition = renderData.getTexture(kPrevPosition);
+    pRenderContext->blit(pPosDiffBlur->getSRV(), pPrevPosDiff->getRTV());
+    pRenderContext->blit(pLocalPathLength->getSRV(), pPrevPathLen->getRTV());
+    if(mpPositions && mpPositions->getWidth() == pPrevPosition->getWidth() && mpPositions->getHeight() == pPrevPosition->getHeight())
+        pRenderContext->blit(mpPositions->getSRV(), pPrevPosition->getRTV());
+
     assert(mpProgram);
     assert(mpVars);
 
@@ -283,16 +292,12 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     needPositions |= needsIterations;
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos;
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeAngle;
-    ref<Texture> pPosition; // current frame
-    ref<Texture> pPrevPosition = renderData.getTexture(kPrevPosition);
-    ref<Texture> pPrevPosDiff = renderData.getTexture(kPrevPosDiff);
-    ref<Texture> pPrevPathLen = renderData.getTexture(kPrevPathLen);
     if (needPositions)
     {
         // obtain current positions
         mpVbufferToPosGraph->setInput("UnpackVBuffer.vbuffer", pVbuffer);
         mpVbufferToPosGraph->execute(pRenderContext);
-        pPosition = mpVbufferToPosGraph->getOutput("UnpackVBuffer.posW")->asTexture();
+        mpPositions = mpVbufferToPosGraph->getOutput("UnpackVBuffer.posW")->asTexture();
     }
 
     // jitter applied in Camera::computeRayPinhole
@@ -350,7 +355,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gBackupMotion"] = pMotionBackup;
             var["gMotionError"] = pMotionErrorMask;
             var["gMotionOut"] = pMotionOptical;
-            var["gCurPos"] = pPosition;
+            var["gCurPos"] = mpPositions;
             var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiffBlur;
             var["gPrevPosDiff"] = pPrevPosDiff;
@@ -383,7 +388,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
                 var["gMotionOut"] = pMotion;
                 var["gMotionError"] = pMotionErrorMask;
                 var["gPathLength"] = pLocalPathLength;
-                var["gCurPos"] = pPosition;
+                var["gCurPos"] = mpPositions;
                 var["gPosDiff"] = pPosDiffBlur;
 
                 var["PerFrame"]["gFrameDim"] = int2(dispatch.x, dispatch.y);
@@ -426,7 +431,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gBackupMotion"] = pMotionBackup;
             var["gMotionOut"] = pMotionOptical;
             var["gMotionError"] = pMotionErrorMask;
-            var["gCurPos"] = pPosition;
+            var["gCurPos"] = mpPositions;
             var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiffBlur;
             var["gLastRayDir"] = pLastRayDir;
@@ -494,14 +499,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
 
     mPrevJitter = curJitter;
-    // blit cur to prev (persistent textures)
-    if (needPositions)
-    {
-        pRenderContext->blit(pPosition->getSRV(), pPrevPosition->getRTV());
-        pRenderContext->blit(pPosDiffBlur->getSRV(), pPrevPosDiff->getRTV());
-        pRenderContext->blit(pLocalPathLength->getSRV(), pPrevPathLen->getRTV());
-    }
-        
 
     // add whitelist to dict
     if (mUseTransparencyWhitelist)

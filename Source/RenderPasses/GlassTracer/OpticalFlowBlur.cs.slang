@@ -62,7 +62,10 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float2 m = gMotionIn[pos];
         float w = 1.0;
         if (gMotionError[pos] == STATE_UNRELIABLE) w = 0.0;
-        w *= exp(-0.1 * distance(gCurPos[pos], localPos)/posDiff);
+        // geometric distance
+        w *= exp(-0.5 * distance(gCurPos[pos], localPos)/posDiff);
+        // weigh each sample by the length of its vector
+        w *= 1.0 / (pow(length(m), 2.0) + 1e-12);
         mSum += w * m;
         wSum += w;
     }
