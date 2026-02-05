@@ -218,7 +218,15 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     //newError = 0.0;
     float onePixelPosDiff = gPosDiff[pixel];
 
-    if (newError > onePixelPosDiff * 0.02 || noDeriv)
+    // test for path length discontinuety
+    bool pathLenDiscont = false;
+    int2 pathOffset[4] = { int2(-1, 0), int2(1, 0), int2(0, 1), int2(0, -1) };
+    for (uint i = 0; i < 4; ++i)
+        if(gCurPathLen[clampPixel(pixel + pathOffset[i]) ] != reqPathLen)
+            pathLenDiscont = true;
+    //pathLenDiscont = false;
+
+    if (newError > onePixelPosDiff * 0.02 || noDeriv || pathLenDiscont)
     {
         mvec = gBackupMotion[pixel];
         gMotionError[pixel] = 1;
@@ -229,6 +237,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     }
 
     gMotionOut[pixel] = mvec;
+    //gMotionOut[pixel] = 0.0;
 }
 
 // derivative of normalized direction d_unit
