@@ -62,7 +62,7 @@
     </dependency>
     <remote name="dlss-github" type="https" packageLocation="github.com/NVIDIA/DLSS/archive/refs/tags/v${version}.zip"/>
     <dependency name="dlss" linkPath="external/packman/dlss">
-        <package name="dlss" version="310.1.0" remotes="dlss-github" platforms="windows-x86_64 linux-x86_64" />
+        <package name="dlss" version="310.5.3" remotes="dlss-github" platforms="windows-x86_64 linux-x86_64" />
     </dependency>
     <remote name="fsr-github" type="https" packageLocation="github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/releases/download/v1.1.3/FidelityFX-SDK-v1.1.3.zip"/>
     <dependency name="fsr" linkPath="external/packman/fsr">

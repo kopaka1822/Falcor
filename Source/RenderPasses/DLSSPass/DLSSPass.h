@@ -63,28 +63,22 @@ public:
     enum class Preset : uint32_t
     {
         Default,
-        PresetA,
-        PresetB,
-        PresetC,
-        PresetD,
-        PresetE,
         PresetF,
         PresetJ,
         PresetK,
+        PresetL,
+        PresetM
     };
 
     FALCOR_ENUM_INFO(
         Preset,
         {
-            {Preset::Default, "Default(CNN)"},
-            {Preset::PresetA, "PresetA(CNN)"},
-            {Preset::PresetB, "PresetB(CNN)"},
-            {Preset::PresetC, "PresetC(CNN)"},
-            {Preset::PresetD, "PresetD(CNN)"},
-            {Preset::PresetE, "PresetE(CNN)"},
-            {Preset::PresetF, "PresetF(CNN)"},
-            {Preset::PresetJ, "PresetJ(Transformer)"},
-            {Preset::PresetK, "PresetK(Transformer)"},
+            {Preset::Default, "Default"},
+            {Preset::PresetF, "PresetF (Deprecated)"},
+            {Preset::PresetJ, "PresetJ (Less Ghosting, More Flickering)"},
+            {Preset::PresetK, "PresetK (Default for DLAA/Balance/Quality)"},
+            {Preset::PresetL, "PresetL (Default for Ultra Perf.)"},
+            {Preset::PresetM, "PresetM (Default for Perf.)"},
         }
     );
 
