@@ -369,6 +369,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["PerFrame"]["gCurJitter"] = curJitter;
             var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
             var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
+            var["PerFrame"]["gForceMotionVectorCalculation"] = mForceMotionVectorCalculation ? 1 : 0;
 
             mpOpticalFlowPosPass->getProgram()->addDefine("PROJECT_TO_TANGENT", mProjectToTangentPlane ? "1" : "0");
 
@@ -376,7 +377,25 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
                 FALCOR_PROFILE(pRenderContext, "Iterations");
                 mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
                 pRenderContext->uavBarrier(pMotionErrorMask.get());
-            } 
+            }
+
+            if (mUseOpticalMedianPrePass)
+            {
+                FALCOR_PROFILE(pRenderContext, "Median PrePass");
+
+                // output is in pMotionOptical
+                var = mpOpticalMedianPass->getRootVar();
+                var["gMotion"] = pMotionOptical;
+                var["gBackupMotion"] = pMotionBackup;
+                var["gMotionOut"] = pMotion; // backup data and output
+                var["gPathLength"] = pLocalPathLength;
+
+                var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+                mpOpticalMedianPass->execute(pRenderContext, dispatch);
+                // output is in pMotion
+                pRenderContext->blit(pMotion->getSRV(), pMotionOptical->getRTV());
+                // output is in pMotionOptical
+            }
 
             // blur
             if (mOpticalBlurRadius > 0)
@@ -561,6 +580,7 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         c |= widget.slider("Window Radius", mOpticalRadius, 1, 10);
         c |= widget.checkbox("Project to Tangent Plane", mProjectToTangentPlane);
 
+        c |= widget.checkbox("Median Filter Pre-Blur", mUseOpticalMedianPrePass);
         c |= widget.slider("Bilateral Blur Radius", mOpticalBlurRadius, 0, 100);
         c |= widget.checkbox("Median Filter", mUseOpticalMedian);
 

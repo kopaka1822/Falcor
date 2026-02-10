@@ -32,7 +32,8 @@ cbuffer PerFrame
     uint gIterations;
     float gMaxMovement; // max movement in pixels
     int gWindowRadius;  // radius in pixels (1 = default)
-    float3 camPos; // camera position current frame
+    float3 camPos;      // camera position current frame
+    bool gForceMotionVectorCalculation;
 }
 
 // solves t * T + b * B = R and returns (t, b)
@@ -124,7 +125,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
     bool noDeriv = false;
     uint iterations = gIterations;
-    if (all(mvec == 0.0)) iterations = 0; // keep mvec
+    if (all(mvec == 0.0) && !gForceMotionVectorCalculation) iterations = 0; // keep mvec
 
     for (uint i = 0; i < iterations; ++i)
     {
