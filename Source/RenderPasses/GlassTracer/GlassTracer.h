@@ -176,6 +176,7 @@ private:
     ref<ComputePass> mpOpticalFlowColorPass;
     ref<ComputePass> mpOpticalFlowAnglePass;
     ref<ComputePass> mpOpticalFlowErrorMedianPass;
+    ref<ComputePass> mpOpticalMedianPrePass;
     ref<ComputePass> mpOpticalMedianPass;
     ref<ComputePass> mpOpticalBlurPass;
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::LucasKanadePos;
@@ -183,7 +184,7 @@ private:
     float mOpticalMaxMovement = 10.0f;
     int mOpticalRadius = 1;
     int mOpticalBlurRadius = 16;
-    bool mUseOpticalMedianPrePass = true;
+    bool mUseOpticalMedianPrePass = false;
     bool mUseOpticalMedian = true;
     bool mProjectToTangentPlane = true;
     ref<RenderGraph> mpVbufferToPosGraph;

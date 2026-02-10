@@ -35,6 +35,7 @@ namespace
     const std::string kMotion = "mvec";
     const std::string kMotionBackup = "mvecBackup";
     const std::string kMotionErrorMask = "mvecErrorMask"; // indicates where motion could not be reconstructed faithfully
+    const std::string kMotionErrorTmp = "mvecErrorTmp"; // intermediate buffer
     const std::string kColorOut = "color";
     const std::string kDepthOut = "depth";
     const std::string kPosDiff = "posDiff";
@@ -83,6 +84,7 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpOpticalBlurPass = ComputePass::create(mpDevice, kOpticalBlurFile, "main");
     mpOpticalMedianPass = ComputePass::create(mpDevice, kOpticalMedianFile, "main");
     mpOpticalFlowErrorMedianPass = ComputePass::create(mpDevice, kOpticalMedianFile, "errorMedianMain");
+    mpOpticalMedianPrePass = ComputePass::create(mpDevice, kOpticalMedianFile, "medianPreMain");
 
     auto linearSampler = Sampler::create(mpDevice, Sampler::Desc()
         .setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear)
@@ -94,6 +96,7 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpOpticalBlurPass->getRootVar()["S"] = linearSampler;
     mpOpticalMedianPass->getRootVar()["S"] = linearSampler;
     mpOpticalFlowErrorMedianPass->getRootVar()["S"] = linearSampler;
+    mpOpticalMedianPrePass->getRootVar()["S"] = linearSampler;
 
     // load properties
     for (const auto& [key, value] : props)
@@ -139,6 +142,7 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
 
     reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
+    reflector.addInternal(kMotionErrorTmp, "Motion vector error mask").bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
 
     // previous frame persistent
     reflector.addOutput(kPrevPosition, "Prev Position").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
@@ -184,6 +188,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pMotion = renderData.getTexture(kMotion);
     auto pMotionBackup = renderData.getTexture(kMotionBackup);
     auto pMotionErrorMask = renderData.getTexture(kMotionErrorMask);
+    auto pMotionErrorTmp = renderData.getTexture(kMotionErrorTmp);
     auto pColor = renderData.getTexture(kColorOut);
     auto pDepth = renderData.getTexture(kDepthOut);
     auto pDebug = renderData.getTexture(kDebug);
@@ -384,16 +389,20 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
                 FALCOR_PROFILE(pRenderContext, "Median PrePass");
 
                 // output is in pMotionOptical
-                var = mpOpticalMedianPass->getRootVar();
+                var = mpOpticalMedianPrePass->getRootVar();
                 var["gMotion"] = pMotionOptical;
-                var["gBackupMotion"] = pMotionBackup;
                 var["gMotionOut"] = pMotion; // backup data and output
-                var["gPathLength"] = pLocalPathLength;
+                //var["gPathLength"] = pLocalPathLength;
+                //var["gBackupMotion"] = pMotionBackup;
+                var["gMotionError"] = pMotionErrorMask;
+                var["gMotionErrorOut"] = pMotionErrorTmp;
+
 
                 var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-                mpOpticalMedianPass->execute(pRenderContext, dispatch);
+                mpOpticalMedianPrePass->execute(pRenderContext, dispatch);
                 // output is in pMotion
                 pRenderContext->blit(pMotion->getSRV(), pMotionOptical->getRTV());
+                pRenderContext->blit(pMotionErrorTmp->getSRV(), pMotionErrorMask->getRTV());
                 // output is in pMotionOptical
             }
 
