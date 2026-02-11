@@ -10,6 +10,7 @@ target_sources(GlassTracer PRIVATE
     OpticalFlowColor.cs.slang
     OpticalFlowBlur.cs.slang
     OpticalFlowMedian.cs.slang
+    ReplaceBackup.cs.slang
 )
 
 target_copy_shaders(GlassTracer RenderPasses/GlassTracer)

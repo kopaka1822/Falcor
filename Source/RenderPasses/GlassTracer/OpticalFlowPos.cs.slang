@@ -110,6 +110,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     const uint2 pixel = id.xy;
     const float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
     float2 mvec = gMotion[pixel];
+    const float2 originalMvec = mvec;
     const uint reqPathLen = gCurPathLen[pixel]; // required path length: other positions should be taken from this exact path length, otherwise they are likeley invalid
     const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
 
@@ -232,6 +233,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     if (newError > onePixelPosDiff * 0.02 || noDeriv || pathLenDiscont)
     {
         mvec = gBackupMotion[pixel];
+        mvec = originalMvec;
         gMotionError[pixel] = 1;
     }
     else
