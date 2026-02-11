@@ -184,8 +184,8 @@ private:
     float mOpticalMaxMovement = 10.0f;
     int mOpticalRadius = 1;
     int mOpticalBlurRadius = 16;
-    bool mUseOpticalMedianPrePass = false;
-    bool mUseOpticalMedian = true;
+    bool mUseOpticalMedianPrePass = true;
+    bool mUseOpticalMedian = false;
     bool mProjectToTangentPlane = true;
     ref<RenderGraph> mpVbufferToPosGraph;
     float2 mPrevJitter;

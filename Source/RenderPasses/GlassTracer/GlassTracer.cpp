@@ -141,8 +141,8 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kPosDiffBlur, "Blurred PosDiff").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
 
     reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
-    reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
-    reflector.addInternal(kMotionErrorTmp, "Motion vector error mask").bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
+    reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
+    reflector.addInternal(kMotionErrorTmp, "Motion vector error mask").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
 
     // previous frame persistent
     reflector.addOutput(kPrevPosition, "Prev Position").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
