@@ -378,6 +378,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
             var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
             var["PerFrame"]["gForceMotionVectorCalculation"] = mForceMotionVectorCalculation ? 1 : 0;
+            var["PerFrame"]["gCompareWithBackupMotion"] = mCompareWithBackupMotion ? 1 : 0;
 
             mpOpticalFlowPosPass->getProgram()->addDefine("PROJECT_TO_TANGENT", mProjectToTangentPlane ? "1" : "0");
 
@@ -609,6 +610,7 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
 
         c |= widget.slider("Iterations##1", mOpticalIterations, 1, 20);
 
+        c |= widget.checkbox("Compare with Backup Motion", mCompareWithBackupMotion);
         c |= widget.var("Max Pixel Movement", mOpticalMaxMovement, 1.0f / 32.0f, 40.0f, 1.0f / 32.0f);
         widget.tooltip("Maximum allowed pixel movement per iteration");
 

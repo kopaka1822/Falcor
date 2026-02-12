@@ -182,7 +182,8 @@ private:
     ref<ComputePass> mpReplaceBackupPass;
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::LucasKanadePos;
     int mOpticalIterations = 2;
-    float mOpticalMaxMovement = 10.0f;
+    bool mCompareWithBackupMotion = true;
+    float mOpticalMaxMovement = 100.0f;
     int mOpticalRadius = 1;
     int mOpticalBlurRadius = 16;
     bool mUseOpticalMedianPrePass = true;

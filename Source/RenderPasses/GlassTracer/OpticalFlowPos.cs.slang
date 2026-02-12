@@ -34,6 +34,7 @@ cbuffer PerFrame
     int gWindowRadius;  // radius in pixels (1 = default)
     float3 camPos;      // camera position current frame
     bool gForceMotionVectorCalculation;
+    bool gCompareWithBackupMotion;
 }
 
 // solves t * T + b * B = R and returns (t, b)
@@ -104,13 +105,22 @@ uint2 clampPixel(int2 coord)
     return uint2(clamp(coord, 0, int2(gFrameDim) - 1));
 }
 
+float calcEstimatedError(float2 texC, float2 mvec, float3 curPos, float2x3 TB)
+{
+    float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
+    float3 posDiff = newPos - curPos;
+    PROJECT(posDiff);
+    float newError = length(posDiff);
+    return newError;
+}
+
 [numthreads(16, 16, 1)]
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
     const uint2 pixel = id.xy;
     const float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
     float2 mvec = gMotion[pixel];
-    const float2 originalMvec = mvec;
+    float2 bmvec = gBackupMotion[pixel];
     const uint reqPathLen = gCurPathLen[pixel]; // required path length: other positions should be taken from this exact path length, otherwise they are likeley invalid
     const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
 
@@ -118,16 +128,23 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     const float2 stepX = float2(step.x, 0.0);
     const float2 stepY = float2(0.0, step.y);
 
+    float2x3 TB;
     #if PROJECT_TO_TANGENT
     float3 tangent = normalize(cross(float3(0.0, 1.0, 0.0), gLastRayDir[pixel]));
     float3 bitangent = cross(gLastRayDir[pixel], tangent);
-    float2x3 TB = float2x3(tangent, bitangent);
+    TB = float2x3(tangent, bitangent);
     #endif
+
+    // initial check wheter mvec or bmvec is better
+    if (gCompareWithBackupMotion)
+        if (calcEstimatedError(texC, bmvec, curPos, TB) < calcEstimatedError(texC, mvec, curPos, TB))
+            mvec = bmvec;
 
     bool noDeriv = false;
     uint iterations = gIterations;
     if (all(mvec == 0.0) && !gForceMotionVectorCalculation) iterations = 0; // keep mvec
 
+    const float2 originalMvec = mvec; // mvec from before iterations
     for (uint i = 0; i < iterations; ++i)
     {
         float2 mvec0 = adjustJitter(mvec); // adjust jitter of motion vector
@@ -214,11 +231,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     }
 
     // verify error
-    float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
-    float3 posDiff = newPos - curPos;
-    float zErr = abs(dot(posDiff, gLastRayDir[pixel]));
-    PROJECT(posDiff);
-    float newError = length(posDiff);
+    float newError = calcEstimatedError(texC, mvec, curPos, TB);
     //newError = 0.0;
     float onePixelPosDiff = gPosDiff[pixel];
 
@@ -232,7 +245,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
     if (newError > onePixelPosDiff * 0.02 || noDeriv || pathLenDiscont)
     {
-        mvec = gBackupMotion[pixel];
         mvec = originalMvec;
         gMotionError[pixel] = 1;
     }
