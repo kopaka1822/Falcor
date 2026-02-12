@@ -59,7 +59,6 @@ namespace
     const std::string kOpticalFlowColorFile = "RenderPasses/GlassTracer/OpticalFlowColor.cs.slang";
     const std::string kOpticalBlurFile = "RenderPasses/GlassTracer/OpticalFlowBlur.cs.slang";
     const std::string kOpticalMedianFile = "RenderPasses/GlassTracer/OpticalFlowMedian.cs.slang";
-    const std::string kReplaceBackupFile = "RenderPasses/GlassTracer/ReplaceBackup.cs.slang";
 
     const std::string kUseWhitelist = "useWhitelist";
     const std::string kWhitelist = "whitelist";
@@ -86,7 +85,6 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpOpticalMedianPass = ComputePass::create(mpDevice, kOpticalMedianFile, "main");
     mpOpticalFlowErrorMedianPass = ComputePass::create(mpDevice, kOpticalMedianFile, "errorMedianMain");
     mpOpticalMedianPrePass = ComputePass::create(mpDevice, kOpticalMedianFile, "medianPreMain");
-    mpReplaceBackupPass = ComputePass::create(mpDevice, kReplaceBackupFile, "main");
 
     auto linearSampler = Sampler::create(mpDevice, Sampler::Desc()
         .setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear)
@@ -99,7 +97,6 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpOpticalMedianPass->getRootVar()["S"] = linearSampler;
     mpOpticalFlowErrorMedianPass->getRootVar()["S"] = linearSampler;
     mpOpticalMedianPrePass->getRootVar()["S"] = linearSampler;
-    mpReplaceBackupPass->getRootVar()["S"] = linearSampler;
 
     // load properties
     for (const auto& [key, value] : props)
@@ -529,30 +526,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         }
     }
 
-    if (mReplaceWithBackup)
-    {
-        FALCOR_PROFILE(pRenderContext, "ReplaceBackup");
-
-        ref<Texture> pPrevColor;
-        auto pRenderGraph = (RenderGraph*)renderData.getDictionary()[kRenderGraph];
-        if (pRenderGraph)
-        {
-            auto pPrimOutput = pRenderGraph->getOutput("ToneMapper.dst");
-            if (pPrimOutput) pPrevColor = pPrimOutput->asTexture();
-        }
-
-        var = mpReplaceBackupPass->getRootVar();
-        var["gMotion"] = pMotion;
-        var["gBackupMotion"] = pMotionBackup;
-        var["gMotionError"] = pMotionErrorMask;
-        var["gColor"] = pColor;
-        var["gPrevColor"] = pPrevColor;
-        var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-        var["PerFrame"]["gPrevJitter"] = mPrevJitter;
-        var["PerFrame"]["gCurJitter"] = curJitter;
-        mpReplaceBackupPass->execute(pRenderContext, dispatch);
-    }
-
     mPrevJitter = curJitter;
 
     // add whitelist to dict
@@ -620,7 +593,6 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         c |= widget.checkbox("Median Filter Pre-Blur", mUseOpticalMedianPrePass);
         c |= widget.slider("Bilateral Blur Radius", mOpticalBlurRadius, 0, 100);
         c |= widget.checkbox("Median Filter", mUseOpticalMedian);
-        c |= widget.checkbox("Replace with Backup", mReplaceWithBackup);
         widget.tooltip("Compares the current motion vector with the backup motion vector, and replaces it if the backup motion vector is more promising.");
 
         widget.separator();
