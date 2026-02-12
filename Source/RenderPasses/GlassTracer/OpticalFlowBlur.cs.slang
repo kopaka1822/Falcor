@@ -8,15 +8,45 @@ RWTexture2D<uint> gMotionError; // 0 = frozen (readonly), 1 = unreliable (dont r
 #define STATE_INTERPOLATED 2
 Texture2D<uint> gPathLength;
 Texture2D<float3> gCurPos;
+Texture2D<float3> gPrevPos;
 Texture2D<float> gPosDiff;
+Texture2D<float3> gLastRayDir; // direction to Pos (incomming ray direction)
 
 SamplerState S; // linear sampler
+
+#ifndef PROJECT_TO_TANGENT
+#define PROJECT_TO_TANGENT 1
+#endif
+
+#if PROJECT_TO_TANGENT
+#define PROJECT(v) v.xy = mul(TB, v); v.z = 0.0;
+#else
+#define PROJECT(v)
+#endif
 
 cbuffer PerFrame
 {
     int2 gFrameDim;
     int2 gDirection; // (1, 0) or (0,1)
+    float2 gPrevJitter;
+    float2 gCurJitter;
     int gRadius;
+    bool gCompareBilateralOutput;
+}
+
+// adjust jitter for prev-lookup
+float2 adjustJitter(float2 mvec)
+{
+    return mvec - gPrevJitter + gCurJitter;
+}
+
+float calcEstimatedError(float2 texC, float2 mvec, float3 curPos, float2x3 TB)
+{
+    float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
+    float3 posDiff = newPos - curPos;
+    PROJECT(posDiff);
+    float newError = length(posDiff);
+    return newError;
 }
 
 #define IS_FIRST_PASS (gDirection.x != 0)
@@ -41,6 +71,7 @@ cbuffer PerFrame
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
     const int2 pixel = id.xy;
+    const float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
     const uint state = gMotionError[pixel];
     if (IS_SECOND_PASS && state == STATE_FROZEN)
     {
@@ -74,5 +105,22 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     if(state == STATE_UNRELIABLE)
         gMotionError[pixel] = STATE_INTERPOLATED; // mark as interpolated (can be used in second pass)
     float2 mvec = mSum / wSum;
+
+    if (gCompareBilateralOutput && IS_SECOND_PASS)
+    {
+        float2 bmvec = gMotionOut[pixel]; // output of the LK-algorithm before the first pass
+
+        float2x3 TB;
+        #if PROJECT_TO_TANGENT
+        float3 tangent = normalize(cross(float3(0.0, 1.0, 0.0), gLastRayDir[pixel]));
+        float3 bitangent = cross(gLastRayDir[pixel], tangent);
+        TB = float2x3(tangent, bitangent);
+        #endif
+
+        const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
+        if (calcEstimatedError(texC, bmvec, curPos, TB) < calcEstimatedError(texC, mvec, curPos, TB))
+            mvec = bmvec;
+    }
+
     gMotionOut[pixel] = mvec;
 }

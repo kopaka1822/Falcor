@@ -418,11 +418,18 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
                 var["gMotionError"] = pMotionErrorMask;
                 var["gPathLength"] = pLocalPathLength;
                 var["gCurPos"] = mpPositions;
+                var["gPrevPos"] = pPrevPosition;
                 var["gPosDiff"] = pPosDiffBlur;
+                var["gLastRayDir"] = pLastRayDir;
 
                 var["PerFrame"]["gFrameDim"] = int2(dispatch.x, dispatch.y);
                 var["PerFrame"]["gDirection"] = int2(1, 0); // first pass must be X
                 var["PerFrame"]["gRadius"] = mOpticalBlurRadius;
+                var["PerFrame"]["gCompareBilateralOutput"] = mCompareBilateralOutput ? 1 : 0;
+                var["PerFrame"]["gPrevJitter"] = mPrevJitter;
+                var["PerFrame"]["gCurJitter"] = curJitter;
+
+                mpOpticalBlurPass->getProgram()->addDefine("PROJECT_TO_TANGENT", mProjectToTangentPlane ? "1" : "0");
 
                 mpOpticalBlurPass->execute(pRenderContext, dispatch);
                 pRenderContext->uavBarrier(pMotionErrorMask.get());
@@ -592,8 +599,9 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
 
         c |= widget.checkbox("Median Filter Pre-Blur", mUseOpticalMedianPrePass);
         c |= widget.slider("Bilateral Blur Radius", mOpticalBlurRadius, 0, 100);
-        c |= widget.checkbox("Median Filter", mUseOpticalMedian);
-        widget.tooltip("Compares the current motion vector with the backup motion vector, and replaces it if the backup motion vector is more promising.");
+        if(mOpticalBlurRadius > 0)
+            c |= widget.checkbox("Compare Bilateral Output", mCompareBilateralOutput);
+        c |= widget.checkbox("Median Filter Post-Blur", mUseOpticalMedian);
 
         widget.separator();
     }

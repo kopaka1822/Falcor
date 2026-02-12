@@ -182,6 +182,7 @@ private:
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::LucasKanadePos;
     int mOpticalIterations = 2;
     bool mCompareWithBackupMotion = true;
+    bool mCompareBilateralOutput = true;
     float mOpticalMaxMovement = 100.0f;
     int mOpticalRadius = 1;
     int mOpticalBlurRadius = 16;
