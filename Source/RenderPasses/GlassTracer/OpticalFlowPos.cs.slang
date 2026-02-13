@@ -135,14 +135,16 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     TB = float2x3(tangent, bitangent);
     #endif
 
+    uint iterations = gIterations;
+    bool noDeriv = false;
+
     // initial check wheter mvec or bmvec is better
+    if (all(mvec == bmvec)) iterations = 0; // backup will always be correct under static assumptions
+    if (reqPathLen <= 1) iterations = 0; // path length 1 is trival reprojection => force correct
+
     if (gCompareWithBackupMotion)
         if (calcEstimatedError(texC, bmvec, curPos, TB) < calcEstimatedError(texC, mvec, curPos, TB))
             mvec = bmvec;
-
-    bool noDeriv = false;
-    uint iterations = gIterations;
-    if (all(mvec == 0.0) && !gForceMotionVectorCalculation) iterations = 0; // keep mvec
 
     const float2 originalMvec = mvec; // mvec from before iterations
     for (uint i = 0; i < iterations; ++i)
@@ -243,7 +245,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
             pathLenDiscont = true;
     //pathLenDiscont = false;
 
-    if (newError > onePixelPosDiff * 0.02 || noDeriv || pathLenDiscont)
+    if (iterations > 0 && (newError > onePixelPosDiff * 0.02 || noDeriv || pathLenDiscont))
     {
         mvec = originalMvec;
         gMotionError[pixel] = 1;

@@ -32,6 +32,7 @@ void medianPreMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3
     const uint2 pixel = id.xy;
     float2 mvec = gMotion[pixel];
     uint err = gMotionError[pixel];
+    uint pathLen = gPathLength[pixel];
 
     // uv coords
     float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
@@ -46,6 +47,7 @@ void medianPreMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3
 #define RADIUS 1
 #define COUNT ((1 + 2 * RADIUS) * (1 + 2 * RADIUS))
 
+    uint anyError = 0;
     float4 A[COUNT];
     uint i = 0;
     [unroll] for (int dx = -RADIUS; dx <= RADIUS; ++dx)
@@ -55,6 +57,7 @@ void medianPreMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3
             uint e = gMotionError[clampPixel(pixel + int2(dx, dy))];
             // xy = motion vector, z = length in pixels (sort key), w = motion error
             A[i++] = float4(m, length(m * gFrameDim), float(e));
+            anyError |= e;
         }
 
     // sort registers (length) (insertion sort)
@@ -68,9 +71,15 @@ void medianPreMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3
         }
     }
 
-    mvec = A[COUNT / 2].xy; // median
-    uint newErr = uint(A[COUNT / 2].w);
+    uint newErr = err;
 
+    // only apply median filter if there was at least one error pixel in the neighborhood
+    if (anyError != 0 && pathLen > 1)
+    {
+        mvec = A[COUNT / 2].xy; // median
+        newErr = uint(A[COUNT / 2].w);
+    }
+    
     gMotionOut[pixel] = mvec;
     gMotionErrorOut[pixel] = max(newErr, err);
 }

@@ -393,7 +393,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
                 var = mpOpticalMedianPrePass->getRootVar();
                 var["gMotion"] = pMotionOptical;
                 var["gMotionOut"] = pMotion; // backup data and output
-                //var["gPathLength"] = pLocalPathLength;
+                var["gPathLength"] = pLocalPathLength;
                 //var["gBackupMotion"] = pMotionBackup;
                 var["gMotionError"] = pMotionErrorMask;
                 var["gMotionErrorOut"] = pMotionErrorTmp;
