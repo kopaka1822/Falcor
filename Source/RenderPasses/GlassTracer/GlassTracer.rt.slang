@@ -113,8 +113,6 @@ float traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
             if (visibility <= visibilityCutoff)
                 return 0.0;
         }
-        else
-            return 0.0; // hit opaque => occluded
     }
 
     if (rayQuery.CommittedStatus() != COMMITTED_NOTHING)
@@ -573,7 +571,7 @@ void rayGen()
         // compute local color contribution
         float3 localContribution = s.thp * (
             bsdf.emission * gEmissionIntensity +
-            bsdf.diffuseReflectionAlbedo * gAmbientIntensity +
+            (bsdf.diffuseReflectionAlbedo + 0.2 * bsdf.specularReflectionAlbedo) * gAmbientIntensity +
             evalAnalytic(pixel, sd, mi, sg, analyticImportance)
         );
         color += localContribution;
