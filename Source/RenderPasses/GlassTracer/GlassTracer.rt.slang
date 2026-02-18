@@ -19,6 +19,7 @@ cbuffer PerFrame
     uint gMaxStack;                     // maxiumum stack size for indirections
     float gTextureGradientScaling;      // scaling factor for texture gradients
     bool gPreventVbufferCurvedReflection; // prevents the paths of curved reflection from being taken as vbuffer reference position
+    float gShadowTransmissionMultiplier; // multiplied to material transmission for shadows, to make them darker
 }
 #define FLAG_PREVENT_VBUFFER_WRITE 1
 #define FLAG_PREVENT_PATH_LENGTH_INCREMENT 2
@@ -92,9 +93,10 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
     float3 visibility = 1.0;
     float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
     
-    RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE > rayQuery;
+    RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
     const uint instanceMask = getBestParticleShadowPlane(ray.Direction);
     uint rayFlags = RAY_FLAG_NONE;
+    if (gShadowTransmissionMultiplier > 0.0) rayFlags |= RAY_FLAG_FORCE_NON_OPAQUE;
     rayQuery.TraceRayInline(gScene.rtAccel, rayFlags, instanceMask, ray);
     while (rayQuery.Proceed())
     {
@@ -110,9 +112,8 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
             let lod = ExplicitLodTextureSampler(gShadowLodBias);
             float opacity = material.evalOpacity(gScene.materials, v, lod);
 
-            
-            if (opacity == 1.0)                // check transmission
-                visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod);
+            if (opacity == 1.0 && gShadowTransmissionMultiplier > 0.0) // check transmission
+                visibility = visibility * gShadowTransmissionMultiplier * material.evalTransmission(gScene.materials, v.texC, lod);
             else
                 visibility = visibility * (1.0 - opacity);
                 

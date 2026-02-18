@@ -136,7 +136,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     #endif
 
     uint iterations = gIterations;
-    bool noDeriv = false;
 
     // initial check wheter mvec or bmvec is better
     if (all(mvec == bmvec)) iterations = 0; // backup will always be correct under static assumptions
@@ -172,7 +171,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                 bool invalidDiffs = false;
                 float3 I_x = getMinDeriv(prevPos, uv00pixel + off, int2(1, 0), prevPathLen, invalidDiffs);
                 float3 I_y = getMinDeriv(prevPos, uv00pixel + off, int2(0, 1), prevPathLen, invalidDiffs);
-                if (invalidDiffs) continue;
+                if (invalidDiffs) continue; // based on path length disc.
 
                 float2 distInPixels = abs(uv00 + dx * stepX + dy * stepY - uvPrev) * float2(gFrameDim);
                 float w = 1.0;
@@ -184,9 +183,10 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                 float expectedOnePixelDiff = gPrevPosDiff[clampPixel(uv00pixel + off)];
                 float posDiffThreshold = 2.0;
 
+                invalidDiffs = false;
                 if (length(I_x) > posDiffThreshold * expectedOnePixelDiff) invalidDiffs  = true;
                 if (length(I_y) > posDiffThreshold * expectedOnePixelDiff) invalidDiffs = true;
-                if (invalidDiffs) continue;
+                //if (invalidDiffs) continue; // based on posDiffThreshold
 
                 PROJECT(I_x);
                 PROJECT(I_y);
@@ -245,7 +245,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
             pathLenDiscont = true;
     //pathLenDiscont = false;
 
-    if (iterations > 0 && (newError > onePixelPosDiff * 0.02 || noDeriv || pathLenDiscont))
+    if (iterations > 0 && (newError > onePixelPosDiff * 0.02 || pathLenDiscont))
     {
         mvec = originalMvec;
         gMotionError[pixel] = 1;

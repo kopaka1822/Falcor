@@ -203,6 +203,7 @@ private:
     bool mEnableShadows = true;
     float mPointLightClip = 0.2f;
     float mShadowLodBias = 0.0f;
+    float mShadowTransmissionMultiplier = 0.5f;
 
     float mRoughnessCutoff = 0.1f;
     bool mForceZeroRoughness = true;

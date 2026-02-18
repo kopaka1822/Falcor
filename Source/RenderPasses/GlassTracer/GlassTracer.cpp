@@ -275,6 +275,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["PerFrame"]["gTextureGradientScaling"] = std::pow(2.0f, mTextureLodBias);
     var["PerFrame"]["gForceZeroRoughness"] = mForceZeroRoughness ? 1 : 0;
     var["PerFrame"]["gPreventVbufferCurvedReflection"] = mPreventVbufferCurvedReflection ? 1 : 0;
+    var["PerFrame"]["gShadowTransmissionMultiplier"] = mShadowTransmissionMultiplier;
 
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
     mpProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
@@ -650,6 +651,7 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         c |= widget.checkbox("Enable Shadows", mEnableShadows);
         c |= widget.var("Point Light Clip", mPointLightClip, 0.0f);
         c |= widget.var("Shadow LOD Bias", mShadowLodBias, -16.0f, 16.0f, 0.5f);
+        c |= widget.var("Shadow Transmission Mult.", mShadowTransmissionMultiplier, 0.0f, 1.0f);
     }
 
     if (auto g = widget.group("Pathtracer"))

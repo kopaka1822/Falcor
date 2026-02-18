@@ -139,8 +139,9 @@ struct StandardMaterial : MaterialBase, IMaterial
 
     float3 evalTransmission(const MaterialSystem ms, const float2 texC, const ITextureSampler lod)
     {
+        if (data.specularTransmission <= 0.0) return 0.0;
         SamplerState s = ms.getTextureSampler(header.getDefaultTextureSamplerID());
-        return ms.sampleTexture(data.texTransmission, s, texC, float4(data.transmission, 1.0f), lod).rgb;
+        return data.specularTransmission * ms.sampleTexture(data.texTransmission, s, texC, float4(data.transmission, 1.0f), lod).rgb;
     }
 
     uint2 getDimensions(const MaterialSystem ms)
