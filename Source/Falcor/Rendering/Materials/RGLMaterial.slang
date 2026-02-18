@@ -84,6 +84,7 @@ struct RGLMaterial : MaterialBase, IMaterial
     // Alpha testing is not supported by this material.
     float evalOpacity(const MaterialSystem ms, const VertexData v, const ITextureSampler lod) { return 1.f; }
     float evalOpacity(const MaterialSystem ms, const float2 texC, const ITextureSampler lod) { return 1.f; }
+    float3 evalTransmission(const MaterialSystem ms, const float2 texC, const ITextureSampler lod) { return 0.0; }
 
     uint2 getDimensions(const MaterialSystem ms)
     {

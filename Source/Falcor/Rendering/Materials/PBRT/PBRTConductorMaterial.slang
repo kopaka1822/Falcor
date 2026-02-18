@@ -75,6 +75,12 @@ struct PBRTConductorMaterial : MaterialBase, IMaterial
         return ms.sampleTexture(data.texBaseColor, s, texC, data.baseColor, lod).a;
     }
 
+    float3 evalTransmission(const MaterialSystem ms, const float2 texC, const ITextureSampler lod)
+    {
+        SamplerState s = ms.getTextureSampler(header.getDefaultTextureSamplerID());
+        return ms.sampleTexture(data.texTransmission, s, texC, float4(data.transmission, 1.0f), lod).rgb;
+    }
+
     uint2 getDimensions(const MaterialSystem ms)
     {
         let handle = data.texBaseColor;

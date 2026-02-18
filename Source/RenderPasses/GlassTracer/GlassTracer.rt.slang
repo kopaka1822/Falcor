@@ -71,7 +71,7 @@ float linearToNonLinearZ(float l)
 }
 
 // deep shadow ray
-float traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
+float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
 {
     if (!gEnableShadows) return 1.0;
     LightData light = gScene.getLight(lightIndex);
@@ -89,10 +89,10 @@ float traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
         ray.TMax = gScene.camera.data.farZ;
     }
 
-    float visibility = 1.0;
+    float3 visibility = 1.0;
     float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
     
-    RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
+    RayQuery < RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE > rayQuery;
     const uint instanceMask = getBestParticleShadowPlane(ray.Direction);
     uint rayFlags = RAY_FLAG_NONE;
     rayQuery.TraceRayInline(gScene.rtAccel, rayFlags, instanceMask, ray);
@@ -109,9 +109,14 @@ float traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
             let material = gScene.materials.getMaterial(materialID);
             let lod = ExplicitLodTextureSampler(gShadowLodBias);
             float opacity = material.evalOpacity(gScene.materials, v, lod);
+
             
-            visibility = visibility * (1.0 - opacity);
-            if (visibility <= visibilityCutoff)
+            if (opacity == 1.0)                // check transmission
+                visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod);
+            else
+                visibility = visibility * (1.0 - opacity);
+                
+            if (all(visibility <= visibilityCutoff))
                 return 0.0;
         }
     }
@@ -149,9 +154,9 @@ float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance m
         float3 unshadowed = max(mi.eval(sd, ls.dir, sg) * ls.Li, 0.0);
         if(any(unshadowed > MIN_VISIBILITY))
         {
-            float shadow = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i);
+            float3 shadow = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i);
             color += unshadowed * shadow;
-            importance += shadow * dot(ls.Li, 0.33); // importance without material texture
+            importance += dot(shadow * ls.Li, 0.33); // importance without material texture
         }
     }
     importance = gAnalyticIntensity * importance;
@@ -569,7 +574,7 @@ void rayGen()
         if (!isAlphaTested(materialID)) opacity = sd.opacity;
 
         // Create material instance at shading point.
-        IMaterialInstance mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
+        IMaterialInstance mi = gScene.materials.getMaterialInstance(sd, lod, (uint)MaterialInstanceHints::AdjustShadingNormal);
         let bsdf = mi.getProperties(sd);
 
         float analyticImportance = 0.0;
@@ -582,8 +587,11 @@ void rayGen()
         color += localContribution;
 
         // compute path importance slightly differently
-        float pathImportance = dot(s.thp * opacity * (bsdf.emission * gEmissionIntensity
-            + analyticImportance
+        // IMaterialInstance miImp = gScene.materials.getMaterialInstance( sd, ExplicitLodTextureSampler(255.0), (uint)MaterialInstanceHints::AdjustShadingNormal);
+        // let bsdfImp = miImp.getProperties(sd);
+        float pathImportance = dot(s.thp * opacity * (bsdf.emission * gEmissionIntensity +
+            //(bsdfImp.diffuseReflectionAlbedo + 0.2 * bsdfImp.specularReflectionAlbedo) * gAmbientIntensity +
+            analyticImportance
         ), 0.33);
         // this will also overwrite with pathImportance==0, if nothing else was contributed yet (weightSum = 0.0)
         if (curVBuffer.update(pathImportance, sampleNext1D(sg), s.flags))
