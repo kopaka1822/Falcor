@@ -21,6 +21,7 @@ cbuffer PerFrame
     bool gPreventVbufferCurvedReflection; // prevents the paths of curved reflection from being taken as vbuffer reference position
 }
 #define FLAG_PREVENT_VBUFFER_WRITE 1
+#define FLAG_PREVENT_PATH_LENGTH_INCREMENT 2
 
 RWTexture2D<PackedHitInfo> gVBuffer;
 RWTexture2D<float2> gMotion;
@@ -466,7 +467,9 @@ void rayGen()
 
     for (uint i = 0; i < 128 && s.curPathLength < gPathLength; ++i)
     {
-        s.curPathLength++;
+        if (s.flags & FLAG_PREVENT_PATH_LENGTH_INCREMENT) s.flags &= ~FLAG_PREVENT_PATH_LENGTH_INCREMENT; // reset flag
+        else s.curPathLength++;
+
         RayDesc ray;
         ray.Origin = s.rayOrigin;
         ray.Direction = s.rayDir;
@@ -562,6 +565,8 @@ void rayGen()
         #endif
 
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -s.rayDir, lod);
+        float opacity = 1.0;
+        if (!isAlphaTested(materialID)) opacity = sd.opacity;
 
         // Create material instance at shading point.
         IMaterialInstance mi = gScene.materials.getMaterialInstance(sd, lod, (uint) MaterialInstanceHints::AdjustShadingNormal);
@@ -569,7 +574,7 @@ void rayGen()
 
         float analyticImportance = 0.0;
         // compute local color contribution
-        float3 localContribution = s.thp * (
+        float3 localContribution = s.thp * opacity * (
             bsdf.emission * gEmissionIntensity +
             (bsdf.diffuseReflectionAlbedo + 0.2 * bsdf.specularReflectionAlbedo) * gAmbientIntensity +
             evalAnalytic(pixel, sd, mi, sg, analyticImportance)
@@ -577,7 +582,7 @@ void rayGen()
         color += localContribution;
 
         // compute path importance slightly differently
-        float pathImportance = dot(s.thp * (bsdf.emission * gEmissionIntensity
+        float pathImportance = dot(s.thp * opacity * (bsdf.emission * gEmissionIntensity
             + analyticImportance
         ), 0.33);
         // this will also overwrite with pathImportance==0, if nothing else was contributed yet (weightSum = 0.0)
@@ -675,6 +680,17 @@ void rayGen()
             if (!mi.sample(sd, sg, bsdfSampleReflect, true /*Importance sampling*/))
                 bsdfSampleReflect.weight = 0.0;
             sd.mtl.setActiveLobes((uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)
+        }
+
+        if (opacity < 1.0)
+        {
+            // overwrite refraction with transmission
+            bsdfSampleRefract.weight = 1.0 - opacity;
+            bsdfSampleRefract.wo = s.rayDir; // keep direction
+            bsdfSampleRefract.pdf = 1.0;
+            bsdfSampleRefract.lobeType = (uint)LobeType::Transmission;
+            s.flags |= FLAG_PREVENT_PATH_LENGTH_INCREMENT;
+            bsdfSampleReflect.weight = 0.0; // prevent reflection for now (TODO should be weighted with opacity instead and path increment enabled)
         }
 
         bool doReflection = any(s.thp * bsdfSampleReflect.weight > MIN_VISIBILITY);
