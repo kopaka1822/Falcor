@@ -11,6 +11,7 @@ Texture2D<float> gPrevPosDiff; // from last frame (for gPrevPos)
 Texture2D<float3> gLastRayDir; // direction to Pos (incomming ray direction)
 Texture2D<uint> gCurPathLen;
 Texture2D<uint> gPrevPathLen;
+Texture2D<float> gLinearDepth;
 
 #ifndef PROJECT_TO_TANGENT
 #define PROJECT_TO_TANGENT 1
@@ -37,41 +38,6 @@ cbuffer PerFrame
     bool gCompareWithBackupMotion;
 }
 
-// solves t * T + b * B = R and returns (t, b)
-float2 solveLinearEq(float3 T, float3 B, float3 R)
-{
-    const float epsilon = 1e-6;
-
-    // Compute which axis to drop
-    float3 sum = abs(T) + abs(B);
-    uint drop = (sum.x < sum.y)
-                    ? ((sum.x < sum.z) ? 0u : 2u)
-                    : ((sum.y < sum.z) ? 1u : 2u);
-
-    float2 T2, B2, R2;
-    [branch]
-    switch (drop)
-    {
-    case 0: T2 = T.yz; B2 = B.yz; R2 = R.yz; break; // drop x
-    case 1: T2 = T.xz; B2 = B.xz; R2 = R.xz; break; // drop y
-    default: T2 = T.xy; B2 = B.xy; R2 = R.xy; break; // drop z
-    }
-
-    //if (abs(R2.x) < epsilon) R2.x = 0.0;
-    //if (abs(R2.y) < epsilon) R2.y = 0.0;
-
-    // Solve the 2×2 linear system
-    float det = T2.x * B2.y - T2.y * B2.x;
-    if (abs(det) < 1e-8)
-        return 0.0; // Degenerate or parallel T/B
-
-    float invDet = 1.0 / det;
-    return float2(
-        (R2.x * B2.y - R2.y * B2.x) * invDet, // t
-        (T2.x * R2.y - T2.y * R2.x) * invDet  // b
-    );
-}
-
 // get derivative with smallest magnitude (+step/-step)
 float3 getMinDeriv(float3 prevPos, int2 uvPrev, int2 step, uint reqPathLen, inout bool invalidDiffs)
 {
@@ -86,6 +52,22 @@ float3 getMinDeriv(float3 prevPos, int2 uvPrev, int2 step, uint reqPathLen, inou
     if (!valid1 && valid2) return deriv2;
     if (!valid1 && !valid2) invalidDiffs = true;
     return (length(deriv1) <= length(deriv2)) ? deriv1 : deriv2;
+}
+
+// returns closest position to prevPos from either +step or -step. Fourth component is 1 if +step is close, -1 if -step is closer.
+float4 getMinDerivPos(float3 prevPos, int2 uvPrev, int2 step, uint reqPathLen, inout bool invalidDiffs)
+{
+    float3 pos1 = gPrevPos[clampPixel(uvPrev + step)];
+    bool valid1 = (gPrevPathLen[clampPixel(uvPrev + step)] == reqPathLen);
+    float3 pos2 = gPrevPos[clampPixel(uvPrev - step)];
+    bool valid2 = (gPrevPathLen[clampPixel(uvPrev - step)] == reqPathLen);
+
+    // only return derivatives from the same path length as prevPos
+    if (valid1 && !valid2) return float4(pos1, 1.0);
+    if (!valid1 && valid2) return float4(pos2, -1.0);
+    if (!valid1 && !valid2) invalidDiffs = true;
+
+    return (length(pos1 - prevPos) <= length(prevPos - pos2)) ? float4(pos1, 1.0) : float4(pos2, -1.0);
 }
 
 // snaps uv to top left (smallest) uv within the 2x2 pixel area
@@ -105,44 +87,106 @@ uint2 clampPixel(int2 coord)
     return uint2(clamp(coord, 0, int2(gFrameDim) - 1));
 }
 
-float calcEstimatedError(float2 texC, float2 mvec, float3 curPos, float2x3 TB)
+// global constants
+static float2 texC;
+static float3 curPos;
+static float2x3 TB;
+static float3 w_i; // incomming ray direction on P
+static float linearDepth;
+static float3 cameraVirtual;
+static const float2 step = 1.0 / float2(gFrameDim);
+static const float2 stepX = float2(step.x, 0.0);
+static const float2 stepY = float2(0.0, step.y);
+
+#define NORMALIZE_DERIVS 1
+#if NORMALIZE_DERIVS
+float calcEstimatedError(float2 mvec)
 {
-    float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
+    float2 uv = texC + adjustJitter(mvec);
+    // 4 rounded uv coordinates
+    float2 uv00 = snapTopLeft(uv);
+    float2 uv10 = uv00 + stepX;
+    float2 uv01 = uv00 + stepY;
+    float2 uv11 = uv00 + step;
+    // corresponding barycentric weights
+    float w00 = (1.0 - (uv.x - uv00.x) / step.x) * (1.0 - (uv.y - uv00.y) / step.y);
+    float w10 = ((uv.x - uv00.x) / step.x) * (1.0 - (uv.y - uv00.y) / step.y);
+    float w01 = (1.0 - (uv.x - uv00.x) / step.x) * ((uv.y - uv00.y) / step.y);
+    float w11 = ((uv.x - uv00.x) / step.x) * ((uv.y - uv00.y) / step.y);
+
+    // directions from camera to sample points
+    float3 dir00 = gPrevPos.SampleLevel(S, uv00, 0.0) - cameraVirtual;
+    float3 dir10 = gPrevPos.SampleLevel(S, uv10, 0.0) - cameraVirtual;
+    float3 dir01 = gPrevPos.SampleLevel(S, uv01, 0.0) - cameraVirtual;
+    float3 dir11 = gPrevPos.SampleLevel(S, uv11, 0.0) - cameraVirtual;
+
+    // projected positions (to unit distance plane)
+    float2 proj00 = mul(TB, dir00 / dot(dir00, w_i));
+    float2 proj10 = mul(TB, dir10 / dot(dir10, w_i));
+    float2 proj01 = mul(TB, dir01 / dot(dir01, w_i));
+    float2 proj11 = mul(TB, dir11 / dot(dir11, w_i));
+
+    // bilinear interpolation
+    float2 proj = w00 * proj00 + w10 * proj10 + w01 * proj01 + w11 * proj11;
+    return length(proj) * linearDepth; // from unit distance to world space unit
+}
+#else // non normalized derivatives (deprecated)
+float calcEstimatedError(float2 mvec)
+{
+    float2 uv = texC + adjustJitter(mvec);
+    // 4 rounded uv coordinates
+    float2 uv00 = snapTopLeft(uv);
+    float2 uv10 = uv00 + stepX;
+    float2 uv01 = uv00 + stepY;
+    float2 uv11 = uv00 + step;
+    // corresponding barycentric weights
+    float w00 = (1.0 - (uv.x - uv00.x) / step.x) * (1.0 - (uv.y - uv00.y) / step.y);
+    float w10 = ((uv.x - uv00.x) / step.x) * (1.0 - (uv.y - uv00.y) / step.y);
+    float w01 = (1.0 - (uv.x - uv00.x) / step.x) * ((uv.y - uv00.y) / step.y);
+    float w11 = ((uv.x - uv00.x) / step.x) * ((uv.y - uv00.y) / step.y);
+
+    // directions from camera to sample points
+    float3 pos00 = gPrevPos.SampleLevel(S, uv00, 0.0);
+    float3 pos10 = gPrevPos.SampleLevel(S, uv10, 0.0);
+    float3 pos01 = gPrevPos.SampleLevel(S, uv01, 0.0);
+    float3 pos11 = gPrevPos.SampleLevel(S, uv11, 0.0);
+
+    float3 newPos = w00 * pos00 + w10 * pos10 + w01 * pos01 + w11 * pos11;
+
+    //float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
     float3 posDiff = newPos - curPos;
     PROJECT(posDiff);
     float newError = length(posDiff);
     return newError;
 }
+#endif
+
 
 [numthreads(16, 16, 1)]
 void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localId : SV_GroupThreadID)
 {
     const uint2 pixel = id.xy;
-    const float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
+    texC = (float2(pixel) + 0.5) / float2(gFrameDim);
     float2 mvec = gMotion[pixel];
     float2 bmvec = gBackupMotion[pixel];
     const uint reqPathLen = gCurPathLen[pixel]; // required path length: other positions should be taken from this exact path length, otherwise they are likeley invalid
-    const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
+    curPos = gCurPos.SampleLevel(S, texC, 0.0);
+    linearDepth = gLinearDepth[pixel]; // travelled distance between current camera and curPos
+    w_i = gLastRayDir[pixel];         // incomming ray direction on P
+    cameraVirtual = curPos - w_i * linearDepth;
 
-    const float2 step = 1.0 / float2(gFrameDim);
-    const float2 stepX = float2(step.x, 0.0);
-    const float2 stepY = float2(0.0, step.y);
-
-    float2x3 TB;
-    #if PROJECT_TO_TANGENT
-    float3 tangent = normalize(cross(float3(0.0, 1.0, 0.0), gLastRayDir[pixel]));
-    float3 bitangent = cross(gLastRayDir[pixel], tangent);
+    float3 tangent = normalize(cross(float3(0.0, 1.0, 0.0), w_i));
+    float3 bitangent = cross(w_i, tangent);
     TB = float2x3(tangent, bitangent);
-    #endif
 
     uint iterations = gIterations;
 
     // initial check wheter mvec or bmvec is better
-    if (all(mvec == bmvec)) iterations = 0; // backup will always be correct under static assumptions
+    //if (all(mvec == bmvec)) iterations = 0; // backup will always be correct under static assumptions
     if (reqPathLen <= 1) iterations = 0; // path length 1 is trival reprojection => force correct
 
     if (gCompareWithBackupMotion)
-        if (calcEstimatedError(texC, bmvec, curPos, TB) < calcEstimatedError(texC, mvec, curPos, TB))
+        if (calcEstimatedError(bmvec) < calcEstimatedError(mvec))
             mvec = bmvec;
 
     const float2 originalMvec = mvec; // mvec from before iterations
@@ -166,22 +210,46 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                 uint prevPathLen = gPrevPathLen[clampPixel(uv00pixel + off)];
                 if(prevPathLen != reqPathLen) continue;
 
+                // barycentric weights based on distance to center pixel uv00
+                float2 distInPixels = abs(uv00 + dx * stepX + dy * stepY - uvPrev) * float2(gFrameDim);
+                float w = 1.0;
+                w *= 1.0 - (distInPixels.x / gWindowRadius); // barycentric weights for radius=1
+                w *= 1.0 - (distInPixels.y / gWindowRadius);
+
+                // check wheter I_x and I_y can be trusted (not much larger than expected pos diff)
+                float expectedOnePixelDiff = gPrevPosDiff[clampPixel(uv00pixel + off)];
+                float posDiffThreshold = 2.0;
+
+                #if NORMALIZE_DERIVS
+                // build derivatives
+                float3 w_0 = prevPos - cameraVirtual;
+                float2 S0 = mul(TB, w_0 / dot(w_0, w_i));
+                float2 I_t = -S0;
+
+                bool invalidDiffs = false;
+                float4 xpos = getMinDerivPos(prevPos, uv00pixel + off, int2(1, 0), prevPathLen, invalidDiffs);
+                float4 ypos = getMinDerivPos(prevPos, uv00pixel + off, int2(0, 1), prevPathLen, invalidDiffs);
+                if (invalidDiffs) continue; // based on path length disc.
+
+                float3 w_1x = xpos.xyz - cameraVirtual;
+                float3 w_1y = ypos.xyz - cameraVirtual;
+                float2 S1x = mul(TB, w_1x / dot(w_1x, w_i));
+                float2 S1y = mul(TB, w_1y / dot(w_1y, w_i));
+                float2 I_x = (S1x - S0) * xpos.w; // w flips the derivate if -step was taken
+                float2 I_y = (S1y - S0) * ypos.w;
+
+                invalidDiffs = false;
+                if (length(I_x) * linearDepth > posDiffThreshold * expectedOnePixelDiff) invalidDiffs = true;
+                if (length(I_y) * linearDepth > posDiffThreshold * expectedOnePixelDiff) invalidDiffs = true;
+                // if (invalidDiffs) continue; // based on posDiffThreshold
+
+                #else // NOT NORMALIZE_DERIVS (deprecated)
                 // build derivatives
                 float3 I_t = curPos - prevPos; // [t+1] - [t]
                 bool invalidDiffs = false;
                 float3 I_x = getMinDeriv(prevPos, uv00pixel + off, int2(1, 0), prevPathLen, invalidDiffs);
                 float3 I_y = getMinDeriv(prevPos, uv00pixel + off, int2(0, 1), prevPathLen, invalidDiffs);
                 if (invalidDiffs) continue; // based on path length disc.
-
-                float2 distInPixels = abs(uv00 + dx * stepX + dy * stepY - uvPrev) * float2(gFrameDim);
-                float w = 1.0;
-                w *= 1.0 - (distInPixels.x / gWindowRadius); // barycentric weights for radius=1
-                w *= 1.0 - (distInPixels.y / gWindowRadius);
-                //w *= exp(-dot(I_t, I_t)); // penalty based on squared distance
-                
-                // check wheter I_x and I_y can be trusted (not much larger than expected pos diff)
-                float expectedOnePixelDiff = gPrevPosDiff[clampPixel(uv00pixel + off)];
-                float posDiffThreshold = 2.0;
 
                 invalidDiffs = false;
                 if (length(I_x) > posDiffThreshold * expectedOnePixelDiff) invalidDiffs  = true;
@@ -191,11 +259,11 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                 PROJECT(I_x);
                 PROJECT(I_y);
                 PROJECT(I_t);
+                #endif
 
                 AtA += w * float2x2(dot(I_x, I_x), dot(I_x, I_y),
                                     dot(I_x, I_y), dot(I_y, I_y));
                 Atb += w * float2(dot(I_t, I_x), dot(I_t, I_y));
-                
             }
 
         if (all(AtA == 0.0)) break; // bad conditioned, retain original motion vector
@@ -207,7 +275,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float2x2 invAtA = float2x2(AtA[1][1], -AtA[0][1],
                                -AtA[1][0], AtA[0][0]) / det;
 
-        // float2 uvPixel = solveLinearEq(I_x, I_y, I_t);
         float2 uvPixel = mul(invAtA, Atb);
         if (length(uvPixel) > gMaxMovement) // restrict pixel step size
             uvPixel = gMaxMovement * normalize(uvPixel);
@@ -233,7 +300,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     }
 
     // verify error
-    float newError = calcEstimatedError(texC, mvec, curPos, TB);
+    float newError = calcEstimatedError(mvec);
     //newError = 0.0;
     float onePixelPosDiff = gPosDiff[pixel];
 

@@ -373,6 +373,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gCurPathLen"] = pLocalPathLength;
             var["gPrevPathLen"] = pPrevPathLen;
             var["gLastRayDir"] = pLastRayDir;
+            var["gLinearDepth"] = pLinearDepth;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
             var["PerFrame"]["gIterations"] = mOpticalIterations;
