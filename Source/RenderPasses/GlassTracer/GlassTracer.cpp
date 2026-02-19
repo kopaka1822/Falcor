@@ -38,6 +38,7 @@ namespace
     const std::string kMotionErrorTmp = "mvecErrorTmp"; // intermediate buffer
     const std::string kColorOut = "color";
     const std::string kDepthOut = "depth";
+    const std::string kLinearDepthOut = "linearDepth";
     const std::string kPosDiff = "posDiff";
     const std::string kPosDiffBlur = "posDiffBlur";
     // iteration data
@@ -137,6 +138,7 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
+    reflector.addOutput(kLinearDepthOut, "Linear Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kPosDiff, "Length of Position Differential").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);;
     reflector.addOutput(kPosDiffBlur, "Blurred PosDiff").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
 
@@ -191,6 +193,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pMotionErrorTmp = renderData.getTexture(kMotionErrorTmp);
     auto pColor = renderData.getTexture(kColorOut);
     auto pDepth = renderData.getTexture(kDepthOut);
+    auto pLinearDepth = renderData.getTexture(kLinearDepthOut);
     auto pDebug = renderData.getTexture(kDebug);
     auto pPosDiff = renderData.getTexture(kPosDiff);
     auto pPosDiffBlur = renderData.getTexture(kPosDiffBlur);
@@ -243,6 +246,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["gBackupMotion"] = pMotionBackup;
     var["gColor"] = pColor;
     var["gDepth"] = pDepth;
+    var["gLinearDepth"] = pLinearDepth;
     var["gPosDiff"] = pPosDiff;
     var["gStack"] = mpStackBuffer;
     assert(mpTransparencyWhitelist);

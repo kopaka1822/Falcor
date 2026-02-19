@@ -29,7 +29,8 @@ RWTexture2D<PackedHitInfo> gVBuffer;
 RWTexture2D<float2> gMotion;
 RWTexture2D<float2> gBackupMotion;
 RWTexture2D<float4> gColor;  // shaded vbuffer
-RWTexture2D<float> gDepth;  // non-linear depth for DLSS
+RWTexture2D<float> gDepth;   // non-linear depth for DLSS
+RWTexture2D<float> gLinearDepth;
 RWTexture2D<float> gPosDiff;     // expected position difference when moving one pixel
 RWTexture2D<float3> gLastRayDir; // direction to P (incomming ray direction)
 
@@ -206,7 +207,8 @@ struct VBufferReservoir
         gVBuffer[pixel] = vbuffer;
         gMotion[pixel] = mvec;
         gBackupMotion[pixel] = bmvec;
-        gDepth[pixel] = depth;
+        gDepth[pixel] = linearToNonLinearZ(depth);
+        gLinearDepth[pixel] = depth;
         gPosDiff[pixel] = posDiff;
         gLastRayDir[pixel] = lastRayDir;
         // per iteration outputs
@@ -507,7 +509,7 @@ void rayGen()
                 rmh.posW = ray.Origin + ray.Direction * ray.TMax; // far plane position
                 curVBuffer.vbuffer = rmh.pack();
                 curVBuffer.posDiff = 1e38;
-                curVBuffer.depth = 1.0;
+                curVBuffer.depth = s.linearZ + ray.TMax; // + far plane
                 curVBuffer.localPathLength = s.curPathLength;
                 curVBuffer.lastRayDir = s.rayDir;
                 #if NEEDS_ITERATIONS
@@ -599,7 +601,7 @@ void rayGen()
         if (curVBuffer.update(pathImportance, sampleNext1D(sg), s.flags))
         {
             curVBuffer.vbuffer = data.hit;
-            curVBuffer.depth = linearToNonLinearZ(s.linearZ);
+            curVBuffer.depth = s.linearZ;
             curVBuffer.posDiff = posDiff;
             curVBuffer.localPathLength = s.curPathLength;
             curVBuffer.lastRayDir = s.rayDir;
