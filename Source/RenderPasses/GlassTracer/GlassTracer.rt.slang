@@ -19,6 +19,7 @@ cbuffer PerFrame
     uint gMaxStack;                     // maxiumum stack size for indirections
     float gTextureGradientScaling;      // scaling factor for texture gradients
     bool gPreventVbufferCurvedReflection; // prevents the paths of curved reflection from being taken as vbuffer reference position
+    bool gPreventVbufferRefractiveReflection; // prevents the paths of reflections from being taken as vbuffer reference, if the surface does also refract
     float gShadowTransmissionMultiplier; // multiplied to material transmission for shadows, to make them darker
 }
 #define FLAG_PREVENT_VBUFFER_WRITE 1
@@ -715,6 +716,8 @@ void rayGen()
             if (!StackFull())
                 PushStack( prepareNextRay(s, bsdfSampleRefract, sd, triangleVertices, barycentrics, triangleHit.instanceID));
             doRefraction = false;
+            if (gPreventVbufferRefractiveReflection)
+                s.flags |= FLAG_PREVENT_VBUFFER_WRITE; // for the next reflections
         }
 
         if (doReflection)

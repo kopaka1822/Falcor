@@ -275,6 +275,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["PerFrame"]["gTextureGradientScaling"] = std::pow(2.0f, mTextureLodBias);
     var["PerFrame"]["gForceZeroRoughness"] = mForceZeroRoughness ? 1 : 0;
     var["PerFrame"]["gPreventVbufferCurvedReflection"] = mPreventVbufferCurvedReflection ? 1 : 0;
+    var["PerFrame"]["gPreventVbufferRefractiveReflection"] = mPreventVbufferRefractiveReflection ? 1 : 0;
     var["PerFrame"]["gShadowTransmissionMultiplier"] = mShadowTransmissionMultiplier;
 
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
@@ -663,7 +664,9 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         widget.tooltip("Surfaces with lower roughness will not reflect");
         c |= widget.checkbox("Force Zero Rougness", mForceZeroRoughness);
         c |= widget.checkbox("Disable V-buffer Curved Reflection", mPreventVbufferCurvedReflection);
-        widget.tooltip("Prevents storing hit points after curved reflections to be stored in the V-Buffer.");
+        widget.tooltip("Prevents storing hit points after curved reflections to be stored in the V-Bffer.");
+        c |= widget.checkbox("Disable V-buffer Refractive Reflection", mPreventVbufferRefractiveReflection);
+        widget.tooltip("Prevents storing hit points after from reflections if the surface does also refract.");
     }
 
     mOptionsChanged |= c;
