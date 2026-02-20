@@ -349,14 +349,15 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
         // pos diff blur preprocessing
         {
-            FALCOR_PROFILE(pRenderContext, "ErrorBlur");
+            /*FALCOR_PROFILE(pRenderContext, "ErrorBlur");
 
             var = mpOpticalFlowErrorMedianPass->getRootVar();
             var["gErrorIn"] = pPosDiff;
             var["gErrorOut"] = pPosDiffBlur;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-            mpOpticalFlowErrorMedianPass->execute(pRenderContext, dispatch);
+            mpOpticalFlowErrorMedianPass->execute(pRenderContext, dispatch);*/
+            pPosDiffBlur = pPosDiff;
         }
 
         if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
