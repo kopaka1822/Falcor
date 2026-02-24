@@ -16,6 +16,12 @@ Texture2D<float> gLinearDepth;
 Texture2D<float> gLinearDepthPrev;
 RWTexture2DArray<float4> gDebugTex;
 
+#define OPT_MODE_SIMPLE_TANGENT 0
+#define OPT_MODE_NORMALIZED_DERIVS 1
+#define OPT_MODE_VIRTUAL_CAMERA 2
+
+#define OPT_MODE 2
+
 #ifndef PROJECT_TO_TANGENT
 #define PROJECT_TO_TANGENT 1
 #endif
@@ -185,10 +191,7 @@ static const float2 step = 1.0 / float2(gFrameDim);
 static const float2 stepX = float2(step.x, 0.0);
 static const float2 stepY = float2(0.0, step.y);
 
-#define OPT_MODE_SIMPLE_TANGENT 0
-#define OPT_MODE_NORMALIZED_DERIVS 1
-#define OPT_MODE_VIRTUAL_CAMERA 2 
-#define OPT_MODE 1
+
 #if OPT_MODE == OPT_MODE_VIRTUAL_CAMERA
 
 
@@ -204,6 +207,28 @@ float3 calcProjectedError(float3 Cv, float3 S, float3 Sx, float3 Sy, float l, fl
     return err;
 }
 
+void optimizeMotionVector(float w, float3 Cv, float3 S, float3 Sx, float3 Sy, float l, float lx, float ly, float signDx, float signDy, inout float2x2 AtA, inout float2 Atb)
+{
+    float3 dir = normalize(S - Cv) * l;
+    float3 dirX = normalize(Sx - Cv) * lx;
+    float3 dirY = normalize(Sy - Cv) * ly;
+    float3 dirP = curPos - Cv; // non-normalized direction from Cp to P
+
+    // project dirP on plane of dir-dirX-dirY
+    float3 n = cross(dirX - dir, dirY - dir); // no need to normalize
+    // solve: (t * dirP - dir) * n = 0 => t = dot(dir, n) / dot(dirP, n)
+    float t = dot(dir, n) / dot(dirP, n);
+    dirP = dirP * t;
+
+    float3 I_t = dirP - dir;
+    float3 I_x = (dirX - dir) * signDx;
+    float3 I_y = (dirY - dir) * signDy;
+
+    AtA += w * float2x2(dot(I_x, I_x), dot(I_x, I_y),
+                        dot(I_x, I_y), dot(I_y, I_y));
+    Atb += w * float2(dot(I_t, I_x), dot(I_t, I_y));
+}
+
 float calcEstimatedError(float2 mvec)
 {
     float2 uv = texC + adjustJitter(mvec);
@@ -215,10 +240,10 @@ float calcEstimatedError(float2 mvec)
     // corresponding barycentric weights
     float fracX = (uv.x - uv00.x) / step.x; // [0, 1] distance of uv to uv00 in x direction
     float fracY = (uv.y - uv00.y) / step.y; // [0, 1] distance of uv to uv00 in y direction
-    float w00 = (1.0 - (uv.x - uv00.x) / step.x) * (1.0 - (uv.y - uv00.y) / step.y);
-    float w10 = ((uv.x - uv00.x) / step.x) * (1.0 - (uv.y - uv00.y) / step.y);
-    float w01 = (1.0 - (uv.x - uv00.x) / step.x) * ((uv.y - uv00.y) / step.y);
-    float w11 = ((uv.x - uv00.x) / step.x) * ((uv.y - uv00.y) / step.y);
+    float w00 = (1.0 - fracX) * (1.0 - fracY);
+    float w10 = fracX * (1.0 - fracY);
+    float w01 = (1.0 - fracX) * fracY;
+    float w11 = fracX * fracY;
 
     // fetch position, direction and depth for the 4 neighboring pixels
     float3 S00 = gPrevPos.SampleLevel(S, uv00, 0.0);
@@ -239,7 +264,7 @@ float calcEstimatedError(float2 mvec)
     float l10 = calcNonNormalizedRayLength(uv10);
     float l01 = calcNonNormalizedRayLength(uv01);
     float l11 = calcNonNormalizedRayLength(uv11);
-    l00 = l10 = l01 = l11 = 1.0;
+    //l00 = l10 = l01 = l11 = 1.0;
     // calulate common camera position
     float3 cam00 = S00 - dir00 * depth00;
     float3 cam10 = S10 - dir10 * depth10;
@@ -293,10 +318,10 @@ float calcEstimatedError(float2 mvec)
     // corresponding barycentric weights
     float fracX = (uv.x - uv00.x) / step.x; // [0, 1] distance of uv to uv00 in x direction
     float fracY = (uv.y - uv00.y) / step.y; // [0, 1] distance of uv to uv00 in y direction
-    float w00 = (1.0 - (uv.x - uv00.x) / step.x) * (1.0 - (uv.y - uv00.y) / step.y);
-    float w10 = ((uv.x - uv00.x) / step.x) * (1.0 - (uv.y - uv00.y) / step.y);
-    float w01 = (1.0 - (uv.x - uv00.x) / step.x) * ((uv.y - uv00.y) / step.y);
-    float w11 = ((uv.x - uv00.x) / step.x) * ((uv.y - uv00.y) / step.y);
+    float w00 = (1.0 - fracX) * (1.0 - fracY);
+    float w10 = fracX * (1.0 - fracY);
+    float w01 = (1.0 - fracX) * fracY;
+    float w11 = fracX * fracY;
 
     // fetch position, direction and depth for the 4 neighboring pixels
     float3 S00 = gPrevPos.SampleLevel(S, uv00, 0.0);
@@ -373,14 +398,18 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
     uint iterations = gIterations;
 
-    // initial check wheter mvec or bmvec is better
-    //if (all(mvec == bmvec)) iterations = 0; // backup will always be correct under static assumptions
-    if (reqPathLen <= 1) iterations = 0; // path length 1 is trival reprojection => force correct
-
+    if (!gForceMotionVectorCalculation) // skip iterations in trivial cases
+    {
+        // if (all(mvec == bmvec)) iterations = 0; // backup will always be correct under static assumptions
+        if (all(mvec == 0.0)) iterations = 0; // force nothing moved
+        if (reqPathLen <= 1) iterations = 0; // path length 1 is trival reprojection => force correct
+    }
+   
     if (gCompareWithBackupMotion)
         if (calcEstimatedError(bmvec) < calcEstimatedError(mvec))
             mvec = bmvec;
-    iterations = 0;
+
+    //iterations = 0;
     const float2 originalMvec = mvec; // mvec from before iterations
     for (uint i = 0; i < iterations; ++i)
     {
@@ -392,6 +421,68 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float2x2 AtA = 0.0;
         float2 Atb = 0.0;
 
+#if OPT_MODE == OPT_MODE_VIRTUAL_CAMERA
+        // supports only window radius = 1
+
+        // pixel coordinates
+        int2 uv10pixel = clampPixel(uv00pixel + int2(1, 0));
+        int2 uv01pixel = clampPixel(uv00pixel + int2(0, 1));
+        int2 uv11pixel = clampPixel(uv00pixel + int2(1, 1));
+        uv00pixel = clampPixel(uv00pixel);
+
+        // fetch path lengths
+        uint prevPathLen00 = gPrevPathLen[uv00pixel];
+        uint prevPathLen10 = gPrevPathLen[uv10pixel];
+        uint prevPathLen01 = gPrevPathLen[uv01pixel];
+        uint prevPathLen11 = gPrevPathLen[uv11pixel];
+
+        // verify same path length
+        if(prevPathLen00 != reqPathLen || prevPathLen10 != reqPathLen || prevPathLen01 != reqPathLen || prevPathLen11 != reqPathLen) break; // path length must be consistent
+
+        // 4 rounded uv coordinates
+        //float2 uv00 = snapTopLeft(texC + mvec0); // declared on top
+        float2 uv10 = uv00 + stepX;
+        float2 uv01 = uv00 + stepY;
+        float2 uv11 = uv00 + step;
+        // corresponding barycentric weights
+        float fracX = (texC.x + mvec0.x - uv00.x) / step.x; // [0, 1] distance of uv to uv00 in x direction
+        float fracY = (texC.y + mvec0.y - uv00.y) / step.y; // [0, 1] distance of uv to uv00 in y direction
+        float w00 = (1.0 - fracX) * (1.0 - fracY);
+        float w10 = fracX * (1.0 - fracY);
+        float w01 = (1.0 - fracX) * fracY;
+        float w11 = fracX * fracY;
+
+        // fetch position, direction and depth for the 4 neighboring pixels
+        float3 S00 = gPrevPos[uv00pixel];
+        float3 S10 = gPrevPos[uv10pixel];
+        float3 S01 = gPrevPos[uv01pixel];
+        float3 S11 = gPrevPos[uv11pixel];
+        float3 dir00 = gLastRayDirPrev[uv00pixel];
+        float3 dir10 = gLastRayDirPrev[uv10pixel];
+        float3 dir01 = gLastRayDirPrev[uv01pixel];
+        float3 dir11 = gLastRayDirPrev[uv11pixel];
+        float depth00 = gLinearDepthPrev[uv00pixel];
+        float depth10 = gLinearDepthPrev[uv10pixel];
+        float depth01 = gLinearDepthPrev[uv01pixel];
+        float depth11 = gLinearDepthPrev[uv11pixel];
+        float l00 = calcNonNormalizedRayLength(uv00);
+        float l10 = calcNonNormalizedRayLength(uv10);
+        float l01 = calcNonNormalizedRayLength(uv01);
+        float l11 = calcNonNormalizedRayLength(uv11);
+        //l00 = l10 = l01 = l11 = 1.0;
+        // calulate common camera position
+        float3 cam00 = S00 - dir00 * depth00;
+        float3 cam10 = S10 - dir10 * depth10;
+        float3 cam01 = S01 - dir01 * depth01;
+        float3 cam11 = S11 - dir11 * depth11;
+        // float3 Cv = (cam00 + cam10 + cam01 + cam11) * 0.25;
+        float3 Cv = w00 * cam00 + w10 * cam10 + w01 * cam01 + w11 * cam11;
+
+        optimizeMotionVector(w00, Cv, S00, S10, S01, l00, l10, l01, 1.0, 1.0, AtA, Atb);
+        optimizeMotionVector(w10, Cv, S10, S00, S11, l10, l00, l11, -1.0, 1.0, AtA, Atb);
+        optimizeMotionVector(w01, Cv, S01, S11, S00, l01, l11, l00, 1.0, -1.0, AtA, Atb);
+        optimizeMotionVector(w11, Cv, S11, S01, S10, l11, l01, l10, -1.0, -1.0, AtA, Atb);
+        #else
         // for radius=1 => 2x2: dx = 0, 1; dy = 0, 1
         // for radius=2 => 4x4: dx = -1,0,1,2; dy = -1,0,1,2
         for (int dx = -gWindowRadius + 1; dx <= gWindowRadius; ++dx)
@@ -458,7 +549,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                                     dot(I_x, I_y), dot(I_y, I_y));
                 Atb += w * float2(dot(I_t, I_x), dot(I_t, I_y));
             }
-
+        #endif
         if (all(AtA == 0.0)) break; // bad conditioned, retain original motion vector
 
         // invert AtA
@@ -494,8 +585,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
     // verify error
     float newError = calcEstimatedError(mvec);
-    // newError = 0.0;
-    iterations = 1;
+    //newError = 0.0;
+    //iterations = 1;
     float onePixelPosDiff = gPosDiff[pixel];
 
     // test for path length discontinuety
@@ -504,9 +595,9 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     for (uint i = 0; i < 4; ++i)
         if(gCurPathLen[clampPixel(pixel + pathOffset[i]) ] != reqPathLen)
             pathLenDiscont = true;
-    //pathLenDiscont = false;
+    pathLenDiscont = false;
 
-    if (iterations > 0 && (newError > onePixelPosDiff * 0.02 || pathLenDiscont))
+    if (iterations > 0 && (newError > onePixelPosDiff * 0.05 || pathLenDiscont))
     {
         mvec = originalMvec;
         gMotionError[pixel] = 1;
