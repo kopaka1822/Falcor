@@ -115,7 +115,21 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
             float opacity = material.evalOpacity(gScene.materials, v, lod);
 
             if (opacity == 1.0 && gShadowTransmissionMultiplier > 0.0) // check transmission
-                visibility = visibility * gShadowTransmissionMultiplier * material.evalTransmission(gScene.materials, v.texC, lod);
+            {
+                // hardcoded for good looking visual
+                float IoR = 1.8;
+                float3 rayDir = -ray.Direction;
+                if (rayQuery.CandidateTriangleFrontFace()) IoR = 1.0 / IoR; // flip ior
+                else rayDir = refract(rayDir, -v.faceNormalW, 1.0 / IoR); // pretend ray came from previously refracted direction
+
+                // simple fresenl
+                float cosTheta = abs(dot(rayDir, v.faceNormalW));
+                float F0 = pow(abs((1.0 - IoR) / (1.0 + IoR)), 2.0);
+                float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+                float transmissionFactor = 1.0 - fresnel;
+                //transmissionFactor = 1.0;
+                visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
+            }
             else
                 visibility = visibility * (1.0 - opacity);
                 
