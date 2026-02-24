@@ -44,7 +44,9 @@ namespace
     // iteration data
     const std::string kNewRayDir = "newRayDir";
     const std::string kLastRayDir = "lastRayDir";
-    const std::string kLocalPathLength = "localPathLength";
+    const std::string kLastRayDirPrev = "lastRayDirPrev";
+    const std::string kPathLength = "pathLength";
+    const std::string kLinearDepthPrev = "linearDepthPrev";
     const std::string kReflectiveMask = "reflectiveMask";
     // optical temporaray
     const std::string kMotionOptical = "mvecOptical"; // mvecs directly after optical flow, without post-processing
@@ -139,23 +141,28 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kLinearDepthOut, "Linear Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
-    reflector.addOutput(kPosDiff, "Length of Position Differential").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);;
-    reflector.addOutput(kPosDiffBlur, "Blurred PosDiff").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
 
     reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
     reflector.addInternal(kMotionErrorTmp, "Motion vector error mask").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
 
     // previous frame persistent
-    reflector.addOutput(kPrevPosition, "Prev Position").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
-    reflector.addOutput(kPrevPosDiff, "Prev Position Differential").format(ResourceFormat::R32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
-    reflector.addOutput(kPrevPathLen, "Prev Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addInternal(kPrevPosition, "Prev Position").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addInternal(kPrevPosDiff, "Prev Position Differential").format(ResourceFormat::R32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addInternal(kPrevPathLen, "Prev Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addInternal(kLastRayDirPrev, "Previous Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addInternal(kLinearDepthPrev, "Previous Path Length").format(ResourceFormat::R32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
+    // current frame persistent
+    reflector.addOutput(kPosDiff, "Length of Position Differential").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);;
+    reflector.addOutput(kPosDiffBlur, "Blurred PosDiff").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addOutput(kLastRayDir, "Last Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addOutput(kPathLength, "Local Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
 
-    reflector.addOutput(kNewRayDir, "New Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
-    reflector.addOutput(kLastRayDir, "Last Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
-    reflector.addOutput(kLocalPathLength, "Local Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
+    // iteration data
     reflector.addOutput(kReflectiveMask, "Reflective Mask").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y); // TODO higher limit to support path length > 32
+    reflector.addOutput(kNewRayDir, "New Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
 
+    // actual output
     reflector.addOutput(kMotionOptical, "Motion vector (tmp from optical)").format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
 
     reflector.addOutput(kDebug, "Debug output").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y, 1, 1, mPathLength);
@@ -200,7 +207,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
     auto pNewRayDir = renderData.getTexture(kNewRayDir);
     auto pLastRayDir = renderData.getTexture(kLastRayDir);
-    auto pLocalPathLength = renderData.getTexture(kLocalPathLength);
+    auto pLocalPathLength = renderData.getTexture(kPathLength);
     auto pReflectiveMask = renderData.getTexture(kReflectiveMask);
 
     auto pMotionOptical = renderData.getTexture(kMotionOptical);
@@ -229,8 +236,12 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     ref<Texture> pPrevPosDiff = renderData.getTexture(kPrevPosDiff);
     ref<Texture> pPrevPathLen = renderData.getTexture(kPrevPathLen);
     ref<Texture> pPrevPosition = renderData.getTexture(kPrevPosition);
+    ref<Texture> pLastRayDirPrev = renderData.getTexture(kLastRayDirPrev);
+    ref<Texture> pLinearDepthPrev = renderData.getTexture(kLinearDepthPrev);
     pRenderContext->blit(pPosDiffBlur->getSRV(), pPrevPosDiff->getRTV());
     pRenderContext->blit(pLocalPathLength->getSRV(), pPrevPathLen->getRTV());
+    pRenderContext->blit(pLastRayDir->getSRV(), pLastRayDirPrev->getRTV());
+    pRenderContext->blit(pLinearDepth->getSRV(), pLinearDepthPrev->getRTV());
     if(mpPositions && mpPositions->getWidth() == pPrevPosition->getWidth() && mpPositions->getHeight() == pPrevPosition->getHeight())
         pRenderContext->blit(mpPositions->getSRV(), pPrevPosition->getRTV());
 
@@ -374,7 +385,10 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gCurPathLen"] = pLocalPathLength;
             var["gPrevPathLen"] = pPrevPathLen;
             var["gLastRayDir"] = pLastRayDir;
+            var["gLastRayDirPrev"] = pLastRayDirPrev;
+            var["gLinearDepthPrev"] = pLinearDepthPrev;
             var["gLinearDepth"] = pLinearDepth;
+            var["gDebugTex"] = pDebug;
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
             var["PerFrame"]["gIterations"] = mOpticalIterations;
