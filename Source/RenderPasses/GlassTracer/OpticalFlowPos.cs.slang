@@ -22,6 +22,11 @@ RWTexture2DArray<float4> gDebugTex;
 
 #define OPT_MODE 2
 
+#define VIRTUAL_CAMERA_INTERPOLATED 0
+#define VIRTUAL_CAMERA_CLOSEST_POINT 1
+
+#define VIRTUAL_CAMERA_MODE 0
+
 #ifndef PROJECT_TO_TANGENT
 #define PROJECT_TO_TANGENT 1
 #endif
@@ -150,6 +155,7 @@ float3 ClosestPointTo4Lines(
     float3 S11, float3 d11, float w11
 )
 {
+    //w00 = w10 = w01 = w11 = 0.25;
     float3x3 I = float3x3(
         1, 0, 0,
         0, 1, 0,
@@ -270,11 +276,15 @@ float calcEstimatedError(float2 mvec)
     float3 cam10 = S10 - dir10 * depth10;
     float3 cam01 = S01 - dir01 * depth01;
     float3 cam11 = S11 - dir11 * depth11;
+    #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_INTERPOLATED
     //float3 Cv = (cam00 + cam10 + cam01 + cam11) * 0.25;
     float3 Cv = w00 * cam00 + w10 * cam10 + w01 * cam01 + w11 * cam11;
-    //float3 Cv = ClosestPointTo4Lines(S00, dir00, w00, S10, dir10, w10, S01, dir01, w01, S11, dir11, w11);
-    //gDebugTex[uint3(pixel, 0)] = float4(w00 * cam00 + w10 * cam10 + w01 * cam01 + w11 * cam11, 1.0);
-    //gDebugTex[uint3(pixel, 1)] = float4(ClosestPointTo4Lines(S00, dir00, w00, S10, dir10, w10, S01, dir01, w01, S11, dir11, w11), 1.0);
+    #endif
+    #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_CLOSEST_POINT
+    float3 Cv = ClosestPointTo4Lines(S00, dir00, w00, S10, dir10, w10, S01, dir01, w01, S11, dir11, w11);
+    #endif
+    gDebugTex[uint3(pixel, 0)] = float4(w00 * cam00 + w10 * cam10 + w01 * cam01 + w11 * cam11, 1.0);
+    gDebugTex[uint3(pixel, 1)] = float4(ClosestPointTo4Lines(S00, dir00, w00, S10, dir10, w10, S01, dir01, w01, S11, dir11, w11), 1.0);
 
     float3 err00 = calcProjectedError(Cv, S00, S10, S01, l00, l10, l01, fracX, fracY);
     float3 err10 = calcProjectedError(Cv, S10, S00, S11, l10, l00, l11, 1.0 - fracX, fracY);
@@ -283,25 +293,8 @@ float calcEstimatedError(float2 mvec)
 
     // bilinear interpolation
     float3 err = w00 * err00 + w10 * err10 + w01 * err01 + w11 * err11;
-    gDebugTex[uint3(pixel, 0)] = float4(err, 1.0);
+    //gDebugTex[uint3(pixel, 0)] = float4(err, 1.0);
     return length(err);
-    
-    // old approach
-    /*
-    float3 dir00 = gPrevPos.SampleLevel(S, uv00, 0.0) - cameraVirtual;
-    float3 dir10 = gPrevPos.SampleLevel(S, uv10, 0.0) - cameraVirtual;
-    float3 dir01 = gPrevPos.SampleLevel(S, uv01, 0.0) - cameraVirtual;
-    float3 dir11 = gPrevPos.SampleLevel(S, uv11, 0.0) - cameraVirtual;
-
-    // projected positions (to unit distance plane)
-    float2 proj00 = mul(TB, dir00 / dot(dir00, w_i));
-    float2 proj10 = mul(TB, dir10 / dot(dir10, w_i));
-    float2 proj01 = mul(TB, dir01 / dot(dir01, w_i));
-    float2 proj11 = mul(TB, dir11 / dot(dir11, w_i));
-
-    float2 proj = w00 * proj00 + w10 * proj10 + w01 * proj01 + w11 * proj11;
-    return length(proj) * linearDepth; // from unit distance to world space unit
-    */
 }
 
 #endif
@@ -475,8 +468,14 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float3 cam10 = S10 - dir10 * depth10;
         float3 cam01 = S01 - dir01 * depth01;
         float3 cam11 = S11 - dir11 * depth11;
+        #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_INTERPOLATED
         // float3 Cv = (cam00 + cam10 + cam01 + cam11) * 0.25;
         float3 Cv = w00 * cam00 + w10 * cam10 + w01 * cam01 + w11 * cam11;
+        #endif
+        #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_CLOSEST_POINT
+        float3 Cv = ClosestPointTo4Lines(S00, dir00, w00, S10, dir10, w10, S01, dir01, w01, S11, dir11, w11);
+        //float3 Cv = ClosestPointTo4Lines(cam00, dir00, w00, cam10, dir10, w10, cam01, dir01, w01, cam11, dir11, w11);
+        #endif
 
         optimizeMotionVector(w00, Cv, S00, S10, S01, l00, l10, l01, 1.0, 1.0, AtA, Atb);
         optimizeMotionVector(w10, Cv, S10, S00, S11, l10, l00, l11, -1.0, 1.0, AtA, Atb);
@@ -565,17 +564,13 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
         float2 uvDiff = uvPixel / float2(gFrameDim);
 
-        float3 curDiff = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0) - curPos;
-        PROJECT(curDiff);
-        float curError = length(curDiff);
+        float curError = calcEstimatedError(mvec);
         float newError = curError;
 
         float alpha = 1.0;
         for (; alpha > 0.1; alpha *= 0.5)
         {
-            float3 newDiff = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec + alpha * uvDiff), 0.0) - curPos;
-            PROJECT(newDiff);
-            newError = length(newDiff);
+            newError = calcEstimatedError(mvec + alpha * uvDiff);
             if (newError < curError) break; // use motion vector with this alpha
         }
         if (newError >= curError) break; // cannot improve anymore
