@@ -36,6 +36,7 @@ namespace
     const ChannelList kVBufferExtraChannels =
     {
         { "posW","gPosW","World Space Position",true /* optional */, ResourceFormat::RGBA32Float},
+        { "prevPosW", "gPrevPosW", "Previous World Space Position", true, ResourceFormat::RGBA32Float}, 
         { "normalW","gNormalW","World Space Normal",true /* optional */, ResourceFormat::RGBA16Float},
         {"normalV", "gNormalV", "View Space Normal", true, ResourceFormat::RGBA16Float},
         { "faceNormalW","gFaceNormalW","World Space Face Normal",true /* optional */, ResourceFormat::RGBA16Float},

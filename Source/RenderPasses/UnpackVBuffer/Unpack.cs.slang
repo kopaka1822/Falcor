@@ -3,6 +3,7 @@ import Utils.Math.MathHelpers;
 
 Texture2D<PackedHitInfo> gVBuffer;
 RWTexture2D<float4> gPosW;
+RWTexture2D<float4> gPrevPosW;
 RWTexture2D<float4> gNormalW;
 RWTexture2D<float4> gNormalV;
 RWTexture2D<float4> gFaceNormalW;
@@ -46,6 +47,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         let v = gScene.getVertexData(triangleHit);
 
         gPosW[pixel] = float4(v.posW, 1.0);
+        gPrevPosW[pixel] = float4(v.prevPosW, 1.0);
         gNormalW[pixel] = float4(v.normalW, 0.0);
         gNormalV[pixel] = mul(gScene.camera.data.viewMat, float4(v.normalW, 0.0));
         gFaceNormalW[pixel] = float4(v.faceNormalW, 0.0);
@@ -78,9 +80,14 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         if (hit.isValid() && hit.getType() == HitType::RayMiss)
         {
             gPosW[pixel] = float4(RayMissHit(hit.getData()).posW, 1.0);
+            gPrevPosW[pixel] = float4(RayMissHit(hit.getData()).posW, 1.0);
         }
         else
+        {
             gPosW[pixel] = 0.0;
+            gPrevPosW[pixel] = 0.0;
+        }
+            
         gNormalW[pixel] = 0.0;
         gNormalV[pixel] = 0.0;
         gFaceNormalW[pixel] = 0.0;

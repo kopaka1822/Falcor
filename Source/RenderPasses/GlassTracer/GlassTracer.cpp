@@ -175,6 +175,7 @@ void GlassTracer::compile(RenderContext* pRenderContext, const CompileData& comp
     ref<RenderPass> unpackPass = RenderPass::create("UnpackVBuffer", mpDevice);
     mpVbufferToPosGraph->addPass(unpackPass, "UnpackVBuffer");
     mpVbufferToPosGraph->markOutput("UnpackVBuffer.posW");
+    mpVbufferToPosGraph->markOutput("UnpackVBuffer.prevPosW");
     mpVbufferToPosGraph->setScene(mpScene);
 
     uint2 dims = getRenderSize(compileData.defaultTexDims, mRenderScale);
@@ -314,12 +315,14 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     needPositions |= needsIterations;
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos;
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeAngle;
+    ref<Texture> pCurPrevPosition; // while mpPosition contains the actual positions, pCurPrevPosition contains the locations where those positions have been in the previous frame
     if (needPositions)
     {
         // obtain current positions
         mpVbufferToPosGraph->setInput("UnpackVBuffer.vbuffer", pVbuffer);
         mpVbufferToPosGraph->execute(pRenderContext);
         mpPositions = mpVbufferToPosGraph->getOutput("UnpackVBuffer.posW")->asTexture();
+        pCurPrevPosition = mpVbufferToPosGraph->getOutput("UnpackVBuffer.prevPosW")->asTexture();
     }
 
     // jitter applied in Camera::computeRayPinhole
@@ -378,7 +381,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gBackupMotion"] = pMotionBackup;
             var["gMotionError"] = pMotionErrorMask;
             var["gMotionOut"] = pMotionOptical;
-            var["gCurPos"] = mpPositions;
+            var["gCurPos"] = pCurPrevPosition;
             var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiffBlur;
             var["gPrevPosDiff"] = pPrevPosDiff;
@@ -439,7 +442,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
                 var["gMotionOut"] = pMotion;
                 var["gMotionError"] = pMotionErrorMask;
                 var["gPathLength"] = pLocalPathLength;
-                var["gCurPos"] = mpPositions;
+                var["gCurPos"] = pCurPrevPosition;
                 var["gPrevPos"] = pPrevPosition;
                 var["gPosDiff"] = pPosDiffBlur;
                 var["gLastRayDir"] = pLastRayDir;
@@ -489,7 +492,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gBackupMotion"] = pMotionBackup;
             var["gMotionOut"] = pMotionOptical;
             var["gMotionError"] = pMotionErrorMask;
-            var["gCurPos"] = mpPositions;
+            var["gCurPos"] = pCurPrevPosition;
             var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiffBlur;
             var["gLastRayDir"] = pLastRayDir;
