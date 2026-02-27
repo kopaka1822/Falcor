@@ -24,8 +24,9 @@ RWTexture2DArray<float4> gDebugTex;
 
 #define VIRTUAL_CAMERA_INTERPOLATED 0
 #define VIRTUAL_CAMERA_CLOSEST_POINT 1
+#define VIRTUAL_CAMERA_INDIVIDUAL_POINTS 2
 
-#define VIRTUAL_CAMERA_MODE 0
+#define VIRTUAL_CAMERA_MODE 2
 
 #ifndef PROJECT_TO_TANGENT
 #define PROJECT_TO_TANGENT 1
@@ -279,17 +280,22 @@ float calcEstimatedError(float2 mvec)
     #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_INTERPOLATED
     //float3 Cv = (cam00 + cam10 + cam01 + cam11) * 0.25;
     float3 Cv = w00 * cam00 + w10 * cam10 + w01 * cam01 + w11 * cam11;
+    cam00 = cam10 = cam01 = cam11 = Cv;
     #endif
     #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_CLOSEST_POINT
     float3 Cv = ClosestPointTo4Lines(S00, dir00, w00, S10, dir10, w10, S01, dir01, w01, S11, dir11, w11);
+    cam00 = cam10 = cam01 = cam11 = Cv;
+    #endif
+    #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_INDIVIDUAL_POINTS
+    // keep cam00 as is
     #endif
     gDebugTex[uint3(pixel, 0)] = float4(w00 * cam00 + w10 * cam10 + w01 * cam01 + w11 * cam11, 1.0);
     gDebugTex[uint3(pixel, 1)] = float4(ClosestPointTo4Lines(S00, dir00, w00, S10, dir10, w10, S01, dir01, w01, S11, dir11, w11), 1.0);
 
-    float3 err00 = calcProjectedError(Cv, S00, S10, S01, l00, l10, l01, fracX, fracY);
-    float3 err10 = calcProjectedError(Cv, S10, S00, S11, l10, l00, l11, 1.0 - fracX, fracY);
-    float3 err01 = calcProjectedError(Cv, S01, S11, S00, l01, l11, l00, fracX, 1.0 - fracY);
-    float3 err11 = calcProjectedError(Cv, S11, S01, S10, l11, l01, l10, 1.0 - fracX, 1.0 - fracY);
+    float3 err00 = calcProjectedError(cam00, S00, S10, S01, l00, l10, l01, fracX, fracY);
+    float3 err10 = calcProjectedError(cam10, S10, S00, S11, l10, l00, l11, 1.0 - fracX, fracY);
+    float3 err01 = calcProjectedError(cam01, S01, S11, S00, l01, l11, l00, fracX, 1.0 - fracY);
+    float3 err11 = calcProjectedError(cam11, S11, S01, S10, l11, l01, l10, 1.0 - fracX, 1.0 - fracY);
 
     // bilinear interpolation
     float3 err = w00 * err00 + w10 * err10 + w01 * err01 + w11 * err11;
@@ -471,16 +477,20 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_INTERPOLATED
         // float3 Cv = (cam00 + cam10 + cam01 + cam11) * 0.25;
         float3 Cv = w00 * cam00 + w10 * cam10 + w01 * cam01 + w11 * cam11;
+        cam00 = cam10 = cam01 = cam11 = Cv;
         #endif
         #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_CLOSEST_POINT
         float3 Cv = ClosestPointTo4Lines(S00, dir00, w00, S10, dir10, w10, S01, dir01, w01, S11, dir11, w11);
-        //float3 Cv = ClosestPointTo4Lines(cam00, dir00, w00, cam10, dir10, w10, cam01, dir01, w01, cam11, dir11, w11);
+        cam00 = cam10 = cam01 = cam11 = Cv;
+        #endif
+        #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_INDIVIDUAL_POINTS
+        // keep cam00 as is
         #endif
 
-        optimizeMotionVector(w00, Cv, S00, S10, S01, l00, l10, l01, 1.0, 1.0, AtA, Atb);
-        optimizeMotionVector(w10, Cv, S10, S00, S11, l10, l00, l11, -1.0, 1.0, AtA, Atb);
-        optimizeMotionVector(w01, Cv, S01, S11, S00, l01, l11, l00, 1.0, -1.0, AtA, Atb);
-        optimizeMotionVector(w11, Cv, S11, S01, S10, l11, l01, l10, -1.0, -1.0, AtA, Atb);
+        optimizeMotionVector(w00, cam00, S00, S10, S01, l00, l10, l01, 1.0, 1.0, AtA, Atb);
+        optimizeMotionVector(w10, cam10, S10, S00, S11, l10, l00, l11, -1.0, 1.0, AtA, Atb);
+        optimizeMotionVector(w01, cam01, S01, S11, S00, l01, l11, l00, 1.0, -1.0, AtA, Atb);
+        optimizeMotionVector(w11, cam11, S11, S01, S10, l11, l01, l10, -1.0, -1.0, AtA, Atb);
         #else
         // for radius=1 => 2x2: dx = 0, 1; dy = 0, 1
         // for radius=2 => 4x4: dx = -1,0,1,2; dy = -1,0,1,2
