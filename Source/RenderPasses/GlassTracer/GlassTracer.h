@@ -175,14 +175,11 @@ private:
     ref<ComputePass> mpOpticalBlurPass;
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::LucasKanadePos;
     int mOpticalIterations = 2;
-    bool mCompareWithBackupMotion = true;
     bool mCompareBilateralOutput = true;
-    float mOpticalMaxMovement = 100.0f;
-    int mOpticalRadius = 1;
+    float mOpticalMaxMovement = 10000.0f;
     int mOpticalBlurRadius = 16;
     bool mUseOpticalMedianPrePass = true;
     bool mUseOpticalMedian = false;
-    bool mProjectToTangentPlane = true;
     ref<RenderGraph> mpVbufferToPosGraph;
     float2 mPrevJitter;
 

@@ -16,28 +16,6 @@ Texture2D<float> gLinearDepth;
 Texture2D<float> gLinearDepthPrev;
 RWTexture2DArray<float4> gDebugTex;
 
-#define OPT_MODE_SIMPLE_TANGENT 0
-#define OPT_MODE_NORMALIZED_DERIVS 1
-#define OPT_MODE_VIRTUAL_CAMERA 2
-
-#define OPT_MODE 2
-
-#define VIRTUAL_CAMERA_INTERPOLATED 0
-#define VIRTUAL_CAMERA_CLOSEST_POINT 1
-#define VIRTUAL_CAMERA_INDIVIDUAL_POINTS 2
-
-#define VIRTUAL_CAMERA_MODE 2
-
-#ifndef PROJECT_TO_TANGENT
-#define PROJECT_TO_TANGENT 1
-#endif
-
-#if PROJECT_TO_TANGENT
-#define PROJECT(v) v.xy = mul(TB, v); v.z = 0.0;
-#else
-#define PROJECT(v)
-#endif
-
 SamplerState S; // linear sampler
 
 cbuffer PerFrame
@@ -47,42 +25,7 @@ cbuffer PerFrame
     float2 gCurJitter;
     uint gIterations;
     float gMaxMovement; // max movement in pixels
-    int gWindowRadius;  // radius in pixels (1 = default)
-    float3 camPos;      // camera position current frame
     bool gForceMotionVectorCalculation;
-    bool gCompareWithBackupMotion;
-}
-
-// get derivative with smallest magnitude (+step/-step)
-float3 getMinDeriv(float3 prevPos, int2 uvPrev, int2 step, uint reqPathLen, inout bool invalidDiffs)
-{
-    // [x + 1] - [x]
-    float3 deriv1 = gPrevPos[clampPixel(uvPrev + step)] - prevPos;
-    bool valid1 = (gPrevPathLen[clampPixel(uvPrev + step)] == reqPathLen);
-    float3 deriv2 = prevPos - gPrevPos[clampPixel(uvPrev - step)];
-    bool valid2 = (gPrevPathLen[clampPixel(uvPrev - step)] == reqPathLen);
-
-    // only return derivatives from the same path length as prevPos
-    if (valid1 && !valid2) return deriv1;
-    if (!valid1 && valid2) return deriv2;
-    if (!valid1 && !valid2) invalidDiffs = true;
-    return (length(deriv1) <= length(deriv2)) ? deriv1 : deriv2;
-}
-
-// returns closest position to prevPos from either +step or -step. Fourth component is 1 if +step is close, -1 if -step is closer.
-float4 getMinDerivPos(float3 prevPos, int2 uvPrev, int2 step, uint reqPathLen, inout bool invalidDiffs)
-{
-    float3 pos1 = gPrevPos[clampPixel(uvPrev + step)];
-    bool valid1 = (gPrevPathLen[clampPixel(uvPrev + step)] == reqPathLen);
-    float3 pos2 = gPrevPos[clampPixel(uvPrev - step)];
-    bool valid2 = (gPrevPathLen[clampPixel(uvPrev - step)] == reqPathLen);
-
-    // only return derivatives from the same path length as prevPos
-    if (valid1 && !valid2) return float4(pos1, 1.0);
-    if (!valid1 && valid2) return float4(pos2, -1.0);
-    if (!valid1 && !valid2) invalidDiffs = true;
-
-    return (length(pos1 - prevPos) <= length(prevPos - pos2)) ? float4(pos1, 1.0) : float4(pos2, -1.0);
 }
 
 // snaps uv to top left (smallest) uv within the 2x2 pixel area
@@ -111,96 +54,15 @@ float calcNonNormalizedRayLength(float2 uv)
     return length(float3(ndc, 1.0));
 }
 
-float3x3 inverse3x3(float3x3 M)
-{
-    float a00 = M[0][0], a01 = M[0][1], a02 = M[0][2];
-    float a10 = M[1][0], a11 = M[1][1], a12 = M[1][2];
-    float a20 = M[2][0], a21 = M[2][1], a22 = M[2][2];
-
-    float b00 = a11 * a22 - a12 * a21;
-    float b01 = a02 * a21 - a01 * a22;
-    float b02 = a01 * a12 - a02 * a11;
-
-    float b10 = a12 * a20 - a10 * a22;
-    float b11 = a00 * a22 - a02 * a20;
-    float b12 = a02 * a10 - a00 * a12;
-
-    float b20 = a10 * a21 - a11 * a20;
-    float b21 = a01 * a20 - a00 * a21;
-    float b22 = a00 * a11 - a01 * a10;
-
-    float det = a00 * b00 + a01 * b10 + a02 * b20;
-    float invDet = 1.0 / det;
-
-    return float3x3(
-        b00 * invDet, b01 * invDet, b02 * invDet,
-        b10 * invDet, b11 * invDet, b12 * invDet,
-        b20 * invDet, b21 * invDet, b22 * invDet
-    );
-}
-
-float3x3 outerProduct(float3 a, float3 b)
-{
-    return float3x3(
-        a.x * b.x, a.x * b.y, a.x * b.z,
-        a.y * b.x, a.y * b.y, a.y * b.z,
-        a.z * b.x, a.z * b.y, a.z * b.z
-    );
-}
-
-// from: https://math.stackexchange.com/questions/61719/finding-the-intersection-point-of-many-lines-in-3d-point-closest-to-all-lines ~ Alberto
-float3 ClosestPointTo4Lines(
-    float3 S00, float3 d00, float w00,
-    float3 S10, float3 d10, float w10,
-    float3 S01, float3 d01, float w01,
-    float3 S11, float3 d11, float w11
-)
-{
-    //w00 = w10 = w01 = w11 = 0.25;
-    float3x3 I = float3x3(
-        1, 0, 0,
-        0, 1, 0,
-        0, 0, 1
-    );
-
-    d00 = normalize(d00);
-    d10 = normalize(d10);
-    d01 = normalize(d01);
-    d11 = normalize(d11);
-
-    float3x3 A =
-        w00 * (I - outerProduct(d00, d00)) +
-        w10 * (I - outerProduct(d10, d10)) +
-        w01 * (I - outerProduct(d01, d01)) +
-        w11 * (I - outerProduct(d11, d11));
-
-    float3 b =
-        w00 * mul(I - outerProduct(d00, d00), S00) +
-        w10 * mul(I - outerProduct(d10, d10), S10) +
-        w01 * mul(I - outerProduct(d01, d01), S01) +
-        w11 * mul(I - outerProduct(d11, d11), S11);
-
-    // float lambda = 1e-8;
-    // A += lambda * I;
-
-    return mul(inverse3x3(A), b);
-}
-
 // global constants
 static uint2 pixel;
 static float2 texC;
 static float3 curPos;
-static float2x3 TB;
 static float3 w_i; // incomming ray direction on P
 static float linearDepth;
-static float3 cameraVirtual;
 static const float2 step = 1.0 / float2(gFrameDim);
 static const float2 stepX = float2(step.x, 0.0);
 static const float2 stepY = float2(0.0, step.y);
-
-
-#if OPT_MODE == OPT_MODE_VIRTUAL_CAMERA
-
 
 float3 calcProjectedError(float3 Cv, float3 S, float3 Sx, float3 Sy, float l, float lx, float ly, float fracX, float fracY)
 {
@@ -277,21 +139,6 @@ float calcEstimatedError(float2 mvec)
     float3 cam10 = S10 - dir10 * depth10;
     float3 cam01 = S01 - dir01 * depth01;
     float3 cam11 = S11 - dir11 * depth11;
-    #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_INTERPOLATED
-    //float3 Cv = (cam00 + cam10 + cam01 + cam11) * 0.25;
-    float3 Cv = w00 * cam00 + w10 * cam10 + w01 * cam01 + w11 * cam11;
-    cam00 = cam10 = cam01 = cam11 = Cv;
-    #endif
-    #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_CLOSEST_POINT
-    float3 Cv = ClosestPointTo4Lines(S00, dir00, w00, S10, dir10, w10, S01, dir01, w01, S11, dir11, w11);
-    cam00 = cam10 = cam01 = cam11 = Cv;
-    #endif
-    #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_INDIVIDUAL_POINTS
-    // keep cam00 as is
-    #endif
-    gDebugTex[uint3(pixel, 0)] = float4(w00 * cam00 + w10 * cam10 + w01 * cam01 + w11 * cam11, 1.0);
-    gDebugTex[uint3(pixel, 1)] = float4(ClosestPointTo4Lines(S00, dir00, w00, S10, dir10, w10, S01, dir01, w01, S11, dir11, w11), 1.0);
-
     float3 err00 = calcProjectedError(cam00, S00, S10, S01, l00, l10, l01, fracX, fracY);
     float3 err10 = calcProjectedError(cam10, S10, S00, S11, l10, l00, l11, 1.0 - fracX, fracY);
     float3 err01 = calcProjectedError(cam01, S01, S11, S00, l01, l11, l00, fracX, 1.0 - fracY);
@@ -302,80 +149,6 @@ float calcEstimatedError(float2 mvec)
     //gDebugTex[uint3(pixel, 0)] = float4(err, 1.0);
     return length(err);
 }
-
-#endif
-
-#if OPT_MODE == OPT_MODE_NORMALIZED_DERIVS
-float calcEstimatedError(float2 mvec)
-{
-    float2 uv = texC + adjustJitter(mvec);
-    // 4 rounded uv coordinates
-    float2 uv00 = snapTopLeft(uv);
-    float2 uv10 = uv00 + stepX;
-    float2 uv01 = uv00 + stepY;
-    float2 uv11 = uv00 + step;
-    // corresponding barycentric weights
-    float fracX = (uv.x - uv00.x) / step.x; // [0, 1] distance of uv to uv00 in x direction
-    float fracY = (uv.y - uv00.y) / step.y; // [0, 1] distance of uv to uv00 in y direction
-    float w00 = (1.0 - fracX) * (1.0 - fracY);
-    float w10 = fracX * (1.0 - fracY);
-    float w01 = (1.0 - fracX) * fracY;
-    float w11 = fracX * fracY;
-
-    // fetch position, direction and depth for the 4 neighboring pixels
-    float3 S00 = gPrevPos.SampleLevel(S, uv00, 0.0);
-    float3 S10 = gPrevPos.SampleLevel(S, uv10, 0.0);
-    float3 S01 = gPrevPos.SampleLevel(S, uv01, 0.0);
-    float3 S11 = gPrevPos.SampleLevel(S, uv11, 0.0);
-
-    float3 dir00 = gPrevPos.SampleLevel(S, uv00, 0.0) - cameraVirtual;
-    float3 dir10 = gPrevPos.SampleLevel(S, uv10, 0.0) - cameraVirtual;
-    float3 dir01 = gPrevPos.SampleLevel(S, uv01, 0.0) - cameraVirtual;
-    float3 dir11 = gPrevPos.SampleLevel(S, uv11, 0.0) - cameraVirtual;
-
-    // projected positions (to unit distance plane)
-    float2 proj00 = mul(TB, dir00 / dot(dir00, w_i));
-    float2 proj10 = mul(TB, dir10 / dot(dir10, w_i));
-    float2 proj01 = mul(TB, dir01 / dot(dir01, w_i));
-    float2 proj11 = mul(TB, dir11 / dot(dir11, w_i));
-
-    float2 proj = w00 * proj00 + w10 * proj10 + w01 * proj01 + w11 * proj11;
-    return length(proj) * linearDepth; // from unit distance to world space unit
-    
-}
-#endif
-
-// non normalized derivatives (deprecated)
-#if OPT_MODE == OPT_MODE_SIMPLE_TANGENT 
-float calcEstimatedError(float2 mvec)
-{
-    float2 uv = texC + adjustJitter(mvec);
-    // 4 rounded uv coordinates
-    float2 uv00 = snapTopLeft(uv);
-    float2 uv10 = uv00 + stepX;
-    float2 uv01 = uv00 + stepY;
-    float2 uv11 = uv00 + step;
-    // corresponding barycentric weights
-    float w00 = (1.0 - (uv.x - uv00.x) / step.x) * (1.0 - (uv.y - uv00.y) / step.y);
-    float w10 = ((uv.x - uv00.x) / step.x) * (1.0 - (uv.y - uv00.y) / step.y);
-    float w01 = (1.0 - (uv.x - uv00.x) / step.x) * ((uv.y - uv00.y) / step.y);
-    float w11 = ((uv.x - uv00.x) / step.x) * ((uv.y - uv00.y) / step.y);
-
-    // directions from camera to sample points
-    float3 pos00 = gPrevPos.SampleLevel(S, uv00, 0.0);
-    float3 pos10 = gPrevPos.SampleLevel(S, uv10, 0.0);
-    float3 pos01 = gPrevPos.SampleLevel(S, uv01, 0.0);
-    float3 pos11 = gPrevPos.SampleLevel(S, uv11, 0.0);
-
-    float3 newPos = w00 * pos00 + w10 * pos10 + w01 * pos01 + w11 * pos11;
-
-    //float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
-    float3 posDiff = newPos - curPos;
-    PROJECT(posDiff);
-    float newError = length(posDiff);
-    return newError;
-}
-#endif
 
 
 [numthreads(16, 16, 1)]
@@ -389,11 +162,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     curPos = gCurPos.SampleLevel(S, texC, 0.0);
     linearDepth = gLinearDepth[pixel]; // travelled distance between current camera and curPos
     w_i = gLastRayDir[pixel];         // incomming ray direction on P
-    cameraVirtual = curPos - w_i * linearDepth;
-
-    float3 tangent = normalize(cross(float3(0.0, 1.0, 0.0), w_i));
-    float3 bitangent = cross(w_i, tangent);
-    TB = float2x3(tangent, bitangent);
 
     uint iterations = gIterations;
 
@@ -404,9 +172,9 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         if (reqPathLen <= 1) iterations = 0; // path length 1 is trival reprojection => force correct
     }
    
-    if (gCompareWithBackupMotion)
-        if (calcEstimatedError(bmvec) < calcEstimatedError(mvec))
-            mvec = bmvec;
+    // compare with backup motion vector (sometimes better)
+    if (calcEstimatedError(bmvec) < calcEstimatedError(mvec))
+        mvec = bmvec;
 
     //iterations = 0;
     const float2 originalMvec = mvec; // mvec from before iterations
@@ -416,12 +184,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float2 uvPrev = texC + mvec0; // actual uv
         float2 uv00 = snapTopLeft(texC + mvec0); // snap uv to top left (pixel center)
         int2 uv00pixel = int2(uv00 * float2(gFrameDim));
-
-        float2x2 AtA = 0.0;
-        float2 Atb = 0.0;
-
-#if OPT_MODE == OPT_MODE_VIRTUAL_CAMERA
-        // supports only window radius = 1
 
         // pixel coordinates
         int2 uv10pixel = clampPixel(uv00pixel + int2(1, 0));
@@ -474,91 +236,14 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float3 cam10 = S10 - dir10 * depth10;
         float3 cam01 = S01 - dir01 * depth01;
         float3 cam11 = S11 - dir11 * depth11;
-        #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_INTERPOLATED
-        // float3 Cv = (cam00 + cam10 + cam01 + cam11) * 0.25;
-        float3 Cv = w00 * cam00 + w10 * cam10 + w01 * cam01 + w11 * cam11;
-        cam00 = cam10 = cam01 = cam11 = Cv;
-        #endif
-        #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_CLOSEST_POINT
-        float3 Cv = ClosestPointTo4Lines(S00, dir00, w00, S10, dir10, w10, S01, dir01, w01, S11, dir11, w11);
-        cam00 = cam10 = cam01 = cam11 = Cv;
-        #endif
-        #if VIRTUAL_CAMERA_MODE == VIRTUAL_CAMERA_INDIVIDUAL_POINTS
-        // keep cam00 as is
-        #endif
 
+        float2x2 AtA = 0.0;
+        float2 Atb = 0.0;
         optimizeMotionVector(w00, cam00, S00, S10, S01, l00, l10, l01, 1.0, 1.0, AtA, Atb);
         optimizeMotionVector(w10, cam10, S10, S00, S11, l10, l00, l11, -1.0, 1.0, AtA, Atb);
         optimizeMotionVector(w01, cam01, S01, S11, S00, l01, l11, l00, 1.0, -1.0, AtA, Atb);
         optimizeMotionVector(w11, cam11, S11, S01, S10, l11, l01, l10, -1.0, -1.0, AtA, Atb);
-        #else
-        // for radius=1 => 2x2: dx = 0, 1; dy = 0, 1
-        // for radius=2 => 4x4: dx = -1,0,1,2; dy = -1,0,1,2
-        for (int dx = -gWindowRadius + 1; dx <= gWindowRadius; ++dx)
-            for (int dy = -gWindowRadius + 1; dy <= gWindowRadius; ++dy)
-            {
-                int2 off = int2(dx, dy);
-                float3 prevPos = gPrevPos[clampPixel(uv00pixel + off)];
-                uint prevPathLen = gPrevPathLen[clampPixel(uv00pixel + off)];
-                if(prevPathLen != reqPathLen) continue;
-
-                // barycentric weights based on distance to center pixel uv00
-                float2 distInPixels = abs(uv00 + dx * stepX + dy * stepY - uvPrev) * float2(gFrameDim);
-                float w = 1.0;
-                w *= 1.0 - (distInPixels.x / gWindowRadius); // barycentric weights for radius=1
-                w *= 1.0 - (distInPixels.y / gWindowRadius);
-
-                // check wheter I_x and I_y can be trusted (not much larger than expected pos diff)
-                float expectedOnePixelDiff = gPrevPosDiff[clampPixel(uv00pixel + off)];
-                float posDiffThreshold = 2.0;
-
-                #if OPT_MODE == OPT_MODE_NORMALIZED_DERIVS
-                // build derivatives
-                float3 w_0 = prevPos - cameraVirtual;
-                float2 S0 = mul(TB, w_0 / dot(w_0, w_i));
-                float2 I_t = -S0;
-
-                bool invalidDiffs = false;
-                float4 xpos = getMinDerivPos(prevPos, uv00pixel + off, int2(1, 0), prevPathLen, invalidDiffs);
-                float4 ypos = getMinDerivPos(prevPos, uv00pixel + off, int2(0, 1), prevPathLen, invalidDiffs);
-                if (invalidDiffs) continue; // based on path length disc.
-
-                float3 w_1x = xpos.xyz - cameraVirtual;
-                float3 w_1y = ypos.xyz - cameraVirtual;
-                float2 S1x = mul(TB, w_1x / dot(w_1x, w_i));
-                float2 S1y = mul(TB, w_1y / dot(w_1y, w_i));
-                float2 I_x = (S1x - S0) * xpos.w; // w flips the derivate if -step was taken
-                float2 I_y = (S1y - S0) * ypos.w;
-
-                //invalidDiffs = false;
-                //if (length(I_x) * linearDepth > posDiffThreshold * expectedOnePixelDiff) invalidDiffs = true;
-                //if (length(I_y) * linearDepth > posDiffThreshold * expectedOnePixelDiff) invalidDiffs = true;
-                // if (invalidDiffs) continue; // based on posDiffThreshold
-                #endif
-
-                #if OPT_MODE == OPT_MODE_SIMPLE_TANGENT
-                // build derivatives
-                float3 I_t = curPos - prevPos; // [t+1] - [t]
-                bool invalidDiffs = false;
-                float3 I_x = getMinDeriv(prevPos, uv00pixel + off, int2(1, 0), prevPathLen, invalidDiffs);
-                float3 I_y = getMinDeriv(prevPos, uv00pixel + off, int2(0, 1), prevPathLen, invalidDiffs);
-                if (invalidDiffs) continue; // based on path length disc.
-
-                invalidDiffs = false;
-                if (length(I_x) > posDiffThreshold * expectedOnePixelDiff) invalidDiffs  = true;
-                if (length(I_y) > posDiffThreshold * expectedOnePixelDiff) invalidDiffs = true;
-                //if (invalidDiffs) continue; // based on posDiffThreshold
-
-                PROJECT(I_x);
-                PROJECT(I_y);
-                PROJECT(I_t);
-                #endif
-
-                AtA += w * float2x2(dot(I_x, I_x), dot(I_x, I_y),
-                                    dot(I_x, I_y), dot(I_y, I_y));
-                Atb += w * float2(dot(I_t, I_x), dot(I_t, I_y));
-            }
-        #endif
+        
         if (all(AtA == 0.0)) break; // bad conditioned, retain original motion vector
 
         // invert AtA
@@ -577,6 +262,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float curError = calcEstimatedError(mvec);
         float newError = curError;
 
+        // backtracking line search
         float alpha = 1.0;
         for (; alpha > 0.1; alpha *= 0.5)
         {
@@ -593,25 +279,13 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     //newError = 0.0;
     //iterations = 1;
     float onePixelPosDiff = gPosDiff[pixel];
-
-    // test for path length discontinuety
-    bool pathLenDiscont = false;
-    int2 pathOffset[4] = { int2(-1, 0), int2(1, 0), int2(0, 1), int2(0, -1) };
-    for (uint i = 0; i < 4; ++i)
-        if(gCurPathLen[clampPixel(pixel + pathOffset[i]) ] != reqPathLen)
-            pathLenDiscont = true;
-    pathLenDiscont = false;
-
-    if (iterations > 0 && (newError > onePixelPosDiff * 0.05 || pathLenDiscont))
+    uint error = 0;
+    if (iterations > 0 && (newError > onePixelPosDiff * 0.05))
     {
         mvec = originalMvec;
-        gMotionError[pixel] = 1;
-    }
-    else
-    {
-        gMotionError[pixel] = 0;
+        error = 1;
     }
 
+    gMotionError[pixel] = error;
     gMotionOut[pixel] = mvec;
-    //gMotionOut[pixel] = 0.0;
 }
