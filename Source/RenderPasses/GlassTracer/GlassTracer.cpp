@@ -42,12 +42,10 @@ namespace
     const std::string kPosDiff = "posDiff";
     const std::string kPosDiffBlur = "posDiffBlur";
     // iteration data
-    const std::string kNewRayDir = "newRayDir";
     const std::string kLastRayDir = "lastRayDir";
     const std::string kLastRayDirPrev = "lastRayDirPrev";
     const std::string kPathLength = "pathLength";
     const std::string kLinearDepthPrev = "linearDepthPrev";
-    const std::string kReflectiveMask = "reflectiveMask";
     // optical temporaray
     const std::string kMotionOptical = "mvecOptical"; // mvecs directly after optical flow, without post-processing
     // previous frame data for optical flow
@@ -57,7 +55,6 @@ namespace
 
     const uint32_t kMaxPayloadSizeBytes = 6 * sizeof(float);
     const std::string kProgramRaytraceFile = "RenderPasses/GlassTracer/GlassTracer.rt.slang";
-    const std::string kIterationRaytraceFile = "RenderPasses/GlassTracer/IterateMV.rt.slang";
     const std::string kOpticalFlowPosFile = "RenderPasses/GlassTracer/OpticalFlowPos.cs.slang";
     const std::string kOpticalBlurFile = "RenderPasses/GlassTracer/OpticalFlowBlur.cs.slang";
     const std::string kOpticalMedianFile = "RenderPasses/GlassTracer/OpticalFlowMedian.cs.slang";
@@ -153,10 +150,6 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kLastRayDir, "Last Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addOutput(kPathLength, "Local Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
 
-    // iteration data
-    reflector.addOutput(kReflectiveMask, "Reflective Mask").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y); // TODO higher limit to support path length > 32
-    reflector.addOutput(kNewRayDir, "New Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y);
-
     // actual output
     reflector.addOutput(kMotionOptical, "Motion vector (tmp from optical)").format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
 
@@ -200,19 +193,14 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pDebug = renderData.getTexture(kDebug);
     auto pPosDiff = renderData.getTexture(kPosDiff);
     auto pPosDiffBlur = renderData.getTexture(kPosDiffBlur);
-
-    auto pNewRayDir = renderData.getTexture(kNewRayDir);
     auto pLastRayDir = renderData.getTexture(kLastRayDir);
     auto pLocalPathLength = renderData.getTexture(kPathLength);
-    auto pReflectiveMask = renderData.getTexture(kReflectiveMask);
 
     auto pMotionOptical = renderData.getTexture(kMotionOptical);
-    bool needsIterations = mIterationTechnique != IterationTechnique::None && mIterations > 1;
 
     size_t requiredStack = pVbuffer->getWidth() * pVbuffer->getHeight() * std::max(1, mStackSize);
     // number of floats in the stack struct
     uint32_t structSize = 12;
-    if (needsIterations) structSize += 1;
     if (mUseTextureLOD) structSize += 12;
     if (mMotionVector == MotionVector::HalfwayReflection || mMotionVector == MotionVector::FirstRefractiveHit || mBackupMotionVector == MotionVector::FirstRefractiveHit) structSize += 12;
     if (mMotionVector == MotionVector::RayDifferentials) structSize += 16;
@@ -258,12 +246,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["gStack"] = mpStackBuffer;
     assert(mpTransparencyWhitelist);
     var["gTransparencyWhitelist"] = mpTransparencyWhitelist;
-
-    // iteration buffers
-    var["gNewRayDir"] = pNewRayDir;
     var["gLastRayDir"] = pLastRayDir;
     var["gLocalPathLength"] = pLocalPathLength;
-    var["gReflectiveMask"] = pReflectiveMask;
 
     if (pDebug)
     {
@@ -295,7 +279,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     mpProgram->addDefine("BMVEC", std::to_string(uint32_t(mBackupMotionVector)));
     mpProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
     mpProgram->addDefine("IGNORE_NORMAL_DIFFS", mIgnoreNormalDiffs ? "1" : "0");
-    mpProgram->addDefine("NEEDS_ITERATIONS", needsIterations ? "1" : "0");
 
     uint3 dispatch = uint3(1);
     dispatch.x = pVbuffer->getWidth();
@@ -307,7 +290,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
     // needs positions for iterations or optical flow?
     bool needPositions = false;
-    needPositions |= needsIterations;
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos;
     ref<Texture> pCurPrevPosition; // while mpPosition contains the actual positions, pCurPrevPosition contains the locations where those positions have been in the previous frame
     if (needPositions)
@@ -321,36 +303,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
     // jitter applied in Camera::computeRayPinhole
     const float2 curJitter = float2(-mpScene->getCamera()->getJitterX(), mpScene->getCamera()->getJitterY());
-
-    if (mIterationTechnique != IterationTechnique::None && mIterations > 1)
-    {
-        FALCOR_PROFILE(pRenderContext, "Iterate");
-        var = mpIterationVars->getRootVar();
-
-        var["gVBuffer"] = pVbuffer;
-        var["gMotion"] = pMotion;
-        var["gTransparencyWhitelist"] = mpTransparencyWhitelist;
-        var["gReflectiveMask"] = pReflectiveMask;
-        var["gLocalPathLength"] = pLocalPathLength;
-        var["gNewRayDir"] = pNewRayDir;
-        var["gLastRayDir"] = pLastRayDir;
-        var["gPrevPos"] = pPrevPosition;
-        var["gPosDiff"] = pPosDiff;
-
-        mpIterationProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
-        mpIterationProgram->addDefine("CULL_BACK_FACES", mCullBackFaces ? "1" : "0");
-        mpIterationProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
-        mpIterationProgram->addDefine("IT_TECH", std::to_string(uint32_t(mIterationTechnique)));
-        mpIterationProgram->addDefine("IGNORE_NORMAL_DIFFS", mIgnoreNormalDiffs ? "1" : "0");
-
-        var["PerFrame"]["gIterations"] = mIterations;
-        var["PerFrame"]["gForcePathLength"] = mForceIterationPathLength ? 1 : 0;
-        var["PerFrame"]["gPrevJitter"] = mPrevJitter;
-        var["PerFrame"]["gCurJitter"] = curJitter;
-
-        mpScene->raytrace(pRenderContext, mpIterationProgram.get(), mpIterationVars, dispatch);
-    }
-
     if(mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
     {
         FALCOR_PROFILE(pRenderContext, "OpticalFlow");
@@ -486,26 +438,14 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
     bool c = false; // changed
 
     c |= widget.dropdown("Motion Vectors", mMotionVector);
+    if (mMotionVector == MotionVector::RayDifferentials || mMotionVector == MotionVector::ReverseRayDifferentials)
+    {
+        c |= widget.checkbox("Ignore Normal Differentials", mIgnoreNormalDiffs);
+        widget.tooltip("Ignores normal differentials when computing ray differentials for motion vectors.");
+    }
+
     c |= widget.checkbox("Force Motion Vector Calculation", mForceMotionVectorCalculation);
     widget.tooltip("Forces motion vector calculation even if neither camera nor vertex moved.");
-    c |= widget.checkbox("Ignore Normal Differentials", mIgnoreNormalDiffs);
-    widget.tooltip("Ignores normal differentials when computing ray differentials for motion vectors.");
-
-    c |= widget.dropdown("Iteration Technique", mIterationTechnique);
-
-    if (mIterationTechnique != IterationTechnique::None)
-    {
-        widget.separator();
-
-        c |= widget.slider("Iterations", mIterations, 1, 20);
-        if (mIterations > 1)
-        {
-            c |= widget.checkbox("Force It. Path Length", mForceIterationPathLength);
-            widget.tooltip("If enabled, Paths must have the exact same path length as the original ray.");
-        }
-
-        widget.separator();
-    }
 
     c |= widget.dropdown("OpticalFlow Technique", mOpticalFlowTechnique);
     if (mOpticalFlowTechnique != OpticalFlowTechnique::None)
@@ -645,7 +585,6 @@ void GlassTracer::setupProgram()
     };
 
     setup(kProgramRaytraceFile, mpProgram, mpVars);
-    setup(kIterationRaytraceFile, mpIterationProgram, mpIterationVars);
 }
 
 bool GlassTracer::updateWhitelistBuffer()

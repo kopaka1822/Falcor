@@ -5,7 +5,6 @@ target_sources(GlassTracer PRIVATE
     GlassTracer.h
     GlassTracer.rt.slang
     Shared.slang
-    IterateMV.rt.slang
     OpticalFlowPos.cs.slang
     OpticalFlowBlur.cs.slang
     OpticalFlowMedian.cs.slang

@@ -73,19 +73,6 @@ public:
 
     FALCOR_PLUGIN_CLASS(GlassTracer, "GlassTracer", "Path Tracer specialized for noise-free glass rendering");
 
-    enum class IterationTechnique : uint32_t
-    {
-        None,
-        Forward,
-        Reverse
-    };
-
-    FALCOR_ENUM_INFO(IterationTechnique, {
-        {IterationTechnique::None, "None"},
-        {IterationTechnique::Forward, "Forward"},
-        {IterationTechnique::Reverse, "Reverse"},
-    });
-
     enum class OpticalFlowTechnique : uint32_t
     {
         None,
@@ -157,13 +144,6 @@ private:
     int mStackSize = 2;
     MotionVector mMotionVector = MotionVector::HalfwayReflection;
     MotionVector mBackupMotionVector = MotionVector::FirstRefractiveHit;
-    IterationTechnique mIterationTechnique = IterationTechnique::None;
-
-    // iterations
-    int mIterations = 1;
-    bool mForceIterationPathLength = true;
-    ref<RtProgram> mpIterationProgram;
-    ref<RtProgramVars> mpIterationVars;
 
     // optical flow
     ref<Texture> mpPositions;
@@ -211,5 +191,4 @@ private:
 
 FALCOR_ENUM_REGISTER(GlassTracer::RenderScale);
 FALCOR_ENUM_REGISTER(GlassTracer::MotionVector);
-FALCOR_ENUM_REGISTER(GlassTracer::IterationTechnique);
 FALCOR_ENUM_REGISTER(GlassTracer::OpticalFlowTechnique);

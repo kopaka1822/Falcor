@@ -33,17 +33,12 @@ RWTexture2D<float> gDepth;   // non-linear depth for DLSS
 RWTexture2D<float> gLinearDepth;
 RWTexture2D<float> gPosDiff;     // expected position difference when moving one pixel
 RWTexture2D<float3> gLastRayDir; // direction to P (incomming ray direction)
+RWTexture2D<uint> gLocalPathLength; // integer path length (bounces)
 
 SamplerState S; // linear sampler
 
-#ifndef NEEDS_ITERATIONS
-#define NEEDS_ITERATIONS 1
-#endif
-// extra outputs for iterations
-RWTexture2D<float3> gNewRayDir;
-RWTexture2D<uint> gReflectiveMask;
-// for iterations and for glass denoise shader
-RWTexture2D<uint> gLocalPathLength;
+
+
 
 float4 shadeEnvmap(float3 viewDir)
 {
@@ -189,13 +184,7 @@ struct VBufferReservoir
     float2 bmvec; // backup motion vector
     PackedHitInfo vbuffer;
     float3 lastRayDir;
-    float posDiff;
-
-    // iteration specific
-    #if NEEDS_ITERATIONS
-    float3 newRayDir;
-    uint reflectiveMask;
-    #endif    uint localPathLength; // TODO this is only required for iterations and glass denoiser
+    float posDiff;    uint localPathLength;
 
     // update function, returns true if reservoir should be updated, false if old data should be kept
     [mutating]
@@ -225,11 +214,6 @@ struct VBufferReservoir
         gLinearDepth[pixel] = depth;
         gPosDiff[pixel] = posDiff;
         gLastRayDir[pixel] = lastRayDir;
-        // per iteration outputs
-        #if NEEDS_ITERATIONS
-        gReflectiveMask[pixel] = reflectiveMask;
-        gNewRayDir[pixel] = newRayDir;
-        #endif
         gLocalPathLength[pixel] = localPathLength;
     }
 };
@@ -244,10 +228,6 @@ struct StackFrame
     float3 thp; // path throughput
     uint flags;
     // ^ 12 floats
-
-#if NEEDS_ITERATIONS
-    uint reflectiveMask; // 1 = reflection at start (lowest bit), 0101 = reflection->refraction->reflection->refraction
-#endif
     
 #if USE_TEXTURE_LOD != 0
     RayDiff rd; // 12 floats
@@ -419,9 +399,6 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
     s.ray2origin += s.rayOrigin - sd.posW; // account for the above error by also moving the ray2origin accordingly
     #endif
     s.rayDir = bsdfSample.wo;
-    #if NEEDS_ITERATIONS
-    if (!transmission) s.reflectiveMask = s.reflectiveMask | (1u << (s.curPathLength - 1)); // mark reflection at this path length (curPathLength starts at 1)
-    #endif
     return s;
 }
 
@@ -435,9 +412,6 @@ void rayGen()
     s.linearZ = 0.0;
     s.curPathLength = 0;
     s.flags = 0;
-    #if NEEDS_ITERATIONS
-    s.reflectiveMask = 0;
-    #endif
     float3 color = 0.0; // color along path
     bool writeMvec = true; // can be set to false (after first refraction) to disable mvec writes
     bool writeBMvec = true; // same for backup motion vector
@@ -526,10 +500,6 @@ void rayGen()
                 curVBuffer.depth = s.linearZ + ray.TMax; // + far plane
                 curVBuffer.localPathLength = s.curPathLength;
                 curVBuffer.lastRayDir = s.rayDir;
-                #if NEEDS_ITERATIONS
-                curVBuffer.reflectiveMask = s.reflectiveMask;
-                curVBuffer.newRayDir = rayDirNoJitter; // initial ray direction
-                #endif
             }
 
             if (StackEmpty()) break;
@@ -621,9 +591,6 @@ void rayGen()
             curVBuffer.posDiff = posDiff;
             curVBuffer.localPathLength = s.curPathLength;
             curVBuffer.lastRayDir = s.rayDir;
-            #if NEEDS_ITERATIONS
-            curVBuffer.reflectiveMask = s.reflectiveMask;
-            #endif
 
             if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
             {
@@ -634,10 +601,6 @@ void rayGen()
             #ifdef USE_VIEW_TRANSFORM
             if(writeMvec)
                 curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, s.viewTransform, camMovement || vertexMoved);
-            #if NEEDS_ITERATIONS
-            float3 P = mul(s.viewTransform, float4(v.prevPosW, 1.0));
-            curVBuffer.newRayDir = normalize(P - gScene.camera.data.prevPosW); // initial ray direction
-            #endif
             #endif
 
             #if MVEC == MVEC_RAY_DIFF
@@ -655,10 +618,6 @@ void rayGen()
             float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
             if(writeMvec)
                 curVBuffer.mvec = prevUV - CurrentUVJittered();
-            //gDebugTex[uint3(pixel, 0)] = float4(v.prevPosW - ray2origin, 1.0);
-            #if NEEDS_ITERATIONS
-            curVBuffer.newRayDir = prevDirW; // initial ray direction
-            #endif
             #endif
 
             #if MVEC == MVEC_REVERSE_RD
@@ -668,11 +627,6 @@ void rayGen()
             float3 dDn = mul(s.Jdd, dD0);
 
             float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, true /*jitter*/).dir;
-            #if NEEDS_ITERATIONS
-            curVBuffer.newRayDir = normalize(initDirW - dDn); // negate because we traced backwards
-            curVBuffer.lastRayDir = normalize(s.rayDir - dD0); // TODO overwrite this? if used for optical flow after?
-            #endif
-
             float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(normalize(initDirW - dDn), 0.0)).xyz);
             if(writeMvec)
                 curVBuffer.mvec = prevUV - CurrentUVJittered();
