@@ -57,8 +57,6 @@ float calcNonNormalizedRayLength(float2 uv)
 static uint2 pixel;
 static float2 texC;
 static float3 curPos;
-static float3 w_i; // incomming ray direction on P
-static float linearDepth;
 static const float2 step = 1.0 / float2(gFrameDim);
 static const float2 stepX = float2(step.x, 0.0);
 static const float2 stepY = float2(0.0, step.y);
@@ -159,8 +157,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     float2 bmvec = gBackupMotion[pixel];
     const uint reqPathLen = gCurPathLen[pixel]; // required path length: other positions should be taken from this exact path length, otherwise they are likeley invalid
     curPos = gCurPos.SampleLevel(S, texC, 0.0);
-    linearDepth = gLinearDepth[pixel]; // travelled distance between current camera and curPos
-    w_i = gLastRayDir[pixel];         // incomming ray direction on P
 
     uint iterations = gIterations;
 
