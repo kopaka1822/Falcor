@@ -59,7 +59,6 @@ namespace
     const std::string kProgramRaytraceFile = "RenderPasses/GlassTracer/GlassTracer.rt.slang";
     const std::string kIterationRaytraceFile = "RenderPasses/GlassTracer/IterateMV.rt.slang";
     const std::string kOpticalFlowPosFile = "RenderPasses/GlassTracer/OpticalFlowPos.cs.slang";
-    const std::string kOpticalFlowColorFile = "RenderPasses/GlassTracer/OpticalFlowColor.cs.slang";
     const std::string kOpticalBlurFile = "RenderPasses/GlassTracer/OpticalFlowBlur.cs.slang";
     const std::string kOpticalMedianFile = "RenderPasses/GlassTracer/OpticalFlowMedian.cs.slang";
 
@@ -82,8 +81,6 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
     mpSamplePattern = HaltonSamplePattern::create(16);
 
     mpOpticalFlowPosPass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "main");
-    mpOpticalFlowAnglePass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "angleMain");
-    mpOpticalFlowColorPass = ComputePass::create(mpDevice, kOpticalFlowColorFile, "main");
     mpOpticalBlurPass = ComputePass::create(mpDevice, kOpticalBlurFile, "main");
     mpOpticalMedianPass = ComputePass::create(mpDevice, kOpticalMedianFile, "main");
     mpOpticalFlowErrorMedianPass = ComputePass::create(mpDevice, kOpticalMedianFile, "errorMedianMain");
@@ -94,8 +91,6 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
         .setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp));
 
     mpOpticalFlowPosPass->getRootVar()["S"] = linearSampler;
-    mpOpticalFlowAnglePass->getRootVar()["S"] = linearSampler;
-    mpOpticalFlowColorPass->getRootVar()["S"] = linearSampler;
     mpOpticalBlurPass->getRootVar()["S"] = linearSampler;
     mpOpticalMedianPass->getRootVar()["S"] = linearSampler;
     mpOpticalFlowErrorMedianPass->getRootVar()["S"] = linearSampler;
@@ -314,7 +309,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     bool needPositions = false;
     needPositions |= needsIterations;
     needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos;
-    needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeAngle;
     ref<Texture> pCurPrevPosition; // while mpPosition contains the actual positions, pCurPrevPosition contains the locations where those positions have been in the previous frame
     if (needPositions)
     {
@@ -357,155 +351,110 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         mpScene->raytrace(pRenderContext, mpIterationProgram.get(), mpIterationVars, dispatch);
     }
 
-    if(mOpticalFlowTechnique != OpticalFlowTechnique::None)
+    if(mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
     {
         FALCOR_PROFILE(pRenderContext, "OpticalFlow");
 
         // pos diff blur preprocessing
         {
-            /*FALCOR_PROFILE(pRenderContext, "ErrorBlur");
-
-            var = mpOpticalFlowErrorMedianPass->getRootVar();
-            var["gErrorIn"] = pPosDiff;
-            var["gErrorOut"] = pPosDiffBlur;
-
-            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-            mpOpticalFlowErrorMedianPass->execute(pRenderContext, dispatch);*/
+            // TODO fix this
             pPosDiffBlur = pPosDiff;
         }
 
-        if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
+        var = mpOpticalFlowPosPass->getRootVar();
+        var["gMotion"] = pMotion;
+        var["gBackupMotion"] = pMotionBackup;
+        var["gMotionError"] = pMotionErrorMask;
+        var["gMotionOut"] = pMotionOptical;
+        var["gCurPos"] = pCurPrevPosition;
+        var["gPrevPos"] = pPrevPosition;
+        var["gPosDiff"] = pPosDiffBlur;
+        var["gPrevPosDiff"] = pPrevPosDiff;
+        var["gCurPathLen"] = pLocalPathLength;
+        var["gPrevPathLen"] = pPrevPathLen;
+        var["gLastRayDir"] = pLastRayDir;
+        var["gLastRayDirPrev"] = pLastRayDirPrev;
+        var["gLinearDepthPrev"] = pLinearDepthPrev;
+        var["gLinearDepth"] = pLinearDepth;
+        var["gDebugTex"] = pDebug;
+
+        var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+        var["PerFrame"]["gIterations"] = mOpticalIterations;
+        var["PerFrame"]["gPrevJitter"] = mPrevJitter;
+        var["PerFrame"]["gCurJitter"] = curJitter;
+        var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
+        var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
+        var["PerFrame"]["gForceMotionVectorCalculation"] = mForceMotionVectorCalculation ? 1 : 0;
+        var["PerFrame"]["gCompareWithBackupMotion"] = mCompareWithBackupMotion ? 1 : 0;
+
+        mpOpticalFlowPosPass->getProgram()->addDefine("PROJECT_TO_TANGENT", mProjectToTangentPlane ? "1" : "0");
+
         {
-            var = mpOpticalFlowPosPass->getRootVar();
-            var["gMotion"] = pMotion;
-            var["gBackupMotion"] = pMotionBackup;
-            var["gMotionError"] = pMotionErrorMask;
-            var["gMotionOut"] = pMotionOptical;
-            var["gCurPos"] = pCurPrevPosition;
-            var["gPrevPos"] = pPrevPosition;
-            var["gPosDiff"] = pPosDiffBlur;
-            var["gPrevPosDiff"] = pPrevPosDiff;
-            var["gCurPathLen"] = pLocalPathLength;
-            var["gPrevPathLen"] = pPrevPathLen;
-            var["gLastRayDir"] = pLastRayDir;
-            var["gLastRayDirPrev"] = pLastRayDirPrev;
-            var["gLinearDepthPrev"] = pLinearDepthPrev;
-            var["gLinearDepth"] = pLinearDepth;
-            var["gDebugTex"] = pDebug;
-
-            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-            var["PerFrame"]["gIterations"] = mOpticalIterations;
-            var["PerFrame"]["gPrevJitter"] = mPrevJitter;
-            var["PerFrame"]["gCurJitter"] = curJitter;
-            var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
-            var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
-            var["PerFrame"]["gForceMotionVectorCalculation"] = mForceMotionVectorCalculation ? 1 : 0;
-            var["PerFrame"]["gCompareWithBackupMotion"] = mCompareWithBackupMotion ? 1 : 0;
-
-            mpOpticalFlowPosPass->getProgram()->addDefine("PROJECT_TO_TANGENT", mProjectToTangentPlane ? "1" : "0");
-
-            {
-                FALCOR_PROFILE(pRenderContext, "Iterations");
-                mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
-                pRenderContext->uavBarrier(pMotionErrorMask.get());
-            }
-
-            if (mUseOpticalMedianPrePass)
-            {
-                FALCOR_PROFILE(pRenderContext, "Median PrePass");
-
-                // output is in pMotionOptical
-                var = mpOpticalMedianPrePass->getRootVar();
-                var["gMotion"] = pMotionOptical;
-                var["gMotionOut"] = pMotion; // backup data and output
-                var["gPathLength"] = pLocalPathLength;
-                //var["gBackupMotion"] = pMotionBackup;
-                var["gMotionError"] = pMotionErrorMask;
-                var["gMotionErrorOut"] = pMotionErrorTmp;
-
-
-                var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-                mpOpticalMedianPrePass->execute(pRenderContext, dispatch);
-                // output is in pMotion
-                pRenderContext->blit(pMotion->getSRV(), pMotionOptical->getRTV());
-                pRenderContext->blit(pMotionErrorTmp->getSRV(), pMotionErrorMask->getRTV());
-                // output is in pMotionOptical
-            }
-
-            // blur
-            if (mOpticalBlurRadius > 0)
-            {
-                FALCOR_PROFILE(pRenderContext, "BilateralBlur");
-                // output is in pMotionOptical
-                var = mpOpticalBlurPass->getRootVar();
-                var["gMotionIn"] = pMotionOptical;
-                var["gMotionOut"] = pMotion;
-                var["gMotionError"] = pMotionErrorMask;
-                var["gPathLength"] = pLocalPathLength;
-                var["gCurPos"] = pCurPrevPosition;
-                var["gPrevPos"] = pPrevPosition;
-                var["gPosDiff"] = pPosDiffBlur;
-                var["gLastRayDir"] = pLastRayDir;
-
-                var["PerFrame"]["gFrameDim"] = int2(dispatch.x, dispatch.y);
-                var["PerFrame"]["gDirection"] = int2(1, 0); // first pass must be X
-                var["PerFrame"]["gRadius"] = mOpticalBlurRadius;
-                var["PerFrame"]["gCompareBilateralOutput"] = mCompareBilateralOutput ? 1 : 0;
-                var["PerFrame"]["gPrevJitter"] = mPrevJitter;
-                var["PerFrame"]["gCurJitter"] = curJitter;
-
-                mpOpticalBlurPass->getProgram()->addDefine("PROJECT_TO_TANGENT", mProjectToTangentPlane ? "1" : "0");
-
-                mpOpticalBlurPass->execute(pRenderContext, dispatch);
-                pRenderContext->uavBarrier(pMotionErrorMask.get());
-
-                // vertical pass
-                var["gMotionOut"].setUav(nullptr);
-                var["gMotionIn"] = pMotion;
-                var["gMotionOut"] = pMotionOptical;
-                var["PerFrame"]["gDirection"] = int2(0, 1); // second pass must by Y
-                mpOpticalBlurPass->execute(pRenderContext, dispatch);
-            }
-
-            if(mUseOpticalMedian)
-            {
-                FALCOR_PROFILE(pRenderContext, "Median");
-
-                // output is in pMotionOptical
-                var = mpOpticalMedianPass->getRootVar();
-                var["gMotion"] = pMotionOptical;
-                var["gBackupMotion"] = pMotionBackup;
-                var["gMotionOut"] = pMotion; // backup data and output
-                var["gPathLength"] = pLocalPathLength;
-
-                var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-                mpOpticalMedianPass->execute(pRenderContext, dispatch);
-                // output is in pMotion
-            }
-            else pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
-
+            FALCOR_PROFILE(pRenderContext, "Iterations");
+            mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
+            pRenderContext->uavBarrier(pMotionErrorMask.get());
         }
-        else if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeAngle)
+
+        if (mUseOpticalMedianPrePass)
         {
-            var = mpOpticalFlowAnglePass->getRootVar();
-            var["gMotion"] = pMotion;
-            var["gBackupMotion"] = pMotionBackup;
-            var["gMotionOut"] = pMotionOptical;
+            FALCOR_PROFILE(pRenderContext, "Median PrePass");
+
+            // output is in pMotionOptical
+            var = mpOpticalMedianPrePass->getRootVar();
+            var["gMotion"] = pMotionOptical;
+            var["gMotionOut"] = pMotion; // backup data and output
+            var["gPathLength"] = pLocalPathLength;
+            //var["gBackupMotion"] = pMotionBackup;
             var["gMotionError"] = pMotionErrorMask;
+            var["gMotionErrorOut"] = pMotionErrorTmp;
+
+
+            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
+            mpOpticalMedianPrePass->execute(pRenderContext, dispatch);
+            // output is in pMotion
+            pRenderContext->blit(pMotion->getSRV(), pMotionOptical->getRTV());
+            pRenderContext->blit(pMotionErrorTmp->getSRV(), pMotionErrorMask->getRTV());
+            // output is in pMotionOptical
+        }
+
+        // blur
+        if (mOpticalBlurRadius > 0)
+        {
+            FALCOR_PROFILE(pRenderContext, "BilateralBlur");
+            // output is in pMotionOptical
+            var = mpOpticalBlurPass->getRootVar();
+            var["gMotionIn"] = pMotionOptical;
+            var["gMotionOut"] = pMotion;
+            var["gMotionError"] = pMotionErrorMask;
+            var["gPathLength"] = pLocalPathLength;
             var["gCurPos"] = pCurPrevPosition;
             var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiffBlur;
             var["gLastRayDir"] = pLastRayDir;
 
-            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-            var["PerFrame"]["gIterations"] = mOpticalIterations;
+            var["PerFrame"]["gFrameDim"] = int2(dispatch.x, dispatch.y);
+            var["PerFrame"]["gDirection"] = int2(1, 0); // first pass must be X
+            var["PerFrame"]["gRadius"] = mOpticalBlurRadius;
+            var["PerFrame"]["gCompareBilateralOutput"] = mCompareBilateralOutput ? 1 : 0;
             var["PerFrame"]["gPrevJitter"] = mPrevJitter;
             var["PerFrame"]["gCurJitter"] = curJitter;
-            var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
-            var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
-            var["PerFrame"]["camPos"] = mpScene->getCamera()->getPosition();
 
-            mpOpticalFlowAnglePass->execute(pRenderContext, dispatch);
+            mpOpticalBlurPass->getProgram()->addDefine("PROJECT_TO_TANGENT", mProjectToTangentPlane ? "1" : "0");
+
+            mpOpticalBlurPass->execute(pRenderContext, dispatch);
+            pRenderContext->uavBarrier(pMotionErrorMask.get());
+
+            // vertical pass
+            var["gMotionOut"].setUav(nullptr);
+            var["gMotionIn"] = pMotion;
+            var["gMotionOut"] = pMotionOptical;
+            var["PerFrame"]["gDirection"] = int2(0, 1); // second pass must by Y
+            mpOpticalBlurPass->execute(pRenderContext, dispatch);
+        }
+
+        if(mUseOpticalMedian)
+        {
+            FALCOR_PROFILE(pRenderContext, "Median");
 
             // output is in pMotionOptical
             var = mpOpticalMedianPass->getRootVar();
@@ -516,46 +465,10 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
             mpOpticalMedianPass->execute(pRenderContext, dispatch);
-            //pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
+            // output is in pMotion
         }
-        else if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadeColor)
-        {
-            // obtain the anti-aliased color image from the render graph
-            /*ref<Texture> pPrevColor;
-            auto pRenderGraph = (RenderGraph*)renderData.getDictionary()[kRenderGraph];
-            if (pRenderGraph)
-            {
-                // assume the primary output is the anti-aliased output
-                auto outputs = pRenderGraph->getAvailableOutputs();
-                // get first output where isGraphOutput is true
-                auto primaryOutputName = std::find_if(outputs.begin(), outputs.end(),
-                    [&](const std::string& name) {return pRenderGraph->isGraphOutput(name); } );
-                
-                auto pPrimOutput = pRenderGraph->getOutput(*primaryOutputName);
-                if(pPrimOutput) pPrevColor = pPrimOutput->asTexture();
-            }*/
-            bool usePrevColor = mpPrevColor &&
-                mpPrevColor->getWidth() == pColor->getWidth() &&
-                mpPrevColor->getHeight() == pColor->getHeight();
-
-            var = mpOpticalFlowColorPass->getRootVar();
-            var["gMotion"] = pMotion;
-            var["gCurColor"] = pColor;
-            //var["gPrevColor"] = pPrevColor ? pPrevColor : pColor;
-            var["gPrevColor"] = usePrevColor ? mpPrevColor : pColor;
-
-            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-            var["PerFrame"]["gIterations"] = mOpticalIterations;
-            var["PerFrame"]["gPrevJitter"] = mPrevJitter;
-            var["PerFrame"]["gCurJitter"] = curJitter;
-            var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
-            var["PerFrame"]["gWindowRadius"] = mOpticalRadius;
-
-            mpOpticalFlowColorPass->execute(pRenderContext, dispatch);
-
-            if (!usePrevColor) mpPrevColor = Texture::create2D(mpDevice, pColor->getWidth(), pColor->getHeight(), pColor->getFormat(), 1, 1, nullptr, ResourceBindFlags::AllColorViews);
-            pRenderContext->blit(pColor->getSRV(), mpPrevColor->getRTV());
-        }
+        else pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
+        
     }
 
     mPrevJitter = curJitter;

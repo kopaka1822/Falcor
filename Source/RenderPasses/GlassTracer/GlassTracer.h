@@ -90,15 +90,11 @@ public:
     {
         None,
         LucasKanadePos,
-        LucasKanadeColor,
-        LucasKanadeAngle,
     };
 
     FALCOR_ENUM_INFO(OpticalFlowTechnique, {
         {OpticalFlowTechnique::None, "None"},
         {OpticalFlowTechnique::LucasKanadePos, "Lucas-Kanade (Position)"},
-        {OpticalFlowTechnique::LucasKanadeColor, "Lucas-Kanade (Color)"},
-        {OpticalFlowTechnique::LucasKanadeAngle, "Lucas-Kanade (Angle)"},
     });
 
     static ref<GlassTracer> create(ref<Device> pDevice, const Properties& props) { return make_ref<GlassTracer>(pDevice, props); }
@@ -173,8 +169,6 @@ private:
     ref<Texture> mpPositions;
     ref<Texture> mpPrevColor;
     ref<ComputePass> mpOpticalFlowPosPass;
-    ref<ComputePass> mpOpticalFlowColorPass;
-    ref<ComputePass> mpOpticalFlowAnglePass;
     ref<ComputePass> mpOpticalFlowErrorMedianPass;
     ref<ComputePass> mpOpticalMedianPrePass;
     ref<ComputePass> mpOpticalMedianPass;

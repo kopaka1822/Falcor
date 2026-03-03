@@ -7,7 +7,6 @@ target_sources(GlassTracer PRIVATE
     Shared.slang
     IterateMV.rt.slang
     OpticalFlowPos.cs.slang
-    OpticalFlowColor.cs.slang
     OpticalFlowBlur.cs.slang
     OpticalFlowMedian.cs.slang
 )
