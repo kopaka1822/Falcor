@@ -7,7 +7,6 @@ RWTexture2D<uint> gMotionError;
 Texture2D<float3> gCurPos;
 Texture2D<float3> gPrevPos;
 Texture2D<float> gPosDiff; // estimated max position difference when moving one pixel
-Texture2D<float> gPrevPosDiff; // from last frame (for gPrevPos)
 Texture2D<float3> gLastRayDir; // direction to Pos (incomming ray direction)
 Texture2D<float3> gLastRayDirPrev; // from last frame (for gPrevPos)
 Texture2D<uint> gCurPathLen;

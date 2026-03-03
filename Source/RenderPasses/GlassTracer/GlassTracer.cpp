@@ -40,7 +40,6 @@ namespace
     const std::string kDepthOut = "depth";
     const std::string kLinearDepthOut = "linearDepth";
     const std::string kPosDiff = "posDiff";
-    const std::string kPosDiffBlur = "posDiffBlur";
     // iteration data
     const std::string kLastRayDir = "lastRayDir";
     const std::string kLastRayDirPrev = "lastRayDirPrev";
@@ -50,7 +49,6 @@ namespace
     const std::string kMotionOptical = "mvecOptical"; // mvecs directly after optical flow, without post-processing
     // previous frame data for optical flow
     const std::string kPrevPosition = "prevPosition";
-    const std::string kPrevPosDiff = "prevPosDiff";
     const std::string kPrevPathLen = "prevPathLen";
 
     const uint32_t kMaxPayloadSizeBytes = 6 * sizeof(float);
@@ -140,20 +138,18 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
 
     // previous frame persistent
     reflector.addInternal(kPrevPosition, "Prev Position").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
-    reflector.addInternal(kPrevPosDiff, "Prev Position Differential").format(ResourceFormat::R32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kPrevPathLen, "Prev Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kLastRayDirPrev, "Previous Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kLinearDepthPrev, "Previous Path Length").format(ResourceFormat::R32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
     // current frame persistent
     reflector.addOutput(kPosDiff, "Length of Position Differential").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);;
-    reflector.addOutput(kPosDiffBlur, "Blurred PosDiff").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addOutput(kLastRayDir, "Last Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addOutput(kPathLength, "Local Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
 
     // actual output
     reflector.addOutput(kMotionOptical, "Motion vector (tmp from optical)").format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
 
-    reflector.addOutput(kDebug, "Debug output").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y, 1, 1, mPathLength);
+    reflector.addOutput(kDebug, "Debug output").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y, 1, 1, mPathLength).flags(RenderPassReflection::Field::Flags::Optional);
     return reflector;
 }
 
@@ -192,7 +188,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pLinearDepth = renderData.getTexture(kLinearDepthOut);
     auto pDebug = renderData.getTexture(kDebug);
     auto pPosDiff = renderData.getTexture(kPosDiff);
-    auto pPosDiffBlur = renderData.getTexture(kPosDiffBlur);
     auto pLastRayDir = renderData.getTexture(kLastRayDir);
     auto pLocalPathLength = renderData.getTexture(kPathLength);
 
@@ -217,12 +212,10 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     }
 
     // copy resources from last frames before being overwritten
-    ref<Texture> pPrevPosDiff = renderData.getTexture(kPrevPosDiff);
     ref<Texture> pPrevPathLen = renderData.getTexture(kPrevPathLen);
     ref<Texture> pPrevPosition = renderData.getTexture(kPrevPosition);
     ref<Texture> pLastRayDirPrev = renderData.getTexture(kLastRayDirPrev);
     ref<Texture> pLinearDepthPrev = renderData.getTexture(kLinearDepthPrev);
-    pRenderContext->blit(pPosDiffBlur->getSRV(), pPrevPosDiff->getRTV());
     pRenderContext->blit(pLocalPathLength->getSRV(), pPrevPathLen->getRTV());
     pRenderContext->blit(pLastRayDir->getSRV(), pLastRayDirPrev->getRTV());
     pRenderContext->blit(pLinearDepth->getSRV(), pLinearDepthPrev->getRTV());
@@ -307,12 +300,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     {
         FALCOR_PROFILE(pRenderContext, "OpticalFlow");
 
-        // pos diff blur preprocessing
-        {
-            // TODO fix this
-            pPosDiffBlur = pPosDiff;
-        }
-
         var = mpOpticalFlowPosPass->getRootVar();
         var["gMotion"] = pMotion;
         var["gBackupMotion"] = pMotionBackup;
@@ -320,8 +307,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         var["gMotionOut"] = pMotionOptical;
         var["gCurPos"] = pCurPrevPosition;
         var["gPrevPos"] = pPrevPosition;
-        var["gPosDiff"] = pPosDiffBlur;
-        var["gPrevPosDiff"] = pPrevPosDiff;
+        var["gPosDiff"] = pPosDiff;
         var["gCurPathLen"] = pLocalPathLength;
         var["gPrevPathLen"] = pPrevPathLen;
         var["gLastRayDir"] = pLastRayDir;
@@ -377,7 +363,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gPathLength"] = pLocalPathLength;
             var["gCurPos"] = pCurPrevPosition;
             var["gPrevPos"] = pPrevPosition;
-            var["gPosDiff"] = pPosDiffBlur;
+            var["gPosDiff"] = pPosDiff;
             var["gLastRayDir"] = pLastRayDir;
 
             var["PerFrame"]["gFrameDim"] = int2(dispatch.x, dispatch.y);
