@@ -277,7 +277,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     uint error = 0;
     if (iterations > 0 && (newError > onePixelPosDiff * 0.05))
     {
-        mvec = originalMvec;
+        //mvec = originalMvec;
+        mvec = bmvec;
         error = 1;
     }
 

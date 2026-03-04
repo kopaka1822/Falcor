@@ -373,8 +373,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["PerFrame"]["gPrevJitter"] = mPrevJitter;
             var["PerFrame"]["gCurJitter"] = curJitter;
 
-            mpOpticalBlurPass->getProgram()->addDefine("PROJECT_TO_TANGENT", "1"); // TODO remove and replace with new error?
-
             mpOpticalBlurPass->execute(pRenderContext, dispatch);
             pRenderContext->uavBarrier(pMotionErrorMask.get());
 

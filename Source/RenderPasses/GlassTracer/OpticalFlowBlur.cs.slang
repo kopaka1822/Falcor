@@ -14,16 +14,6 @@ Texture2D<float3> gLastRayDir; // direction to Pos (incomming ray direction)
 
 SamplerState S; // linear sampler
 
-#ifndef PROJECT_TO_TANGENT
-#define PROJECT_TO_TANGENT 1
-#endif
-
-#if PROJECT_TO_TANGENT
-#define PROJECT(v) v.xy = mul(TB, v); v.z = 0.0;
-#else
-#define PROJECT(v)
-#endif
-
 cbuffer PerFrame
 {
     int2 gFrameDim;
@@ -40,11 +30,10 @@ float2 adjustJitter(float2 mvec)
     return mvec - gPrevJitter + gCurJitter;
 }
 
-float calcEstimatedError(float2 texC, float2 mvec, float3 curPos, float2x3 TB)
+float calcEstimatedError(float2 texC, float2 mvec, float3 curPos)
 {
     float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
     float3 posDiff = newPos - curPos;
-    PROJECT(posDiff);
     float newError = length(posDiff);
     return newError;
 }
@@ -110,15 +99,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     {
         float2 bmvec = gMotionOut[pixel]; // output of the LK-algorithm before the first pass
 
-        float2x3 TB;
-        #if PROJECT_TO_TANGENT
-        float3 tangent = normalize(cross(float3(0.0, 1.0, 0.0), gLastRayDir[pixel]));
-        float3 bitangent = cross(gLastRayDir[pixel], tangent);
-        TB = float2x3(tangent, bitangent);
-        #endif
-
         const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
-        if (calcEstimatedError(texC, bmvec, curPos, TB) < calcEstimatedError(texC, mvec, curPos, TB))
+        if (calcEstimatedError(texC, bmvec, curPos) < calcEstimatedError(texC, mvec, curPos))
             mvec = bmvec;
     }
 
