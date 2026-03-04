@@ -60,6 +60,7 @@ static float3 curPos;
 static const float2 step = 1.0 / float2(gFrameDim);
 static const float2 stepX = float2(step.x, 0.0);
 static const float2 stepY = float2(0.0, step.y);
+static uint reqPathLen;
 
 float3 calcProjectedError(float3 Cv, float3 S, float3 Sx, float3 Sy, float l, float lx, float ly, float fracX, float fracY)
 {
@@ -103,6 +104,14 @@ float calcEstimatedError(float2 mvec)
     float2 uv10 = uv00 + stepX;
     float2 uv01 = uv00 + stepY;
     float2 uv11 = uv00 + step;
+
+    // pixel coordinates
+    int2 uv00pixel = int2(uv00 * float2(gFrameDim));
+    int2 uv10pixel = clampPixel(uv00pixel + int2(1, 0));
+    int2 uv01pixel = clampPixel(uv00pixel + int2(0, 1));
+    int2 uv11pixel = clampPixel(uv00pixel + int2(1, 1));
+    uv00pixel = clampPixel(uv00pixel);
+
     // corresponding barycentric weights
     float fracX = (uv.x - uv00.x) / step.x; // [0, 1] distance of uv to uv00 in x direction
     float fracY = (uv.y - uv00.y) / step.y; // [0, 1] distance of uv to uv00 in y direction
@@ -110,6 +119,13 @@ float calcEstimatedError(float2 mvec)
     float w10 = fracX * (1.0 - fracY);
     float w01 = (1.0 - fracX) * fracY;
     float w11 = fracX * fracY;
+
+    //uint prevPathLen00 = gPrevPathLen[uv00pixel];
+    //uint prevPathLen10 = gPrevPathLen[uv10pixel];
+    //uint prevPathLen01 = gPrevPathLen[uv01pixel];
+    //uint prevPathLen11 = gPrevPathLen[uv11pixel];
+    // verify same path length
+    //if (prevPathLen00 != reqPathLen || prevPathLen10 != reqPathLen || prevPathLen01 != reqPathLen || prevPathLen11 != reqPathLen) return 3.402823466e+38F; // path length must be consistent => return max error
 
     // fetch position, direction and depth for the 4 neighboring pixels
     float3 S00 = gPrevPos.SampleLevel(S, uv00, 0.0);
@@ -155,7 +171,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     texC = (float2(pixel) + 0.5) / float2(gFrameDim);
     float2 mvec = gMotion[pixel];
     float2 bmvec = gBackupMotion[pixel];
-    const uint reqPathLen = gCurPathLen[pixel]; // required path length: other positions should be taken from this exact path length, otherwise they are likeley invalid
+    reqPathLen = gCurPathLen[pixel]; // required path length: other positions should be taken from this exact path length, otherwise they are likeley invalid
     curPos = gCurPos.SampleLevel(S, texC, 0.0);
 
     uint iterations = gIterations;
@@ -279,7 +295,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         mvec = bmvec; // store backup motion
         error = 1;
     }
-
+    //mvec = bmvec;
     gMotionError[pixel] = error;
     gMotionOut[pixel] = mvec;
 }

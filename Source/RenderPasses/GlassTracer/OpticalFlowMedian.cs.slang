@@ -31,6 +31,7 @@ void medianPreMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3
 {
     const uint2 pixel = id.xy;
     float2 mvec = gMotion[pixel];
+    float2 bmvec = gBackupMotion[pixel];
     uint err = gMotionError[pixel];
     uint pathLen = gPathLength[pixel];
 
@@ -60,24 +61,26 @@ void medianPreMain(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint3
             anyError |= e;
         }
 
-    // sort registers (length) (insertion sort)
-    [unroll] for (i = 1; i < COUNT; ++i)
-    {
-        let m = A[i];
-        [unroll] for (uint j = i; j > 0 && A[j - 1].z > m.z; --j)
-        {
-            A[j] = A[j - 1];
-            A[j - 1] = m;
-        }
-    }
-
     uint newErr = err;
-
     // only apply median filter if there was at least one error pixel in the neighborhood
     if (anyError != 0 && pathLen > 1)
     {
+        // sort registers (length) (insertion sort)
+        [unroll] for (i = 1; i < COUNT; ++i)
+        {
+            let m = A[i];
+            [unroll] for (uint j = i; j > 0 && A[j - 1].z > m.z; --j)
+            {
+                A[j] = A[j - 1];
+                A[j - 1] = m;
+            }
+        }
+
         mvec = A[COUNT / 2].xy; // median
         newErr = uint(A[COUNT / 2].w);
+        if (newErr != 0) mvec = bmvec; // if new motion vec is from backups, use backup motion vec instead
+        //newErr = 1;
+        //mvec = bmvec;
     }
     
     gMotionOut[pixel] = mvec;

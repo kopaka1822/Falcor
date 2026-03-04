@@ -81,6 +81,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     float2 mSum = 0.0;
     float wSum = 0.0;
     float backupSum = 0.0;
+    uint count = 0;
     for (int2 pos = cstart; dot(pos, gDirection) < dot(cend, gDirection); pos += gDirection)
     {
         float2 m = gMotionIn[pos];
@@ -90,17 +91,18 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         // geometric distance
         w *= exp(-0.5 * distance(gCurPos[pos], localPos)/posDiff);
         // weigh each sample by the length of its vector
-        w *= 1.0 / (pow(length(m), 2.0) + 1e-12);
+        //w *= 1.0 / (pow(length(m), 2.0) + 1e-12);
         mSum += w * m;
-        backupSum += w * isBackup;
         wSum += w;
+        backupSum += isBackup;
+        count += 1;
     }
 
     if (wSum == 0.0) return; // keep previous value and state
     if(state == STATE_UNRELIABLE)
         gMotionError[pixel] = STATE_INTERPOLATED; // mark as interpolated (can be used in second pass)
     float2 mvec = mSum / wSum;
-    float isBackup = saturate(backupSum / wSum);
+    float isBackup = saturate(backupSum / count);
 
     if (gCompareBilateralOutput && IS_SECOND_PASS)
     {
@@ -110,7 +112,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         //if (calcEstimatedError(texC, bmvec, curPos) < calcEstimatedError(texC, mvec, curPos))
         //    mvec = bmvec;
 
-        if (isBackup > 0.5)
+        if (isBackup > 0.2)
             mvec = bmvec;
     }
 
