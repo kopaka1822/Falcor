@@ -23,7 +23,6 @@ cbuffer PerFrame
     float2 gPrevJitter;
     float2 gCurJitter;
     uint gIterations;
-    float gMaxMovement; // max movement in pixels
     bool gForceMotionVectorCalculation;
 }
 
@@ -264,9 +263,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
                                -AtA[1][0], AtA[0][0]) / det;
 
         float2 uvPixel = mul(invAtA, Atb);
-        if (length(uvPixel) > gMaxMovement) // restrict pixel step size
-            uvPixel = gMaxMovement * normalize(uvPixel);
-
         float2 uvDiff = uvPixel / float2(gFrameDim);
 
         float curError = calcEstimatedError(mvec);

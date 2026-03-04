@@ -327,7 +327,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         var["PerFrame"]["gIterations"] = mOpticalIterations;
         var["PerFrame"]["gPrevJitter"] = mPrevJitter;
         var["PerFrame"]["gCurJitter"] = curJitter;
-        var["PerFrame"]["gMaxMovement"] = mOpticalMaxMovement;
         var["PerFrame"]["gForceMotionVectorCalculation"] = mForceMotionVectorCalculation ? 1 : 0;
 
         {
@@ -459,9 +458,6 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         if (mMotionVector == MotionVector::FirstHit) mBackupMotionVector = MotionVector::FirstHit; // enforce valid selection
 
         c |= widget.slider("Iterations##1", mOpticalIterations, 1, 20);
-
-        c |= widget.var("Max Pixel Movement", mOpticalMaxMovement, 1.0f / 32.0f, 10000.0f, 1.0f / 32.0f);
-        widget.tooltip("Maximum allowed pixel movement per iteration");
 
         c |= widget.checkbox("Median Filter Pre-Blur", mUseOpticalMedianPrePass);
         c |= widget.slider("Bilateral Blur Radius", mOpticalBlurRadius, 0, 100);
