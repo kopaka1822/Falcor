@@ -50,6 +50,7 @@ namespace
     // previous frame data for optical flow
     const std::string kPrevPosition = "prevPosition";
     const std::string kPrevPathLen = "prevPathLen";
+    const std::string kIsBackupMotion = "isBackupMotion"; // indicates if mvec == bmvec
 
     const uint32_t kMaxPayloadSizeBytes = 6 * sizeof(float);
     const std::string kProgramRaytraceFile = "RenderPasses/GlassTracer/GlassTracer.rt.slang";
@@ -135,6 +136,7 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
     reflector.addInternal(kMotionErrorTmp, "Motion vector error mask").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
+    reflector.addOutput(kIsBackupMotion, "mvec == bmvec").format(ResourceFormat::R8Uint).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
 
     // previous frame persistent
     reflector.addInternal(kPrevPosition, "Prev Position").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
@@ -183,6 +185,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pMotionBackup = renderData.getTexture(kMotionBackup);
     auto pMotionErrorMask = renderData.getTexture(kMotionErrorMask);
     auto pMotionErrorTmp = renderData.getTexture(kMotionErrorTmp);
+    auto pIsBackupMotion = renderData.getTexture(kIsBackupMotion);
     auto pColor = renderData.getTexture(kColorOut);
     auto pDepth = renderData.getTexture(kDepthOut);
     auto pLinearDepth = renderData.getTexture(kLinearDepthOut);
@@ -241,6 +244,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["gTransparencyWhitelist"] = mpTransparencyWhitelist;
     var["gLastRayDir"] = pLastRayDir;
     var["gLocalPathLength"] = pLocalPathLength;
+    var["gIsBackupMotion"] = pIsBackupMotion; 
 
     if (pDebug)
     {

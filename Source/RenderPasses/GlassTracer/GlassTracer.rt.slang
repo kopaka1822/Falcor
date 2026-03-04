@@ -34,6 +34,7 @@ RWTexture2D<float> gLinearDepth;
 RWTexture2D<float> gPosDiff;     // expected position difference when moving one pixel
 RWTexture2D<float3> gLastRayDir; // direction to P (incomming ray direction)
 RWTexture2D<uint> gLocalPathLength; // integer path length (bounces)
+RWTexture2D<uint> gIsBackupMotion; // 1 if mvec == bmvec
 
 SamplerState S; // linear sampler
 
@@ -184,7 +185,9 @@ struct VBufferReservoir
     float2 bmvec; // backup motion vector
     PackedHitInfo vbuffer;
     float3 lastRayDir;
-    float posDiff;    uint localPathLength;
+    float posDiff;
+    uint localPathLength;
+    bool isBackupMotion; // true if path is allowed as backup path (first hit or first refractive hit)
 
     // update function, returns true if reservoir should be updated, false if old data should be kept
     [mutating]
@@ -215,6 +218,7 @@ struct VBufferReservoir
         gPosDiff[pixel] = posDiff;
         gLastRayDir[pixel] = lastRayDir;
         gLocalPathLength[pixel] = localPathLength;
+        gIsBackupMotion[pixel] = isBackupMotion ? 1 : 0;
     }
 };
 
@@ -492,6 +496,7 @@ void rayGen()
                         curVBuffer.mvec = 0.0;
                     if (writeBMvec) curVBuffer.bmvec = curVBuffer.mvec;
                 }
+                curVBuffer.isBackupMotion = writeMvec && writeBMvec;
                     
                 RayMissHit rmh;
                 rmh.posW = ray.Origin + ray.Direction * ray.TMax; // far plane position
@@ -634,6 +639,7 @@ void rayGen()
 
             if (writeMvec && !camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
             if (writeBMvec) curVBuffer.bmvec = curVBuffer.mvec;
+            curVBuffer.isBackupMotion = writeBMvec;
         }
 
         // prevent mvec writes in the future, if:
