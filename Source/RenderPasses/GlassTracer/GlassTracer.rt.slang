@@ -34,7 +34,7 @@ RWTexture2D<float> gLinearDepth;
 RWTexture2D<float> gPosDiff;     // expected position difference when moving one pixel
 RWTexture2D<float3> gLastRayDir; // direction to P (incomming ray direction)
 RWTexture2D<uint> gLocalPathLength; // integer path length (bounces)
-RWTexture2D<uint> gIsBackupMotion; // 1 if mvec == bmvec
+RWTexture2D<unorm float> gIsBackupMotion; // 1 if mvec == bmvec
 
 SamplerState S; // linear sampler
 
@@ -218,7 +218,7 @@ struct VBufferReservoir
         gPosDiff[pixel] = posDiff;
         gLastRayDir[pixel] = lastRayDir;
         gLocalPathLength[pixel] = localPathLength;
-        gIsBackupMotion[pixel] = isBackupMotion ? 1 : 0;
+        gIsBackupMotion[pixel] = isBackupMotion ? 1.0 : 0.0;
     }
 };
 

@@ -1,6 +1,8 @@
 // input/output
 Texture2D<float2> gMotionIn;
 RWTexture2D<float2> gMotionOut;
+Texture2D<unorm float> gIsBackupMotionIn;
+RWTexture2D<unorm float> gIsBackupMotionOut;
 // guidance
 RWTexture2D<uint> gMotionError; // 0 = frozen (readonly), 1 = unreliable (dont read, overwrite), 2 = interpolated (read+write)
 #define STATE_FROZEN 0
@@ -11,6 +13,7 @@ Texture2D<float3> gCurPos;
 Texture2D<float3> gPrevPos;
 Texture2D<float> gPosDiff;
 Texture2D<float3> gLastRayDir; // direction to Pos (incomming ray direction)
+
 
 SamplerState S; // linear sampler
 
@@ -77,9 +80,11 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
     float2 mSum = 0.0;
     float wSum = 0.0;
+    float backupSum = 0.0;
     for (int2 pos = cstart; dot(pos, gDirection) < dot(cend, gDirection); pos += gDirection)
     {
         float2 m = gMotionIn[pos];
+        float isBackup = gIsBackupMotionIn[pos];
         float w = 1.0;
         if (gMotionError[pos] == STATE_UNRELIABLE) w = 0.0;
         // geometric distance
@@ -87,6 +92,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         // weigh each sample by the length of its vector
         w *= 1.0 / (pow(length(m), 2.0) + 1e-12);
         mSum += w * m;
+        backupSum += w * isBackup;
         wSum += w;
     }
 
@@ -94,15 +100,21 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     if(state == STATE_UNRELIABLE)
         gMotionError[pixel] = STATE_INTERPOLATED; // mark as interpolated (can be used in second pass)
     float2 mvec = mSum / wSum;
+    float isBackup = saturate(backupSum / wSum);
 
     if (gCompareBilateralOutput && IS_SECOND_PASS)
     {
         float2 bmvec = gMotionOut[pixel]; // output of the LK-algorithm before the first pass
 
-        const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
-        if (calcEstimatedError(texC, bmvec, curPos) < calcEstimatedError(texC, mvec, curPos))
+        //const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
+        //if (calcEstimatedError(texC, bmvec, curPos) < calcEstimatedError(texC, mvec, curPos))
+        //    mvec = bmvec;
+
+        if (isBackup > 0.5)
             mvec = bmvec;
     }
 
     gMotionOut[pixel] = mvec;
+    if(IS_FIRST_PASS) // can be written for debug in pass two
+        gIsBackupMotionOut[pixel] = isBackup;
 }

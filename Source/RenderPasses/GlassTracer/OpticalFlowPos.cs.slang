@@ -172,7 +172,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         mvec = bmvec;
 
     //iterations = 0;
-    const float2 originalMvec = mvec; // mvec from before iterations
     for (uint i = 0; i < iterations; ++i)
     {
         float2 mvec0 = adjustJitter(mvec); // adjust jitter of motion vector
@@ -277,8 +276,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     uint error = 0;
     if (iterations > 0 && (newError > onePixelPosDiff * 0.05))
     {
-        //mvec = originalMvec;
-        mvec = bmvec;
+        mvec = bmvec; // store backup motion
         error = 1;
     }
 

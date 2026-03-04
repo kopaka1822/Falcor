@@ -158,7 +158,7 @@ private:
     bool mCompareBilateralOutput = true;
     float mOpticalMaxMovement = 10000.0f;
     int mOpticalBlurRadius = 16;
-    bool mUseOpticalMedianPrePass = true;
+    bool mUseOpticalMedianPrePass = false;
     bool mUseOpticalMedian = false;
     ref<RenderGraph> mpVbufferToPosGraph;
     float2 mPrevJitter;

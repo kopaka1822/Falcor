@@ -51,6 +51,7 @@ namespace
     const std::string kPrevPosition = "prevPosition";
     const std::string kPrevPathLen = "prevPathLen";
     const std::string kIsBackupMotion = "isBackupMotion"; // indicates if mvec == bmvec
+    const std::string kIsBackupMotionPong = "isBackupMotionPong";
 
     const uint32_t kMaxPayloadSizeBytes = 6 * sizeof(float);
     const std::string kProgramRaytraceFile = "RenderPasses/GlassTracer/GlassTracer.rt.slang";
@@ -136,7 +137,8 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
     reflector.addInternal(kMotionErrorTmp, "Motion vector error mask").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
-    reflector.addOutput(kIsBackupMotion, "mvec == bmvec").format(ResourceFormat::R8Uint).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
+    reflector.addOutput(kIsBackupMotion, "mvec == bmvec").format(ResourceFormat::R8Unorm).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
+    reflector.addInternal(kIsBackupMotionPong, "pong buffer").format(ResourceFormat::R8Unorm).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
 
     // previous frame persistent
     reflector.addInternal(kPrevPosition, "Prev Position").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
@@ -186,6 +188,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pMotionErrorMask = renderData.getTexture(kMotionErrorMask);
     auto pMotionErrorTmp = renderData.getTexture(kMotionErrorTmp);
     auto pIsBackupMotion = renderData.getTexture(kIsBackupMotion);
+    auto pIsBackupMotionPong = renderData.getTexture(kIsBackupMotionPong);
     auto pColor = renderData.getTexture(kColorOut);
     auto pDepth = renderData.getTexture(kDepthOut);
     auto pLinearDepth = renderData.getTexture(kLinearDepthOut);
@@ -363,6 +366,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var = mpOpticalBlurPass->getRootVar();
             var["gMotionIn"] = pMotionOptical;
             var["gMotionOut"] = pMotion;
+            var["gIsBackupMotionIn"] = pIsBackupMotion;
+            var["gIsBackupMotionOut"] = pIsBackupMotionPong;
             var["gMotionError"] = pMotionErrorMask;
             var["gPathLength"] = pLocalPathLength;
             var["gCurPos"] = pCurPrevPosition;
@@ -384,6 +389,9 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gMotionOut"].setUav(nullptr);
             var["gMotionIn"] = pMotion;
             var["gMotionOut"] = pMotionOptical;
+            var["gIsBackupMotionOut"].setUav(nullptr);
+            var["gIsBackupMotionIn"] = pIsBackupMotionPong;
+            var["gIsBackupMotionOut"] = pIsBackupMotion;
             var["PerFrame"]["gDirection"] = int2(0, 1); // second pass must by Y
             mpOpticalBlurPass->execute(pRenderContext, dispatch);
         }
