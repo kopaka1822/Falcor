@@ -79,8 +79,6 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
 
     mpOpticalFlowPosPass = ComputePass::create(mpDevice, kOpticalFlowPosFile, "main");
     mpOpticalBlurPass = ComputePass::create(mpDevice, kOpticalBlurFile, "main");
-    mpOpticalMedianPass = ComputePass::create(mpDevice, kOpticalMedianFile, "main");
-    mpOpticalFlowErrorMedianPass = ComputePass::create(mpDevice, kOpticalMedianFile, "errorMedianMain");
     mpOpticalMedianPrePass = ComputePass::create(mpDevice, kOpticalMedianFile, "medianPreMain");
 
     auto linearSampler = Sampler::create(mpDevice, Sampler::Desc()
@@ -89,8 +87,6 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
 
     mpOpticalFlowPosPass->getRootVar()["S"] = linearSampler;
     mpOpticalBlurPass->getRootVar()["S"] = linearSampler;
-    mpOpticalMedianPass->getRootVar()["S"] = linearSampler;
-    mpOpticalFlowErrorMedianPass->getRootVar()["S"] = linearSampler;
     mpOpticalMedianPrePass->getRootVar()["S"] = linearSampler;
 
     // load properties
@@ -334,6 +330,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
             pRenderContext->uavBarrier(pMotionErrorMask.get());
         }
+        // ouput is in pMotionOptical
 
         if (mUseOpticalMedianPrePass)
         {
@@ -351,20 +348,21 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
             mpOpticalMedianPrePass->execute(pRenderContext, dispatch);
-            // output is in pMotion
-            pRenderContext->blit(pMotion->getSRV(), pMotionOptical->getRTV());
-            pRenderContext->blit(pMotionErrorTmp->getSRV(), pMotionErrorMask->getRTV());
-            // output is in pMotionOptical
-        }
 
+            pMotionErrorMask = pMotionErrorTmp; 
+        }
+        else pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
+
+        // output is in pMotion
+        
         // blur
         if (mOpticalBlurRadius > 0)
         {
             FALCOR_PROFILE(pRenderContext, "BilateralBlur");
             // output is in pMotionOptical
             var = mpOpticalBlurPass->getRootVar();
-            var["gMotionIn"] = pMotionOptical;
-            var["gMotionOut"] = pMotion;
+            var["gMotionIn"] = pMotion;
+            var["gMotionOut"] = pMotionOptical;
             var["gIsBackupMotionIn"] = pIsBackupMotion;
             var["gIsBackupMotionOut"] = pIsBackupMotionPong;
             var["gMotionError"] = pMotionErrorMask;
@@ -381,13 +379,14 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["PerFrame"]["gPrevJitter"] = mPrevJitter;
             var["PerFrame"]["gCurJitter"] = curJitter;
 
+            pRenderContext->uavBarrier(pMotionErrorMask.get()); // required since previously RW
             mpOpticalBlurPass->execute(pRenderContext, dispatch);
             pRenderContext->uavBarrier(pMotionErrorMask.get());
 
             // vertical pass
             var["gMotionOut"].setUav(nullptr);
-            var["gMotionIn"] = pMotion;
-            var["gMotionOut"] = pMotionOptical;
+            var["gMotionIn"] = pMotionOptical;
+            var["gMotionOut"] = pMotion;
             var["gIsBackupMotionOut"].setUav(nullptr);
             var["gIsBackupMotionIn"] = pIsBackupMotionPong;
             var["gIsBackupMotionOut"] = pIsBackupMotion;
@@ -395,22 +394,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             mpOpticalBlurPass->execute(pRenderContext, dispatch);
         }
 
-        if(mUseOpticalMedian)
-        {
-            FALCOR_PROFILE(pRenderContext, "Median");
-
-            // output is in pMotionOptical
-            var = mpOpticalMedianPass->getRootVar();
-            var["gMotion"] = pMotionOptical;
-            var["gBackupMotion"] = pMotionBackup;
-            var["gMotionOut"] = pMotion; // backup data and output
-            var["gPathLength"] = pLocalPathLength;
-
-            var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
-            mpOpticalMedianPass->execute(pRenderContext, dispatch);
-            // output is in pMotion
-        }
-        else pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
+        // output is in pMotion
         
     }
 
@@ -463,7 +447,6 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         c |= widget.slider("Bilateral Blur Radius", mOpticalBlurRadius, 0, 100);
         if(mOpticalBlurRadius > 0)
             c |= widget.checkbox("Compare Bilateral Output", mCompareBilateralOutput);
-        c |= widget.checkbox("Median Filter Post-Blur", mUseOpticalMedian);
 
         widget.separator();
     }

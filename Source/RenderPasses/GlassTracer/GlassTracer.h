@@ -149,16 +149,13 @@ private:
     ref<Texture> mpPositions;
     ref<Texture> mpPrevColor;
     ref<ComputePass> mpOpticalFlowPosPass;
-    ref<ComputePass> mpOpticalFlowErrorMedianPass;
     ref<ComputePass> mpOpticalMedianPrePass;
-    ref<ComputePass> mpOpticalMedianPass;
     ref<ComputePass> mpOpticalBlurPass;
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::LucasKanadePos;
     int mOpticalIterations = 2;
     bool mCompareBilateralOutput = true;
     int mOpticalBlurRadius = 16;
     bool mUseOpticalMedianPrePass = true;
-    bool mUseOpticalMedian = false;
     ref<RenderGraph> mpVbufferToPosGraph;
     float2 mPrevJitter;
 
