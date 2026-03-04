@@ -549,7 +549,7 @@ void rayGen()
         #endif
 
         #if MVEC == MVEC_REVERSE_RD
-        if (i == 0) // for the first hit, define a virtual plane around C0 as intersection
+        if (s.curPathLength <= 1) // for the first hit, define a virtual plane around C0 as intersection
         {
             float virtualT = dot(gScene.camera.data.prevPosW - v.posW, -ray.Direction);
             virtualC1 = v.posW - ray.Direction * virtualT;
@@ -597,7 +597,7 @@ void rayGen()
             curVBuffer.localPathLength = s.curPathLength;
             curVBuffer.lastRayDir = s.rayDir;
 
-            if (i == 0 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
+            if (s.curPathLength <= 1 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
             {
                 writeMvec = false;
                 curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, matrixIdentity(), camMovement || vertexMoved);
@@ -643,7 +643,7 @@ void rayGen()
         }
 
         // prevent mvec writes in the future, if:
-        if (i == 0 && BMVEC == MVEC_FIRST_HIT) writeBMvec = false;
+        if (s.curPathLength <= 1 && BMVEC == MVEC_FIRST_HIT) writeBMvec = false;
 
         // obtain 1 bsdf sample for reflection, and one for refraction
         BSDFSample bsdfSampleReflect;
@@ -670,7 +670,14 @@ void rayGen()
             sd.mtl.setActiveLobes((uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)
         }
 
-        if (opacity < 1.0)
+        bool doReflection = any(s.thp * bsdfSampleReflect.weight > MIN_VISIBILITY);
+        bool doRefraction = any(s.thp * bsdfSampleRefract.weight > MIN_VISIBILITY);
+
+        // prevent furhter mvec writes, if:
+        if (doRefraction && MVEC == MVEC_FIRST_REFRACT) writeMvec = false;
+        if (doRefraction && BMVEC == MVEC_FIRST_REFRACT) writeBMvec = false;
+
+        if (opacity < 1.0)  // this should not affect first refract if it is a simple transmission
         {
             // overwrite refraction with transmission
             bsdfSampleRefract.weight = 1.0 - opacity;
@@ -680,13 +687,6 @@ void rayGen()
             s.flags |= FLAG_PREVENT_PATH_LENGTH_INCREMENT;
             bsdfSampleReflect.weight = 0.0; // prevent reflection for now (TODO should be weighted with opacity instead and path increment enabled)
         }
-
-        bool doReflection = any(s.thp * bsdfSampleReflect.weight > MIN_VISIBILITY);
-        bool doRefraction = any(s.thp * bsdfSampleRefract.weight > MIN_VISIBILITY);
-
-        // prevent furhter mvec writes, if:
-        if (doRefraction && MVEC == MVEC_FIRST_REFRACT) writeMvec = false;
-        if (doRefraction && BMVEC == MVEC_FIRST_REFRACT) writeBMvec = false;
 
         if (doReflection && doRefraction)
         {
