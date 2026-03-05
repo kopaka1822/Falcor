@@ -164,12 +164,14 @@ float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance m
 
         // shadow ray
         bool transmission = NdotL < 0.0;
-        float3 unshadowed = max(mi.eval(sd, ls.dir, sg) * ls.Li, 0.0);
+        float3 brdf = mi.eval(sd, ls.dir, sg); // f_r from light to view dir
+        float3 unshadowed = max(brdf * ls.Li, 0.0);
         if(any(unshadowed > MIN_VISIBILITY))
         {
             float3 shadow = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i);
             color += unshadowed * shadow;
-            importance += dot(shadow * ls.Li, 0.33); // importance without material texture
+            if(any(brdf > 0.01)) // only add importance if brdf is non-zero
+                importance += dot(shadow * ls.Li, 0.33); // importance without material texture
         }
     }
     importance = gAnalyticIntensity * importance;
