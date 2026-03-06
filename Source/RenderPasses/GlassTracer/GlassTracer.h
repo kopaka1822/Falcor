@@ -59,16 +59,12 @@ public:
         FirstHit,
         FirstRefractiveHit,
         HalfwayReflection,
-        RayDifferentials,
-        ReverseRayDifferentials
     };
 
     FALCOR_ENUM_INFO(MotionVector, {
         {MotionVector::FirstHit, "FirstHit"},
         {MotionVector::FirstRefractiveHit, "FirstRefractiveHit"},
         {MotionVector::HalfwayReflection, "HalfwayReflection"},
-        {MotionVector::RayDifferentials, "RayDifferentials"},
-        {MotionVector::ReverseRayDifferentials, "ReverseRayDifferentials"},
     });
 
     FALCOR_PLUGIN_CLASS(GlassTracer, "GlassTracer", "Path Tracer specialized for noise-free glass rendering");

@@ -200,8 +200,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     uint32_t structSize = 12;
     if (mUseTextureLOD) structSize += 12;
     if (mMotionVector == MotionVector::HalfwayReflection || mMotionVector == MotionVector::FirstRefractiveHit || mBackupMotionVector == MotionVector::FirstRefractiveHit) structSize += 12;
-    if (mMotionVector == MotionVector::RayDifferentials) structSize += 16;
-    if (mMotionVector == MotionVector::ReverseRayDifferentials) structSize += 39;
     if (!mpStackBuffer || mpStackBuffer->getElementCount() != requiredStack || mpStackBuffer->getElementSize() != structSize * sizeof(float))
     {
         mpStackBuffer = Buffer::createStructured(mpDevice, sizeof(float) * structSize, requiredStack, ResourceBindFlags::UnorderedAccess, Buffer::CpuAccess::None, nullptr, false);
@@ -416,13 +414,13 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
 
     bool c = false; // changed
 
+    bool prevFirstHit = mMotionVector == MotionVector::FirstHit;
     c |= widget.dropdown("Motion Vectors", mMotionVector);
-    if (mMotionVector == MotionVector::RayDifferentials || mMotionVector == MotionVector::ReverseRayDifferentials)
+    if (prevFirstHit && mMotionVector != MotionVector::FirstHit)
     {
-        c |= widget.checkbox("Ignore Normal Differentials", mIgnoreNormalDiffs);
-        widget.tooltip("Ignores normal differentials when computing ray differentials for motion vectors.");
+        mBackupMotionVector = MotionVector::FirstRefractiveHit; // force better backup if possible
     }
-
+    
     c |= widget.checkbox("Force Motion Vector Calculation", mForceMotionVectorCalculation);
     widget.tooltip("Forces motion vector calculation even if neither camera nor vertex moved.");
 

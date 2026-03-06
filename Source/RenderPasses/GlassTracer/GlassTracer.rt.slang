@@ -241,19 +241,6 @@ struct StackFrame
 #ifdef USE_VIEW_TRANSFORM
     float3x4 viewTransform; // 12 floats
 #endif
-#if MVEC == MVEC_RAY_DIFF
-    float3 ray2origin; // direction is the same as ray.dir
-    RayDiff rd2; // 12 floats
-    // ^ 15 floats
-#endif
-#if MVEC == MVEC_REVERSE_RD
-    float3x3 Jpp;
-    float3x3 Jpd;
-    float3x3 Jdp;
-    float3x3 Jdd;
-    float3 prevNormal;
-    // ^ 39 floats
-#endif
 };
 
 ///////////////// Stack implementation /////////////////////
@@ -288,26 +275,6 @@ bool StackFull()
 }
 ////////////////////////////////////////////////////////
 
-float3 calcBarycentrics(float3 p, StaticVertexData v[3])
-{
-    float3 a = v[0].position;
-    float3 b = v[1].position;
-    float3 c = v[2].position;
-    float3 v0 = b - a;
-    float3 v1 = c - a;
-    float3 v2 = p - a;
-    float d00 = dot(v0, v0);
-    float d01 = dot(v0, v1);
-    float d11 = dot(v1, v1);
-    float d20 = dot(v2, v0);
-    float d21 = dot(v2, v1);
-    float denom = d00 * d11 - d01 * d01;
-    float vcoord = (d11 * d20 - d01 * d21) / denom;
-    float wcoord = (d00 * d21 - d01 * d20) / denom;
-    float ucoord = 1.0 - vcoord - wcoord; // same as barycentric calculation in falcor
-    return float3(ucoord, vcoord, wcoord);
-}
-
 StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, StaticVertexData triangleVertices[3], float3 triangleBarycentrics, GeometryInstanceID instanceID)
 {
     s.thp *= bsdfSample.weight;
@@ -326,69 +293,6 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
         s.viewTransform = mulAffine(s.viewTransform, matrixMirror(sd.posW, H / lenH));
     #endif
 
-    #if MVEC == MVEC_RAY_DIFF
-    // transfer to the current (virtual) plane
-    float ray2t = dot(sd.faceN, sd.posW - s.ray2origin) / dot(sd.faceN, s.rayDir);
-    s.rd2 = s.rd2.propagate(s.ray2origin, s.rayDir, ray2t, sd.faceN);
-    s.ray2origin = s.ray2origin + ray2t * s.rayDir;
-    // prepare ray differential data at the virtual intersection
-    float3 barycentrics = calcBarycentrics(s.ray2origin, triangleVertices);
-    float3 unnormalizedN; // will be initialized by the prepareRayDiffAtHitPoint
-    float3 normals[3];
-    float2 dUVdx, dUVdy;
-    float2 dBarydx, dBarydy;
-    prepareRayDiffAtHitPoint(sd.faceN, triangleVertices, barycentrics, s.rayDir,
-        gScene.getWorldMatrix(instanceID), gScene.getInverseTransposeWorldMatrix(instanceID),
-        s.rd2, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
-    );
-    float3 ShadingN = normalize(unnormalizedN);
-
-    if (IGNORE_NORMAL_DIFFS) // overwrite normals with shading normal to force zero normal differentials
-    {
-        normals[0] = ShadingN;
-        normals[1] = ShadingN;
-        normals[2] = ShadingN;
-    }
-
-    // reflect or refract
-    if (transmission)
-    {
-        // calculate eta from bsdfSamople.wo instead of sd.IoR to account for glossy surfaces
-        float NdD = dot(ShadingN, s.rayDir);
-        float NdT = dot(ShadingN, bsdfSample.wo);
-        float eta = sqrt(1.0 - NdT * NdT) / sqrt(1.0 - NdD * NdD);
-        refractRayDifferential(s.rd2, s.rayDir, unnormalizedN, ShadingN, dBarydx, dBarydy, normals, eta, bsdfSample.wo);
-        //s.rd2 = s.rd2.refract(s.rayDir, bsdfSample.wo, sd.faceN);
-    }
-    else // reflection
-    {
-        reflectRayDifferential(s.rd2, s.rayDir, unnormalizedN, ShadingN, dBarydx, dBarydy, normals);
-        //s.rd2 = s.rd2.reflect(s.rayDir, bsdfSample.wo); // uses halfway vector as normal
-    }
-    #endif
-
-    #if MVEC == MVEC_REVERSE_RD
-    float3x3 M = m33Zero(); // zero if we ignore normal differentials
-    float3 ShadingN = sd.frame.N; // will be overwritten by getShapeMatrix with the correctly flipped version
-    if (!IGNORE_NORMAL_DIFFS)
-        M = getShapeMatrix(sd.faceN, triangleVertices, triangleBarycentrics, -bsdfSample.wo,
-            gScene.getWorldMatrix(instanceID), gScene.getInverseTransposeWorldMatrix(instanceID),
-            ShadingN);
-    
-    if (transmission)
-    {
-        float NdD = dot(ShadingN, s.rayDir);
-        float NdT = dot(ShadingN, bsdfSample.wo);
-        float etaInv = sqrt(1.0 - NdD * NdD) / sqrt(1.0 - NdT * NdT);
-        refractRRDiff(s.Jpp, s.Jpd, s.Jdp, s.Jdd,
-            -bsdfSample.wo, -s.rayDir, ShadingN, etaInv, M);
-    }
-    else // reflection
-    {
-        reflectRRDiff(s.Jpp, s.Jpd, s.Jdp, s.Jdd, -bsdfSample.wo, ShadingN, M);
-    }
-    #endif
-
     #if USE_TEXTURE_LOD != 0
     // transfer to posW (done in main)
     // s.rd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, sd.posW), sd.faceN);
@@ -400,9 +304,6 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
     s.rayOrigin = sd.computeNewRayOrigin(!transmission); // move origin a bit along normal (note: using sd.posW might result in self-intersection)
     #ifdef USE_VIEW_TRANSFORM
     s.viewTransform = mulAffine(s.viewTransform, matrixTranslate(sd.posW - s.rayOrigin));
-    #endif
-    #if MVEC == MVEC_RAY_DIFF
-    s.ray2origin += s.rayOrigin - sd.posW; // account for the above error by also moving the ray2origin accordingly
     #endif
     s.rayDir = bsdfSample.wo;
     return s;
@@ -435,14 +336,7 @@ void rayGen()
     #ifdef USE_VIEW_TRANSFORM
     s.viewTransform = matrixIdentity();
     #endif
-    #if MVEC == MVEC_REVERSE_RD
-    s.Jpp = m33Identity();
-    s.Jpd = m33Zero();
-    s.Jdp = m33Zero();
-    s.Jdd = m33Identity();
-    float3 virtualC1 = 0.0; // will be initialized in first iteration
-    #endif
-
+    
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameCount);
     s.rayOrigin = gScene.camera.data.posW;
     const float3 nonNormalizedRayDir = gScene.camera.computeNonNormalizedRayDirPinhole(pixel, frameDim);
@@ -452,16 +346,6 @@ void rayGen()
     float3 dDdx, dDdy;
     computeRayDirectionDifferentials(nonNormalizedRayDir, gScene.camera.data.cameraU, gScene.camera.data.cameraV, frameDim, dDdx, dDdy);
     s.rd = RayDiff(float3(0.f), float3(0.f), dDdx, dDdy);
-    #endif
-
-    #if MVEC == MVEC_RAY_DIFF
-    s.ray2origin = gScene.camera.data.prevPosW;
-
-    // create tangent frame for ray2
-    float3 ray2T = normalize(cross(s.rayDir, float3(0.0, 1.0, 0.0)));
-    float3 ray2B = normalize(cross(s.rayDir, ray2T));
-    float3 dO = 0.0; // zero dOdx, dOdy
-    s.rd2 = RayDiff(dO, dO, ray2T, ray2B);
     #endif
 
     RayData data;
@@ -550,22 +434,6 @@ void rayGen()
         let lod = ExplicitGradientTextureSampler(dUVdx * gTextureGradientScaling, dUVdy * gTextureGradientScaling);
         #endif
 
-        #if MVEC == MVEC_REVERSE_RD
-        if (s.curPathLength <= 1) // for the first hit, define a virtual plane around C0 as intersection
-        {
-            float virtualT = dot(gScene.camera.data.prevPosW - v.posW, -ray.Direction);
-            virtualC1 = v.posW - ray.Direction * virtualT;
-            transferRRDiff(s.Jpp, s.Jpd, s.Jdp, s.Jdd, -ray.Direction, ray.Direction, virtualT);
-        }
-        else // transfer from current vertex to previous vertex
-        {
-            float t = distance(s.rayOrigin, v.posW);
-            transferRRDiff(s.Jpp, s.Jpd, s.Jdp, s.Jdd,
-                -s.rayDir, s.prevNormal, t);
-        }
-        s.prevNormal = v.faceNormalW;
-        #endif
-
         ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -s.rayDir, lod);
         float opacity = 1.0;
         if (!isAlphaTested(materialID)) opacity = sd.opacity;
@@ -610,42 +478,13 @@ void rayGen()
                 curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, s.viewTransform, camMovement || vertexMoved);
             #endif
 
-            #if MVEC == MVEC_RAY_DIFF
-            // transfer to the final plane with point prevPosW and surface normal -s.rayDir
-            float ray2t = dot(s.rayDir, v.prevPosW - s.ray2origin);
-            // make copies of variables to avoid changing stack data (stack will be updated in prepareNextRay)
-            let rd2 = s.rd2.propagate(s.ray2origin, s.rayDir, ray2t, -s.rayDir);
-            let ray2origin = s.ray2origin + ray2t * s.rayDir;
-
-            // solve the equation ray2.origin + t * rd2.dOdx + b * rd2.dOdy = prevPosW
-            // => t * rd2.dOdx + b * rd2.dOdy = v.prevPosW - ray2.origin
-            float2 tb = solveLinearEq(rd2.dOdx, rd2.dOdy, v.prevPosW - ray2origin);
-            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, true /*jitter*/).dir;
-            float3 prevDirW = normalize(initDirW + tb[0] * ray2T + tb[1] * ray2B);
-            float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(prevDirW, 0.0)).xyz);
-            if(writeMvec)
-                curVBuffer.mvec = prevUV - CurrentUVJittered();
-            #endif
-
-            #if MVEC == MVEC_REVERSE_RD
-            // final step: solve dD0 = Jpd^-1 * (C0 - virtualC1)
-            float3 dPn = gScene.camera.data.prevPosW - virtualC1;
-            float3 dD0 = solveForDD0(s.Jpd, dPn, -s.rayDir);
-            float3 dDn = mul(s.Jdd, dD0);
-
-            float3 initDirW = gScene.camera.computeRayPinhole(pixel, frameDim, true /*jitter*/).dir;
-            float2 prevUV = ViewSpaceToUV(mul(gScene.camera.data.prevViewMat, float4(normalize(initDirW - dDn), 0.0)).xyz);
-            if(writeMvec)
-                curVBuffer.mvec = prevUV - CurrentUVJittered();
-            #endif
-
             if (writeMvec && !camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
             if (writeBMvec) curVBuffer.bmvec = curVBuffer.mvec;
             curVBuffer.isBackupMotion = writeBMvec;
         }
 
         // prevent mvec writes in the future, if:
-        if (s.curPathLength <= 1 && BMVEC == MVEC_FIRST_HIT) writeBMvec = false;
+        if (s.curPathLength <= 1 && int(BMVEC) == int(MVEC_FIRST_HIT)) writeBMvec = false;
 
         // obtain 1 bsdf sample for reflection, and one for refraction
         BSDFSample bsdfSampleReflect;
@@ -677,7 +516,7 @@ void rayGen()
 
         // prevent furhter mvec writes, if:
         if (doRefraction && MVEC == MVEC_FIRST_REFRACT) writeMvec = false;
-        if (doRefraction && BMVEC == MVEC_FIRST_REFRACT) writeBMvec = false;
+        if (doRefraction && int(BMVEC) == MVEC_FIRST_REFRACT) writeBMvec = false;
 
         if (opacity < 1.0)  // this should not affect first refract if it is a simple transmission
         {
