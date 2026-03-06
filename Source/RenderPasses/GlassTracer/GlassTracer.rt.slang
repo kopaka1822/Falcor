@@ -170,8 +170,7 @@ float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance m
         {
             float3 shadow = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i);
             color += unshadowed * shadow;
-            if(any(brdf > 0.01)) // only add importance if brdf is non-zero
-                importance += dot(shadow * ls.Li, 0.33); // importance without material texture
+            importance += dot(shadow * ls.Li, 0.33); // importance without material texture
         }
     }
     importance = gAnalyticIntensity * importance;
@@ -203,10 +202,6 @@ struct VBufferReservoir
         // if max weight
         weightSum = max(weightSum, local);
         return weightSum == local; // true if local is max, false otherwise
-
-        // if reservoir sampling
-        //weightSum += local;
-        //return rng * weightSum <= local; // true if update/replace, false if keep old
     }
 
     void writeData(uint2 pixel, float3 color)
@@ -458,6 +453,12 @@ void rayGen()
             //(bsdfImp.diffuseReflectionAlbedo + 0.2 * bsdfImp.specularReflectionAlbedo) * gAmbientIntensity +
             analyticImportance
         ), 0.33);
+        //float pathImportance = dot(s.thp * opacity, 1.0 / 3.0);
+        if (bsdf.roughness < gRoughnessCutoff)
+        {
+            pathImportance = 0.0; // dont stop on zero roughness
+        }
+        //gDebugTex[uint3(pixel, i)] = float4(pathImportance, dot(localContribution, 0.33), s.curPathLength, 1.0);
         // this will also overwrite with pathImportance==0, if nothing else was contributed yet (weightSum = 0.0)
         if (curVBuffer.update(pathImportance, sampleNext1D(sg), s.flags))
         {
@@ -516,7 +517,7 @@ void rayGen()
 
         // prevent furhter mvec writes, if:
         if (doRefraction && MVEC == MVEC_FIRST_REFRACT) writeMvec = false;
-        if (doRefraction && int(BMVEC) == MVEC_FIRST_REFRACT) writeBMvec = false;
+        if (doRefraction && BMVEC == MVEC_FIRST_REFRACT) writeBMvec = false;
 
         if (opacity < 1.0)  // this should not affect first refract if it is a simple transmission
         {
