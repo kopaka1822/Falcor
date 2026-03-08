@@ -33,14 +33,6 @@ float2 adjustJitter(float2 mvec)
     return mvec - gPrevJitter + gCurJitter;
 }
 
-float calcEstimatedError(float2 texC, float2 mvec, float3 curPos)
-{
-    float3 newPos = gPrevPos.SampleLevel(S, texC + adjustJitter(mvec), 0.0);
-    float3 posDiff = newPos - curPos;
-    float newError = length(posDiff);
-    return newError;
-}
-
 #define IS_FIRST_PASS (gDirection.x != 0)
 #define IS_SECOND_PASS (gDirection.y != 0)
 
@@ -90,8 +82,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         if (gMotionError[pos] == STATE_UNRELIABLE) w = 0.0;
         // geometric distance
         w *= exp(-0.5 * distance(gCurPos[pos], localPos)/posDiff);
-        // weigh each sample by the length of its vector
-        //w *= 1.0 / (pow(length(m), 2.0) + 1e-12);
         mSum += w * m;
         wSum += w;
         backupSum += isBackup;
@@ -107,10 +97,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     if (gCompareBilateralOutput && IS_SECOND_PASS)
     {
         float2 bmvec = gMotionOut[pixel]; // output of the LK-algorithm before the first pass
-
-        //const float3 curPos = gCurPos.SampleLevel(S, texC, 0.0);
-        //if (calcEstimatedError(texC, bmvec, curPos) < calcEstimatedError(texC, mvec, curPos))
-        //    mvec = bmvec;
 
         if (isBackup > 0.2)
             mvec = bmvec;
