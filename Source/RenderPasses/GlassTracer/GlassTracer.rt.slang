@@ -269,15 +269,24 @@ bool StackFull()
     return curStack >= gMaxStack;
 }
 ////////////////////////////////////////////////////////
+struct TriangleData
+{
+    ShadingData sd;
+    // ray differential data:
+    StaticVertexData triangleVertices[3];
+    float3 unnormalizedN;
+    float3 normals[3];
+    float2 dBarydx, dBarydy;
+}
 
-StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, StaticVertexData triangleVertices[3], float3 triangleBarycentrics, GeometryInstanceID instanceID)
+StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, TriangleData tri)
 {
     s.thp *= bsdfSample.weight;
     bool transmission = bsdfSample.isLobe(LobeType::Transmission);
 
     if (!transmission && gPreventVbufferCurvedReflection)
     {
-        if (any(triangleVertices[0].normal != triangleVertices[1].normal) || any(triangleVertices[0].normal != triangleVertices[2].normal))
+        if (any(tri.triangleVertices[0].normal != tri.triangleVertices[1].normal) || any(tri.triangleVertices[0].normal != tri.triangleVertices[2].normal))
             s.flags |= FLAG_PREVENT_VBUFFER_WRITE;
     }
 
@@ -285,20 +294,33 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, ShadingData sd, S
     float3 H = -s.rayDir + bsdfSample.wo;
     float lenH = length(H);
     if (lenH > 0.001) // lenH = 0 => raydir = wo => simple transmission, no reflection or refraction
-        s.viewTransform = mulAffine(s.viewTransform, matrixMirror(sd.posW, H / lenH));
+        s.viewTransform = mulAffine(s.viewTransform, matrixMirror(tri.sd.posW, H / lenH));
     #endif
 
     #if USE_TEXTURE_LOD != 0
     // transfer to posW (done in main)
     // s.rd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, sd.posW), sd.faceN);
     // reflect or refract TODO use functions that respect dNdx and dNdy
-    if(transmission) s.rd = s.rd.refract(s.rayDir, bsdfSample.wo, sd.faceN);
-    else s.rd = s.rd.reflect(s.rayDir, bsdfSample.wo); // uses halfway vector as normal
+
+
+    float3 ShadingN = normalize(tri.unnormalizedN);
+    if (transmission)
+    {
+        // calculate eta
+        float NdD = dot(ShadingN, s.rayDir);
+        float NdT = dot(ShadingN, bsdfSample.wo);
+        float eta = sqrt(1.0 - NdT * NdT) / sqrt(1.0 - NdD * NdD);
+        refractRayDifferential(s.rd, s.rayDir, tri.unnormalizedN, ShadingN, tri.dBarydx, tri.dBarydy, tri.normals, eta, bsdfSample.wo);
+    }
+    else // reflection
+    {
+        reflectRayDifferential(s.rd, s.rayDir, tri.unnormalizedN, ShadingN, tri.dBarydx, tri.dBarydy, tri.normals);
+    }
     #endif
 
-    s.rayOrigin = sd.computeNewRayOrigin(!transmission); // move origin a bit along normal (note: using sd.posW might result in self-intersection)
+    s.rayOrigin = tri.sd.computeNewRayOrigin(!transmission); // move origin a bit along normal (note: using sd.posW might result in self-intersection)
     #ifdef USE_VIEW_TRANSFORM
-    s.viewTransform = mulAffine(s.viewTransform, matrixTranslate(sd.posW - s.rayOrigin));
+    s.viewTransform = mulAffine(s.viewTransform, matrixTranslate(tri.sd.posW - s.rayOrigin));
     #endif
     s.rayDir = bsdfSample.wo;
     return s;
@@ -400,9 +422,9 @@ void rayGen()
         /////////// TRIANGLE HIT /////////////
         TriangleHit triangleHit = hit.getTriangleHit();
 
+        TriangleData tri;
         float3 barycentrics = triangleHit.getBarycentricWeights();
-        StaticVertexData triangleVertices[3];
-        let v = gScene.getVertexData(triangleHit.instanceID, triangleHit.primitiveIndex, barycentrics, triangleVertices);
+        let v = gScene.getVertexData(triangleHit.instanceID, triangleHit.primitiveIndex, barycentrics, tri.triangleVertices);
         bool vertexMoved = any(v.posW != v.prevPosW);
         s.linearZ += distance(s.rayOrigin, v.posW);
 
@@ -417,32 +439,29 @@ void rayGen()
         let posDiffRd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, v.posW), s.rayDir);
         float posDiff = max(length(posDiffRd.dOdx), length(posDiffRd.dOdy));
         s.rd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, v.posW), v.faceNormalW);
-        //float posDiff = max(length(s.rd.dOdx), length(s.rd.dOdy));
-        float3 unnormalizedN;
-        float3 normals[3];
+        // float posDiff = max(length(s.rd.dOdx), length(s.rd.dOdy));
         float2 dUVdx, dUVdy;
-        float2 dBarydx, dBarydy;
-        prepareRayDiffAtHitPoint(v, triangleVertices, barycentrics, s.rayDir,
+        prepareRayDiffAtHitPoint(v, tri.triangleVertices, barycentrics, s.rayDir,
             gScene.getWorldMatrix(triangleHit.instanceID), gScene.getInverseTransposeWorldMatrix(triangleHit.instanceID),
-            s.rd, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
+            s.rd, tri.unnormalizedN, tri.normals, tri.dBarydx, tri.dBarydy, dUVdx, dUVdy
         );
         let lod = ExplicitGradientTextureSampler(dUVdx * gTextureGradientScaling, dUVdy * gTextureGradientScaling);
         #endif
 
-        ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -s.rayDir, lod);
+        tri.sd = gScene.materials.prepareShadingData(v, materialID, -s.rayDir, lod);
         float opacity = 1.0;
-        if (!isAlphaTested(materialID)) opacity = sd.opacity;
+        if (!isAlphaTested(materialID)) opacity = tri.sd.opacity;
 
         // Create material instance at shading point.
-        IMaterialInstance mi = gScene.materials.getMaterialInstance(sd, lod, (uint)MaterialInstanceHints::AdjustShadingNormal);
-        let bsdf = mi.getProperties(sd);
+        IMaterialInstance mi = gScene.materials.getMaterialInstance(tri.sd, lod, (uint)MaterialInstanceHints::AdjustShadingNormal);
+        let bsdf = mi.getProperties(tri.sd);
 
         float analyticImportance = 0.0;
         // compute local color contribution
         float3 localContribution = s.thp * opacity * (
             bsdf.emission * gEmissionIntensity +
-            (bsdf.diffuseReflectionAlbedo + 0.2 * bsdf.specularReflectionAlbedo) * gAmbientIntensity +
-            evalAnalytic(pixel, sd, mi, sg, analyticImportance)
+             (bsdf.diffuseReflectionAlbedo + 0.2 * bsdf.specularReflectionAlbedo) * gAmbientIntensity +
+             evalAnalytic(pixel, tri.sd, mi, sg, analyticImportance)
         );
         color += localContribution;
 
@@ -503,13 +522,13 @@ void rayGen()
             if (gForceZeroRoughness) mi.setRoughness(0.0);
             // only delta reflections, refractions for next bounce
             uint activeLobes = (uint)LobeType::Delta | (uint)LobeType::Specular;
-            sd.mtl.setActiveLobes(activeLobes & (uint) LobeType::Transmission);
-            if (!mi.sample(sd, sg, bsdfSampleRefract, true /*Importance sampling*/))
+            tri.sd.mtl.setActiveLobes(activeLobes & (uint)LobeType::Transmission);
+            if (!mi.sample(tri.sd, sg, bsdfSampleRefract, true /*Importance sampling*/))
                 bsdfSampleRefract.weight = 0.0;
-            sd.mtl.setActiveLobes(activeLobes & (uint) LobeType::Reflection);
-            if (!mi.sample(sd, sg, bsdfSampleReflect, true /*Importance sampling*/))
+            tri.sd.mtl.setActiveLobes(activeLobes & (uint)LobeType::Reflection);
+            if (!mi.sample(tri.sd, sg, bsdfSampleReflect, true /*Importance sampling*/))
                 bsdfSampleReflect.weight = 0.0;
-            sd.mtl.setActiveLobes((uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)
+            tri.sd.mtl.setActiveLobes((uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)
         }
 
         bool doReflection = any(s.thp * bsdfSampleReflect.weight > MIN_VISIBILITY);
@@ -534,16 +553,16 @@ void rayGen()
         {
             // put one on the stack
             if (!StackFull())
-                PushStack( prepareNextRay(s, bsdfSampleRefract, sd, triangleVertices, barycentrics, triangleHit.instanceID));
+                PushStack(prepareNextRay(s, bsdfSampleRefract, tri));
             doRefraction = false;
             if (gPreventVbufferRefractiveReflection)
                 s.flags |= FLAG_PREVENT_VBUFFER_WRITE; // for the next reflections
         }
 
         if (doReflection)
-            s = prepareNextRay(s, bsdfSampleReflect, sd, triangleVertices, barycentrics, triangleHit.instanceID);
+            s = prepareNextRay(s, bsdfSampleReflect, tri);
         if (doRefraction)
-            s = prepareNextRay(s, bsdfSampleRefract, sd, triangleVertices, barycentrics, triangleHit.instanceID);
+            s = prepareNextRay(s, bsdfSampleRefract, tri);
         
         if(!doReflection && !doRefraction)
         {
