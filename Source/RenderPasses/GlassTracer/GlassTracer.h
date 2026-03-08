@@ -172,6 +172,7 @@ private:
     bool mForceZeroRoughness = true;
     bool mPreventVbufferCurvedReflection = true;
     bool mPreventVbufferRefractiveReflection = true;
+    int mMaxVbufferRefractions = 4;
     bool mForceMotionVectorCalculation = false;
     bool mIgnoreNormalDiffs = true; // more stable without normal diffs
 

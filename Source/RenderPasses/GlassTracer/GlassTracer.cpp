@@ -265,6 +265,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["PerFrame"]["gForceZeroRoughness"] = mForceZeroRoughness ? 1 : 0;
     var["PerFrame"]["gPreventVbufferCurvedReflection"] = mPreventVbufferCurvedReflection ? 1 : 0;
     var["PerFrame"]["gPreventVbufferRefractiveReflection"] = mPreventVbufferRefractiveReflection ? 1 : 0;
+    var["PerFrame"]["gMaxVbufferRefractions"] = mMaxVbufferRefractions;
     var["PerFrame"]["gShadowTransmissionMultiplier"] = mShadowTransmissionMultiplier;
 
     mpProgram->addDefine("TRANSPARENCY_WHITELIST", mUseTransparencyWhitelist ? "1" : "0");
@@ -508,6 +509,8 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         widget.tooltip("Prevents storing hit points after curved reflections to be stored in the V-Bffer.");
         c |= widget.checkbox("Disable V-buffer Refractive Reflection", mPreventVbufferRefractiveReflection);
         widget.tooltip("Prevents storing hit points after from reflections if the surface does also refract.");
+        c |= widget.var("Max V-buffer Refractions", mMaxVbufferRefractions, 0, 128);
+        widget.tooltip("Maximum number of refractions after which a v-buffer write is forced");
     }
 
     mOptionsChanged |= c;

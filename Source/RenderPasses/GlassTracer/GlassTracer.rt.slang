@@ -20,7 +20,8 @@ cbuffer PerFrame
     float gTextureGradientScaling;      // scaling factor for texture gradients
     bool gPreventVbufferCurvedReflection; // prevents the paths of curved reflection from being taken as vbuffer reference position
     bool gPreventVbufferRefractiveReflection; // prevents the paths of reflections from being taken as vbuffer reference, if the surface does also refract
-    float gShadowTransmissionMultiplier; // multiplied to material transmission for shadows, to make them darker
+    int gMaxVbufferRefractions; // after this many refractions along the primary path, mvec and bmvec will be written (even if the surface is specular)
+    float gShadowTransmissionMultiplier;      // multiplied to material transmission for shadows, to make them darker
 }
 #define FLAG_PREVENT_VBUFFER_WRITE 1
 #define FLAG_PREVENT_PATH_LENGTH_INCREMENT 2
@@ -339,6 +340,9 @@ void rayGen()
     float3 color = 0.0; // color along path
     bool writeMvec = true; // can be set to false (after first refraction) to disable mvec writes
     bool writeBMvec = true; // same for backup motion vector
+    int numRefractions = 0; // number of refraction along the primary path (StackEmpty() == true)
+    const uint invalidID = uint(-1);
+    uint firstRefractionID = invalidID;
 
     bool camMovement = any(gScene.camera.data.viewMat != gScene.camera.data.prevViewMat);
     if (gForceMotionVectorCalculation) camMovement = true;
@@ -465,15 +469,10 @@ void rayGen()
         );
         color += localContribution;
 
-        // compute path importance slightly differently
-        // IMaterialInstance miImp = gScene.materials.getMaterialInstance( sd, ExplicitLodTextureSampler(255.0), (uint)MaterialInstanceHints::AdjustShadingNormal);
-        // let bsdfImp = miImp.getProperties(sd);
-        float pathImportance = dot(s.thp * opacity * (bsdf.emission * gEmissionIntensity +
-            //(bsdfImp.diffuseReflectionAlbedo + 0.2 * bsdfImp.specularReflectionAlbedo) * gAmbientIntensity +
-            analyticImportance
-        ), 0.33);
-        //float pathImportance = dot(s.thp * opacity, 1.0 / 3.0);
-        if (bsdf.roughness < gRoughnessCutoff)
+        float pathImportance = dot(s.thp * opacity, 1.0 / 3.0);
+        
+        //if (bsdf.roughness <= gRoughnessCutoff && (firstRefractionID == triangleHit.instanceID.index || firstRefractionID == invalidID))
+        if (bsdf.roughness <= gRoughnessCutoff && numRefractions < gMaxVbufferRefractions)
         {
             pathImportance = 0.0; // dont stop on zero roughness
         }
@@ -537,6 +536,8 @@ void rayGen()
         // prevent furhter mvec writes, if:
         if (doRefraction && MVEC == MVEC_FIRST_REFRACT) writeMvec = false;
         if (doRefraction && BMVEC == MVEC_FIRST_REFRACT) writeBMvec = false;
+        if (doRefraction && StackEmpty()) numRefractions++; // increase counter for primary path refractions
+        if (doRefraction && firstRefractionID == invalidID) firstRefractionID = triangleHit.instanceID.index; // ID of first refractive surface
 
         if (opacity < 1.0)  // this should not affect first refract if it is a simple transmission
         {
