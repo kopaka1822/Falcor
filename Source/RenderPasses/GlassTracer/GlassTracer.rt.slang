@@ -476,9 +476,9 @@ void rayGen()
         color += localContribution;
 
         float pathImportance = dot(s.thp * opacity, 1.0 / 3.0);
-        
-        //if (bsdf.roughness <= gRoughnessCutoff && (firstRefractionID == triangleHit.instanceID.index || firstRefractionID == invalidID))
-        if (bsdf.roughness <= gRoughnessCutoff && numRefractions < gMaxVbufferRefractions)
+
+        // if (bsdf.roughness <= gRoughnessCutoff && (firstRefractionID == triangleHit.instanceID.index || firstRefractionID == invalidID))
+        if (bsdf.roughness <= gRoughnessCutoff && (numRefractions < gMaxVbufferRefractions || !bsdf.isTransmissive))
         {
             pathImportance = 0.0; // dont stop on zero roughness
         }
