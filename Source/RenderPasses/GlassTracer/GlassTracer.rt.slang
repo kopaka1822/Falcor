@@ -408,7 +408,13 @@ void rayGen()
                 RayMissHit rmh;
                 rmh.posW = ray.Origin + ray.Direction * ray.TMax; // far plane position
                 curVBuffer.vbuffer = rmh.pack();
-                curVBuffer.posDiff = 1e38;
+                // transfer ray differentials to far plane
+                #if USE_TEXTURE_LOD == 0
+                curVBuffer.posDiff = 0.0;
+                #else
+                let posDiffRd = s.rd.propagate(s.rayOrigin, s.rayDir, ray.TMax, s.rayDir);
+                curVBuffer.posDiff = max(length(posDiffRd.dOdx), length(posDiffRd.dOdy));
+                #endif
                 curVBuffer.depth = s.linearZ + ray.TMax; // + far plane
                 curVBuffer.localPathLength = s.curPathLength;
                 curVBuffer.lastRayDir = s.rayDir;
