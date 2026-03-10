@@ -20,6 +20,7 @@ cbuffer PerFrame
     float gTextureGradientScaling;      // scaling factor for texture gradients
     bool gPreventVbufferCurvedReflection; // prevents the paths of curved reflection from being taken as vbuffer reference position
     bool gPreventVbufferRefractiveReflection; // prevents the paths of reflections from being taken as vbuffer reference, if the surface does also refract
+    bool gPreventVbufferInternalReflection; // prevents total internal reflections (and succeeding vertices) on the primary path from being taken as vbuffer reference
     int gMaxVbufferRefractions; // after this many refractions along the primary path, mvec and bmvec will be written (even if the surface is specular)
     float gShadowTransmissionMultiplier;      // multiplied to material transmission for shadows, to make them darker
 }
@@ -142,9 +143,8 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
     return visibility;
 }
 
-float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance mi, inout UniformSampleGenerator sg, out float importance)
+float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance mi, inout UniformSampleGenerator sg)
 {
-    importance = 0.0;
     if (gAnalyticIntensity <= 0.0)
         return 0.0;
     
@@ -171,10 +171,8 @@ float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance m
         {
             float3 shadow = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i);
             color += unshadowed * shadow;
-            importance += dot(shadow * ls.Li, 0.33); // importance without material texture
         }
     }
-    importance = gAnalyticIntensity * importance;
     return gAnalyticIntensity * color;
 }
 
@@ -466,22 +464,50 @@ void rayGen()
         IMaterialInstance mi = gScene.materials.getMaterialInstance(tri.sd, lod, (uint)MaterialInstanceHints::AdjustShadingNormal);
         let bsdf = mi.getProperties(tri.sd);
 
-        float analyticImportance = 0.0;
         // compute local color contribution
         float3 localContribution = s.thp * opacity * (
             bsdf.emission * gEmissionIntensity +
              (bsdf.diffuseReflectionAlbedo + 0.2 * bsdf.specularReflectionAlbedo) * gAmbientIntensity +
-             evalAnalytic(pixel, tri.sd, mi, sg, analyticImportance)
+             evalAnalytic(pixel, tri.sd, mi, sg)
         );
         color += localContribution;
+
+        // determine if we have reflections and refractions
+        // obtain 1 bsdf sample for reflection, and one for refraction
+        BSDFSample bsdfSampleReflect;
+        BSDFSample bsdfSampleRefract;
+
+        if (bsdf.roughness > gRoughnessCutoff || (s.curPathLength == gPathLength))
+        {
+            // force absorb
+            bsdfSampleReflect.weight = 0.0;
+            bsdfSampleRefract.weight = 0.0;
+        }
+        else
+        {
+            if (gForceZeroRoughness) mi.setRoughness(0.0);
+            // only delta reflections, refractions for next bounce
+            uint activeLobes = (uint)LobeType::Delta | (uint)LobeType::Specular;
+            tri.sd.mtl.setActiveLobes(activeLobes & (uint)LobeType::Transmission);
+            if (!mi.sample(tri.sd, sg, bsdfSampleRefract, true /*Importance sampling*/))
+                bsdfSampleRefract.weight = 0.0;
+            tri.sd.mtl.setActiveLobes(activeLobes & (uint)LobeType::Reflection);
+            if (!mi.sample(tri.sd, sg, bsdfSampleReflect, true /*Importance sampling*/))
+                bsdfSampleReflect.weight = 0.0;
+            tri.sd.mtl.setActiveLobes( (uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)
+        }
+
+        bool doReflection = any(s.thp * bsdfSampleReflect.weight > MIN_VISIBILITY);
+        bool doRefraction = any(s.thp * bsdfSampleRefract.weight > MIN_VISIBILITY);
 
         float pathImportance = dot(s.thp * opacity, 1.0 / 3.0);
 
         // if (bsdf.roughness <= gRoughnessCutoff && (firstRefractionID == triangleHit.instanceID.index || firstRefractionID == invalidID))
         if (bsdf.roughness <= gRoughnessCutoff && (numRefractions < gMaxVbufferRefractions || !bsdf.isTransmissive))
-        {
             pathImportance = 0.0; // dont stop on zero roughness
-        }
+
+        if (gPreventVbufferInternalReflection && bsdf.isTransmissive && !doRefraction)
+            s.flags |= FLAG_PREVENT_VBUFFER_WRITE; // prevent vbuffer writes after TIR (Total internal reflection)
         //gDebugTex[uint3(pixel, i)] = float4(pathImportance, dot(localContribution, 0.33), s.curPathLength, 1.0);
         // this will also overwrite with pathImportance==0, if nothing else was contributed yet (weightSum = 0.0)
         if (curVBuffer.update(pathImportance, sampleNext1D(sg), s.flags))
@@ -511,33 +537,7 @@ void rayGen()
         // prevent mvec writes in the future, if:
         if (s.curPathLength <= 1 && int(BMVEC) == int(MVEC_FIRST_HIT)) writeBMvec = false;
 
-        // obtain 1 bsdf sample for reflection, and one for refraction
-        BSDFSample bsdfSampleReflect;
-        BSDFSample bsdfSampleRefract;
-
-        if (bsdf.roughness > gRoughnessCutoff || (s.curPathLength == gPathLength))
-        {
-            // force absorb
-            bsdfSampleReflect.weight = 0.0;
-            bsdfSampleRefract.weight = 0.0;
-
-        }
-        else
-        {
-            if (gForceZeroRoughness) mi.setRoughness(0.0);
-            // only delta reflections, refractions for next bounce
-            uint activeLobes = (uint)LobeType::Delta | (uint)LobeType::Specular;
-            tri.sd.mtl.setActiveLobes(activeLobes & (uint)LobeType::Transmission);
-            if (!mi.sample(tri.sd, sg, bsdfSampleRefract, true /*Importance sampling*/))
-                bsdfSampleRefract.weight = 0.0;
-            tri.sd.mtl.setActiveLobes(activeLobes & (uint)LobeType::Reflection);
-            if (!mi.sample(tri.sd, sg, bsdfSampleReflect, true /*Importance sampling*/))
-                bsdfSampleReflect.weight = 0.0;
-            tri.sd.mtl.setActiveLobes((uint) LobeType::All); // allow all types for brdf eval (otherwise direct light (NEE) will be always black)
-        }
-
-        bool doReflection = any(s.thp * bsdfSampleReflect.weight > MIN_VISIBILITY);
-        bool doRefraction = any(s.thp * bsdfSampleRefract.weight > MIN_VISIBILITY);
+        
 
         // prevent furhter mvec writes, if:
         if (doRefraction && MVEC == MVEC_FIRST_REFRACT) writeMvec = false;
