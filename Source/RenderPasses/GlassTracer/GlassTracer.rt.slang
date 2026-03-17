@@ -24,8 +24,17 @@ cbuffer PerFrame
     int gMaxVbufferRefractions; // after this many refractions along the primary path, mvec and bmvec will be written (even if the surface is specular)
     float gShadowTransmissionMultiplier;      // multiplied to material transmission for shadows, to make them darker
 }
-#define FLAG_PREVENT_VBUFFER_WRITE 1
-#define FLAG_PREVENT_PATH_LENGTH_INCREMENT 2
+
+#define FLAG_PREVENT_BMVEC_WRITE 1
+// disabling mvec automatically disables bmvec (1 | 2 => 3)
+#define FLAG_PREVENT_MVEC_WRITE 3
+// disabling vbuffer also disables motion vector writes (1 | 2 | 4 => 7)
+#define FLAG_PREVENT_VBUFFER_WRITE 7
+#define FLAG_PREVENT_PATH_LENGTH_INCREMENT 8
+
+#define WRITE_MVEC(flags) ((flags & FLAG_PREVENT_MVEC_WRITE) != FLAG_PREVENT_MVEC_WRITE)
+#define WRITE_BMVEC(flags) ((flags & FLAG_PREVENT_BMVEC_WRITE) != FLAG_PREVENT_BMVEC_WRITE)
+#define WRITE_VBUFFER(flags) ((flags & FLAG_PREVENT_VBUFFER_WRITE) != FLAG_PREVENT_VBUFFER_WRITE)
 
 RWTexture2D<PackedHitInfo> gVBuffer;
 RWTexture2D<float2> gMotion;
@@ -193,7 +202,7 @@ struct VBufferReservoir
     [mutating]
     bool update(float3 localContribution, float rng, uint sflags /*flags from stack frame*/)
     {
-        if (sflags & FLAG_PREVENT_VBUFFER_WRITE)
+        if(!WRITE_VBUFFER(sflags))
             return false;
 
         float local = dot(localContribution, 1.0);
@@ -283,12 +292,12 @@ StackFrame prepareNextRay(StackFrame s, BSDFSample bsdfSample, TriangleData tri)
     s.thp *= bsdfSample.weight;
     bool transmission = bsdfSample.isLobe(LobeType::Transmission);
 
-    if (!transmission && gPreventVbufferCurvedReflection)
-    {
-        if (any(tri.triangleVertices[0].normal != tri.triangleVertices[1].normal) || any(tri.triangleVertices[0].normal != tri.triangleVertices[2].normal))
-            s.flags |= FLAG_PREVENT_VBUFFER_WRITE;
-    }
-
+    bool curvedSurface = any(tri.triangleVertices[0].normal != tri.triangleVertices[1].normal) || any(tri.triangleVertices[0].normal != tri.triangleVertices[2].normal);
+    if (!transmission && gPreventVbufferCurvedReflection && curvedSurface) // curved reflection
+        s.flags |= FLAG_PREVENT_VBUFFER_WRITE;
+    if (curvedSurface)
+        s.flags |= FLAG_PREVENT_BMVEC_WRITE; // always disable backup motion vector writes for curved surfaces, since those will always be an invalid bacckup (since householder only models planar surfaces)
+ 
     #ifdef USE_VIEW_TRANSFORM
     float3 H = -s.rayDir + bsdfSample.wo;
     float lenH = length(H);
@@ -336,8 +345,6 @@ void rayGen()
     s.curPathLength = 0;
     s.flags = 0;
     float3 color = 0.0; // color along path
-    bool writeMvec = true; // can be set to false (after first refraction) to disable mvec writes
-    bool writeBMvec = true; // same for backup motion vector
     int numRefractions = 0; // number of refraction along the primary path (StackEmpty() == true)
     const uint invalidID = uint(-1);
     uint firstRefractionID = invalidID;
@@ -394,14 +401,14 @@ void rayGen()
                 float3 rayDirNoJitter = gScene.camera.computeRayPinhole(pixel, frameDim, /*no jitter*/false).dir;
                 float3 prevEnvMapDir = mul(gScene.camera.data.prevViewMat, float4(rayDirNoJitter, 0.0)).xyz;
                 float2 prevUV = ViewSpaceToUV(prevEnvMapDir);
-                if (writeMvec)
+                if (WRITE_MVEC(s.flags))
                 {
                     curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
                     if (!camMovement)
                         curVBuffer.mvec = 0.0;
-                    if (writeBMvec) curVBuffer.bmvec = curVBuffer.mvec;
+                    if (WRITE_BMVEC(s.flags)) curVBuffer.bmvec = curVBuffer.mvec;
                 }
-                curVBuffer.isBackupMotion = writeMvec && writeBMvec;
+                curVBuffer.isBackupMotion = WRITE_BMVEC(s.flags);
                     
                 RayMissHit rmh;
                 rmh.posW = ray.Origin + ray.Direction * ray.TMax; // far plane position
@@ -520,28 +527,29 @@ void rayGen()
 
             if (s.curPathLength <= 1 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
             {
-                writeMvec = false;
+                s.flags |= FLAG_PREVENT_MVEC_WRITE; // dont check this in the if condition to always allow overwrites from alpha material on the first hit
                 curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, matrixIdentity(), camMovement || vertexMoved);
+                curVBuffer.bmvec = curVBuffer.mvec;
             }
 
             #ifdef USE_VIEW_TRANSFORM
-            if(writeMvec)
+            if(WRITE_MVEC(s.flags))
                 curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, s.viewTransform, camMovement || vertexMoved);
             #endif
 
-            if (writeMvec && !camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
-            if (writeBMvec) curVBuffer.bmvec = curVBuffer.mvec;
-            curVBuffer.isBackupMotion = writeBMvec;
+            if (WRITE_MVEC(s.flags) && !camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
+            if (WRITE_BMVEC(s.flags)) curVBuffer.bmvec = curVBuffer.mvec;
+            curVBuffer.isBackupMotion = WRITE_BMVEC(s.flags);
         }
 
         // prevent mvec writes in the future, if:
-        if (s.curPathLength <= 1 && int(BMVEC) == int(MVEC_FIRST_HIT)) writeBMvec = false;
+        if (s.curPathLength <= 1 && int(BMVEC) == int(MVEC_FIRST_HIT)) s.flags |= FLAG_PREVENT_BMVEC_WRITE;
 
         
 
         // prevent furhter mvec writes, if:
-        if (doRefraction && MVEC == MVEC_FIRST_REFRACT) writeMvec = false;
-        if (doRefraction && BMVEC == MVEC_FIRST_REFRACT) writeBMvec = false;
+        if (doRefraction && MVEC == MVEC_FIRST_REFRACT) s.flags |= FLAG_PREVENT_MVEC_WRITE;
+        if (doRefraction && BMVEC == MVEC_FIRST_REFRACT) s.flags |= FLAG_PREVENT_BMVEC_WRITE;
         if (doRefraction && StackEmpty()) numRefractions++; // increase counter for primary path refractions
         if (doRefraction && firstRefractionID == invalidID) firstRefractionID = triangleHit.instanceID.index; // ID of first refractive surface
 
