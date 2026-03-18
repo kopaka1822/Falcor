@@ -170,7 +170,7 @@ private:
 
     float mRoughnessCutoff = 0.1f;
     bool mForceZeroRoughness = true;
-    bool mPreventVbufferCurvedReflection = false;
+    bool mPreventVbufferCurvedReflection = true;
     bool mPreventVbufferRefractiveReflection = true;
     bool mPreventVbufferInternalReflection = true;
     int mMaxVbufferRefractions = 4;
