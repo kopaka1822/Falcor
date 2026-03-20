@@ -85,7 +85,6 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
         .setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear)
         .setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp));
 
-    mpOpticalFlowPosPass->getRootVar()["S"] = linearSampler;
     mpOpticalBlurPass->getRootVar()["S"] = linearSampler;
     mpOpticalMedianPrePass->getRootVar()["S"] = linearSampler;
 
@@ -307,16 +306,13 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         var["gMotion"] = pMotion;
         var["gBackupMotion"] = pMotionBackup;
         var["gMotionError"] = pMotionErrorMask;
-        var["gMotionOut"] = pMotionOptical;
         var["gCurPos"] = pCurPrevPosition;
         var["gPrevPos"] = pPrevPosition;
         var["gPosDiff"] = pPosDiff;
         var["gCurPathLen"] = pLocalPathLength;
         var["gPrevPathLen"] = pPrevPathLen;
-        var["gLastRayDir"] = pLastRayDir;
         var["gLastRayDirPrev"] = pLastRayDirPrev;
         var["gLinearDepthPrev"] = pLinearDepthPrev;
-        var["gLinearDepth"] = pLinearDepth;
         var["gDebugTex"] = pDebug;
 
         var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
@@ -329,8 +325,9 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             FALCOR_PROFILE(pRenderContext, "Iterations");
             mpOpticalFlowPosPass->execute(pRenderContext, dispatch);
             pRenderContext->uavBarrier(pMotionErrorMask.get());
+            pRenderContext->uavBarrier(pMotion.get());
         }
-        // ouput is in pMotionOptical
+        // ouput is in pMotion
 
         if (mUseOpticalMedianPrePass)
         {
@@ -338,20 +335,19 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
 
             // output is in pMotionOptical
             var = mpOpticalMedianPrePass->getRootVar();
-            var["gMotion"] = pMotionOptical;
-            var["gMotionOut"] = pMotion; // backup data and output
+            var["gMotion"] = pMotion;
+            var["gMotionOut"] = pMotionOptical; // backup data and output
             var["gPathLength"] = pLocalPathLength;
             var["gBackupMotion"] = pMotionBackup;
             var["gMotionError"] = pMotionErrorMask;
             var["gMotionErrorOut"] = pMotionErrorTmp;
 
-
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
             mpOpticalMedianPrePass->execute(pRenderContext, dispatch);
 
-            pMotionErrorMask = pMotionErrorTmp; 
+            pMotionErrorMask = pMotionErrorTmp;
+            pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
         }
-        else pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
 
         // output is in pMotion
         

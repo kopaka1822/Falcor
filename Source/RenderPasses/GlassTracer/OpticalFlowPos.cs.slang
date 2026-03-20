@@ -1,21 +1,14 @@
-//import Utils.Math.MathHelpers;
-
-Texture2D<float2> gMotion;
+RWTexture2D<float2> gMotion;
 Texture2D<float2> gBackupMotion;
-RWTexture2D<float2> gMotionOut;
 RWTexture2D<uint> gMotionError;
 Texture2D<float3> gCurPos;
 Texture2D<float3> gPrevPos;
 Texture2D<float> gPosDiff; // estimated max position difference when moving one pixel
-Texture2D<float3> gLastRayDir; // direction to Pos (incomming ray direction)
 Texture2D<float3> gLastRayDirPrev; // from last frame (for gPrevPos)
 Texture2D<uint> gCurPathLen;
 Texture2D<uint> gPrevPathLen;
-Texture2D<float> gLinearDepth;
 Texture2D<float> gLinearDepthPrev;
 RWTexture2DArray<float4> gDebugTex;
-
-SamplerState S; // linear sampler
 
 cbuffer PerFrame
 {
@@ -72,7 +65,9 @@ bool fetchData(float2 uv,                                                      /
     out float s, out float t // [0,1] coordinates within the 2x2 pixel area
 )
 {
-    // 4 rounded uv coordinates
+    uv = adjustJitter(uv);
+
+    // 4 rounded uv coordinates (in 0-1)
     float2 uv00 = snapTopLeft(uv);
     float2 uv10 = uv00 + stepX;
     float2 uv01 = uv00 + stepY;
@@ -101,18 +96,18 @@ bool fetchData(float2 uv,                                                      /
     w11 = s * t;
 
     // fetch position, direction and depth for the 4 neighboring pixels
-    Pp00 = gPrevPos.SampleLevel(S, uv00, 0.0);
-    Pp10 = gPrevPos.SampleLevel(S, uv10, 0.0);
-    Pp01 = gPrevPos.SampleLevel(S, uv01, 0.0);
-    Pp11 = gPrevPos.SampleLevel(S, uv11, 0.0);
-    float3 dp00 = gLastRayDirPrev.SampleLevel(S, uv00, 0.0);
-    float3 dp10 = gLastRayDirPrev.SampleLevel(S, uv10, 0.0);
-    float3 dp01 = gLastRayDirPrev.SampleLevel(S, uv01, 0.0);
-    float3 dp11 = gLastRayDirPrev.SampleLevel(S, uv11, 0.0);
-    float tp00 = gLinearDepthPrev.SampleLevel(S, uv00, 0.0);
-    float tp10 = gLinearDepthPrev.SampleLevel(S, uv10, 0.0);
-    float tp01 = gLinearDepthPrev.SampleLevel(S, uv01, 0.0);
-    float tp11 = gLinearDepthPrev.SampleLevel(S, uv11, 0.0);
+    Pp00 = gPrevPos[uv00pixel];
+    Pp10 = gPrevPos[uv10pixel];
+    Pp01 = gPrevPos[uv01pixel];
+    Pp11 = gPrevPos[uv11pixel];
+    float3 dp00 = gLastRayDirPrev[uv00pixel];
+    float3 dp10 = gLastRayDirPrev[uv10pixel];
+    float3 dp01 = gLastRayDirPrev[uv01pixel];
+    float3 dp11 = gLastRayDirPrev[uv11pixel];
+    float tp00 = gLinearDepthPrev[uv00pixel];
+    float tp10 = gLinearDepthPrev[uv10pixel];
+    float tp01 = gLinearDepthPrev[uv01pixel];
+    float tp11 = gLinearDepthPrev[uv11pixel];
     // calulate virtual camera position
     Cp00 = Pp00 - dp00 * tp00;
     Cp10 = Pp10 - dp10 * tp10;
@@ -160,13 +155,11 @@ void updateAtAAtb(float w, float3 Cp, float3 Pp, float3 Ppx, float3 Ppy, float l
     Atb += w * float2(dot(b, ax), dot(b, ay));
 }
 
-float calcEstimatedError(float2 mvec)
+float calcEstimatedError(float2 xy)
 {
-    float2 uv = xy + adjustJitter(mvec);
-
     float w00, w10, w01, w11, l00, l10, l01, l11, s, t;
     float3 Pp00, Pp10, Pp01, Pp11, Cp00, Cp10, Cp01, Cp11;
-    bool valid = fetchData(uv, w00, w10, w01, w11, Pp00, Pp10, Pp01, Pp11, Cp00, Cp10, Cp01, Cp11, l00, l10, l01, l11, s, t);
+    bool valid = fetchData(xy, w00, w10, w01, w11, Pp00, Pp10, Pp01, Pp11, Cp00, Cp10, Cp01, Cp11, l00, l10, l01, l11, s, t);
     if(!valid) return 3.402823466e+38F; // path length must be consistent => return max error
 
     float3 pe00 = posError(Cp00, Pp00, Pp10, Pp01, l00, l10, l01, s, t);
@@ -188,29 +181,26 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     float2 mvec = gMotion[pixel];
     float2 bmvec = gBackupMotion[pixel];
     reqPathLen = gCurPathLen[pixel]; // required path length: other positions should be taken from this exact path length, otherwise they are likeley invalid
-    P = gCurPos.SampleLevel(S, xy, 0.0);
+    P = gCurPos[pixel];
 
     uint iterations = gIterations;
 
     if (!gForceMotionVectorCalculation) // skip iterations in trivial cases
     {
-        // if (all(mvec == bmvec)) iterations = 0; // backup will always be correct under static assumptions
         if (all(mvec == 0.0)) iterations = 0; // force nothing moved
         if (reqPathLen <= 1) iterations = 0; // path length 1 is trival reprojection => force correct
     }
    
     // compare with backup motion vector (sometimes better)
-    if (calcEstimatedError(bmvec) < calcEstimatedError(mvec))
+    if (calcEstimatedError(xy + bmvec) < calcEstimatedError(xy + mvec))
         mvec = bmvec;
 
     //iterations = 0;
     for (uint i = 0; i < iterations; ++i)
     {
-        float2 mvec0 = adjustJitter(mvec); // adjust jitter of motion vector
-
         float w00, w10, w01, w11, l00, l10, l01, l11, s, t;
         float3 Pp00, Pp10, Pp01, Pp11, Cp00, Cp10, Cp01, Cp11;
-        bool valid = fetchData(xy + mvec0, w00, w10, w01, w11, Pp00, Pp10, Pp01, Pp11, Cp00, Cp10, Cp01, Cp11, l00, l10, l01, l11, s, t);
+        bool valid = fetchData(xy + mvec, w00, w10, w01, w11, Pp00, Pp10, Pp01, Pp11, Cp00, Cp10, Cp01, Cp11, l00, l10, l01, l11, s, t);
         if (!valid) break;
 
         float2x2 AtA = 0.0;
@@ -228,14 +218,14 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 
         float2 deltaUV = mul(invAtA, Atb) / float2(gFrameDim); // pixel -> uv
 
-        float curError = calcEstimatedError(mvec);
+        float curError = calcEstimatedError(xy + mvec);
         float newError = curError;
 
         // backtracking line search
         float alpha = 1.0;
         for (; alpha > 0.1; alpha *= 0.5)
         {
-            newError = calcEstimatedError(mvec + alpha * deltaUV);
+            newError = calcEstimatedError(xy + mvec + alpha * deltaUV);
             if (newError < curError) break; // use motion vector with this alpha
         }
         if (newError >= curError) break; // cannot improve anymore
@@ -244,7 +234,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     }
 
     // verify error
-    float newError = calcEstimatedError(mvec);
+    float newError = calcEstimatedError(xy + mvec);
     //newError = 0.0;
     //iterations = 1;
     float deltap = gPosDiff[pixel];
@@ -256,5 +246,5 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     }
     //mvec = bmvec;
     gMotionError[pixel] = error;
-    gMotionOut[pixel] = mvec;
+    gMotion[pixel] = mvec;
 }
