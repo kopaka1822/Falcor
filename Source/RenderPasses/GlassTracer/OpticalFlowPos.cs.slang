@@ -61,14 +61,14 @@ static const float2 stepX = float2(step.x, 0.0);
 static const float2 stepY = float2(0.0, step.y);
 static uint reqPathLen;
 
-float3 calcProjectedError(float3 Cv, float3 S, float3 Sx, float3 Sy, float l, float lx, float ly, float fracX, float fracY)
+float3 calcProjectedError(float3 Cv, float3 S, float3 Sx, float3 Sy, float l, float lx, float ly, float s, float t)
 {
     float3 dir = normalize(S - Cv) * l;
     float3 dirX = normalize(Sx - Cv) * lx;
     float3 dirY = normalize(Sy - Cv) * ly;
     float3 dirP = curPos - Cv; // non-normalized direction from Cp to P
 
-    float3 dirCur = dir + (dirX - dir) * fracX + (dirY - dir) * fracY;
+    float3 dirCur = dir + (dirX - dir) * s + (dirY - dir) * t;
     float3 err = dirP - dirCur * (length(dirP) / length(dirCur));
     return err;
 }
@@ -112,12 +112,12 @@ float calcEstimatedError(float2 mvec)
     uv00pixel = clampPixel(uv00pixel);
 
     // corresponding barycentric weights
-    float fracX = (uv.x - uv00.x) / step.x; // [0, 1] distance of uv to uv00 in x direction
-    float fracY = (uv.y - uv00.y) / step.y; // [0, 1] distance of uv to uv00 in y direction
-    float w00 = (1.0 - fracX) * (1.0 - fracY);
-    float w10 = fracX * (1.0 - fracY);
-    float w01 = (1.0 - fracX) * fracY;
-    float w11 = fracX * fracY;
+    float s = (uv.x - uv00.x) / step.x; // [0, 1] distance of uv to uv00 in x direction
+    float t = (uv.y - uv00.y) / step.y; // [0, 1] distance of uv to uv00 in y direction
+    float w00 = (1.0 - s) * (1.0 - t);
+    float w10 = s * (1.0 - t);
+    float w01 = (1.0 - s) * t;
+    float w11 = s * t;
 
     //uint prevPathLen00 = gPrevPathLen[uv00pixel];
     //uint prevPathLen10 = gPrevPathLen[uv10pixel];
@@ -127,39 +127,38 @@ float calcEstimatedError(float2 mvec)
     //if (prevPathLen00 != reqPathLen || prevPathLen10 != reqPathLen || prevPathLen01 != reqPathLen || prevPathLen11 != reqPathLen) return 3.402823466e+38F; // path length must be consistent => return max error
 
     // fetch position, direction and depth for the 4 neighboring pixels
-    float3 S00 = gPrevPos.SampleLevel(S, uv00, 0.0);
-    float3 S10 = gPrevPos.SampleLevel(S, uv10, 0.0);
-    float3 S01 = gPrevPos.SampleLevel(S, uv01, 0.0);
-    float3 S11 = gPrevPos.SampleLevel(S, uv11, 0.0);
+    float3 Pp00 = gPrevPos.SampleLevel(S, uv00, 0.0);
+    float3 Pp10 = gPrevPos.SampleLevel(S, uv10, 0.0);
+    float3 Pp01 = gPrevPos.SampleLevel(S, uv01, 0.0);
+    float3 Pp11 = gPrevPos.SampleLevel(S, uv11, 0.0);
     
     // new approach
-    float3 dir00 = gLastRayDirPrev.SampleLevel(S, uv00, 0.0);
-    float3 dir10 = gLastRayDirPrev.SampleLevel(S, uv10, 0.0);
-    float3 dir01 = gLastRayDirPrev.SampleLevel(S, uv01, 0.0);
-    float3 dir11 = gLastRayDirPrev.SampleLevel(S, uv11, 0.0);
-    float depth00 = gLinearDepthPrev.SampleLevel(S, uv00, 0.0);
-    float depth10 = gLinearDepthPrev.SampleLevel(S, uv10, 0.0);
-    float depth01 = gLinearDepthPrev.SampleLevel(S, uv01, 0.0);
-    float depth11 = gLinearDepthPrev.SampleLevel(S, uv11, 0.0);
+    float3 dp00 = gLastRayDirPrev.SampleLevel(S, uv00, 0.0);
+    float3 dp10 = gLastRayDirPrev.SampleLevel(S, uv10, 0.0);
+    float3 dp01 = gLastRayDirPrev.SampleLevel(S, uv01, 0.0);
+    float3 dp11 = gLastRayDirPrev.SampleLevel(S, uv11, 0.0);
+    float tp00 = gLinearDepthPrev.SampleLevel(S, uv00, 0.0);
+    float tp10 = gLinearDepthPrev.SampleLevel(S, uv10, 0.0);
+    float tp01 = gLinearDepthPrev.SampleLevel(S, uv01, 0.0);
+    float tp11 = gLinearDepthPrev.SampleLevel(S, uv11, 0.0);
     float l00 = calcNonNormalizedRayLength(uv00);
     float l10 = calcNonNormalizedRayLength(uv10);
     float l01 = calcNonNormalizedRayLength(uv01);
     float l11 = calcNonNormalizedRayLength(uv11);
     //l00 = l10 = l01 = l11 = 1.0;
     // calulate common camera position
-    float3 cam00 = S00 - dir00 * depth00;
-    float3 cam10 = S10 - dir10 * depth10;
-    float3 cam01 = S01 - dir01 * depth01;
-    float3 cam11 = S11 - dir11 * depth11;
-    float3 err00 = calcProjectedError(cam00, S00, S10, S01, l00, l10, l01, fracX, fracY);
-    float3 err10 = calcProjectedError(cam10, S10, S00, S11, l10, l00, l11, 1.0 - fracX, fracY);
-    float3 err01 = calcProjectedError(cam01, S01, S11, S00, l01, l11, l00, fracX, 1.0 - fracY);
-    float3 err11 = calcProjectedError(cam11, S11, S01, S10, l11, l01, l10, 1.0 - fracX, 1.0 - fracY);
+    float3 Cp00 = Pp00 - dp00 * tp00;
+    float3 Cp10 = Pp10 - dp10 * tp10;
+    float3 Cp01 = Pp01 - dp01 * tp01;
+    float3 Cp11 = Pp11 - dp11 * tp11;
+    float3 pe00 = calcProjectedError(Cp00, Pp00, Pp10, Pp01, l00, l10, l01, s, t);
+    float3 pe10 = calcProjectedError(Cp10, Pp10, Pp00, Pp11, l10, l00, l11, 1.0 - s, t);
+    float3 pe01 = calcProjectedError(Cp01, Pp01, Pp11, Pp00, l01, l11, l00, s, 1.0 - t);
+    float3 pe11 = calcProjectedError(Cp11, Pp11, Pp01, Pp10, l11, l01, l10, 1.0 - s, 1.0 - t);
 
     // bilinear interpolation
-    float3 err = w00 * err00 + w10 * err10 + w01 * err01 + w11 * err11;
-    //gDebugTex[uint3(pixel, 0)] = float4(err, 1.0);
-    return length(err);
+    float3 pe = w00 * pe00 + w10 * pe10 + w01 * pe01 + w11 * pe11;
+    return length(pe);
 }
 
 
@@ -215,43 +214,43 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float2 uv01 = uv00 + stepY;
         float2 uv11 = uv00 + step;
         // corresponding barycentric weights
-        float fracX = (texC.x + mvec0.x - uv00.x) / step.x; // [0, 1] distance of uv to uv00 in x direction
-        float fracY = (texC.y + mvec0.y - uv00.y) / step.y; // [0, 1] distance of uv to uv00 in y direction
-        float w00 = (1.0 - fracX) * (1.0 - fracY);
-        float w10 = fracX * (1.0 - fracY);
-        float w01 = (1.0 - fracX) * fracY;
-        float w11 = fracX * fracY;
+        float s = (texC.x + mvec0.x - uv00.x) / step.x; // [0, 1] distance of uv to uv00 in x direction
+        float t = (texC.y + mvec0.y - uv00.y) / step.y; // [0, 1] distance of uv to uv00 in y direction
+        float w00 = (1.0 - s) * (1.0 - t);
+        float w10 = s * (1.0 - t);
+        float w01 = (1.0 - s) * t;
+        float w11 = s * t;
 
         // fetch position, direction and depth for the 4 neighboring pixels
-        float3 S00 = gPrevPos[uv00pixel];
-        float3 S10 = gPrevPos[uv10pixel];
-        float3 S01 = gPrevPos[uv01pixel];
-        float3 S11 = gPrevPos[uv11pixel];
-        float3 dir00 = gLastRayDirPrev[uv00pixel];
-        float3 dir10 = gLastRayDirPrev[uv10pixel];
-        float3 dir01 = gLastRayDirPrev[uv01pixel];
-        float3 dir11 = gLastRayDirPrev[uv11pixel];
-        float depth00 = gLinearDepthPrev[uv00pixel];
-        float depth10 = gLinearDepthPrev[uv10pixel];
-        float depth01 = gLinearDepthPrev[uv01pixel];
-        float depth11 = gLinearDepthPrev[uv11pixel];
+        float3 Pp00 = gPrevPos[uv00pixel];
+        float3 Pp10 = gPrevPos[uv10pixel];
+        float3 Pp01 = gPrevPos[uv01pixel];
+        float3 Pp11 = gPrevPos[uv11pixel];
+        float3 dp00 = gLastRayDirPrev[uv00pixel];
+        float3 dp10 = gLastRayDirPrev[uv10pixel];
+        float3 dp01 = gLastRayDirPrev[uv01pixel];
+        float3 dp11 = gLastRayDirPrev[uv11pixel];
+        float tp00 = gLinearDepthPrev[uv00pixel];
+        float tp10 = gLinearDepthPrev[uv10pixel];
+        float tp01 = gLinearDepthPrev[uv01pixel];
+        float tp11 = gLinearDepthPrev[uv11pixel];
         float l00 = calcNonNormalizedRayLength(uv00);
         float l10 = calcNonNormalizedRayLength(uv10);
         float l01 = calcNonNormalizedRayLength(uv01);
         float l11 = calcNonNormalizedRayLength(uv11);
         //l00 = l10 = l01 = l11 = 1.0;
         // calulate common camera position
-        float3 cam00 = S00 - dir00 * depth00;
-        float3 cam10 = S10 - dir10 * depth10;
-        float3 cam01 = S01 - dir01 * depth01;
-        float3 cam11 = S11 - dir11 * depth11;
+        float3 Cp00 = Pp00 - dp00 * tp00;
+        float3 Cp10 = Pp10 - dp10 * tp10;
+        float3 Cp01 = Pp01 - dp01 * tp01;
+        float3 Cp11 = Pp11 - dp11 * tp11;
 
         float2x2 AtA = 0.0;
         float2 Atb = 0.0;
-        optimizeMotionVector(w00, cam00, S00, S10, S01, l00, l10, l01, 1.0, 1.0, AtA, Atb);
-        optimizeMotionVector(w10, cam10, S10, S00, S11, l10, l00, l11, -1.0, 1.0, AtA, Atb);
-        optimizeMotionVector(w01, cam01, S01, S11, S00, l01, l11, l00, 1.0, -1.0, AtA, Atb);
-        optimizeMotionVector(w11, cam11, S11, S01, S10, l11, l01, l10, -1.0, -1.0, AtA, Atb);
+        optimizeMotionVector(w00, Cp00, Pp00, Pp10, Pp01, l00, l10, l01, 1.0, 1.0, AtA, Atb);
+        optimizeMotionVector(w10, Cp10, Pp10, Pp00, Pp11, l10, l00, l11, -1.0, 1.0, AtA, Atb);
+        optimizeMotionVector(w01, Cp01, Pp01, Pp11, Pp00, l01, l11, l00, 1.0, -1.0, AtA, Atb);
+        optimizeMotionVector(w11, Cp11, Pp11, Pp01, Pp10, l11, l01, l10, -1.0, -1.0, AtA, Atb);
         
         if (all(AtA == 0.0)) break; // bad conditioned, retain original motion vector
 
@@ -284,9 +283,9 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     float newError = calcEstimatedError(mvec);
     //newError = 0.0;
     //iterations = 1;
-    float onePixelPosDiff = gPosDiff[pixel];
+    float deltap = gPosDiff[pixel];
     uint error = 0;
-    if (iterations > 0 && (newError > onePixelPosDiff * 0.05))
+    if (iterations > 0 && (newError > deltap * 0.05))
     {
         mvec = bmvec; // store backup motion
         error = 1;
