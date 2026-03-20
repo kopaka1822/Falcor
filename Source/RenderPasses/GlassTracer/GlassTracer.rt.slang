@@ -2,7 +2,7 @@
 
 cbuffer PerFrame
 {
-    uint gFrameCount;       // Frame count since scene was loaded.
+    uint gFrameCount; // Frame count since scene was loaded.
     uint gPathLength; // 1 = only primary ray
 
     float gAmbientIntensity;

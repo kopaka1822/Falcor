@@ -83,13 +83,6 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     if (IS_FIRST_PASS)
         gIsBackupMotionOut[pixel] = isBackup;
 
-    if (wSum == 0.0) // no valid data was available
-    {
-        gMotionErrorOut[pixel] = STATE_UNRELIABLE;
-        gMotionOut[pixel] = gMotionIn[pixel]; // keep original motion vector
-        return;
-    }
-
     if(wSum > 0.0 && state == STATE_UNRELIABLE)
         state = STATE_INTERPOLATED; // mark as interpolated (can be used in second pass)
 

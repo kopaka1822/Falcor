@@ -282,10 +282,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     }
 
     // needs positions for iterations or optical flow?
-    bool needPositions = false;
-    needPositions |= mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos;
     ref<Texture> pCurPrevPosition; // while mpPosition contains the actual positions, pCurPrevPosition contains the locations where those positions have been in the previous frame
-    if (needPositions)
+    if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
     {
         // obtain current positions
         mpVbufferToPosGraph->setInput("UnpackVBuffer.vbuffer", pVbuffer);
