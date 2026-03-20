@@ -85,7 +85,6 @@ GlassTracer::GlassTracer(ref<Device> pDevice, const Properties& props)
         .setFilterMode(Sampler::Filter::Linear, Sampler::Filter::Linear, Sampler::Filter::Linear)
         .setAddressingMode(Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp, Sampler::AddressMode::Clamp));
 
-    mpOpticalBlurPass->getRootVar()["S"] = linearSampler;
     mpOpticalMedianPrePass->getRootVar()["S"] = linearSampler;
 
     // load properties
@@ -236,7 +235,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["gLinearDepth"] = pLinearDepth;
     var["gPosDiff"] = pPosDiff;
     var["gStack"] = mpStackBuffer;
-    assert(mpTransparencyWhitelist);
     var["gTransparencyWhitelist"] = mpTransparencyWhitelist;
     var["gLastRayDir"] = pLastRayDir;
     var["gLocalPathLength"] = pLocalPathLength;
@@ -345,7 +343,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
             mpOpticalMedianPrePass->execute(pRenderContext, dispatch);
 
-            pMotionErrorMask = pMotionErrorTmp;
+            pRenderContext->blit(pMotionErrorTmp->getSRV(), pMotionErrorMask->getRTV());
             pRenderContext->blit(pMotionOptical->getSRV(), pMotion->getRTV());
         }
 
@@ -362,18 +360,13 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gIsBackupMotionIn"] = pIsBackupMotion;
             var["gIsBackupMotionOut"] = pIsBackupMotionPong;
             var["gMotionError"] = pMotionErrorMask;
-            var["gPathLength"] = pLocalPathLength;
             var["gCurPos"] = pCurPrevPosition;
-            var["gPrevPos"] = pPrevPosition;
             var["gPosDiff"] = pPosDiff;
-            var["gLastRayDir"] = pLastRayDir;
 
             var["PerFrame"]["gFrameDim"] = int2(dispatch.x, dispatch.y);
             var["PerFrame"]["gDirection"] = int2(1, 0); // first pass must be X
             var["PerFrame"]["gRadius"] = mOpticalBlurRadius;
             var["PerFrame"]["gCompareBilateralOutput"] = mCompareBilateralOutput ? 1 : 0;
-            var["PerFrame"]["gPrevJitter"] = mPrevJitter;
-            var["PerFrame"]["gCurJitter"] = curJitter;
 
             pRenderContext->uavBarrier(pMotionErrorMask.get()); // required since previously RW
             mpOpticalBlurPass->execute(pRenderContext, dispatch);
@@ -391,7 +384,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         }
 
         // output is in pMotion
-        
     }
 
     mPrevJitter = curJitter;

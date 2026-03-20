@@ -2,35 +2,22 @@
 Texture2D<float2> gMotionIn;
 RWTexture2D<float2> gMotionOut;
 Texture2D<unorm float> gIsBackupMotionIn;
-RWTexture2D<unorm float> gIsBackupMotionOut;
+RWTexture2D<unorm float> gIsBackupMotionOut; // percentag of backup motion vectors in the area
 // guidance
+Texture2D<float3> gCurPos;
+Texture2D<float> gPosDiff;
 RWTexture2D<uint> gMotionError; // 0 = frozen (readonly), 1 = unreliable (dont read, overwrite), 2 = interpolated (read+write)
+
 #define STATE_FROZEN 0
 #define STATE_UNRELIABLE 1
 #define STATE_INTERPOLATED 2
-Texture2D<uint> gPathLength;
-Texture2D<float3> gCurPos;
-Texture2D<float3> gPrevPos;
-Texture2D<float> gPosDiff;
-Texture2D<float3> gLastRayDir; // direction to Pos (incomming ray direction)
-
-
-SamplerState S; // linear sampler
 
 cbuffer PerFrame
 {
     int2 gFrameDim;
     int2 gDirection; // (1, 0) or (0,1)
-    float2 gPrevJitter;
-    float2 gCurJitter;
     int gRadius;
     bool gCompareBilateralOutput;
-}
-
-// adjust jitter for prev-lookup
-float2 adjustJitter(float2 mvec)
-{
-    return mvec - gPrevJitter + gCurJitter;
 }
 
 #define IS_FIRST_PASS (gDirection.x != 0)
@@ -63,9 +50,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     }
 
     // guidance data
-    const uint localPathLength = gPathLength[pixel];
-    const float3 localPos = gCurPos[pixel];
-    const float posDiff = gPosDiff[pixel];
+    const float3 P = gCurPos[pixel];
+    const float deltap = gPosDiff[pixel];
 
     const int2 cstart = max(0, pixel - gDirection * gRadius);
     const int2 cend = min(gFrameDim, pixel + gDirection * (gRadius + 1));
@@ -81,7 +67,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float w = 1.0;
         if (gMotionError[pos] == STATE_UNRELIABLE) w = 0.0;
         // geometric distance
-        w *= exp(-0.5 * distance(gCurPos[pos], localPos)/posDiff);
+        w *= exp(-0.5 * distance(gCurPos[pos], P)/deltap);
         mSum += w * m;
         wSum += w;
         backupSum += isBackup;
