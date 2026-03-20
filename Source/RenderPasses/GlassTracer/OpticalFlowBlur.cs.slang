@@ -3,10 +3,13 @@ Texture2D<float2> gMotionIn;
 RWTexture2D<float2> gMotionOut;
 Texture2D<unorm float> gIsBackupMotionIn;
 RWTexture2D<unorm float> gIsBackupMotionOut; // percentag of backup motion vectors in the area
+RWTexture2D<uint> gMotionErrorIn; // 0 = frozen (readonly), 1 = unreliable (dont read, overwrite), 2 = interpolated
+RWTexture2D<uint> gMotionErrorOut;
+
 // guidance
 Texture2D<float3> gCurPos;
 Texture2D<float> gPosDiff;
-RWTexture2D<uint> gMotionError; // 0 = frozen (readonly), 1 = unreliable (dont read, overwrite), 2 = interpolated (read+write)
+
 
 #define STATE_FROZEN 0
 #define STATE_UNRELIABLE 1
@@ -43,9 +46,11 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
 {
     const int2 pixel = id.xy;
     const float2 texC = (float2(pixel) + 0.5) / float2(gFrameDim);
-    const uint state = gMotionError[pixel];
-    if (IS_SECOND_PASS && state == STATE_FROZEN)
+    uint state = gMotionErrorIn[pixel];
+    float2 mvec = gMotionIn[pixel];
+    if (IS_SECOND_PASS && state == STATE_FROZEN) 
     {
+        // early out for frozen pixels in second pass
         return; // nothing should be written (retains original value from before the first pass)
     }
 
@@ -65,7 +70,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         float2 m = gMotionIn[pos];
         float isBackup = gIsBackupMotionIn[pos];
         float w = 1.0;
-        if (gMotionError[pos] == STATE_UNRELIABLE) w = 0.0;
+        if (gMotionErrorIn[pos] == STATE_UNRELIABLE) w = 0.0;
         // geometric distance
         w *= exp(-0.5 * distance(gCurPos[pos], P)/deltap);
         mSum += w * m;
@@ -74,21 +79,32 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
         count += 1;
     }
 
-    if (wSum == 0.0) return; // keep previous value and state
-    if(state == STATE_UNRELIABLE)
-        gMotionError[pixel] = STATE_INTERPOLATED; // mark as interpolated (can be used in second pass)
-    float2 mvec = mSum / wSum;
     float isBackup = saturate(backupSum / count);
+    if (IS_FIRST_PASS)
+        gIsBackupMotionOut[pixel] = isBackup;
 
+    if (wSum == 0.0) // no valid data was available
+    {
+        gMotionErrorOut[pixel] = STATE_UNRELIABLE;
+        gMotionOut[pixel] = gMotionIn[pixel]; // keep original motion vector
+        return;
+    }
+
+    if(wSum > 0.0 && state == STATE_UNRELIABLE)
+        state = STATE_INTERPOLATED; // mark as interpolated (can be used in second pass)
+
+    if (state == STATE_INTERPOLATED) // FROZEN keeps original mvec, UNRELIABLE with wsum = 0.0 also keeps original
+        mvec = mSum / wSum;
+
+    // use backup motion vector if:
     if (gCompareBilateralOutput && IS_SECOND_PASS)
     {
         float2 bmvec = gMotionOut[pixel]; // output of the LK-algorithm before the first pass
-
         if (isBackup > 0.2)
             mvec = bmvec;
     }
 
     gMotionOut[pixel] = mvec;
-    if(IS_FIRST_PASS) // can be written for debug in pass two
-        gIsBackupMotionOut[pixel] = isBackup;
+    if(IS_FIRST_PASS)
+        gMotionErrorOut[pixel] = state;
 }

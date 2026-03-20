@@ -359,7 +359,8 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["gMotionOut"] = pMotionOptical;
             var["gIsBackupMotionIn"] = pIsBackupMotion;
             var["gIsBackupMotionOut"] = pIsBackupMotionPong;
-            var["gMotionError"] = pMotionErrorMask;
+            var["gMotionErrorIn"] = pMotionErrorMask;
+            var["gMotionErrorOut"] = pMotionErrorTmp;
             var["gCurPos"] = pCurPrevPosition;
             var["gPosDiff"] = pPosDiff;
 
@@ -368,17 +369,15 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
             var["PerFrame"]["gRadius"] = mOpticalBlurRadius;
             var["PerFrame"]["gCompareBilateralOutput"] = mCompareBilateralOutput ? 1 : 0;
 
-            pRenderContext->uavBarrier(pMotionErrorMask.get()); // required since previously RW
             mpOpticalBlurPass->execute(pRenderContext, dispatch);
-            pRenderContext->uavBarrier(pMotionErrorMask.get());
 
             // vertical pass
-            var["gMotionOut"].setUav(nullptr);
             var["gMotionIn"] = pMotionOptical;
             var["gMotionOut"] = pMotion;
-            var["gIsBackupMotionOut"].setUav(nullptr);
             var["gIsBackupMotionIn"] = pIsBackupMotionPong;
             var["gIsBackupMotionOut"] = pIsBackupMotion;
+            var["gMotionErrorIn"] = pMotionErrorTmp;
+            var["gMotionErrorOut"] = pMotionErrorMask;
             var["PerFrame"]["gDirection"] = int2(0, 1); // second pass must by Y
             mpOpticalBlurPass->execute(pRenderContext, dispatch);
         }
