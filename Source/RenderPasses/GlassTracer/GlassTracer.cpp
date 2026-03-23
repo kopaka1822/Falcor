@@ -272,6 +272,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     mpProgram->addDefine("BMVEC", std::to_string(uint32_t(mBackupMotionVector)));
     mpProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
     mpProgram->addDefine("IGNORE_NORMAL_DIFFS", mIgnoreNormalDiffs ? "1" : "0");
+    mpProgram->addDefine("USE_OPTICAL_FLOW", (mOpticalFlowTechnique != OpticalFlowTechnique::None) ? "1" : "0");
 
     uint3 dispatch = uint3(1);
     dispatch.x = pVbuffer->getWidth();
@@ -406,6 +407,10 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
     if (prevFirstHit && mMotionVector != MotionVector::FirstHit)
     {
         mBackupMotionVector = MotionVector::FirstRefractiveHit; // force better backup if possible
+    }
+    if (mMotionVector == MotionVector::FirstHit)
+    {
+        mBackupMotionVector = MotionVector::FirstHit; // enforce valid selection
     }
     
     c |= widget.checkbox("Force Motion Vector Calculation", mForceMotionVectorCalculation);

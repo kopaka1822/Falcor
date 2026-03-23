@@ -191,12 +191,16 @@ struct VBufferReservoir
     // data
     float depth;
     float2 mvec;
+    #if USE_OPTICAL_FLOW
     float2 bmvec; // backup motion vector
+    #endif
     PackedHitInfo vbuffer;
+    #if USE_OPTICAL_FLOW
     float3 lastRayDir;
     float posDiff;
     uint localPathLength;
     bool isBackupMotion; // true if path is allowed as backup path (first hit or first refractive hit)
+    #endif
 
     // update function, returns true if reservoir should be updated, false if old data should be kept
     [mutating]
@@ -217,13 +221,15 @@ struct VBufferReservoir
         gColor[pixel] = float4(color, 1.0);
         gVBuffer[pixel] = vbuffer;
         gMotion[pixel] = mvec;
-        gBackupMotion[pixel] = bmvec;
         gDepth[pixel] = linearToNonLinearZ(depth);
+        #if USE_OPTICAL_FLOW
+        gBackupMotion[pixel] = bmvec;
         gLinearDepth[pixel] = depth;
         gPosDiff[pixel] = posDiff;
         gLastRayDir[pixel] = lastRayDir;
         gLocalPathLength[pixel] = localPathLength;
         gIsBackupMotion[pixel] = isBackupMotion ? 1.0 : 0.0;
+        #endif
     }
 };
 
@@ -355,9 +361,15 @@ void rayGen()
     VBufferReservoir curVBuffer;
     curVBuffer.weightSum = 0.0;
     curVBuffer.mvec = 0.0;
-    curVBuffer.bmvec = 0.0;
     curVBuffer.depth = 0.0;
     curVBuffer.vbuffer = {};
+    #if USE_OPTICAL_FLOW
+    curVBuffer.bmvec = 0.0;
+    curVBuffer.lastRayDir = 0.0;
+    curVBuffer.posDiff = 0.0;
+    curVBuffer.localPathLength = 0;
+    curVBuffer.isBackupMotion = false;
+    #endif
 
     #ifdef USE_VIEW_TRANSFORM
     s.viewTransform = matrixIdentity();
@@ -405,24 +417,26 @@ void rayGen()
                 {
                     curVBuffer.mvec = prevUV - (float2(pixel) + 0.5) / float2(frameDim);
                     if (!camMovement)
-                        curVBuffer.mvec = 0.0;
-                    if (WRITE_BMVEC(s.flags)) curVBuffer.bmvec = curVBuffer.mvec;
+                        curVBuffer.mvec = 0.0;                   
                 }
-                curVBuffer.isBackupMotion = WRITE_BMVEC(s.flags);
                     
                 RayMissHit rmh;
                 rmh.posW = ray.Origin + ray.Direction * ray.TMax; // far plane position
                 curVBuffer.vbuffer = rmh.pack();
-                // transfer ray differentials to far plane
+                curVBuffer.depth = s.linearZ + ray.TMax; // + far plane
+
+                #if USE_OPTICAL_FLOW
+                if (WRITE_BMVEC(s.flags)) curVBuffer.bmvec = curVBuffer.mvec;
+                curVBuffer.isBackupMotion = WRITE_BMVEC(s.flags);
+                curVBuffer.localPathLength = s.curPathLength;
+                curVBuffer.lastRayDir = s.rayDir;
                 #if USE_TEXTURE_LOD == 0
                 curVBuffer.posDiff = 0.0;
                 #else
                 let posDiffRd = s.rd.propagate(s.rayOrigin, s.rayDir, ray.TMax, s.rayDir);
                 curVBuffer.posDiff = max(length(posDiffRd.dOdx), length(posDiffRd.dOdy));
                 #endif
-                curVBuffer.depth = s.linearZ + ray.TMax; // + far plane
-                curVBuffer.localPathLength = s.curPathLength;
-                curVBuffer.lastRayDir = s.rayDir;
+                #endif
             }
 
             if (StackEmpty()) break;
@@ -521,15 +535,14 @@ void rayGen()
         {
             curVBuffer.vbuffer = data.hit;
             curVBuffer.depth = s.linearZ;
-            curVBuffer.posDiff = posDiff;
-            curVBuffer.localPathLength = s.curPathLength;
-            curVBuffer.lastRayDir = s.rayDir;
 
             if (s.curPathLength <= 1 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
             {
                 s.flags |= FLAG_PREVENT_MVEC_WRITE; // dont check this in the if condition to always allow overwrites from alpha material on the first hit
                 curVBuffer.mvec = calcMotionVector(pixel, frameDim, v.prevPosW, matrixIdentity(), camMovement || vertexMoved);
+                #if USE_OPTICAL_FLOW
                 curVBuffer.bmvec = curVBuffer.mvec;
+                #endif
             }
 
             #ifdef USE_VIEW_TRANSFORM
@@ -538,14 +551,18 @@ void rayGen()
             #endif
 
             if (WRITE_MVEC(s.flags) && !camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
+
+            #if USE_OPTICAL_FLOW
+            curVBuffer.posDiff = posDiff;
+            curVBuffer.localPathLength = s.curPathLength;
+            curVBuffer.lastRayDir = s.rayDir;
             if (WRITE_BMVEC(s.flags)) curVBuffer.bmvec = curVBuffer.mvec;
             curVBuffer.isBackupMotion = WRITE_BMVEC(s.flags);
+            #endif
         }
 
         // prevent mvec writes in the future, if:
         if (s.curPathLength <= 1 && int(BMVEC) == int(MVEC_FIRST_HIT)) s.flags |= FLAG_PREVENT_BMVEC_WRITE;
-
-        
 
         // prevent furhter mvec writes, if:
         if (doRefraction && MVEC == MVEC_FIRST_REFRACT) s.flags |= FLAG_PREVENT_MVEC_WRITE;

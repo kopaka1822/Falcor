@@ -37,6 +37,10 @@ RWTexture2DArray<float4> gDebugTex;
 #define USE_VIEW_TRANSFORM
 #endif
 
+#ifndef USE_OPTICAL_FLOW
+#define USE_OPTICAL_FLOW 1
+#endif
+
 #ifndef USE_TEXTURE_LOD
 #define USE_TEXTURE_LOD 1
 #endif
