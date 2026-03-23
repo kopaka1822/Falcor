@@ -41,9 +41,8 @@ RWTexture2D<float2> gMotion;
 RWTexture2D<float2> gBackupMotion;
 RWTexture2D<float4> gColor;  // shaded vbuffer
 RWTexture2D<float> gDepth;   // non-linear depth for DLSS
-RWTexture2D<float> gLinearDepth;
 RWTexture2D<float> gPosDiff;     // expected position difference when moving one pixel
-RWTexture2D<float3> gLastRayDir; // direction to P (incomming ray direction)
+RWTexture2D<float4> gLastRayDir; // direction to P (incomming ray direction) + linear depth in last component
 RWTexture2D<uint> gLocalPathLength; // integer path length (bounces)
 RWTexture2D<unorm float> gIsBackupMotion; // 1 if mvec == bmvec
 
@@ -228,9 +227,8 @@ struct VBufferReservoir
         #endif
         #if USE_OPTICAL_FLOW
         gBackupMotion[pixel] = bmvec;
-        gLinearDepth[pixel] = depth;
         gPosDiff[pixel] = posDiff;
-        gLastRayDir[pixel] = lastRayDir;
+        gLastRayDir[pixel] = float4(lastRayDir, depth);
         gLocalPathLength[pixel] = localPathLength;
         gIsBackupMotion[pixel] = isBackupMotion ? 1.0 : 0.0;
         #endif

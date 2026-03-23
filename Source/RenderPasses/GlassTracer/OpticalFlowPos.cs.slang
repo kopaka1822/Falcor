@@ -4,7 +4,7 @@ RWTexture2D<uint> gMotionError;
 Texture2D<float3> gCurPos;
 Texture2D<float3> gPrevPos;
 Texture2D<float> gPosDiff; // estimated max position difference when moving one pixel
-Texture2D<float3> gLastRayDirPrev; // from last frame (for gPrevPos)
+Texture2D<float4> gLastRayDirPrev; // incoming direction at P, with travelled distance t in last component
 Texture2D<uint> gCurPathLen;
 Texture2D<uint> gPrevPathLen;
 Texture2D<float> gLinearDepthPrev;
@@ -100,19 +100,15 @@ bool fetchData(float2 uv,                                                      /
     Pp10 = gPrevPos[uv10pixel];
     Pp01 = gPrevPos[uv01pixel];
     Pp11 = gPrevPos[uv11pixel];
-    float3 dp00 = gLastRayDirPrev[uv00pixel];
-    float3 dp10 = gLastRayDirPrev[uv10pixel];
-    float3 dp01 = gLastRayDirPrev[uv01pixel];
-    float3 dp11 = gLastRayDirPrev[uv11pixel];
-    float tp00 = gLinearDepthPrev[uv00pixel];
-    float tp10 = gLinearDepthPrev[uv10pixel];
-    float tp01 = gLinearDepthPrev[uv01pixel];
-    float tp11 = gLinearDepthPrev[uv11pixel];
+    float4 dp00_tp00 = gLastRayDirPrev[uv00pixel];
+    float4 dp10_tp10 = gLastRayDirPrev[uv10pixel];
+    float4 dp01_tp01 = gLastRayDirPrev[uv01pixel];
+    float4 dp11_tp11 = gLastRayDirPrev[uv11pixel];
     // calulate virtual camera position
-    Cp00 = Pp00 - dp00 * tp00;
-    Cp10 = Pp10 - dp10 * tp10;
-    Cp01 = Pp01 - dp01 * tp01;
-    Cp11 = Pp11 - dp11 * tp11;
+    Cp00 = Pp00 - dp00_tp00.xyz * dp00_tp00.w;
+    Cp10 = Pp10 - dp10_tp10.xyz * dp10_tp10.w;
+    Cp01 = Pp01 - dp01_tp01.xyz * dp01_tp01.w;
+    Cp11 = Pp11 - dp11_tp11.xyz * dp11_tp11.w;
 
     l00 = calcNonNormalizedRayLength(uv00);
     l10 = calcNonNormalizedRayLength(uv10);

@@ -38,13 +38,11 @@ namespace
     const std::string kMotionErrorTmp = "mvecErrorTmp"; // intermediate buffer
     const std::string kColorOut = "color";
     const std::string kDepthOut = "depth";
-    const std::string kLinearDepthOut = "linearDepth";
     const std::string kPosDiff = "posDiff";
     // iteration data
     const std::string kLastRayDir = "lastRayDir";
     const std::string kLastRayDirPrev = "lastRayDirPrev";
     const std::string kPathLength = "pathLength";
-    const std::string kLinearDepthPrev = "linearDepthPrev";
     // optical temporaray
     const std::string kMotionOptical = "mvecOptical"; // mvecs directly after optical flow, without post-processing
     // previous frame data for optical flow
@@ -126,7 +124,6 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
-    reflector.addOutput(kLinearDepthOut, "Linear Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
 
     reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
@@ -138,7 +135,6 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addInternal(kPrevPosition, "Prev Position").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kPrevPathLen, "Prev Path Length").format(ResourceFormat::R32Uint).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kLastRayDirPrev, "Previous Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
-    reflector.addInternal(kLinearDepthPrev, "Previous Path Length").format(ResourceFormat::R32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
     // current frame persistent
     reflector.addOutput(kPosDiff, "Length of Position Differential").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);;
     reflector.addOutput(kLastRayDir, "Last Ray Direction").format(ResourceFormat::RGBA32Float).texture2D(dims.x, dims.y).flags(RenderPassReflection::Field::Flags::Persistent);
@@ -185,7 +181,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pIsBackupMotionPong = renderData.getTexture(kIsBackupMotionPong);
     auto pColor = renderData.getTexture(kColorOut);
     auto pDepth = renderData.getTexture(kDepthOut);
-    auto pLinearDepth = renderData.getTexture(kLinearDepthOut);
     auto pDebug = renderData.getTexture(kDebug);
     auto pPosDiff = renderData.getTexture(kPosDiff);
     auto pLastRayDir = renderData.getTexture(kLastRayDir);
@@ -213,12 +208,14 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     ref<Texture> pPrevPathLen = renderData.getTexture(kPrevPathLen);
     ref<Texture> pPrevPosition = renderData.getTexture(kPrevPosition);
     ref<Texture> pLastRayDirPrev = renderData.getTexture(kLastRayDirPrev);
-    ref<Texture> pLinearDepthPrev = renderData.getTexture(kLinearDepthPrev);
-    pRenderContext->blit(pLocalPathLength->getSRV(), pPrevPathLen->getRTV());
-    pRenderContext->blit(pLastRayDir->getSRV(), pLastRayDirPrev->getRTV());
-    pRenderContext->blit(pLinearDepth->getSRV(), pLinearDepthPrev->getRTV());
-    if(mpPositions && mpPositions->getWidth() == pPrevPosition->getWidth() && mpPositions->getHeight() == pPrevPosition->getHeight())
-        pRenderContext->blit(mpPositions->getSRV(), pPrevPosition->getRTV());
+    if (mOpticalFlowTechnique != OpticalFlowTechnique::None)
+    {
+        FALCOR_PROFILE(pRenderContext, "Blit Prev Textures");
+        pRenderContext->blit(pLocalPathLength->getSRV(), pPrevPathLen->getRTV());
+        pRenderContext->blit(pLastRayDir->getSRV(), pLastRayDirPrev->getRTV());
+        if (mpPositions && mpPositions->getWidth() == pPrevPosition->getWidth() && mpPositions->getHeight() == pPrevPosition->getHeight())
+            pRenderContext->blit(mpPositions->getSRV(), pPrevPosition->getRTV());
+    }
 
     assert(mpProgram);
     assert(mpVars);
@@ -232,7 +229,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["gBackupMotion"] = pMotionBackup;
     var["gColor"] = pColor;
     var["gDepth"] = pDepth;
-    var["gLinearDepth"] = pLinearDepth;
     var["gPosDiff"] = pPosDiff;
     var["gStack"] = mpStackBuffer;
     var["gTransparencyWhitelist"] = mpTransparencyWhitelist;
@@ -279,7 +275,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     dispatch.x = pVbuffer->getWidth();
     dispatch.y = pVbuffer->getHeight();
     {
-        FALCOR_PROFILE(pRenderContext, "Primary");
+        FALCOR_PROFILE(pRenderContext, "Whitted");
         mpScene->raytrace(pRenderContext, mpProgram.get(), mpVars, dispatch);
     }
 
@@ -287,6 +283,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     ref<Texture> pCurPrevPosition; // while mpPosition contains the actual positions, pCurPrevPosition contains the locations where those positions have been in the previous frame
     if (mOpticalFlowTechnique == OpticalFlowTechnique::LucasKanadePos)
     {
+        FALCOR_PROFILE(pRenderContext, "Extract Positions");
         // obtain current positions
         mpVbufferToPosGraph->setInput("UnpackVBuffer.vbuffer", pVbuffer);
         mpVbufferToPosGraph->execute(pRenderContext);
@@ -310,7 +307,6 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
         var["gCurPathLen"] = pLocalPathLength;
         var["gPrevPathLen"] = pPrevPathLen;
         var["gLastRayDirPrev"] = pLastRayDirPrev;
-        var["gLinearDepthPrev"] = pLinearDepthPrev;
         var["gDebugTex"] = pDebug;
 
         var["PerFrame"]["gFrameDim"] = uint2(dispatch.x, dispatch.y);
