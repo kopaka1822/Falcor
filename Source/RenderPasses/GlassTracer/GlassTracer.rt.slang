@@ -194,7 +194,9 @@ struct VBufferReservoir
     #if USE_OPTICAL_FLOW
     float2 bmvec; // backup motion vector
     #endif
+    #if USE_VBUFFER
     PackedHitInfo vbuffer;
+    #endif
     #if USE_OPTICAL_FLOW
     float3 lastRayDir;
     float posDiff;
@@ -219,9 +221,11 @@ struct VBufferReservoir
     void writeData(uint2 pixel, float3 color)
     {
         gColor[pixel] = float4(color, 1.0);
-        gVBuffer[pixel] = vbuffer;
         gMotion[pixel] = mvec;
         gDepth[pixel] = linearToNonLinearZ(depth);
+        #if USE_VBUFFER
+        gVBuffer[pixel] = vbuffer;
+        #endif
         #if USE_OPTICAL_FLOW
         gBackupMotion[pixel] = bmvec;
         gLinearDepth[pixel] = depth;
@@ -362,7 +366,9 @@ void rayGen()
     curVBuffer.weightSum = 0.0;
     curVBuffer.mvec = 0.0;
     curVBuffer.depth = 0.0;
+    #if USE_VBUFFER
     curVBuffer.vbuffer = {};
+    #endif
     #if USE_OPTICAL_FLOW
     curVBuffer.bmvec = 0.0;
     curVBuffer.lastRayDir = 0.0;
@@ -420,10 +426,13 @@ void rayGen()
                         curVBuffer.mvec = 0.0;                   
                 }
                     
+                curVBuffer.depth = s.linearZ + ray.TMax; // + far plane
+
+                #if USE_VBUFFER
                 RayMissHit rmh;
                 rmh.posW = ray.Origin + ray.Direction * ray.TMax; // far plane position
                 curVBuffer.vbuffer = rmh.pack();
-                curVBuffer.depth = s.linearZ + ray.TMax; // + far plane
+                #endif
 
                 #if USE_OPTICAL_FLOW
                 if (WRITE_BMVEC(s.flags)) curVBuffer.bmvec = curVBuffer.mvec;
@@ -533,7 +542,6 @@ void rayGen()
         // this will also overwrite with pathImportance==0, if nothing else was contributed yet (weightSum = 0.0)
         if (curVBuffer.update(pathImportance, sampleNext1D(sg), s.flags))
         {
-            curVBuffer.vbuffer = data.hit;
             curVBuffer.depth = s.linearZ;
 
             if (s.curPathLength <= 1 && MVEC == MVEC_FIRST_HIT) // motion vector from initial intersection
@@ -551,6 +559,10 @@ void rayGen()
             #endif
 
             if (WRITE_MVEC(s.flags) && !camMovement && !vertexMoved) curVBuffer.mvec = 0.0;
+
+            #if USE_VBUFFER
+            curVBuffer.vbuffer = data.hit;
+            #endif
 
             #if USE_OPTICAL_FLOW
             curVBuffer.posDiff = posDiff;

@@ -273,6 +273,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     mpProgram->addDefine("USE_TEXTURE_LOD", mUseTextureLOD ? "1" : "0");
     mpProgram->addDefine("IGNORE_NORMAL_DIFFS", mIgnoreNormalDiffs ? "1" : "0");
     mpProgram->addDefine("USE_OPTICAL_FLOW", (mOpticalFlowTechnique != OpticalFlowTechnique::None) ? "1" : "0");
+    mpProgram->addDefine("USE_VBUFFER", (mOpticalFlowTechnique != OpticalFlowTechnique::None) ? "1" : "0"); // for now, only write with optical flow. However, could be an additional option later
 
     uint3 dispatch = uint3(1);
     dispatch.x = pVbuffer->getWidth();
