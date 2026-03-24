@@ -566,6 +566,7 @@ void rayGen()
             curVBuffer.posDiff = posDiff;
             curVBuffer.localPathLength = s.curPathLength;
             curVBuffer.lastRayDir = s.rayDir;
+            if (all(curVBuffer.mvec == 0.0) && vertexMoved) curVBuffer.mvec = 1e-37; // workaround to force motion vector calculation in the LK pass (motion vector calculation is disabled if the mvec is 0.0, however, if a vertex on the path moved we should recompute)
             if (WRITE_BMVEC(s.flags)) curVBuffer.bmvec = curVBuffer.mvec;
             curVBuffer.isBackupMotion = WRITE_BMVEC(s.flags);
             #endif
