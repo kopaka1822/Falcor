@@ -596,8 +596,16 @@ void rayGen()
         {
             // put one on the stack
             if (!StackFull())
+            {
                 PushStack(prepareNextRay(s, bsdfSampleRefract, tri));
-            doRefraction = false;
+                doRefraction = false;
+            }
+            else // stack is full
+            {
+                if (dot(bsdfSampleReflect.weight, 1.0) > dot(bsdfSampleRefract.weight, 1.0)) doRefraction = false;
+                else doReflection = false;
+            }
+                
             if (gPreventVbufferRefractiveReflection)
                 s.flags |= FLAG_PREVENT_VBUFFER_WRITE; // for the next reflections
         }
