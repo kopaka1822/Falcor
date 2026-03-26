@@ -149,7 +149,6 @@ private:
     ref<ComputePass> mpOpticalBlurPass;
     OpticalFlowTechnique mOpticalFlowTechnique = OpticalFlowTechnique::LucasKanadePos;
     int mOpticalIterations = 2;
-    bool mCompareBilateralOutput = true;
     int mOpticalBlurRadius = 16;
     bool mUseOpticalMedianPrePass = false;
     ref<RenderGraph> mpVbufferToPosGraph;

@@ -44,7 +44,6 @@ RWTexture2D<float> gDepth;   // non-linear depth for DLSS
 RWTexture2D<float> gPosDiff;     // expected position difference when moving one pixel
 RWTexture2D<float4> gLastRayDir; // direction to P (incomming ray direction) + linear depth in last component
 RWTexture2D<uint> gLocalPathLength; // integer path length (bounces)
-RWTexture2D<unorm float> gIsBackupMotion; // 1 if mvec == bmvec
 
 SamplerState S; // linear sampler
 
@@ -200,7 +199,6 @@ struct VBufferReservoir
     float3 lastRayDir;
     float posDiff;
     uint localPathLength;
-    bool isBackupMotion; // true if path is allowed as backup path (first hit or first refractive hit)
     #endif
 
     // update function, returns true if reservoir should be updated, false if old data should be kept
@@ -230,7 +228,6 @@ struct VBufferReservoir
         gPosDiff[pixel] = posDiff;
         gLastRayDir[pixel] = float4(lastRayDir, depth);
         gLocalPathLength[pixel] = localPathLength;
-        gIsBackupMotion[pixel] = isBackupMotion ? 1.0 : 0.0;
         #endif
     }
 };
@@ -372,7 +369,6 @@ void rayGen()
     curVBuffer.lastRayDir = 0.0;
     curVBuffer.posDiff = 0.0;
     curVBuffer.localPathLength = 0;
-    curVBuffer.isBackupMotion = false;
     #endif
 
     #ifdef USE_VIEW_TRANSFORM
@@ -434,7 +430,6 @@ void rayGen()
 
                 #if USE_OPTICAL_FLOW
                 if (WRITE_BMVEC(s.flags)) curVBuffer.bmvec = curVBuffer.mvec;
-                curVBuffer.isBackupMotion = WRITE_BMVEC(s.flags);
                 curVBuffer.localPathLength = s.curPathLength;
                 curVBuffer.lastRayDir = s.rayDir;
                 #if USE_TEXTURE_LOD == 0
@@ -568,7 +563,6 @@ void rayGen()
             curVBuffer.lastRayDir = s.rayDir;
             if (all(curVBuffer.mvec == 0.0) && vertexMoved) curVBuffer.mvec = 1e-37; // workaround to force motion vector calculation in the LK pass (motion vector calculation is disabled if the mvec is 0.0, however, if a vertex on the path moved we should recompute)
             if (WRITE_BMVEC(s.flags)) curVBuffer.bmvec = curVBuffer.mvec;
-            curVBuffer.isBackupMotion = WRITE_BMVEC(s.flags);
             #endif
         }
 
