@@ -481,7 +481,7 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
         c |= widget.checkbox("Force Zero Rougness", mForceZeroRoughness);
         c |= widget.checkbox("Disable V-buffer Curved Reflection", mPreventVbufferCurvedReflection);
         widget.tooltip("Prevents storing hit points after curved reflections to be stored in the V-Bffer.");
-        c |= widget.checkbox("Disable V-buffer Refractive Reflection", mPreventVbufferRefractiveReflection);
+        c |= widget.checkbox("V-Buffer Primary Path only", mPreventVbufferRefractiveReflection);
         widget.tooltip("Prevents storing hit points after from reflections if the surface does also refract.");
         c |= widget.checkbox("Prevent V-buffer TIR", mPreventVbufferInternalReflection);
         widget.tooltip("Prevents storing hit points after total internal reflections.");
