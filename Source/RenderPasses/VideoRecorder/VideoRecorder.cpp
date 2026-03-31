@@ -607,6 +607,7 @@ void VideoRecorder::startWarmup()
 
     mState = State::Warmup;
     mpScene->getCamera()->setIsAnimated(false); // Disable camera animations
+    mpScene->getCamera()->getPatternGenerator()->reset(); // reset pattern generator to force consisten jitter pattern
     mpGlobalClock->setTime(getStartTime());
     mpGlobalClock->pause();
     mRenderIndex = 0;
