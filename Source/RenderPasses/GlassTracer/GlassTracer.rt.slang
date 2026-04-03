@@ -529,7 +529,7 @@ void rayGen()
         if (bsdf.roughness <= gRoughnessCutoff && (numRefractions < gMaxVbufferRefractions || !bsdf.isTransmissive))
             pathImportance = 0.0; // dont stop on zero roughness
 
-        if (gPreventVbufferInternalReflection && bsdf.isTransmissive && !doRefraction)
+        if (gPreventVbufferInternalReflection && bsdf.isTransmissive && !doRefraction && s.curPathLength > 1)
             s.flags |= FLAG_PREVENT_VBUFFER_WRITE; // prevent vbuffer writes after TIR (Total internal reflection)
         //gDebugTex[uint3(pixel, i)] = float4(pathImportance, dot(localContribution, 0.33), s.curPathLength, 1.0);
         // this will also overwrite with pathImportance==0, if nothing else was contributed yet (weightSum = 0.0)
