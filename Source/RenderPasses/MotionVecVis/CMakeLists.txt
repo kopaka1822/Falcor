@@ -8,4 +8,6 @@ target_sources(MotionVecVis PRIVATE
     AngularDiff.ps.slang
 )
 
+target_copy_shaders(MotionVecVis RenderPasses/MotionVecVis)
+
 target_source_group(MotionVecVis "RenderPasses")
