@@ -418,7 +418,7 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
 
         c |= widget.slider("Iterations##1", mOpticalIterations, 1, 20);
 
-        c |= widget.checkbox("Median Filter Pre-Blur", mUseOpticalMedianPrePass);
+        //c |= widget.checkbox("Median Filter Pre-Blur", mUseOpticalMedianPrePass);
         c |= widget.slider("Bilateral Blur Radius", mOpticalBlurRadius, 0, 100);
 
         widget.separator();

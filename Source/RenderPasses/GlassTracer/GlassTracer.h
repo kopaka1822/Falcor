@@ -177,7 +177,7 @@ private:
     bool mIgnoreNormalDiffs = true; // more stable without normal diffs
 
     bool mUseTextureLOD = true;
-    float mTextureLodBias = -1.5f;
+    float mTextureLodBias = -1.0f;
 
     bool mOptionsChanged = true;
 };

@@ -1,10 +1,10 @@
 ![](docs/images/teaser.png)
 
-# Spatio-Temporal Dithering for Order-Independent Transparency on Ray Tracing Hardware
+# Real-Time Motion Vectors after Multiple Refractions
 
-Teaser:
+Demo:
 
-[![YouTube](http://i.ytimg.com/vi/07vLuLH_1wU/hqdefault.jpg)](https://www.youtube.com/watch?v=07vLuLH_1wU)
+[![YouTube](http://i.ytimg.com/vi/xVKGq4JYP5A/hqdefault.jpg)](https://www.youtube.com/watch?v=xVKGq4JYP5A)
 
 ## Contents:
 
@@ -17,24 +17,18 @@ Teaser:
 
 This project was implemented in NVIDIAs Falcor rendering framework.
 
-You can download the executable demo from the [Releases Page](https://github.com/kopaka1822/Falcor/releases/tag/SpatioTemporalDither), or build the project by following the instructions in [Building Falcor](#building-falcor).
+You can download the executable demo from the [Releases Page](https://github.com/kopaka1822/Falcor/releases/tag/Refraction), or build the project by following the instructions in [Building Falcor](#building-falcor).
 
-After downloading the demo from the releases page, you can execute it with the RunFalcor.bat file. In the Demo, you can configure the renderer after expanding the **DitherVBuffer** tab. In the **DitherVBuffer** tab you can select the specific transparency technique in the **Dither** dropdown:
-* Disabled: Everything will be interpreted as opaque
-* STD 3x3: Our STD from the paper, with 3x3 dither matrices
-* DitherTemporalAA: Unreal Engine's DTAA
-* RussianRoulette: Russian Roulette renderer from the paper
-* HashGrid: (not in the paper) This renderer tries to pin the noise to the surface of the objects, instead of pinning it to screen space. This works somewhat well for white and blue noise, but produces extreme moiree patterns for regular patterns like bayer dithering matrices.
-* FractalDithering: (not in the paper) This technique also tries to pin a texture to the surface of the objects, but uses a recurring fractal dithering pattern to do so. Unfortunately, scaling this dithering pattern to subpixel also produces extreme moiree patterns. The technique itself comes from this [Youtube](https://www.youtube.com/watch?v=HPqGaIMVuLs&pp=ygURZnJhY3RhbCBkaXRoZXJpbmc%3D) video.
-* STD 2x2: STD, but with 2x2 dither matrices (using all 24 permutations of 2x2 matrices)
-* Periodic: Tries to utilize the uniform distribution modulo one, to select the optimal temporal sequence. Unfortunately, this flickers a lot.
-* SpatioTemporalBlueNoise: Implementation based on Wolfe et al. \[WMAR22\] (Screen-Space noise)
-* SurfaceSpatioTemporalBlueNoise: Same as above, but the texture is being attached to the surfaces as in the HashGrid technique above.
-* BlueNoise3D: Screen-space blue noise, where the third axis is represented by time.
-
-=> For the baseline, set the Hybrid Threshold slider to 0.0
-
-In the correction dropdown you can enable or disable the DLSS correction.
+After downloading the demo from the releases page, you can execute it with the RunFalcor.bat file. In the Demo, you can configure the renderer after expanding the **GlassTracer** tab. In the **GlassTracer** tab you can configure the Whitted Ray Tracer:
+* Render Scale: By default, we render the image on 1/3 resolution. Use this dropdown to change the render resolution for DLSS
+* Motion Vector: Technique used for the primary motion vector estimate. You can set this to FirstHit for classical first-hit motion vectors
+* Force Motion Vector Calculation: By default we set motion vectors to zero if nothing moved between frames. Enabling this option will always calculate motion vectors (Note that we use a camera jitter, so the image does jitter from frame to frame)
+* Optical Flow Technique: By default we use our positional Lucas-Kanade algorithm, but you can set this to None to disable any post-processing on the motion vectors
+* Iterations: Iterations for the Lucas-Kanade algorithm
+* Bilateral Blur: Radius in pixels for our bilateral filter. Set this to 0 to disable bilateral filtering.
+Other interesting settings:
+* Pathtracer group: After expanding this group, you can modify the maximum path length of stack size of the whitted ray tracer. You can also enable hits after TIR, or hits from the non-primary path.
+* OutputSwitch: Here you can change the TAA method from DLSS to Intel XeSS or AMD FSR 3.
 
 You can navigate the camera with WASD and dragging the mouse for rotation.
 Hold shift for more camera speed
@@ -43,13 +37,11 @@ Space to pause the animation
 
 ## Source Code
 
-The important files can be found in `Source/RenderPasses/DitherVBuffer/`:
-* `DitherVBuffer.cpp/.h`: Renderer
-* `Dither.slangh`: Shader code for STD, RussianRoulette etc.
-* `DitherVBuffer.rt.slang`: Ray tracing shader (uses functions fron the `Dither.slangh` in the any-hit)
-* `PermutationLookup.h`: Code for generating our 3x3 Dither Matrices
-
-Additionally you can check out `Source/RenderPasses/DitherVBufferRaster/` for the raster implementation.
+The important files can be found in `Source/RenderPasses/GlassTracer/`:
+* `GlassTracer.cpp/.h`: Whitted Ray Tracer
+* `GlassTracer.rt.slang`: Shader code for the Whitted Ray Tracer
+* `OpticalFlowPos.cs.slang`: Compute Shader for our positional Lucas-Kanade implementation
+* `OpticalFlowBlur.cs.slang`: Compute Shader for our bilateral filter
 
 ## Falcor Prerequisites
 - Windows 10 version 20H2 (October 2020 Update) or newer, OS build revision .789 or newer
