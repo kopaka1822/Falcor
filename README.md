@@ -2,9 +2,13 @@
 
 # Real-Time Motion Vectors after Multiple Refractions
 
-Demo:
+Demo Video (DLSS):
 
-[![YouTube](http://i.ytimg.com/vi/xVKGq4JYP5A/hqdefault.jpg)](https://www.youtube.com/watch?v=xVKGq4JYP5A)
+[![YouTube](http://i.ytimg.com/vi/gdmPwk14IkQ/hqdefault.jpg)](https://www.youtube.com/watch?v=gdmPwk14IkQ)
+
+Intel XeSS 2.0 and AMD FSR 3.1 variant:
+
+[![YouTube](http://i.ytimg.com/vi/B3dzyhVg_G8/hqdefault.jpg)](https://www.youtube.com/watch?v=B3dzyhVg_G8)
 
 ## Contents:
 
