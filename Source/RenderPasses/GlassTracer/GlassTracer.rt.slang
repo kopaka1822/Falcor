@@ -457,7 +457,9 @@ void rayGen()
         float3 barycentrics = triangleHit.getBarycentricWeights();
         VertexData v = gScene.getVertexData(triangleHit.instanceID, triangleHit.primitiveIndex, barycentrics, tri.triangleVertices);
         v.prevPosW = gScene.getPrevPosW(triangleHit);
-        bool vertexMoved = any(v.posW != v.prevPosW);
+        // bool vertexMoved = any(v.posW != v.prevPosW);
+        bool vertexMoved = any(abs(v.posW - v.prevPosW) > 1e-6); // TODO should be scene dependent threshold?
+        //vertexMoved = false;
         s.linearZ += distance(s.rayOrigin, v.posW);
 
         let materialID = gScene.getMaterialID(triangleHit.instanceID);

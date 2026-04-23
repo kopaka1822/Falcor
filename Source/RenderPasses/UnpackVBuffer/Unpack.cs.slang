@@ -44,7 +44,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 localI
     if (hit.isValid() && hit.getType() == HitType::Triangle)
     {
         const TriangleHit triangleHit = hit.getTriangleHit();
-        let v = gScene.getVertexData(triangleHit);
+        VertexData v = gScene.getVertexData(triangleHit);
+        v.prevPosW = gScene.getPrevPosW(triangleHit);
 
         gPosW[pixel] = float4(v.posW, 1.0);
         gPrevPosW[pixel] = float4(v.prevPosW, 1.0);
