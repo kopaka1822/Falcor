@@ -6,6 +6,10 @@ Demo Video (DLSS):
 
 [![YouTube](http://i.ytimg.com/vi/gdmPwk14IkQ/hqdefault.jpg)](https://www.youtube.com/watch?v=gdmPwk14IkQ)
 
+Demo with Dancing Robot (DLSS):
+
+[![YouTube](http://i.ytimg.com/vi/hrjtp4m3v3E/hqdefault.jpg)](https://www.youtube.com/watch?v=hrjtp4m3v3E)
+
 Intel XeSS 2.0 and AMD FSR 3.1 variant:
 
 [![YouTube](http://i.ytimg.com/vi/B3dzyhVg_G8/hqdefault.jpg)](https://www.youtube.com/watch?v=B3dzyhVg_G8)
