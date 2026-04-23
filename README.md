@@ -14,6 +14,14 @@ Intel XeSS 2.0 and AMD FSR 3.1 variant:
 
 [![YouTube](http://i.ytimg.com/vi/B3dzyhVg_G8/hqdefault.jpg)](https://www.youtube.com/watch?v=B3dzyhVg_G8)
 
+Two additional animated scenes with a dancing character and animated camera (First video is solid glass, second video is thin glass).
+
+[![YouTube](http://i.ytimg.com/vi/BFY3GoUUIRk/hqdefault.jpg)](https://www.youtube.com/watch?v=BFY3GoUUIRk)
+[![YouTube](http://i.ytimg.com/vi/Nh6nudX-afA/hqdefault.jpg)](https://www.youtube.com/watch?v=Nh6nudX-afA)
+
+The video above illustrates the limitations of DLSS: since only a single motion vector can be provided, only the motion of the refraction is captured correctly. 
+Consequently, the motion of the reflections may appear blurred.
+
 ## Contents:
 
 * [Demo User Interface](#demo-user-interface)
