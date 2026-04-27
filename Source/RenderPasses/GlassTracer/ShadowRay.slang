@@ -27,51 +27,65 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
     float3 visibility = 1.0;
     float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
 
-    RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> rayQuery;
-    const uint instanceMask = getBestParticleShadowPlane(ray.Direction);
-    uint rayFlags = RAY_FLAG_NONE;
-    if (gShadowTransmissionMultiplier > 0.0) rayFlags |= RAY_FLAG_FORCE_NON_OPAQUE;
-    rayQuery.TraceRayInline(gScene.rtAccel, rayFlags, instanceMask, ray);
-    while (rayQuery.Proceed())
+    while (any(visibility > visibilityCutoff))
     {
-        if (rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+        RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> rayQuery;
+        const uint instanceMask = getBestParticleShadowPlane(ray.Direction); // not used
+        uint rayFlags = RAY_FLAG_NONE;
+        //if (gShadowTransmissionMultiplier > 0.0) rayFlags |= RAY_FLAG_FORCE_NON_OPAQUE;
+        rayQuery.TraceRayInline(gScene.rtAccel, rayFlags, instanceMask, ray);
+        while (rayQuery.Proceed())
         {
-            float t = rayQuery.CandidateTriangleRayT();
-            // alpha test
-            const TriangleHit hit = getCandidateTriangleHit(rayQuery);
-            const uint materialID = gScene.getMaterialID(hit.instanceID);
-            const VertexData v = gScene.getVertexData(hit);
-
-            let material = gScene.materials.getMaterial(materialID);
-            let lod = ExplicitLodTextureSampler(gShadowLodBias);
-            float opacity = material.evalOpacity(gScene.materials, v, lod);
-
-            if (opacity == 1.0 && gShadowTransmissionMultiplier > 0.0) // check transmission
+            if (rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
             {
-                // hardcoded for good looking visual
-                float IoR = 1.8;
-                float3 rayDir = ray.Direction;
-                if (rayQuery.CandidateTriangleFrontFace()) IoR = 1.0 / IoR; // flip ior
-                else rayDir = refract(rayDir, -v.faceNormalW, 1.0 / IoR); // pretend ray came from previously refracted direction
+                float t = rayQuery.CandidateTriangleRayT();
+                // alpha test
+                const TriangleHit hit = getCandidateTriangleHit(rayQuery);
+                const uint materialID = gScene.getMaterialID(hit.instanceID);
+                const VertexData v = gScene.getVertexData(hit);
 
-                // simple fresenl
-                float cosTheta = abs(dot(rayDir, v.faceNormalW));
-                float F0 = pow(abs((1.0 - IoR) / (1.0 + IoR)), 2.0);
-                float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-                float transmissionFactor = 1.0 - fresnel;
-                // transmissionFactor = 1.0;
-                visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
+                let material = gScene.materials.getMaterial(materialID);
+                let lod = ExplicitLodTextureSampler(gShadowLodBias);
+                float opacity = material.evalOpacity(gScene.materials, v, lod);
+                if (opacity > visibilityCutoff)
+                    rayQuery.CommitNonOpaqueTriangleHit();
             }
-            else
-                visibility = visibility * (1.0 - opacity);
-
-            if (all(visibility <= visibilityCutoff))
-                return 0.0;
         }
-    }
 
-    if (rayQuery.CommittedStatus() != COMMITTED_NOTHING)
-        return 0.0; // hit opaque => occluded
+        if (rayQuery.CommittedStatus() == COMMITTED_NOTHING)
+            break; // handled all occluders
+
+        // handle current occluder
+        float t = rayQuery.CommittedRayT();
+        const TriangleHit hit = getCommittedTriangleHit(rayQuery);
+        const uint materialID = gScene.getMaterialID(hit.instanceID);
+        const VertexData v = gScene.getVertexData(hit);
+
+        let material = gScene.materials.getMaterial(materialID);
+        let lod = ExplicitLodTextureSampler(gShadowLodBias);
+        float opacity = material.evalOpacity(gScene.materials, v, lod);
+
+        if (opacity == 1.0 && gShadowTransmissionMultiplier > 0.0) // check transmission
+        {
+            // hardcoded for good looking visual
+            float IoR = 1.8;
+            float3 rayDir = ray.Direction;
+            if (rayQuery.CommittedTriangleFrontFace()) IoR = 1.0 / IoR; // flip ior
+            else rayDir = refract(rayDir, -v.faceNormalW, 1.0 / IoR); // pretend ray came from previously refracted direction
+
+            // simple fresenl
+            float cosTheta = abs(dot(rayDir, v.faceNormalW));
+            float F0 = pow(abs((1.0 - IoR) / (1.0 + IoR)), 2.0);
+            float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+            float transmissionFactor = 1.0 - fresnel;
+            // transmissionFactor = 1.0;
+            visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
+        }
+        else
+            visibility = visibility * (1.0 - opacity);
+
+        ray.TMin = t; // update ray T
+    }
 
     visibility = saturate((visibility - visibilityCutoff) / (1.0 - visibilityCutoff));
     return visibility;
