@@ -154,10 +154,10 @@ private:
     ref<RenderGraph> mpVbufferToPosGraph;
     float2 mPrevJitter;
 
-    RenderScale mRenderScale = RenderScale::UtraPerformance;
+    RenderScale mRenderScale = RenderScale::Full;
 
     // lighting settings
-    float mAmbientIntensity = 0.25f;
+    float mAmbientIntensity = 0.1f;
     float mAnalyticIntensity = 0.5f;
     float mEmissionIntensity = 1.0f;
     float mEnvmapIntensity = 1.0f;
@@ -165,7 +165,7 @@ private:
     bool mEnableShadows = true;
     float mPointLightClip = 0.2f;
     float mShadowLodBias = 0.0f;
-    float mShadowTransmissionMultiplier = 0.8f;
+    float mShadowTransmissionMultiplier = 1.0f;
 
     float mRoughnessCutoff = 0.1f;
     bool mForceZeroRoughness = true;

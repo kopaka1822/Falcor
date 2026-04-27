@@ -9,6 +9,9 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
     if (!gEnableShadows) return 1.0;
     LightData light = gScene.getLight(lightIndex);
     RayDesc ray;
+    float RAY_CONE_START_ANGLE = 0.01; // small non-zero start angle
+    RayCone rayCone = RayCone(0.0, RAY_CONE_START_ANGLE);
+    float rayConeTMin = 0.0; // must start at zero to track proper distance
     if (light.type == uint(LightType::Point))
     {
         ray.TMin = gPointLightClip;
@@ -68,27 +71,55 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
         if (opacity == 1.0 && gShadowTransmissionMultiplier > 0.0) // check transmission
         {
             // hardcoded for good looking visual
-            float IoR = 1.8;
+            float eta = 1.8;
             float3 rayDir = ray.Direction;
-            if (rayQuery.CommittedTriangleFrontFace()) IoR = 1.0 / IoR; // flip ior
-            else rayDir = refract(rayDir, -v.faceNormalW, 1.0 / IoR); // pretend ray came from previously refracted direction
-
+            float3 normal = v.normalW;
+            if (rayQuery.CommittedTriangleFrontFace())
+            {
+                eta = 1.0 / eta; // flip ior
+            }
+            else
+            {
+                normal = -normal;
+                rayDir = refract(rayDir, -v.faceNormalW, 1.0 / eta); // pretend ray came from previously refracted direction
+            }
             // simple fresenl
             float cosTheta = abs(dot(rayDir, v.faceNormalW));
-            float F0 = pow(abs((1.0 - IoR) / (1.0 + IoR)), 2.0);
+            float F0 = pow(abs((1.0 - eta) / (1.0 + eta)), 2.0);
             float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
             float transmissionFactor = 1.0 - fresnel;
             // transmissionFactor = 1.0;
             visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
+
+            // ray cone update
+            rayCone = rayCone.propagateDistance(t - rayConeTMin); // travelled distance
+            float3 outDir = 0.0;
+            refractRayCone(rayCone, ray.Origin, rayDir, v.posW, normal, 0.0, eta, outDir);
         }
         else
+        {
             visibility = visibility * (1.0 - opacity);
+            rayCone = rayCone.propagateDistance(t - rayConeTMin); // travelled distance
+        }
 
         ray.TMin = t; // update ray T
+        rayConeTMin = t;
     }
 
+    // actual ray cone
+    rayCone = rayCone.propagateDistance(ray.TMax - rayConeTMin); // propagate remaining distance
+    float areaActual = rayCone.getWidth() * rayCone.getWidth();
+
+    // reference ray cone
+    RayCone refCone = RayCone(0.0, RAY_CONE_START_ANGLE);
+    refCone = refCone.propagateDistance(ray.TMax); // propagate to final destination
+    float areaRef = refCone.getWidth() * refCone.getWidth();
+
+    float rayIntensity = areaRef / areaActual;
+    //rayIntensity = 1.0;
+
     visibility = saturate((visibility - visibilityCutoff) / (1.0 - visibilityCutoff));
-    return visibility;
+    return visibility * rayIntensity;
 }
 #endif
 
