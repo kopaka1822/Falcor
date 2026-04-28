@@ -38,12 +38,21 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
     float3 rayB = normalize(cross(ray.Direction, rayT));
     RayDiff rd = RayDiff(float3(0.f), float3(0.f), rayT * RAY_DIFF_TANGENT_SCALE, rayB * RAY_DIFF_TANGENT_SCALE);
 
+    if (light.type == uint(LightType::Directional))
+    {
+        rd = RayDiff(rayT * RAY_DIFF_TANGENT_SCALE, rayB * RAY_DIFF_TANGENT_SCALE, float3(0.f), float3(0.f));
+    }
+
     // calc reference ray diff
     RayDiff refDiff = rd.propagate(ray.Direction, ray.TMax, -ray.Direction);
     float areaRefDiff = length(cross(refDiff.dOdx, refDiff.dOdy));
 
     float3 visibility = 1.0;
     float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
+
+    // track last value of in/out ray dir
+    float3 rayDir = ray.Direction;
+    float3 rayDirOut = ray.Direction;
 
     while (any(visibility > visibilityCutoff))
     {
@@ -89,7 +98,6 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
         {
             // hardcoded for good looking visual
             float eta = gScene.materials.getMaterialHeader(materialID).getIoR();
-            float3 rayDir, rayDirOut;
             float3 normal = v.normalW;
             if (rayQuery.CommittedTriangleFrontFace())
             {
@@ -124,7 +132,11 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
                                      gScene.getWorldMatrix(hit.instanceID), gScene.getInverseTransposeWorldMatrix(hit.instanceID),
                                      rd, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
             );
-            //normals[0] = normals[1] = normals[2] = normalize(unnormalizedN);
+            // normals[0] = normals[1] = normals[2] = normalize(unnormalizedN);
+            float normalLerp = 0.0;
+            normals[0] = lerp(normals[0], normalize(unnormalizedN), normalLerp);
+            normals[1] = lerp(normals[1], normalize(unnormalizedN), normalLerp);
+            normals[2] = lerp(normals[2], normalize(unnormalizedN), normalLerp);
             refractRayDifferential(rd, rayDir, unnormalizedN, normalize(unnormalizedN), dBarydx, dBarydy, normals, eta, rayDirOut);
         }
         else
@@ -148,7 +160,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
     float areaRef = refCone.getWidth() * refCone.getWidth();
 
     // actual ray diff
-    rd = rd.propagate(ray.Direction, ray.TMax - rayConeTMin, -ray.Direction);
+    rd = rd.propagate(rayDirOut, ray.TMax - rayConeTMin, -ray.Direction);
     float areaActualDiff = length(cross(rd.dOdx, rd.dOdy));
 
     //float rayIntensity = areaRef / areaActual;
