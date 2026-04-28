@@ -71,7 +71,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
         if (opacity == 1.0 && gShadowTransmissionMultiplier > 0.0) // check transmission
         {
             // hardcoded for good looking visual
-            float eta = 1.8;
+            float eta = gScene.materials.getMaterialHeader(materialID).getIoR();
             float3 rayDir = ray.Direction;
             float3 normal = v.normalW;
             if (rayQuery.CommittedTriangleFrontFace())
