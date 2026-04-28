@@ -524,7 +524,7 @@ struct RayDiff
         \param[in] N The normal at the hit point.
         \return The propagated ray differential.
     */
-    RayDiff propagate(float3 O, float3 D, float t, float3 N)
+    RayDiff propagate(float3 D, float t, float3 N)
     {
         float3 dodx = getdOdx() + t * getdDdx();    // Part of Igehy Equation 10.
         float3 dody = getdOdy() + t * getdDdy();

@@ -8,10 +8,13 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
 {
     if (!gEnableShadows) return 1.0;
     LightData light = gScene.getLight(lightIndex);
+
+    // ray cone setup
     RayDesc ray;
     float RAY_CONE_START_ANGLE = 0.01; // small non-zero start angle
     RayCone rayCone = RayCone(0.0, RAY_CONE_START_ANGLE);
     float rayConeTMin = 0.0; // must start at zero to track proper distance
+
     if (light.type == uint(LightType::Point))
     {
         ray.TMin = gPointLightClip;
@@ -26,6 +29,18 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
         ray.Direction = light.dirW;
         ray.TMax = gScene.camera.data.farZ;
     }
+
+    // ray differential setup
+    float3 dDdx, dDdy;
+    // ray tangent and bitangent
+    float RAY_DIFF_TANGENT_SCALE = 1.0;
+    float3 rayT = normalize(cross(ray.Direction, float3(0.0, 1.0, 0.0)));
+    float3 rayB = normalize(cross(ray.Direction, rayT));
+    RayDiff rd = RayDiff(float3(0.f), float3(0.f), rayT * RAY_DIFF_TANGENT_SCALE, rayB * RAY_DIFF_TANGENT_SCALE);
+
+    // calc reference ray diff
+    RayDiff refDiff = rd.propagate(ray.Direction, ray.TMax, -ray.Direction);
+    float areaRefDiff = length(cross(refDiff.dOdx, refDiff.dOdy));
 
     float3 visibility = 1.0;
     float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
@@ -62,7 +77,9 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
         float t = rayQuery.CommittedRayT();
         const TriangleHit hit = getCommittedTriangleHit(rayQuery);
         const uint materialID = gScene.getMaterialID(hit.instanceID);
-        const VertexData v = gScene.getVertexData(hit);
+        float3 barycentrics = hit.getBarycentricWeights();
+        StaticVertexData triangleVertices[3];
+        const VertexData v = gScene.getVertexData(hit.instanceID, hit.primitiveIndex, barycentrics, triangleVertices);
 
         let material = gScene.materials.getMaterial(materialID);
         let lod = ExplicitLodTextureSampler(gShadowLodBias);
@@ -72,19 +89,22 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
         {
             // hardcoded for good looking visual
             float eta = gScene.materials.getMaterialHeader(materialID).getIoR();
-            float3 rayDir = ray.Direction;
+            float3 rayDir, rayDirOut;
             float3 normal = v.normalW;
             if (rayQuery.CommittedTriangleFrontFace())
             {
                 eta = 1.0 / eta; // flip ior
+                rayDir = ray.Direction;
+                rayDirOut = refract(rayDir, normal, eta); // should always work because eta < 1.0
             }
             else
             {
                 normal = -normal;
-                rayDir = refract(rayDir, -v.faceNormalW, 1.0 / eta); // pretend ray came from previously refracted direction
+                rayDirOut = ray.Direction;
+                rayDir = refract(ray.Direction, normal, 1.0 / eta); // pretend ray came from previously refracted direction
             }
             // simple fresenl
-            float cosTheta = abs(dot(rayDir, v.faceNormalW));
+            float cosTheta = abs(dot(rayDir, normal));
             float F0 = pow(abs((1.0 - eta) / (1.0 + eta)), 2.0);
             float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
             float transmissionFactor = 1.0 - fresnel;
@@ -93,13 +113,24 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
 
             // ray cone update
             rayCone = rayCone.propagateDistance(t - rayConeTMin); // travelled distance
-            float3 outDir = 0.0;
-            refractRayCone(rayCone, ray.Origin, rayDir, v.posW, normal, 0.0, eta, outDir);
+            refractRayCone(rayCone, v.posW - rayDir * t, rayDir, v.posW, normal, 0.0, eta, rayDirOut);
+
+            // ray diff update
+            rd = rd.propagate(rayDir, t - rayConeTMin, normal);
+            float2 dUVdx, dUVdy, dBarydx, dBarydy;
+            float3 unnormalizedN;
+            float3 normals[3];
+            prepareRayDiffAtHitPoint(v, triangleVertices, barycentrics, rayDir,
+                                     gScene.getWorldMatrix(hit.instanceID), gScene.getInverseTransposeWorldMatrix(hit.instanceID),
+                                     rd, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
+            );
+            refractRayDifferential(rd, rayDir, unnormalizedN, normalize(unnormalizedN), dBarydx, dBarydy, normals, eta, rayDirOut);
         }
         else
         {
             visibility = visibility * (1.0 - opacity);
             rayCone = rayCone.propagateDistance(t - rayConeTMin); // travelled distance
+            rd = rd.propagate(ray.Direction, t - rayConeTMin, -ray.Direction);
         }
 
         ray.TMin = t; // update ray T
@@ -115,8 +146,14 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
     refCone = refCone.propagateDistance(ray.TMax); // propagate to final destination
     float areaRef = refCone.getWidth() * refCone.getWidth();
 
-    float rayIntensity = areaRef / areaActual;
-    //rayIntensity = 1.0;
+    // actual ray diff
+    rd = rd.propagate(ray.Direction, ray.TMax - rayConeTMin, -ray.Direction);
+    float areaActualDiff = length(cross(rd.dOdx, rd.dOdy));
+
+    //float rayIntensity = areaRef / areaActual;
+    float rayIntensity = areaRefDiff / areaActualDiff;
+    // rayIntensity = 1.0;
+    rayIntensity = pow(rayIntensity, 0.5);
 
     visibility = saturate((visibility - visibilityCutoff) / (1.0 - visibilityCutoff));
     return visibility * rayIntensity;

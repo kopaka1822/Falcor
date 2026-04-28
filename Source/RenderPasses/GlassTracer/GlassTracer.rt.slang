@@ -362,7 +362,7 @@ void rayGen()
                 #if USE_TEXTURE_LOD == 0
                 curVBuffer.posDiff = 0.0;
                 #else
-                let posDiffRd = s.rd.propagate(s.rayOrigin, s.rayDir, ray.TMax, s.rayDir);
+                let posDiffRd = s.rd.propagate(s.rayDir, ray.TMax, s.rayDir);
                 curVBuffer.posDiff = max(length(posDiffRd.dOdx), length(posDiffRd.dOdy));
                 #endif
                 #endif
@@ -397,9 +397,9 @@ void rayGen()
         float posDiff = 0.0;
         #else
         // transfer rd to surface
-        let posDiffRd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, v.posW), s.rayDir);
+        let posDiffRd = s.rd.propagate(s.rayDir, distance(s.rayOrigin, v.posW), s.rayDir);
         float posDiff = max(length(posDiffRd.dOdx), length(posDiffRd.dOdy));
-        s.rd = s.rd.propagate(s.rayOrigin, s.rayDir, distance(s.rayOrigin, v.posW), v.faceNormalW);
+        s.rd = s.rd.propagate(s.rayDir, distance(s.rayOrigin, v.posW), v.faceNormalW);
         // float posDiff = max(length(s.rd.dOdx), length(s.rd.dOdy));
         float2 dUVdx, dUVdy;
         prepareRayDiffAtHitPoint(v, tri.triangleVertices, barycentrics, s.rayDir,
