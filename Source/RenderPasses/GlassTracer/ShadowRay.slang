@@ -25,7 +25,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
     else if (light.type == uint(LightType::Directional))
     {
         ray.TMin = 0.0;
-        ray.Origin = posW.xyz + light.dirW * gScene.camera.data.farZ;
+        ray.Origin = posW.xyz - light.dirW * gScene.camera.data.farZ;
         ray.Direction = light.dirW;
         ray.TMax = gScene.camera.data.farZ;
     }
@@ -124,6 +124,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
                                      gScene.getWorldMatrix(hit.instanceID), gScene.getInverseTransposeWorldMatrix(hit.instanceID),
                                      rd, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
             );
+            //normals[0] = normals[1] = normals[2] = normalize(unnormalizedN);
             refractRayDifferential(rd, rayDir, unnormalizedN, normalize(unnormalizedN), dBarydx, dBarydy, normals, eta, rayDirOut);
         }
         else
