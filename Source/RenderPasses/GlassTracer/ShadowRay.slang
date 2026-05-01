@@ -114,17 +114,19 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex, RayDiff rdIn)
             // hardcoded for good looking visual
             float eta = gScene.materials.getMaterialHeader(materialID).getIoR();
             float3 normal = v.normalW;
-            if (rayQuery.CommittedTriangleFrontFace())
+            float virtualT = t - rayConeTMin; // distance travelled since last update
+            if (rayQuery.CommittedTriangleFrontFace()) // enter medium
             {
                 eta = 1.0 / eta; // flip ior
                 rayDir = ray.Direction;
                 rayDirOut = refract(rayDir, normal, eta); // should always work because eta < 1.0
             }
-            else
+            else // exit medium
             {
                 normal = -normal;
                 rayDirOut = ray.Direction;
                 rayDir = refract(ray.Direction, normal, 1.0 / eta); // pretend ray came from previously refracted direction
+                virtualT *= dot(normal, rayDirOut) / dot(normal, rayDir); // account for shorter ray length
             }
             // simple fresenl
             float cosTheta = abs(dot(rayDir, normal));
@@ -135,12 +137,12 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex, RayDiff rdIn)
             visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
 
             // ray cone update
-            rayCone = rayCone.propagateDistance(t - rayConeTMin); // travelled distance
+            rayCone = rayCone.propagateDistance(virtualT); // travelled distance
             refractRayCone(rayCone, v.posW - rayDir * t, rayDir, v.posW, normal, 0.0, eta, rayDirOut);
 
             // ray diff update
-            rd = rd.propagate(rayDir, t - rayConeTMin, normal);
-            //rd = rd.propagate(rayDir, t - rayConeTMin, -rayDir);
+            rd = rd.propagate(rayDir, virtualT, normal);
+            // rd = rd.propagate(rayDir, virtualT, -rayDir);
             float2 dUVdx, dUVdy, dBarydx, dBarydy;
             float3 unnormalizedN;
             float3 normals[3];
