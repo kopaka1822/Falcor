@@ -16,6 +16,13 @@ float3 computeDDforLight(float3 P, float3 L, float3 dPdx)
     return (dd * dddx - dot(d, dddx) * d) / pow(dd, 1.5);
 }
 
+// axis should be normalized
+float3 removeAxis(float3 v, float3 axis)
+{
+    float overlap = dot(v, axis);
+    return v - overlap * axis;
+}
+
 #if SHADOW_TEST == SHADOW_TEST_CAUSTIC_POS_TO_LIGHT
 
 
@@ -30,15 +37,17 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex, RayDiff rdIn)
     RayCone rayCone = RayCone(0.0, RAY_CONE_START_ANGLE);
     ray.Origin = posW.xyz; // assume posW already offset with computeNewRayOrigin
     ray.TMin = 0.0;
+    float TMax = 0.0;
     if (light.type == uint(LightType::Point))
     {
         ray.Direction = normalize(light.posW - posW.xyz);
-        ray.TMax = distance(light.posW, posW.xyz) - gPointLightClip;
+        TMax = distance(light.posW, posW.xyz);
+        ray.TMax = TMax - gPointLightClip;
     }
     else if (light.type == uint(LightType::Directional))
     {
         ray.Direction = -light.dirW;
-        ray.TMax = gScene.camera.data.farZ;
+        ray.TMax = TMax = gScene.camera.data.farZ;
     }
 
     // ray differential setup
@@ -59,7 +68,8 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex, RayDiff rdIn)
     // calc reference ray diff
     // RayDiff refDiff = rd.propagate(ray.Direction, ray.TMax, -ray.Direction);
     // float areaRefDiff = length(cross(refDiff.dOdx, refDiff.dOdy));
-    float areaRefDiff = length(cross(rdIn.dOdx, rdIn.dOdy));
+     float areaRefDiff = length(cross(rdIn.dOdx, rdIn.dOdy));
+    //float areaRefDiff = length(cross(removeAxis(rdIn.dOdx, ray.Direction), removeAxis(rdIn.dOdy, ray.Direction)));
 
     float3 visibility = 1.0;
     float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
@@ -166,9 +176,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex, RayDiff rdIn)
         ray.TMin = t; // update ray T
     }
 
-    float finalT = ray.TMax - ray.TMin;
-    if (light.type == uint(LightType::Point))
-        finalT += gPointLightClip;
+    float finalT = TMax - ray.TMin;
 
     // actual ray cone
     rayCone = rayCone.propagateDistance(finalT); // propagate remaining distance
@@ -176,15 +184,21 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex, RayDiff rdIn)
 
     // reference ray cone
     RayCone refCone = RayCone(0.0, RAY_CONE_START_ANGLE);
-    if (light.type == uint(LightType::Point)) refCone = refCone.propagateDistance(ray.TMax + gPointLightClip); // propagate to final destination
-    else refCone = refCone.propagateDistance(ray.TMax); // propagate to final destination
+    refCone = refCone.propagateDistance(TMax); // propagate to final destination
     float areaRef = refCone.getWidth() * refCone.getWidth();
 
     // actual ray diff
     rd = rd.propagate(rayDirOut, finalT, -ray.Direction);
-    float areaActualDiff = length(cross(rd.dOdx - rdIn.dOdx, rd.dOdy - rdIn.dOdy));
+     float areaActualDiff = length(cross(rd.dOdx - rdIn.dOdx, rd.dOdy - rdIn.dOdy));
+    //float areaActualDiff = length(cross(removeAxis(rd.dOdx - rdIn.dOdx, ray.Direction), removeAxis(rd.dOdy - rdIn.dOdy, ray.Direction)));
 
-    // float rayIntensity = areaRef / areaActual;
+
+    //  actual diff by removing the pos comonent and inverting ddx7ddy, then propagating back to origin
+    //rd = RayDiff(float3(0.0), float3(0.0), -rd.dDdx, -rd.dDdy);
+    //rd = rd.propagate(-ray.Direction, TMax, ray.Direction);
+    //areaActualDiff = length(cross(rd.dOdx, rd.dOdy));
+
+     // float rayIntensity = areaRef / areaActual;
     float rayIntensity = areaRefDiff / areaActualDiff;
     //  rayIntensity = 1.0;
      rayIntensity = pow(rayIntensity, 0.5);
