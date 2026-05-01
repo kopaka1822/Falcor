@@ -77,7 +77,7 @@ float linearToNonLinearZ(float l)
     return ((n * f) / l - f) / (n - f);
 }
 
-float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance mi, inout UniformSampleGenerator sg)
+float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance mi, inout UniformSampleGenerator sg, RayDiff rd)
 {
     if (gAnalyticIntensity <= 0.0)
         return 0.0;
@@ -103,7 +103,7 @@ float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance m
         float3 unshadowed = max(brdf * ls.Li, 0.0);
         if(any(unshadowed > MIN_VISIBILITY))
         {
-            float3 shadow = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i);
+            float3 shadow = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i, rd);
             color += unshadowed * shadow;
         }
     }
@@ -421,7 +421,7 @@ void rayGen()
         float3 localContribution = s.thp * opacity * (
             bsdf.emission * gEmissionIntensity +
              (bsdf.diffuseReflectionAlbedo + 0.2 * bsdf.specularReflectionAlbedo) * gAmbientIntensity +
-             evalAnalytic(pixel, tri.sd, mi, sg)
+             evalAnalytic(pixel, tri.sd, mi, sg, s.rd)
         );
         color += localContribution;
 

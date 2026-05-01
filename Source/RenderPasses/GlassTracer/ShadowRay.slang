@@ -4,7 +4,19 @@
 #define SHADOW_TEST SHADOW_TEST_CAUSTIC
 
 #if SHADOW_TEST == SHADOW_TEST_CAUSTIC
-float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
+// P: position on the origin surface
+// L: position of the light
+// dPdx: change in position on the origin surface
+float3 computeDDforLight(float3 P, float3 L, float3 dPdx)
+{
+    float3 d = L - P; // unnormalized ray direction
+    float dd = dot(d, d);
+    float3 dddx = -dPdx; // differential of d (L is constant)
+    // differential of normalized direction d
+    return (dd * dddx - dot(d, dddx) * d) / pow(dd, 1.5);
+}
+
+float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex, RayDiff rdIn)
 {
     if (!gEnableShadows) return 1.0;
     LightData light = gScene.getLight(lightIndex);
@@ -33,19 +45,22 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
     // ray differential setup
     float3 dDdx, dDdy;
     // ray tangent and bitangent
-    float RAY_DIFF_TANGENT_SCALE = 1.0;
-    float3 rayT = normalize(cross(ray.Direction, float3(0.0, 1.0, 0.0)));
-    float3 rayB = normalize(cross(ray.Direction, rayT));
-    RayDiff rd = RayDiff(float3(0.f), float3(0.f), rayT * RAY_DIFF_TANGENT_SCALE, rayB * RAY_DIFF_TANGENT_SCALE);
+    // dDdx = normalize(cross(ray.Direction, float3(0.0, 1.0, 0.0)));
+    // dDdy = normalize(cross(ray.Direction, dDdx));
+    dDdx = -computeDDforLight(posW, light.posW, rdIn.dOdx);
+    dDdy = -computeDDforLight(posW, light.posW, rdIn.dOdy);
+    
+    RayDiff rd = RayDiff(float3(0.f), float3(0.f), dDdx, dDdy);
 
     if (light.type == uint(LightType::Directional))
     {
-        rd = RayDiff(rayT * RAY_DIFF_TANGENT_SCALE, rayB * RAY_DIFF_TANGENT_SCALE, float3(0.f), float3(0.f));
+        rd = RayDiff(dDdx, dDdy, float3(0.f), float3(0.f));
     }
 
     // calc reference ray diff
-    RayDiff refDiff = rd.propagate(ray.Direction, ray.TMax, -ray.Direction);
-    float areaRefDiff = length(cross(refDiff.dOdx, refDiff.dOdy));
+    // RayDiff refDiff = rd.propagate(ray.Direction, ray.TMax, -ray.Direction);
+    // float areaRefDiff = length(cross(refDiff.dOdx, refDiff.dOdy));
+    float areaRefDiff = length(cross(rdIn.dOdx, rdIn.dOdy));
 
     float3 visibility = 1.0;
     float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
@@ -116,7 +131,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
             float F0 = pow(abs((1.0 - eta) / (1.0 + eta)), 2.0);
             float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
             float transmissionFactor = 1.0 - fresnel;
-            // transmissionFactor = 1.0;
+            // transmissionFactor = 1.0; // TODO comment out and check fresnel
             visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
 
             // ray cone update
@@ -125,6 +140,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
 
             // ray diff update
             rd = rd.propagate(rayDir, t - rayConeTMin, normal);
+            //rd = rd.propagate(rayDir, t - rayConeTMin, -rayDir);
             float2 dUVdx, dUVdy, dBarydx, dBarydy;
             float3 unnormalizedN;
             float3 normals[3];
@@ -133,7 +149,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
                                      rd, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
             );
             // normals[0] = normals[1] = normals[2] = normalize(unnormalizedN);
-            float normalLerp = 0.0;
+            float normalLerp = 0.0; 
             normals[0] = lerp(normals[0], normalize(unnormalizedN), normalLerp);
             normals[1] = lerp(normals[1], normalize(unnormalizedN), normalLerp);
             normals[2] = lerp(normals[2], normalize(unnormalizedN), normalLerp);
@@ -175,7 +191,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
 
 #if SHADOW_TEST == SHADOW_TEST_DEFAULT
 // deep shadow ray
-float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex)
+float3 traceShadowRay(uint2 pixel, float3 posW, uint lightIndex, RayDiff rdIn)
 {
     if (!gEnableShadows) return 1.0;
     LightData light = gScene.getLight(lightIndex);
