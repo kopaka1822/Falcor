@@ -103,7 +103,7 @@ float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance m
         float3 unshadowed = max(brdf * ls.Li, 0.0);
         if(any(unshadowed > MIN_VISIBILITY))
         {
-            float3 shadow = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), i, rd);
+            float3 shadow = traceShadowRay(pixel, sd.computeNewRayOrigin(!transmission), sd.faceN, i, rd);
             color += unshadowed * shadow;
         }
     }
