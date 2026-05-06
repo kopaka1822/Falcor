@@ -324,7 +324,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
         else
         {
             visibility = visibility * (1.0 - opacity);
-            rd = rd.propagate(ray.Direction, t - lastTMin, -ray.Direction);
+            rd = rd.propagate(rayDirOut, t - lastTMin, -rayDirOut);
         }
 
         ray.TMin = t; // update ray T
