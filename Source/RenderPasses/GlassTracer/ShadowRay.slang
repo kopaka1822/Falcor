@@ -18,6 +18,12 @@ float3 computeDDforLight(float3 P, float3 L, float3 dPdx)
     return (dd * dddx - dot(d, dddx) * d) / pow(dd, 1.5);
 }
 
+float3 computeDPDirLight(float3 D, float3 dPdx)
+{
+    // Computes the initial dPdx for a parallel ray going in direction D => Essentiallially orthogonalizes dPdx with respect to D
+    return dPdx - dot(D, dPdx) * D;
+}
+
 #if SHADOW_TEST == SHADOW_TEST_CAUSTIC_POS_TO_LIGHT
 
 
@@ -31,31 +37,25 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
     ray.Origin = posW.xyz; // assume posW already offset with computeNewRayOrigin
     ray.TMin = 0.0;
     float TMax = 0.0;
+    RayDiff rd;
     if (light.type == uint(LightType::Point))
     {
         ray.Direction = normalize(light.posW - posW.xyz);
         TMax = distance(light.posW, posW.xyz);
         ray.TMax = TMax - gPointLightClip;
+
+        float3 dDdx = computeDDforLight(posW, light.posW, rdIn.dOdx);
+        float3 dDdy = computeDDforLight(posW, light.posW, rdIn.dOdy);
+        rd = RayDiff(rdIn.dOdx, rdIn.dOdy, dDdx, dDdy);
     }
     else if (light.type == uint(LightType::Directional))
     {
         ray.Direction = -light.dirW;
         ray.TMax = TMax = gScene.camera.data.farZ;
-    }
 
-    // ray differential setup
-    float3 dDdx, dDdy;
-    // ray tangent and bitangent
-    // dDdx = normalize(cross(ray.Direction, float3(0.0, 1.0, 0.0)));
-    // dDdy = normalize(cross(ray.Direction, dDdx));
-    dDdx = computeDDforLight(posW, light.posW, rdIn.dOdx);
-    dDdy = computeDDforLight(posW, light.posW, rdIn.dOdy);
-
-    RayDiff rd = RayDiff(rdIn.dOdx, rdIn.dOdy, dDdx, dDdy);
-
-    if (light.type == uint(LightType::Directional))
-    {
-        rd = RayDiff(rdIn.dOdx, rdIn.dOdy, float3(0.f), float3(0.f));
+        float3 dPdx = computeDPDirLight(ray.Direction, rdIn.dOdx);
+        float3 dPdy = computeDPDirLight(ray.Direction, rdIn.dOdy);
+        rd = RayDiff(dPdx, dPdy, float3(0.f), float3(0.f));
     }
 
     // calc reference ray diff
@@ -175,7 +175,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
 
     float rayIntensity = areaRefDiff / areaActualDiff;
     //  rayIntensity = 1.0;
-    rayIntensity = pow(rayIntensity, 0.5);
+    rayIntensity = pow(rayIntensity, 0.25);
     //rayIntensity = min(rayIntensity, 1.0);
     
 
@@ -193,12 +193,18 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
 
     float lastTMin = 0.0; // must start at zero to track proper distance
     RayDesc ray;
+    RayDiff rd;
+
     if (light.type == uint(LightType::Point))
     {
         ray.TMin = gPointLightClip;
         ray.Origin = light.posW;
         ray.Direction = normalize(posW.xyz - light.posW); // light -> pos
         ray.TMax = distance(light.posW, posW.xyz);        // assume posW already offset with computeNewRayOrigin
+
+        float3 dDdx = -computeDDforLight(posW, light.posW, rdIn.dOdx);
+        float3 dDdy = -computeDDforLight(posW, light.posW, rdIn.dOdy);
+        rd = RayDiff(float3(0.f), float3(0.f), dDdx, dDdy);
     }
     else if (light.type == uint(LightType::Directional))
     {
@@ -206,18 +212,10 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
         ray.Origin = posW.xyz - light.dirW * gScene.camera.data.farZ;
         ray.Direction = light.dirW;
         ray.TMax = gScene.camera.data.farZ;
-    }
 
-    // ray differential setup
-    float3 dDdx, dDdy;
-    dDdx = -computeDDforLight(posW, light.posW, rdIn.dOdx);
-    dDdy = -computeDDforLight(posW, light.posW, rdIn.dOdy);
-
-    RayDiff rd = RayDiff(float3(0.f), float3(0.f), dDdx, dDdy);
-
-    if (light.type == uint(LightType::Directional))
-    {
-        rd = RayDiff(dDdx, dDdy, float3(0.f), float3(0.f));
+        float3 dPdx = computeDPDirLight(ray.Direction, rdIn.dOdx);
+        float3 dPdy = computeDPDirLight(ray.Direction, rdIn.dOdy);
+        rd = RayDiff(dPdx, dPdy, float3(0.f), float3(0.f));
     }
 
     // calc reference ray diff
