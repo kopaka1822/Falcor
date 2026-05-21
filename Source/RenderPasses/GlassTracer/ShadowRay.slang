@@ -9,6 +9,29 @@
 #define SHADOW_TEST SHADOW_TEST_HARD
 #endif
 
+#define FRESNEL_DEFAULT 0
+#define FRESNEL_MCGUIRE 1
+#define FRESNEL_IMPL 0
+
+float getFresnelTransmission(float3 rayDir, float3 originalRayDir, float3 normal, float eta)
+{
+    if (FRESNEL_IMPL == FRESNEL_DEFAULT)
+    {
+        // simple fresenl
+        float cosTheta = abs(dot(rayDir, normal));
+        float F0 = pow(abs((1.0 - eta) / (1.0 + eta)), 2.0);
+        float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+        return 1.0 - fresnel;
+    }
+    else
+    {
+        float s = saturate((1.0 / eta - 1.0) / 2.0);                                              // in [0, 1]
+        float g = 2 * saturate(1.0 - pow(abs(dot(normal, originalRayDir)), 128.0 * s * s)) - 1.0; // in [-1, 1]
+        // return 1.0 - g * pow(s, 0.2);                                                             // in [0, 2]
+        return 1.0 / (1.0 + g * pow(s, 0.2));
+    }
+}
+
 // P: position on the origin surface
 // L: position of the light
 // dPdx: change in position on the origin surface
@@ -130,12 +153,8 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
                 rayDir = refract(ray.Direction, normal, 1.0 / eta); // pretend ray came from previously refracted direction
                 //virtualT *= dot(normal, rayDirOut) / dot(normal, rayDir); // account for shorter ray length
             }
-            // simple fresenl
-            float cosTheta = abs(dot(rayDir, normal));
-            float F0 = pow(abs((1.0 - eta) / (1.0 + eta)), 2.0);
-            float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-            float transmissionFactor = 1.0 - fresnel;
-            // transmissionFactor = 1.0; // TODO comment out and check fresnel
+
+            float transmissionFactor = getFresnelTransmission(rayDir, ray.Direction, normal, eta);
             visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
 
             // ray diff update
@@ -292,12 +311,8 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
                 rayDir = refract(ray.Direction, normal, 1.0 / eta); // pretend ray came from previously refracted direction
                 //virtualT *= dot(normal, rayDirOut) / dot(normal, rayDir); // account for shorter ray length
             }
-            // simple fresenl
-            float cosTheta = abs(dot(rayDir, normal));
-            float F0 = pow(abs((1.0 - eta) / (1.0 + eta)), 2.0);
-            float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-            float transmissionFactor = 1.0 - fresnel;
-            // transmissionFactor = 1.0; // TODO comment out and check fresnel
+
+            float transmissionFactor = getFresnelTransmission(rayDir, ray.Direction, normal, eta);
             visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
 
             // ray diff update
@@ -393,17 +408,12 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
             if (opacity == 1.0 && gShadowTransmissionMultiplier > 0.0) // check transmission
             {
                 // hardcoded for good looking visual
-                float IoR = 1.8;
+                float eta = gScene.materials.getMaterialHeader(materialID).getIoR();
                 float3 rayDir = -ray.Direction;
-                if (rayQuery.CandidateTriangleFrontFace()) IoR = 1.0 / IoR; // flip ior
-                else rayDir = refract(rayDir, -v.faceNormalW, 1.0 / IoR); // pretend ray came from previously refracted direction
+                if (rayQuery.CandidateTriangleFrontFace()) eta = 1.0 / eta; // flip ior
+                else rayDir = refract(rayDir, -v.normalW, 1.0 / eta); // pretend ray came from previously refracted direction
 
-                // simple fresenl
-                float cosTheta = abs(dot(rayDir, v.faceNormalW));
-                float F0 = pow(abs((1.0 - IoR) / (1.0 + IoR)), 2.0);
-                float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-                float transmissionFactor = 1.0 - fresnel;
-                //transmissionFactor = 1.0;
+                float transmissionFactor = getFresnelTransmission(rayDir, ray.Direction, v.normalW, eta);
                 visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
             }
             else
