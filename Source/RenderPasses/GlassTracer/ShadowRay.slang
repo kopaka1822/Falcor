@@ -4,7 +4,10 @@
 #define SHADOW_TEST_TRANSMIT_FRESNEL 1
 #define SHADOW_TEST_CAUSTIC_POS_TO_LIGHT 2
 #define SHADOW_TEST_CAUSTIC_LIGHT_TO_POS 3
-#define SHADOW_TEST SHADOW_TEST_CAUSTIC_LIGHT_TO_POS
+
+#ifndef SHADOW_TEST
+#define SHADOW_TEST SHADOW_TEST_HARD
+#endif
 
 // P: position on the origin surface
 // L: position of the light

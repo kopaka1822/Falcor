@@ -67,6 +67,22 @@ public:
         {MotionVector::HalfwayReflection, "HalfwayReflection"},
     });
 
+    enum class ShadowTest : uint32_t
+    {
+        Hard = 0,
+        Fresnel = 1,
+        PosToLight = 2,
+        LightToPos = 3
+    };
+
+    FALCOR_ENUM_INFO(ShadowTest, {
+        {ShadowTest::Hard, "Hard"},
+        {ShadowTest::Fresnel, "Fresnel"},
+        {ShadowTest::PosToLight, "Position to Light"},
+        {ShadowTest::LightToPos, "Light to Position"},
+    });
+
+
     FALCOR_PLUGIN_CLASS(GlassTracer, "GlassTracer", "Path Tracer specialized for noise-free glass rendering");
 
     enum class OpticalFlowTechnique : uint32_t
@@ -115,6 +131,8 @@ public:
         return res;
     }
 private:
+
+    ShadowTest mShadowTest = ShadowTest::LightToPos;
 
     void setupProgram();
     // returns true if at least one material was whitelisted (or scene was invalid)
@@ -185,3 +203,4 @@ private:
 FALCOR_ENUM_REGISTER(GlassTracer::RenderScale);
 FALCOR_ENUM_REGISTER(GlassTracer::MotionVector);
 FALCOR_ENUM_REGISTER(GlassTracer::OpticalFlowTechnique);
+FALCOR_ENUM_REGISTER(GlassTracer::ShadowTest);

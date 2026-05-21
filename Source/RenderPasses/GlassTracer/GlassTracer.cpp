@@ -263,6 +263,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     mpProgram->addDefine("IGNORE_NORMAL_DIFFS", mIgnoreNormalDiffs ? "1" : "0");
     mpProgram->addDefine("USE_OPTICAL_FLOW", (mOpticalFlowTechnique != OpticalFlowTechnique::None) ? "1" : "0");
     mpProgram->addDefine("USE_VBUFFER", (mOpticalFlowTechnique != OpticalFlowTechnique::None) ? "1" : "0"); // for now, only write with optical flow. However, could be an additional option later
+    mpProgram->addDefine("SHADOW_TEST", std::to_string(uint32_t(mShadowTest)));
 
     uint3 dispatch = uint3(1);
     dispatch.x = pVbuffer->getWidth();
@@ -387,43 +388,47 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
 
     bool c = false; // changed
 
-    bool prevFirstHit = mMotionVector == MotionVector::FirstHit;
-    c |= widget.dropdown("Motion Vectors", mMotionVector);
-    if (prevFirstHit && mMotionVector != MotionVector::FirstHit)
+    c |= widget.dropdown("Shadow Test", mShadowTest);
+
+    if (auto g = widget.group("Motion Vectors"))
     {
-        mBackupMotionVector = MotionVector::FirstRefractiveHit; // force better backup if possible
+        bool prevFirstHit = mMotionVector == MotionVector::FirstHit;
+        c |= widget.dropdown("Motion Vectors", mMotionVector);
+        if (prevFirstHit && mMotionVector != MotionVector::FirstHit)
+        {
+            mBackupMotionVector = MotionVector::FirstRefractiveHit; // force better backup if possible
+        }
+        if (mMotionVector == MotionVector::FirstHit)
+        {
+            mBackupMotionVector = MotionVector::FirstHit; // enforce valid selection
+        }
+
+        c |= widget.checkbox("Force Motion Vector Calculation", mForceMotionVectorCalculation);
+        widget.tooltip("Forces motion vector calculation even if neither camera nor vertex moved.");
+
+        c |= widget.dropdown("OpticalFlow Technique", mOpticalFlowTechnique);
+        if (mOpticalFlowTechnique != OpticalFlowTechnique::None)
+        {
+            widget.separator();
+
+            Gui::DropdownList backupDropdown = {
+                { uint32_t(GlassTracer::MotionVector::FirstHit), "FirstHit" },
+                { uint32_t(GlassTracer::MotionVector::FirstRefractiveHit), "FirstRefractiveHit" },
+            };
+
+            uint32_t backupSelection = uint32_t(mBackupMotionVector);
+            c |= widget.dropdown("Backup Motion Vector", backupDropdown, backupSelection);
+            mBackupMotionVector = GlassTracer::MotionVector(backupSelection);
+            if (mMotionVector == MotionVector::FirstHit) mBackupMotionVector = MotionVector::FirstHit; // enforce valid selection
+
+            c |= widget.slider("Iterations##1", mOpticalIterations, 1, 20);
+
+            //c |= widget.checkbox("Median Filter Pre-Blur", mUseOpticalMedianPrePass);
+            c |= widget.slider("Bilateral Blur Radius", mOpticalBlurRadius, 0, 100);
+
+            widget.separator();
+        }
     }
-    if (mMotionVector == MotionVector::FirstHit)
-    {
-        mBackupMotionVector = MotionVector::FirstHit; // enforce valid selection
-    }
-    
-    c |= widget.checkbox("Force Motion Vector Calculation", mForceMotionVectorCalculation);
-    widget.tooltip("Forces motion vector calculation even if neither camera nor vertex moved.");
-
-    c |= widget.dropdown("OpticalFlow Technique", mOpticalFlowTechnique);
-    if (mOpticalFlowTechnique != OpticalFlowTechnique::None)
-    {
-        widget.separator();
-
-        Gui::DropdownList backupDropdown = {
-            { uint32_t(GlassTracer::MotionVector::FirstHit), "FirstHit" },
-            { uint32_t(GlassTracer::MotionVector::FirstRefractiveHit), "FirstRefractiveHit" },
-        };
-
-        uint32_t backupSelection = uint32_t(mBackupMotionVector);
-        c |= widget.dropdown("Backup Motion Vector", backupDropdown, backupSelection);
-        mBackupMotionVector = GlassTracer::MotionVector(backupSelection);
-        if (mMotionVector == MotionVector::FirstHit) mBackupMotionVector = MotionVector::FirstHit; // enforce valid selection
-
-        c |= widget.slider("Iterations##1", mOpticalIterations, 1, 20);
-
-        //c |= widget.checkbox("Median Filter Pre-Blur", mUseOpticalMedianPrePass);
-        c |= widget.slider("Bilateral Blur Radius", mOpticalBlurRadius, 0, 100);
-
-        widget.separator();
-    }
-
 
     if (auto g = widget.group("Scene"))
     {
