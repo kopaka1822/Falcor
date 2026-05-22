@@ -487,6 +487,15 @@ bool refractRayCone(inout RayCone rayCone, float3 rayOrg, float3 rayDir, float3 
 // Ray differentials helpers
 // ----------------------------------------------------------------------------
 
+//#define RAY_DIFF_LITE
+
+float3 makeOrthogonalSameLength(float3 P)
+{
+    // pick a helper axis not parallel to P
+    float3 helper = abs(P.x) < abs(P.z) ? float3(1, 0, 0) : float3(0, 0, 1);
+    return normalize(cross(P, helper)) * length(P); // orthogonal with same length
+}
+
 /** Describes a ray differential for texture level-of-detail.
 
     Representing a ray differential based dOdx, dOdy (for ray origin) and dDdx, dDdy (for ray direction).
@@ -494,14 +503,21 @@ bool refractRayCone(inout RayCone rayCone, float3 rayOrg, float3 rayDir, float3 
 struct RayDiff
 {
     float3 dOdx;
-    float3 dOdy;
     float3 dDdx;
+    #ifndef RAY_DIFF_LITE
+    float3 dOdy;
     float3 dDdy;
+    #endif
 
     float3 getdOdx() { return dOdx; }   // These are not super-useful right now, but TODO to add FP16 version later on
-    float3 getdOdy() { return dOdy; }
     float3 getdDdx() { return dDdx; }
+    #ifndef RAY_DIFF_LITE
+    float3 getdOdy() { return dOdy; }
     float3 getdDdy() { return dDdy; }
+    #else // if RAY_DIFF_LITE
+    float3 getdOdy() { return makeOrthogonalSameLength(dOdx); }
+    float3 getdDdy() { return dDdx; }
+    #endif
 
     /** Initializes a ray differential struct.
         \param[in] dOdx The differential ray origin in x.
@@ -512,9 +528,11 @@ struct RayDiff
     __init(float3 dOdx, float3 dOdy, float3 dDdx, float3 dDdy)
     {
         this.dOdx = dOdx;
-        this.dOdy = dOdy;
         this.dDdx = dDdx;
+        #ifndef RAY_DIFF_LITE
+        this.dOdy = dOdy;
         this.dDdy = dDdy;
+        #endif
     }
 
     /** Propagate the ray differential t distances away.
@@ -544,11 +562,11 @@ struct RayDiff
         float3 N = normalize(-D + R);
         float3 dNdx = 0.0; // TODO compute corrrect dN
         float3 dNdy = 0.0;
-        float dDNdx = dot(dDdx, N) + dot(D, dNdx);
-        float dDNdy = dot(dDdy, N) + dot(D, dNdy);
-        float3 ddx = dDdx - 2.0 * (dot(D, N) * dNdx + dDNdx * N);
-        float3 ddy = dDdy - 2.0 * (dot(D, N) * dNdy + dDNdy * N);
-        return RayDiff(dOdx, dOdy, ddx, ddy);
+        float dDNdx = dot(getdDdx(), N) + dot(D, dNdx);
+        float dDNdy = dot(getdDdy(), N) + dot(D, dNdy);
+        float3 ddx = getdDdx() - 2.0 * (dot(D, N) * dNdx + dDNdx * N);
+        float3 ddy = getdDdy() - 2.0 * (dot(D, N) * dNdy + dDNdy * N);
+        return RayDiff(getdOdx(), getdOdy(), ddx, ddy);
     }
 
     RayDiff refract(float3 D, float3 T, float3 N)
@@ -564,9 +582,8 @@ struct RayDiff
         float eta = sqrt(1.0 - NdD * NdD) / sqrt(1.0 - NdT * NdT);
         float mu = eta * NdD - NdT;
 
-
-        float dDNdx = dot(dDdx, N) + dot(D, dNdx);
-        float dDNdy = dot(dDdy, N) + dot(D, dNdy);
+        float dDNdx = dot(getdDdx(), N) + dot(D, dNdx);
+        float dDNdy = dot(getdDdy(), N) + dot(D, dNdy);
 
         float coeff = (eta - (eta * eta * NdD / NdT));
 
@@ -574,10 +591,10 @@ struct RayDiff
         float dmu_dy = coeff * dDNdy;
 
         // Directional differentials for refracted ray
-        float3 ddx = eta * dDdx - (mu * dNdx + dmu_dx * N);
-        float3 ddy = eta * dDdy - (mu * dNdy + dmu_dy * N);
+        float3 ddx = eta * getdDdx() - (mu * dNdx + dmu_dx * N);
+        float3 ddy = eta * getdDdy() - (mu * dNdy + dmu_dy * N);
 
-        return RayDiff(dOdx, dOdy, ddx, ddy);
+        return RayDiff(getdOdx(), getdOdy(), ddx, ddy);
     }
 };
 
