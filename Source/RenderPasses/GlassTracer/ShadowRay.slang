@@ -2,35 +2,31 @@
 #define SHADOW_TEST_HARD 0
 // transmission
 #define SHADOW_TEST_TRANSMIT_FRESNEL 1
-#define SHADOW_TEST_CAUSTIC_POS_TO_LIGHT 2
-#define SHADOW_TEST_CAUSTIC_LIGHT_TO_POS 3
-#define SHADOW_TEST_FINAL_GATHER 4
+#define SHADOW_TEST_TRANSMIT_FRESENL2 2
+#define SHADOW_TEST_CAUSTIC_POS_TO_LIGHT 3
+#define SHADOW_TEST_CAUSTIC_LIGHT_TO_POS 4
+#define SHADOW_TEST_FINAL_GATHER 5
 
 #ifndef SHADOW_TEST
 #define SHADOW_TEST SHADOW_TEST_HARD
 #endif
 
-#define FRESNEL_DEFAULT 0
-#define FRESNEL_MCGUIRE 1
-#define FRESNEL_IMPL 0
 
-float getFresnelTransmission(float3 rayDir, float3 originalRayDir, float3 normal, float eta)
+float getFresnelTransmission(float3 rayDir, float3 normal, float eta)
 {
-    if (FRESNEL_IMPL == FRESNEL_DEFAULT)
-    {
-        // simple fresenl
-        float cosTheta = abs(dot(rayDir, normal));
-        float F0 = pow(abs((1.0 - eta) / (1.0 + eta)), 2.0);
-        float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-        return 1.0 - fresnel;
-    }
-    else
-    {
-        float s = saturate((1.0 / eta - 1.0) / 2.0);                                              // in [0, 1]
-        float g = 2 * saturate(1.0 - pow(abs(dot(normal, originalRayDir)), 128.0 * s * s)) - 1.0; // in [-1, 1]
-        // return 1.0 - g * pow(s, 0.2);                                                             // in [0, 2]
-        return 1.0 / (1.0 + g * pow(s, 0.2));
-    }
+    // simple fresenl
+    float cosTheta = abs(dot(rayDir, normal));
+    float F0 = pow(abs((1.0 - eta) / (1.0 + eta)), 2.0);
+    float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+    return 1.0 - fresnel;
+}
+
+float getMcGuireFresnelTransmission(float3 originalRayDir, float3 normal, float eta)
+{
+    float s = saturate((1.0 / eta - 1.0) / 2.0);                                              // in [0, 1]
+    float g = 2 * saturate(1.0 - pow(abs(dot(normal, originalRayDir)), 128.0 * s * s)) - 1.0; // in [-1, 1]
+    // return 1.0 - g * pow(s, 0.2);                                                             // in [0, 2]
+    return 1.0 / (1.0 + g * pow(s, 0.2));
 }
 
 // P: position on the origin surface
@@ -155,7 +151,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
                 //virtualT *= dot(normal, rayDirOut) / dot(normal, rayDir); // account for shorter ray length
             }
 
-            float transmissionFactor = getFresnelTransmission(rayDir, ray.Direction, normal, eta);
+            float transmissionFactor = getFresnelTransmission(rayDir, normal, eta);
             visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
 
             // ray diff update
@@ -313,7 +309,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
                 //virtualT *= dot(normal, rayDirOut) / dot(normal, rayDir); // account for shorter ray length
             }
 
-            float transmissionFactor = getFresnelTransmission(rayDir, ray.Direction, normal, eta);
+            float transmissionFactor = getFresnelTransmission(rayDir, normal, eta);
             visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
 
             // ray diff update
@@ -364,7 +360,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
 }
 #endif
 
-#if SHADOW_TEST == SHADOW_TEST_TRANSMIT_FRESNEL
+#if SHADOW_TEST == SHADOW_TEST_TRANSMIT_FRESNEL || SHADOW_TEST == SHADOW_TEST_TRANSMIT_FRESENL2
 // deep shadow ray
 float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIndex, RayDiff rdIn)
 {
@@ -414,7 +410,9 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
                 if (rayQuery.CandidateTriangleFrontFace()) eta = 1.0 / eta; // flip ior
                 else rayDir = refract(rayDir, -v.normalW, 1.0 / eta); // pretend ray came from previously refracted direction
 
-                float transmissionFactor = getFresnelTransmission(rayDir, ray.Direction, v.normalW, eta);
+                float transmissionFactor = 1.0;
+                if (SHADOW_TEST == SHADOW_TEST_TRANSMIT_FRESNEL) transmissionFactor = getFresnelTransmission(rayDir, v.normalW, eta);
+                if (SHADOW_TEST == SHADOW_TEST_TRANSMIT_FRESENL2) transmissionFactor = getMcGuireFresnelTransmission(ray.Direction, v.normalW, eta);
                 visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
             }
             else
