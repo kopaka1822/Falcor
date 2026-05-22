@@ -72,7 +72,8 @@ public:
         Hard = 0,
         Fresnel = 1,
         PosToLight = 2,
-        LightToPos = 3
+        LightToPos = 3,
+        FinalGather = 4,
     };
 
     FALCOR_ENUM_INFO(ShadowTest, {
@@ -80,6 +81,7 @@ public:
         {ShadowTest::Fresnel, "Fresnel"},
         {ShadowTest::PosToLight, "Position to Light"},
         {ShadowTest::LightToPos, "Light to Position"},
+        {ShadowTest::FinalGather, "Final Gather"},
     });
 
 

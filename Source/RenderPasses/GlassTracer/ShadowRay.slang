@@ -4,6 +4,7 @@
 #define SHADOW_TEST_TRANSMIT_FRESNEL 1
 #define SHADOW_TEST_CAUSTIC_POS_TO_LIGHT 2
 #define SHADOW_TEST_CAUSTIC_LIGHT_TO_POS 3
+#define SHADOW_TEST_FINAL_GATHER 4
 
 #ifndef SHADOW_TEST
 #define SHADOW_TEST SHADOW_TEST_HARD
@@ -435,6 +436,64 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
 
 #if SHADOW_TEST == SHADOW_TEST_HARD
 // deep shadow ray
+float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIndex, RayDiff rdIn)
+{
+    if (!gEnableShadows) return 1.0;
+    LightData light = gScene.getLight(lightIndex);
+    RayDesc ray;
+    ray.Origin = posW.xyz; // assume posW already offset with computeNewRayOrigin
+    ray.TMin = 0.0;
+    if (light.type == uint(LightType::Point))
+    {
+        ray.Direction = normalize(light.posW - posW.xyz);
+        ray.TMax = distance(light.posW, posW.xyz) - gPointLightClip;
+    }
+    else if (light.type == uint(LightType::Directional))
+    {
+        ray.Direction = -light.dirW;
+        ray.TMax = gScene.camera.data.farZ;
+    }
+
+    float3 visibility = 1.0;
+    float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
+
+    RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> rayQuery;
+    const uint instanceMask = getBestParticleShadowPlane(ray.Direction);
+    uint rayFlags = RAY_FLAG_NONE;
+    if (gShadowTransmissionMultiplier > 0.0) rayFlags |= RAY_FLAG_FORCE_NON_OPAQUE;
+    rayQuery.TraceRayInline(gScene.rtAccel, rayFlags, instanceMask, ray);
+    while (rayQuery.Proceed())
+    {
+        if (rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+        {
+            float t = rayQuery.CandidateTriangleRayT();
+            // alpha test
+            const TriangleHit hit = getCandidateTriangleHit(rayQuery);
+            const uint materialID = gScene.getMaterialID(hit.instanceID);
+            const VertexData v = gScene.getVertexData(hit);
+
+            let material = gScene.materials.getMaterial(materialID);
+            let lod = ExplicitLodTextureSampler(gShadowLodBias);
+            float opacity = material.evalOpacity(gScene.materials, v, lod);
+
+            visibility = visibility * (1.0 - opacity);
+
+            if (all(visibility <= visibilityCutoff))
+                return 0.0;
+        }
+    }
+
+    if (rayQuery.CommittedStatus() != COMMITTED_NOTHING)
+        return 0.0; // hit opaque => occluded
+
+    visibility = saturate((visibility - visibilityCutoff) / (1.0 - visibilityCutoff));
+    return visibility;
+}
+
+#endif
+
+#if SHADOW_TEST == SHADOW_TEST_FINAL_GATHER
+// hard shadow test
 float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIndex, RayDiff rdIn)
 {
     if (!gEnableShadows) return 1.0;
