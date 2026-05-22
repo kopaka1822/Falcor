@@ -105,36 +105,74 @@ bool generateLightSample(inout UniformSampleGenerator sg, out LightSample ls)
     const uint lightCount = gScene.getLightCount();
     const uint selectedLight = min(uint(floor(lightCount * sampleNext1D(sg))), lightCount - 1);
     LightData lightData = gScene.getLight(selectedLight);
-    // Only Point (and Spot) lights are supported
-    if (lightData.type != uint(LightType::Point))
-        return false;
 
-    float spotAngle = lightData.cosOpeningAngle;
-    float2 rndDir = sampleNext2D(sg);   //Random direction variable
-    // Depending on the opening angle, the light is a spot or point light
-    if (lightData.openingAngle < M_2PI) // Spot Light
+    // Support Point (Spot) and Directional lights
+    if (lightData.type == uint(LightType::Point))
     {
-        woLocal = sample_cone(rndDir, spotAngle);
-    } else // Point Light
-    {
-        spotAngle = 0; // Just to be sure
-        woLocal = sample_sphere(rndDir);
+        float spotAngle = lightData.cosOpeningAngle;
+        float2 rndDir = sampleNext2D(sg); // Random direction variable
+        // Depending on the opening angle, the light is a spot or point light
+        if (lightData.openingAngle < M_2PI) // Spot Light
+        {
+            woLocal = sample_cone(rndDir, spotAngle);
+        } else // Point Light
+        {
+            spotAngle = 0; // Just to be sure
+            woLocal = sample_sphere(rndDir);
+        }
+        float invLightPdf = M_2PI * (1.0 - spotAngle);
+        ls.normal = lightData.dirW;
+        ls.posW = lightData.posW;
+        ls.flux = lightData.intensity * invLightPdf;
+        ls.flux *= lightCount; // Inv light select pdf
+
+        // Local to world direction
+        //  Convert direction local -> world
+        float3 bitangent = perp_stark(ls.normal);
+        float3 tangent = cross(bitangent, ls.normal);
+        ls.dirW = woLocal.x * tangent + woLocal.y * bitangent + woLocal.z * ls.normal;
+
+        // Divide by number of light paths
+        ls.flux /= gLightPaths;
+        return true;
     }
-    float invLightPdf = M_2PI * (1.0 - spotAngle);
-    ls.normal = lightData.dirW;
-    ls.posW = lightData.posW;
-    ls.flux = lightData.intensity * invLightPdf;
-    ls.flux *= lightCount;               //Inv light select pdf
+    else if (lightData.type == uint(LightType::Directional))
+    {
+        // For directional lights, all rays have the same direction
+        ls.dirW = lightData.dirW;
+        ls.normal = lightData.dirW;
 
-    // Local to world direction
-    //  Convert direction local -> world
-    float3 bitangent = perp_stark(ls.normal);
-    float3 tangent = cross(bitangent, ls.normal);
-    ls.dirW = woLocal.x * tangent + woLocal.y * bitangent + woLocal.z * ls.normal;
+        // Sample a random position on a plane perpendicular to the light direction
+        // Use the camera position and far plane to define a bounding sphere
+        float3 sceneCenter = gScene.camera.getPosition();
+        float sceneRadius = gScene.camera.data.farZ;
 
-    // Divide by number of light paths
-    ls.flux /= gLightPaths;
-    return true;
+        // Create a plane perpendicular to light direction at scene center
+        float3 planeOrigin = sceneCenter - lightData.dirW * sceneRadius;
+
+        // Create tangent frame for sampling positions on the plane
+        float3 tangent = normalize(perp_stark(lightData.dirW));
+        float3 bitangent = normalize(cross(lightData.dirW, tangent));
+
+        // Sample a point in a circle with radius sceneRadius
+        float2 rnd = sampleNext2D(sg);
+        float r = sceneRadius * sqrt(rnd.x);
+        float theta = M_2PI * rnd.y;
+        float2 offset = r * float2(cos(theta), sin(theta));
+
+        ls.posW = planeOrigin + offset.x * tangent + offset.y * bitangent;
+
+        // Flux for directional light: intensity * area of sampling disc
+        float samplingArea = M_PI * sceneRadius * sceneRadius;
+        ls.flux = lightData.intensity * samplingArea;
+        ls.flux *= lightCount; // Inv light select pdf
+        ls.flux /= gLightPaths;
+
+        return true;
+    }
+
+    // Unsupported light type
+    return false;
 }
 
 [shader("miss")]
