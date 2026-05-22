@@ -207,6 +207,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     if (useCaustics)
     {
         prepareCausticResources(pRenderContext, renderData);
+        traceCausticsPass(pRenderContext, renderData);
     }
 
     // copy resources from last frames before being overwritten
@@ -616,5 +617,113 @@ void GlassTracer::prepareCausticResources(RenderContext* pRenderContext, const R
 
     //Light Sampler
     auto& pLights = mpScene->getLightCollection(pRenderContext); //Make sure lights are up to date
+}
+
+void GlassTracer::traceCausticsPass(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    FALCOR_PROFILE(pRenderContext, "TraceCaustics");
+
+    //Init Shader
+    if (!mCausticProgram)
+    {
+        RtProgram::Desc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderTraceCaustics);
+        desc.setMaxPayloadSize(sizeof(uint) * 4);
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1);
+        if (!mpScene->hasProceduralGeometry())
+            desc.setPipelineFlags(RtPipelineFlags::SkipProceduralPrimitives);
+
+        mCausticBindingTable = RtBindingTable::create(1, 1, mpScene->getGeometryCount());
+        auto& sbt = mCausticBindingTable;
+        sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
+        sbt->setMiss(0, desc.addMiss("miss"));
+
+        if (mpScene->hasGeometryType(Scene::GeometryType::TriangleMesh))
+        {
+            sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
+        }
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add("USE_ADAPTIVE_PHOTON_RADIUS", photonUseAdaptiveRadius ? "1" : "0");
+
+        mCausticProgram = RtProgram::create(mpDevice, desc, defines);
+    }
+
+    //Runtime defines
+    mCausticProgram->addDefine("USE_ADAPTIVE_PHOTON_RADIUS", photonUseAdaptiveRadius ? "1" : "0");
+
+    // Program Vars
+    if (!mCausticVars)
+    {
+        assert(mCausticProgram);
+        // Configure program.
+        mCausticProgram->addDefines(mpSampleGenerator->getDefines());
+        mCausticProgram->setTypeConformances(mpScene->getTypeConformances());
+        // Create program variables for the current program.
+        // This may trigger shader compilation. If it fails, throw an exception to abort rendering.
+        mCausticVars = RtProgramVars::create(mpDevice, mCausticProgram, mCausticBindingTable);
+
+        // Bind utility classes into shared data.
+        auto var = mCausticVars->getRootVar();
+        mpSampleGenerator->setShaderData(var);
+    }
+
+    FALCOR_ASSERT(mCausticVars);
+    auto var = mCausticVars->getRootVar();
+    mpScene->setRaytracingShaderData(pRenderContext, var);
+
+    uint lightPathsSq = static_cast<uint>(std::floor(std::sqrt(lightPaths)));
+    uint3 dispatchDims = uint3(lightPathsSq, lightPathsSq, 1u);
+
+    
+    //Approximated pixel diagonal at length 1 for adaptive photon radius
+    float approxPixelDiagonal = 0.f;
+    if (photonUseAdaptiveRadius)
+    {
+        // Update Image plane distance
+        auto& cameraData = mpScene->getCamera()->getData();
+        // Get normalized pixel area
+        float h = cameraData.frameHeight / cameraData.focalLength; //Normalized Frame height
+        float w = h * cameraData.aspectRatio;
+        float wPix = w / renderData.getDefaultTextureDims().x;
+        float hPix = h / renderData.getDefaultTextureDims().y;
+
+        approxPixelDiagonal = sqrt((wPix * wPix) + (hPix * hPix));
+    }
+
+    var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gLightPaths"] = dispatchDims.x * dispatchDims.y;
+    var["CB"]["gRoughnessThreshold"] = mRoughnessCutoff; //mOptions.causticRoughnessThreshold;
+    var["CB"]["gMaxPathLength"] = mPathLength; //mOptions.maxPathLength;
+    var["CB"]["gDiffuseBounces"] = 0;
+
+    var["CB"]["gPhotonRadius"] = photonUseAdaptiveRadius ? photonAdaptiveRadius : photonRadius;
+    var["CB"]["gNormalizedPixelDiagonal"] = approxPixelDiagonal;
+
+    var["gCausticData"] = mpCausticsData;
+    var["gCausticAABB"] = mpCausticAABB;
+    var["gCounter"] = mpCounter;
+
+    mpScene->raytrace(pRenderContext, mCausticProgram.get(), mCausticVars, dispatchDims);
+
+    //
+    //Build the AS for that frame
+    //
+
+    //Clear values after the counter
+    mpPhotonAS->clearAABBBuffers(pRenderContext, mpCausticAABB, true, mpCounter); //Clears unused slots (Works as counter uses slot 0)
+
+    // Copy the PhotonCounter to a CPU Buffer (asynchronous, read GPU value can be a couple of frames old)
+    pRenderContext->copyBufferRegion(mpCounterCPU.get(), 0, mpCounter.get(), 0, sizeof(uint));
+    void* data = mpCounterCPU->map(Buffer::MapType::Read);
+    std::memcpy(&mCausticsStored, data, sizeof(uint));
+    mpCounterCPU->unmap();
+
+    //Build acceleration structure
+    uint currentPhotons = mFrameCount > 0 ? uint(mCausticsStored * photonASBuildBufferOverestimate) : lightBufferSize;
+    uint photonBuildSize = std::min(lightBufferSize, currentPhotons);
+    mpPhotonAS->update(pRenderContext, photonBuildSize);
 }
 

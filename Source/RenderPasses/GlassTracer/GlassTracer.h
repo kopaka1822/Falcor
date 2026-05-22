@@ -141,7 +141,7 @@ private:
     // returns true if at least one material was whitelisted (or scene was invalid)
     bool updateWhitelistBuffer();
     void prepareCausticResources(RenderContext* pRenderContext, const RenderData& renderData);
-    void traceCausticsPass();
+    void traceCausticsPass(RenderContext* pRenderContext, const RenderData& renderData);
 
     ref<Scene> mpScene;
 
@@ -211,15 +211,19 @@ private:
     // more options:
     uint lightPaths = 1000000;      //Number of light paths generated
     uint lightBufferSize = 1000000; //Size of the buffer
+    bool photonUseAdaptiveRadius = true;
+    float photonAdaptiveRadius = 2.f; //Pixel Size scale for adptive radius
+    float photonRadius = 0.002f;   // Fixed World Space Radius
+    float photonASBuildBufferOverestimate = 1.15f; // Guard percentage for AS building (Uses (delayed) CPU Photon Counter to estimate)
     // caustic resources
     ref<Buffer> mpCausticsData;         //Contains all backprojected caustic data
     ref<Buffer> mpCounter;              //Global counter buffer
     ref<Buffer> mpCounterCPU;           //Global counter buffer CPU read copy
     ref<Buffer> mpCausticAABB;          //For Acceleration Structure Collection
     // caustic shader
-    ref<RtProgram> pCausticProgram;
-    ref<RtBindingTable> pCausticBindingTable;
-    ref<RtProgramVars> pCauticVars;
+    ref<RtProgram> mCausticProgram;
+    ref<RtBindingTable> mCausticBindingTable;
+    ref<RtProgramVars> mCausticVars;
 
     bool mOptionsChanged = true;
 };

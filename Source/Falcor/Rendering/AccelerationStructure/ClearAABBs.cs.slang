@@ -23,7 +23,7 @@ void main(uint thdID: SV_DispatchThreadID)
     }
     if (aabbIdx >= gMax)
         return;
-    AABB aabb = {};
+    AABB aabb = {0.0, 0.0};
     aabb.invalidate();
     if(gClearToNaN)
         aabb.minPoint.x = 0.0 / 0.0;
