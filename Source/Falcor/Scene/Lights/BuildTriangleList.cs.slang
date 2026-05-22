@@ -49,7 +49,7 @@ void buildTriangleList(uint3 DTid : SV_DispatchThreadID)
 {
     if (DTid.x >= gTriangleCount) return;
 
-    const GeometryInstanceID instanceID = { gInstanceID };
+    const GeometryInstanceID instanceID = { gInstanceID, 0 };
     const uint triangleIndex = DTid.x; // Triangle index in current mesh.
     const uint triIdx = gTriangleOffset + triangleIndex;
     const uint vtxIdx = triIdx * 3; // The emissive triangle list is non-indexed.

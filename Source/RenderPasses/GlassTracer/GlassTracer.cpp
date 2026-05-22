@@ -55,6 +55,8 @@ namespace
     const std::string kOpticalBlurFile = "RenderPasses/GlassTracer/OpticalFlowBlur.cs.slang";
     const std::string kOpticalMedianFile = "RenderPasses/GlassTracer/OpticalFlowMedian.cs.slang";
 
+    const std::string kShaderTraceCaustics = "RenderPasses/GlassTracer/TraceCaustics.rt.slang";
+
     const std::string kUseWhitelist = "useWhitelist";
     const std::string kWhitelist = "whitelist";
     const std::string kWhitelistBuffer = "whitelistBuffer"; // GPU Buffer for whitelist
@@ -155,6 +157,8 @@ void GlassTracer::compile(RenderContext* pRenderContext, const CompileData& comp
     uint2 dims = getRenderSize(compileData.defaultTexDims, mRenderScale);
     auto tmpFbo = Fbo::create2D(mpDevice, dims.x, dims.y, ResourceFormat::RGBA32Float);
     mpVbufferToPosGraph->onResize(tmpFbo.get());
+
+    mResetCausticBuffers = true;
 }
 
 void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -196,6 +200,13 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     {
         pRenderContext->clearTexture(pColor.get(), float4(0, 0, 0, 0));
         return;
+    }
+
+    bool useCaustics = mShadowTest == ShadowTest::FinalGather;
+
+    if (useCaustics)
+    {
+        prepareCausticResources(pRenderContext, renderData);
     }
 
     // copy resources from last frames before being overwritten
@@ -547,5 +558,63 @@ void GlassTracer::setupProgram()
 bool GlassTracer::updateWhitelistBuffer()
 {
     return updateWhitelist(mpDevice, mpScene, mTransparencyWhitelist, mpTransparencyWhitelist);
+}
+
+void GlassTracer::prepareCausticResources(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    static const uint kCounterCount = 1;
+
+    //Reset Textures
+    if (mResetCausticBuffers)
+    {
+        mpCausticsData.reset();
+        mpCausticAABB.reset();
+        mpPhotonAS.reset();
+        mResetCausticBuffers = false;
+    }
+
+    if (!mpCausticsData)
+    {
+        mpCausticsData = Buffer::createStructured(mpDevice, sizeof(uint) * 12, lightBufferSize,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource,
+            Buffer::CpuAccess::None, nullptr, false);
+        mpCausticsData->setName("CausticRenderer:CausticData");
+    }
+
+    if (!mpCausticAABB)
+    {
+        mpCausticAABB = Buffer::createStructured(mpDevice, sizeof(AABB), lightBufferSize,
+            ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
+            Buffer::CpuAccess::None, nullptr, false);
+        mpCausticAABB->setName("CausticRenderer:CausticAABB");
+    }
+
+    if (!mpCounter)
+    {
+        mpCounter = Buffer::createStructured(mpDevice, sizeof(uint), kCounterCount,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource,
+            Buffer::CpuAccess::None, nullptr, false);
+        mpCounter->setName("CausticRenderer:GlobalCounter");
+    }
+
+    if (!mpCounterCPU)
+    {
+        mpCounterCPU = Buffer::createStructured(mpDevice, sizeof(uint), kCounterCount,
+            ResourceBindFlags::None,
+            Buffer::CpuAccess::Read, nullptr, false);
+        mpCounterCPU->setName("CausticRenderer:GlobalCounterCPURead");
+    }
+
+    // Create the Photon Acceleration Structure
+    if (!mpPhotonAS)
+    {
+        mpPhotonAS = std::make_unique<CustomAccelerationStructure>(
+            mpDevice, lightBufferSize, mpCausticAABB->getGpuAddress(), CustomAccelerationStructure::BuildMode::FastBuild,
+            CustomAccelerationStructure::UpdateMode::None
+        );
+    }
+
+    //Light Sampler
+    auto& pLights = mpScene->getLightCollection(pRenderContext); //Make sure lights are up to date
 }
 

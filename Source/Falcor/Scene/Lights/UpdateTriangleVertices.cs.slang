@@ -52,7 +52,7 @@ void updateTriangleVertices(uint3 DTid : SV_DispatchThreadID)
     uint lightIdx = gTriangleData[triIdx].lightIdx;
     const MeshLightData meshData = gMeshData[lightIdx];
 
-    GeometryInstanceID instanceID = { meshData.instanceID };
+    GeometryInstanceID instanceID = { meshData.instanceID, 0 };
     uint triangleIndex = triIdx - meshData.triangleOffset; // Local triangle index in the mesh
 
     // Load triangle data.

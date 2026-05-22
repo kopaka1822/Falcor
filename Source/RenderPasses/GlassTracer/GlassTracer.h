@@ -140,6 +140,8 @@ private:
     void setupProgram();
     // returns true if at least one material was whitelisted (or scene was invalid)
     bool updateWhitelistBuffer();
+    void prepareCausticResources(RenderContext* pRenderContext, const RenderData& renderData);
+    void traceCausticsPass();
 
     ref<Scene> mpScene;
 
@@ -202,6 +204,22 @@ private:
 
     // caustics resources
     std::unique_ptr<CustomAccelerationStructure> mpPhotonAS;
+    bool mResetCausticBuffers = false;  //Reset Caustic buffers
+    uint mCausticsStored = 0;       //Number of caustic stored
+    double mCausticStoredIntervallCounter = 0.0;    //Smooth counter data.
+    uint mCausticStoredFrameCount = 0;              //Number of frames used for the smooth
+    // more options:
+    uint lightPaths = 1000000;      //Number of light paths generated
+    uint lightBufferSize = 1000000; //Size of the buffer
+    // caustic resources
+    ref<Buffer> mpCausticsData;         //Contains all backprojected caustic data
+    ref<Buffer> mpCounter;              //Global counter buffer
+    ref<Buffer> mpCounterCPU;           //Global counter buffer CPU read copy
+    ref<Buffer> mpCausticAABB;          //For Acceleration Structure Collection
+    // caustic shader
+    ref<RtProgram> pCausticProgram;
+    ref<RtBindingTable> pCausticBindingTable;
+    ref<RtProgramVars> pCauticVars;
 
     bool mOptionsChanged = true;
 };
