@@ -107,6 +107,11 @@ float3 evalAnalytic(uint2 pixel, const ShadingData sd, const IMaterialInstance m
             color += unshadowed * shadow;
         }
     }
+
+    // do final gather based on shadow method
+    #if SHADOW_TEST == SHADOW_TEST_FINAL_GATHER
+    color += photonRadianceEstimate(sd, mi, sd.getOrientedFaceNormal(), sg);
+    #endif
     return gAnalyticIntensity * color;
 }
 
