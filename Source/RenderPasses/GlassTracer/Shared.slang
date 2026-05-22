@@ -20,6 +20,12 @@ import Utils.Sampling.Pseudorandom.Xoshiro;
 import Utils.Sampling.Pseudorandom.SplitMix64;
 import Utils.Math.BitTricks;
 
+// caustic visualization
+import StructsAndFunctions;
+RaytracingAccelerationStructure gPhotonAS;
+StructuredBuffer<CausticData> gCausticData;
+StructuredBuffer<AABB> gCausticAABB;
+
 RWTexture2DArray<float4> gDebugTex;
 
 #define MVEC_FIRST_HIT 0

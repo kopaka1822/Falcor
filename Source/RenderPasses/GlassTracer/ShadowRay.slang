@@ -548,4 +548,47 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
     return visibility;
 }
 
+bool hitSphere(const float3 center, const float radius, const float3 p)
+{
+    float3 radiusTest = p - center;
+    return dot(radiusTest, radiusTest) < radius * radius;
+}
+
+// photon radiance estimate for final gather
+float3 photonRadianceEstimate(ShadingData sd, IMaterialInstance mi, float3 N, inout UniformSampleGenerator sg)
+{
+    float3 outColor = float3(0);
+
+    // Prepare ray
+    RayDesc ray;
+    ray.Origin = sd.posW;
+    ray.Direction = sd.faceN;
+    ray.TMin = 0;
+    ray.TMax = 1e-10; // Small constant
+
+    RayQuery<RAY_FLAG_NONE> rayQuery;
+    rayQuery.TraceRayInline(gPhotonAS, RAY_FLAG_NONE, 0xFF, ray);
+    while (rayQuery.Proceed()) {
+
+        if (rayQuery.CandidateType() != CANDIDATE_PROCEDURAL_PRIMITIVE)
+            continue;
+        const uint primIdx = rayQuery.CandidatePrimitiveIndex();
+
+        // Check if ray is inside photon radius
+        AABB photonAABB = gCausticAABB[primIdx];
+        float radius = (photonAABB.maxPoint.x - photonAABB.minPoint.x) / 2.0;
+        if (!hitSphere(photonAABB.center(), radius, sd.posW))
+            continue;
+
+        CausticData cd = gCausticData[primIdx];
+        float NdotL = dot(-cd.wi, N);
+
+        float3 bsdf = mi.eval(sd, -cd.wi, sg);
+        float3 photonRadiance = max(0, (cd.flux * bsdf) / (M_PI * radius * radius * NdotL)); // NdotL needs to be taken out of the bsdf for Photon Mapping
+        outColor += photonRadiance;
+    }
+
+    return outColor;
+}
+
 #endif

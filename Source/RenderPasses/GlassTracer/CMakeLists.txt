@@ -9,6 +9,8 @@ target_sources(GlassTracer PRIVATE
     OpticalFlowBlur.cs.slang
     OpticalFlowMedian.cs.slang
     ShadowRay.slang
+    StructsAndFunctions.slang
+    TraceCaustics.rt.slang
 )
 
 target_copy_shaders(GlassTracer RenderPasses/GlassTracer)
