@@ -208,6 +208,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     {
         prepareCausticResources(pRenderContext, renderData);
         traceCausticsPass(pRenderContext, renderData);
+        pRenderContext->clearUAV(mpCounter->getUAV(0).get(), uint4(0));
     }
 
     // copy resources from last frames before being overwritten
@@ -240,6 +241,11 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["gTransparencyWhitelist"] = mpTransparencyWhitelist;
     var["gLastRayDir"] = pLastRayDir;
     var["gLocalPathLength"] = pLocalPathLength;
+    // caustic buffers
+    var["gCausticData"] = mpCausticsData;
+    var["gCausticAABB"] = mpCausticAABB;
+    if(mpPhotonAS) mpPhotonAS->bindTlas(var, "gPhotonAS");
+    
 
     if (pDebug)
     {
