@@ -30,6 +30,7 @@
 #include "RenderGraph/RenderPass.h"
 #include "Utils/SampleGenerators/HaltonSamplePattern.h"
 #include "../DitherVBuffer/TransparencyWhitelist.h"
+#include "Rendering/AccelerationStructure/CustomAccelerationStructure.h"
 
 using namespace Falcor;
 
@@ -198,6 +199,9 @@ private:
 
     bool mUseTextureLOD = true;
     float mTextureLodBias = -1.0f;
+
+    // caustics resources
+    std::unique_ptr<CustomAccelerationStructure> mpPhotonAS;
 
     bool mOptionsChanged = true;
 };
