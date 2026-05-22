@@ -408,6 +408,26 @@ void GlassTracer::renderUI(Gui::Widgets& widget)
 
     c |= widget.dropdown("Shadow Test", mShadowTest);
 
+    if(mShadowTest == ShadowTest::FinalGather)
+        if (auto g = widget.group("Caustic Photons"))
+        {
+            c |= g.var("Light Paths", lightPaths, 32u, UINT_MAX, 1u);
+            mResetCausticBuffers |= g.var("Caustic Buffer Size", lightBufferSize, 32u, UINT_MAX, 1u);
+            g.text("Stored Caustics: " + std::to_string(mCausticsStored));
+
+            g.checkbox("Use Adaptive Radius", photonUseAdaptiveRadius);
+            if (photonUseAdaptiveRadius)
+            {
+                c |= g.var("Adaptive Scale (Global/Caustic)", photonAdaptiveRadius, 0.f, FLT_MAX, 0.0001f);
+            }
+            else
+            {
+                c |= g.var("Radius (Global/Caustic)", photonRadius, 0.f, FLT_MAX, 0.000001f, false, "%.6f");
+            }
+            //g.var("Acceleration Structure Build Overestimate", photonASBuildBufferOverestimate, 1.f, FLT_MAX, 0.001f);
+            //g.tooltip("Percentage the CPU photon count value (which is delayed by 1-3 frames) is overestimated to improve acceleration structure build time.");
+        }
+
     if (auto g = widget.group("Motion Vectors"))
     {
         bool prevFirstHit = mMotionVector == MotionVector::FirstHit;
