@@ -708,6 +708,10 @@ void GlassTracer::traceCausticsPass(RenderContext* pRenderContext, const RenderD
     var["CB"]["gPhotonRadius"] = photonUseAdaptiveRadius ? photonAdaptiveRadius : photonRadius;
     var["CB"]["gNormalizedPixelDiagonal"] = approxPixelDiagonal;
 
+    // scene bounding box for dir lights
+    var["CB"]["gSceneBBMin"] = mpScene->getSceneBounds().minPoint;
+    var["CB"]["gSceneBBMax"] = mpScene->getSceneBounds().maxPoint;
+
     var["gCausticData"] = mpCausticsData;
     var["gCausticAABB"] = mpCausticAABB;
     var["gCounter"] = mpCounter;

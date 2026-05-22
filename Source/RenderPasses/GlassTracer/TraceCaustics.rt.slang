@@ -19,6 +19,9 @@ cbuffer CB
 
     float gPhotonRadius;           // Caustic Photon radius
     float gNormalizedPixelDiagonal; // Approximated pixel diagonal at distance 1
+
+    float3 gSceneBBMin;
+    float3 gSceneBBMax;
 }
 
 RWStructuredBuffer<CausticData> gCausticData;
@@ -144,8 +147,10 @@ bool generateLightSample(inout UniformSampleGenerator sg, out LightSample ls)
 
         // Sample a random position on a plane perpendicular to the light direction
         // Use the camera position and far plane to define a bounding sphere
-        float3 sceneCenter = gScene.camera.getPosition();
-        float sceneRadius = gScene.camera.data.farZ;
+        // float3 sceneCenter = gScene.camera.getPosition();
+        // float sceneRadius = gScene.camera.data.farZ;
+        float3 sceneCenter = (gSceneBBMin + gSceneBBMax) * 0.5;
+        float sceneRadius = length(gSceneBBMax - gSceneBBMin) * 0.5;
 
         // Create a plane perpendicular to light direction at scene center
         float3 planeOrigin = sceneCenter - lightData.dirW * sceneRadius;
