@@ -368,7 +368,7 @@ void rayGen()
                 curVBuffer.posDiff = 0.0;
                 #else
                 let posDiffRd = s.rd.propagate(s.rayDir, ray.TMax, s.rayDir);
-                curVBuffer.posDiff = max(length(posDiffRd.dOdx), length(posDiffRd.dOdy));
+                curVBuffer.posDiff = max(length(posDiffRd.getdOdx()), length(posDiffRd.getdOdy()));
                 #endif
                 #endif
             }
@@ -403,9 +403,9 @@ void rayGen()
         #else
         // transfer rd to surface
         let posDiffRd = s.rd.propagate(s.rayDir, distance(s.rayOrigin, v.posW), s.rayDir);
-        float posDiff = max(length(posDiffRd.dOdx), length(posDiffRd.dOdy));
+        float posDiff = max(length(posDiffRd.getdOdx()), length(posDiffRd.getdOdy()));
         s.rd = s.rd.propagate(s.rayDir, distance(s.rayOrigin, v.posW), v.faceNormalW);
-        // float posDiff = max(length(s.rd.dOdx), length(s.rd.dOdy));
+        // float posDiff = max(length(s.rd.getdOdx()), length(s.rd.getdOdy()));
         float2 dUVdx, dUVdy;
         prepareRayDiffAtHitPoint(v, tri.triangleVertices, barycentrics, s.rayDir,
             gScene.getWorldMatrix(triangleHit.instanceID), gScene.getInverseTransposeWorldMatrix(triangleHit.instanceID),

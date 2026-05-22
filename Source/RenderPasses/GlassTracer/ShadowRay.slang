@@ -67,22 +67,22 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
         TMax = distance(light.posW, posW.xyz);
         ray.TMax = TMax - gPointLightClip;
 
-        float3 dDdx = computeDDforLight(posW, light.posW, rdIn.dOdx);
-        float3 dDdy = computeDDforLight(posW, light.posW, rdIn.dOdy);
-        rd = RayDiff(rdIn.dOdx, rdIn.dOdy, dDdx, dDdy);
+        float3 dDdx = computeDDforLight(posW, light.posW, rdIn.getdOdx());
+        float3 dDdy = computeDDforLight(posW, light.posW, rdIn.getdOdy());
+        rd = RayDiff(rdIn.getdOdx(), rdIn.getdOdy(), dDdx, dDdy);
     }
     else if (light.type == uint(LightType::Directional))
     {
         ray.Direction = -light.dirW;
         ray.TMax = TMax = gScene.camera.data.farZ;
 
-        float3 dPdx = computeDPDirLight(ray.Direction, rdIn.dOdx);
-        float3 dPdy = computeDPDirLight(ray.Direction, rdIn.dOdy);
+        float3 dPdx = computeDPDirLight(ray.Direction, rdIn.getdOdx());
+        float3 dPdy = computeDPDirLight(ray.Direction, rdIn.getdOdy());
         rd = RayDiff(dPdx, dPdy, float3(0.f), float3(0.f));
     }
 
     // calc reference ray diff
-     float areaRefDiff = length(cross(rdIn.dOdx, rdIn.dOdy));
+     float areaRefDiff = length(cross(rdIn.getdOdx(), rdIn.getdOdy()));
 
     float3 visibility = 1.0;
     float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
@@ -170,10 +170,10 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
             normals[1] = lerp(normals[1], normalize(unnormalizedN), normalLerp);
             normals[2] = lerp(normals[2], normalize(unnormalizedN), normalLerp);
             float posFac = 1.0; // this affects the size of the caustic
-            // rd.dOdx *= posFac; rd.dOdy *= posFac;
+            // rd.getdOdx() *= posFac; rd.getdOdy() *= posFac;
             dBarydx *= posFac; dBarydy *= posFac;
             refractRayDifferential(rd, rayDir, unnormalizedN, normalize(unnormalizedN), dBarydx, dBarydy, normals, eta, rayDirOut);
-            //rd.dOdx /= posFac; rd.dOdy /= posFac;
+            //rd.getdOdx() /= posFac; rd.getdOdy() /= posFac;
             
         }
         else
@@ -189,8 +189,8 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
 
     // actual ray diff
     rd = rd.propagate(rayDirOut, finalT, -ray.Direction);
-    float areaActualDiff = length(cross(rd.dOdx + rdIn.dOdx, rd.dOdy + rdIn.dOdy));
-    //float areaActualDiff = length(cross(removeAxis(rd.dOdx - rdIn.dOdx, ray.Direction), removeAxis(rd.dOdy - rdIn.dOdy, ray.Direction)));
+    float areaActualDiff = length(cross(rd.getdOdx() + rdIn.getdOdx(), rd.getdOdy() + rdIn.getdOdy()));
+    //float areaActualDiff = length(cross(removeAxis(rd.getdOdx() - rdIn.getdOdx(), ray.Direction), removeAxis(rd.getdOdy() - rdIn.getdOdy(), ray.Direction)));
 
     float rayIntensity = areaRefDiff / areaActualDiff;
     //  rayIntensity = 1.0;
@@ -221,8 +221,8 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
         ray.Direction = normalize(posW.xyz - light.posW); // light -> pos
         ray.TMax = distance(light.posW, posW.xyz);        // assume posW already offset with computeNewRayOrigin
 
-        float3 dDdx = -computeDDforLight(posW, light.posW, rdIn.dOdx);
-        float3 dDdy = -computeDDforLight(posW, light.posW, rdIn.dOdy);
+        float3 dDdx = -computeDDforLight(posW, light.posW, rdIn.getdOdx());
+        float3 dDdy = -computeDDforLight(posW, light.posW, rdIn.getdOdy());
         rd = RayDiff(float3(0.f), float3(0.f), dDdx, dDdy);
     }
     else if (light.type == uint(LightType::Directional))
@@ -232,15 +232,15 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
         ray.Direction = light.dirW;
         ray.TMax = gScene.camera.data.farZ;
 
-        float3 dPdx = computeDPDirLight(ray.Direction, rdIn.dOdx);
-        float3 dPdy = computeDPDirLight(ray.Direction, rdIn.dOdy);
+        float3 dPdx = computeDPDirLight(ray.Direction, rdIn.getdOdx());
+        float3 dPdy = computeDPDirLight(ray.Direction, rdIn.getdOdy());
         rd = RayDiff(dPdx, dPdy, float3(0.f), float3(0.f));
     }
 
     // calc reference ray diff
     // RayDiff refDiff = rd.propagate(ray.Direction, ray.TMax, -ray.Direction);
     // float areaRefDiff = length(cross(refDiff.dOdx, refDiff.dOdy));
-    float areaRefDiff = length(cross(rdIn.dOdx, rdIn.dOdy));
+    float areaRefDiff = length(cross(rdIn.getdOdx(), rdIn.getdOdy()));
 
     float3 visibility = 1.0;
     float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
@@ -314,10 +314,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
 
             // ray diff update
             rd = rd.propagate(rayDir, virtualT, normal);
-            //rd = rd.propagate(rayDir, virtualT, -rayDir);
-            //let rdRef = RayDiff(float3(0.0), float3(0.0), rd.dDdx, rd.dDdy).propagate(ray.Direction, t, -ray.Direction);
 
-            // rd = rd.propagate(rayDir, virtualT, -rayDir);
             float2 dUVdx, dUVdy, dBarydx, dBarydy;
             float3 unnormalizedN;
             float3 normals[3];
@@ -332,8 +329,8 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
             normals[2] = lerp(normals[2], normalize(unnormalizedN), normalLerp);
             // float posFac = 4.0;
             // dBarydx *= posFac; dBarydy *= posFac;
-            //dBarydx *= length(rdRef.dOdx) / length(rd.dOdx);
-            //dBarydy *= length(rdRef.dOdy) / length(rd.dOdy);
+            //dBarydx *= length(rdRef.dOdx) / length(rd.getdOdx());
+            //dBarydy *= length(rdRef.dOdy) / length(rd.getdOdy());
             refractRayDifferential(rd, rayDir, unnormalizedN, normalize(unnormalizedN), dBarydx, dBarydy, normals, eta, rayDirOut);
         }
         else
@@ -348,7 +345,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
 
     // actual ray diff
     rd = rd.propagate(rayDirOut, ray.TMax - lastTMin, faceNormalW);
-    float areaActualDiff = length(cross(rd.dOdx, rd.dOdy));
+    float areaActualDiff = length(cross(rd.getdOdx(), rd.getdOdy()));
 
     // float rayIntensity = areaRef / areaActual;
     float rayIntensity = areaRefDiff / areaActualDiff;
