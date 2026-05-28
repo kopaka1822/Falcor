@@ -1561,7 +1561,7 @@ private:
     std::unique_ptr<AnimationController> mpAnimationController;
 
     // Raytracing data
-    RtGeometryFlags mAdditionalASGeometryFlags = RtGeometryFlags::None; ///< Additional Geometry flag that is used for every pass
+    RtGeometryFlags mAdditionalASGeometryFlags = RtGeometryFlags::NoDuplicateAnyHitInvocation; ///< Additional Geometry flag that is used for every pass
     UpdateMode mTlasUpdateMode = UpdateMode::Rebuild;         ///< How the TLAS should be updated when there are changes in the scene.
     UpdateMode mBlasUpdateMode = UpdateMode::Refit;           ///< How the BLAS should be updated when there are changes to meshes.
     UpdateMode mBlasParticleUpdateMode = UpdateMode::Rebuild; ///< How the particle BLAS should be updated when there are changes to meshes.
