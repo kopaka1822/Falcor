@@ -296,12 +296,36 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
         let lod = ExplicitLodTextureSampler(gShadowLodBias);
         float opacity = material.evalOpacity(gScene.materials, v, lod);
 
+        bool usePhongTess = false;
+
+        float deltaT = t - lastTMin;          // distance travelled since last update
+        if (usePhongTess)
+        {
+            float phongT = t;
+            float2 phongUV = barycentrics.xy;
+            IntersectPhong(ray.Origin, ray.Direction,
+                triangleVertices[0].position, triangleVertices[1].position, triangleVertices[2].position,
+                triangleVertices[0].normal, triangleVertices[1].normal, triangleVertices[2].normal,
+                phongT, phongUV.x, phongUV.y);
+            deltaT = phongT - lastTMin;
+            ray.TMin = t; // update next ray T
+            lastTMin = phongT;
+            //if(t == phongT) return 0.0;
+        } 
+        else
+        {
+            ray.TMin = t; // update next ray T
+            lastTMin = t;
+        }
+
         if (opacity == 1.0 && gShadowTransmissionMultiplier > 0.0) // check transmission
         {
             // hardcoded for good looking visual
             float eta = gScene.materials.getMaterialHeader(materialID).getIoR();
             float3 normal = v.normalW;
-            float virtualT = t - lastTMin;          // distance travelled since last update
+
+            
+
             if (rayQuery.CommittedTriangleFrontFace()) // enter medium
             {
                 eta = 1.0 / eta; // flip ior
@@ -313,14 +337,13 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
                 normal = -normal;
                 rayDirOut = ray.Direction;
                 rayDir = refract(ray.Direction, normal, 1.0 / eta); // pretend ray came from previously refracted direction
-                //virtualT *= dot(normal, rayDirOut) / dot(normal, rayDir); // account for shorter ray length
             }
 
             float transmissionFactor = getFresnelTransmission(rayDir, normal, eta);
             visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
 
             // ray diff update
-            rd = rd.propagate(rayDir, virtualT, normal);
+            rd = rd.propagate(rayDir, deltaT, normal);
 
             float2 dUVdx, dUVdy, dBarydx, dBarydy;
             float3 unnormalizedN;
@@ -335,11 +358,10 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
         else
         {
             visibility = visibility * (1.0 - opacity);
-            rd = rd.propagate(rayDirOut, t - lastTMin, -rayDirOut);
+            rd = rd.propagate(rayDirOut, deltaT, -rayDirOut);
         }
 
-        ray.TMin = t; // update ray T
-        lastTMin = t;
+
     }
 
     // actual ray diff

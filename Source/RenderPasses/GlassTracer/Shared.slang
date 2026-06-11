@@ -276,3 +276,71 @@ float2 CurrentUVJittered()
     uint2 frameDim = DispatchRaysDimensions().xy;
     return (float2(pixel) + 0.5) / frameDim + float2(-gScene.camera.data.jitterX, gScene.camera.data.jitterY);
 }
+
+// Solves A * x = b for a 3x3 matrix whose columns are c0,c1,c2
+float3 SolveLinear3(float3 c0, float3 c1, float3 c2, float3 b)
+{
+    float det = dot(c0, cross(c1, c2));
+
+    // You might want a more robust fallback here
+    if (abs(det) < 1e-8)
+        return float3(0, 0, 0);
+
+    float invDet = 1.0 / det;
+
+    return float3(
+        dot(b, cross(c1, c2)),
+        dot(c0, cross(b, c2)),
+        dot(c0, cross(c1, b))
+    ) * invDet;
+}
+
+// for a ray O + t * D and a triangle P1-P3 with shading normal N1-N3
+void IntersectPhong(float3 O, float3 D, float3 P1, float3 P2, float3 P3, float3 N1, float3 N2, float3 N3, inout float t, inout float u, inout float v)
+{
+    // Flat triangle derivatives
+    float3 Pu = P1 - P3;
+    float3 Pv = P2 - P3;
+
+    // Derivatives of the projected vertices
+    float3 Au = Pu - dot(Pu, N1) * N1;
+    float3 Av = Pv - dot(Pv, N1) * N1;
+
+    float3 Bu = Pu - dot(Pu, N2) * N2;
+    float3 Bv = Pv - dot(Pv, N2) * N2;
+
+    float3 Cu = Pu - dot(Pu, N3) * N3;
+    float3 Cv = Pv - dot(Pv, N3) * N3;
+
+
+    const int iterations = 15;
+
+    for (int i = 0; i < iterations; i++)
+    {
+        float w = 1.0 - u - v;
+        float3 P = u * P1 + v * P2 + w * P3;
+        // tangent plane points
+        float3 Q1 = P - dot(P - P1, N1) * N1;
+        float3 Q2 = P - dot(P - P2, N2) * N2;
+        float3 Q3 = P - dot(P - P3, N3) * N3;
+        // surface point
+        float3 S = u * Q1 + v * Q2 + w * Q3;
+        // derivatvives
+        float3 Su = (Q1 - Q3) + u * Au + v * Bu + w * Cu;
+        float3 Sv = (Q2 - Q3) + u * Av + v * Bv + w * Cv;
+
+        // Residual:
+        // O + tD - S = 0
+        float3 F = O + t * D - S;
+        if (dot(F, F) < 1e-12)
+            break;
+
+        // Jacobian:
+        // [ D  -Su  -Sv ] * delta = -F
+        float3 delta = SolveLinear3(D, -Su, -Sv, -F);
+
+        t += delta.x;
+        u += delta.y;
+        v += delta.z;
+    }
+}
