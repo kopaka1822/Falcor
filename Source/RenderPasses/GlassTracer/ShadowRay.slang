@@ -11,6 +11,10 @@
 #define SHADOW_TEST SHADOW_TEST_HARD
 #endif
 
+// use ray queries for shadow test, otherwise uses dedicated pipeline (dedicated only implemented for light to pos, and significantly slower than ray queries)
+#ifndef SHADOW_TEST_RAY_QUERY
+#define SHADOW_TEST_RAY_QUERY 1
+#endif
 
 float getFresnelTransmission(float3 rayDir, float3 normal, float eta)
 {
@@ -205,6 +209,9 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
 #endif
 
 #if SHADOW_TEST == SHADOW_TEST_CAUSTIC_LIGHT_TO_POS
+
+#if SHADOW_TEST_RAY_QUERY
+
 float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIndex, RayDiff rdIn)
 {
     if (!gEnableShadows) return 1.0;
@@ -322,15 +329,7 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
                                      gScene.getWorldMatrix(hit.instanceID), gScene.getInverseTransposeWorldMatrix(hit.instanceID),
                                      rd, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
             );
-            // normals[0] = normals[1] = normals[2] = normalize(unnormalizedN);
-            float normalLerp = 0.0;
-            normals[0] = lerp(normals[0], normalize(unnormalizedN), normalLerp);
-            normals[1] = lerp(normals[1], normalize(unnormalizedN), normalLerp);
-            normals[2] = lerp(normals[2], normalize(unnormalizedN), normalLerp);
-            // float posFac = 4.0;
-            // dBarydx *= posFac; dBarydy *= posFac;
-            //dBarydx *= length(rdRef.dOdx) / length(rd.getdOdx());
-            //dBarydy *= length(rdRef.dOdy) / length(rd.getdOdy());
+
             refractRayDifferential(rd, rayDir, unnormalizedN, normalize(unnormalizedN), dBarydx, dBarydy, normals, eta, rayDirOut);
         }
         else
@@ -355,6 +354,137 @@ float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIn
     visibility = saturate((visibility - visibilityCutoff) / (1.0 - visibilityCutoff));
     return visibility * rayIntensity;
 }
+
+#else // use shader pipeline w/ LIGHT_TO_POS
+
+float3 traceShadowRay(uint2 pixel, float3 posW, float3 faceNormalW, uint lightIndex, RayDiff rdIn)
+{
+    if (!gEnableShadows) return 1.0;
+    LightData light = gScene.getLight(lightIndex);
+
+    float lastTMin = 0.0; // must start at zero to track proper distance
+    RayDesc ray;
+    RayDiff rd;
+
+    if (light.type == uint(LightType::Point))
+    {
+        ray.TMin = gPointLightClip;
+        ray.Origin = light.posW;
+        ray.Direction = normalize(posW.xyz - light.posW); // light -> pos
+        ray.TMax = distance(light.posW, posW.xyz);        // assume posW already offset with computeNewRayOrigin
+
+        float3 dDdx = -computeDDforLight(posW, light.posW, rdIn.getdOdx());
+        float3 dDdy = -computeDDforLight(posW, light.posW, rdIn.getdOdy());
+        rd = RayDiff(float3(0.f), float3(0.f), dDdx, dDdy);
+    }
+    else if (light.type == uint(LightType::Directional))
+    {
+        ray.TMin = 0.0;
+        ray.Origin = posW.xyz - light.dirW * gScene.camera.data.farZ;
+        ray.Direction = light.dirW;
+        ray.TMax = gScene.camera.data.farZ;
+
+        float3 dPdx = computeDPDirLight(ray.Direction, rdIn.getdOdx());
+        float3 dPdy = computeDPDirLight(ray.Direction, rdIn.getdOdy());
+        rd = RayDiff(dPdx, dPdy, float3(0.f), float3(0.f));
+    }
+
+    // calc reference ray diff
+    // RayDiff refDiff = rd.propagate(ray.Direction, ray.TMax, -ray.Direction);
+    // float areaRefDiff = length(cross(refDiff.dOdx, refDiff.dOdy));
+    float areaRefDiff = length(cross(rdIn.getdOdx(), rdIn.getdOdy()));
+
+    float3 visibility = 1.0;
+    float visibilityCutoff = 0.01; // visibility below this threshold is considered to be zero
+
+    // track last value of in/out ray dir
+    float3 rayDir = ray.Direction;
+    float3 rayDirOut = ray.Direction;
+
+    RayData data;
+    while (any(visibility > visibilityCutoff))
+    {
+        const uint instanceMask = getBestParticleShadowPlane(ray.Direction); // not used
+        TraceRay(gScene.rtAccel, RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES, instanceMask, 0, rayTypeCount, 0, ray, data);
+
+        HitInfo hit = HitInfo(data.hit);
+        if (!hit.isValid())
+            break; // handled all occluders
+        if (hit.getType() != HitType::Triangle)
+            break;
+
+        // handle current occluder
+        TriangleHit triangleHit = hit.getTriangleHit();
+        float3 barycentrics = triangleHit.getBarycentricWeights();
+        StaticVertexData triangleVertices[3];
+        const VertexData v = gScene.getVertexData(triangleHit.instanceID, triangleHit.primitiveIndex, barycentrics, triangleVertices);
+
+        float t = distance(ray.Origin, v.posW) + 1e-6; // add small epsilon to prevent self intersection
+        const uint materialID = gScene.getMaterialID(triangleHit.instanceID);
+        let material = gScene.materials.getMaterial(materialID);
+        let lod = ExplicitLodTextureSampler(gShadowLodBias);
+        float opacity = material.evalOpacity(gScene.materials, v, lod);
+
+        if (opacity == 1.0 && gShadowTransmissionMultiplier > 0.0) // check transmission
+        {
+            // hardcoded for good looking visual
+            float eta = gScene.materials.getMaterialHeader(materialID).getIoR();
+            float3 normal = v.normalW;
+            float virtualT = t - lastTMin; // distance travelled since last update
+            bool frontFace = dot(ray.Direction, v.faceNormalW) < 0.0;
+            if (frontFace) // enter medium
+            {
+                eta = 1.0 / eta; // flip ior
+                rayDir = ray.Direction;
+                rayDirOut = refract(rayDir, normal, eta); // should always work because eta < 1.0
+            }
+            else // exit medium
+            {
+                normal = -normal;
+                rayDirOut = ray.Direction;
+                rayDir = refract(ray.Direction, normal, 1.0 / eta); // pretend ray came from previously refracted direction
+                // virtualT *= dot(normal, rayDirOut) / dot(normal, rayDir); // account for shorter ray length
+            }
+
+            float transmissionFactor = getFresnelTransmission(rayDir, normal, eta);
+            visibility = visibility * material.evalTransmission(gScene.materials, v.texC, lod) * transmissionFactor * gShadowTransmissionMultiplier;
+
+            // ray diff update
+            rd = rd.propagate(rayDir, virtualT, normal);
+
+            float2 dUVdx, dUVdy, dBarydx, dBarydy;
+            float3 unnormalizedN;
+            float3 normals[3];
+            prepareRayDiffAtHitPoint(v, triangleVertices, barycentrics, rayDir,
+                                     gScene.getWorldMatrix(triangleHit.instanceID), gScene.getInverseTransposeWorldMatrix(triangleHit.instanceID),
+                                     rd, unnormalizedN, normals, dBarydx, dBarydy, dUVdx, dUVdy
+            );
+
+            refractRayDifferential(rd, rayDir, unnormalizedN, normalize(unnormalizedN), dBarydx, dBarydy, normals, eta, rayDirOut);
+        }
+        else
+        {
+            visibility = visibility * (1.0 - opacity);
+            rd = rd.propagate(rayDirOut, t - lastTMin, -rayDirOut);
+        }
+
+        ray.TMin = t; // update ray T
+        lastTMin = t;
+    }
+
+    // actual ray diff
+    rd = rd.propagate(rayDirOut, ray.TMax - lastTMin, faceNormalW);
+    float areaActualDiff = length(cross(rd.getdOdx(), rd.getdOdy()));
+
+    // float rayIntensity = areaRef / areaActual;
+    float rayIntensity = areaRefDiff / areaActualDiff;
+    // rayIntensity = 1.0;
+    rayIntensity = pow(rayIntensity, 0.25);
+
+    visibility = saturate((visibility - visibilityCutoff) / (1.0 - visibilityCutoff));
+    return visibility * rayIntensity;
+}
+#endif
 #endif
 
 #if SHADOW_TEST == SHADOW_TEST_TRANSMIT_FRESNEL || SHADOW_TEST == SHADOW_TEST_TRANSMIT_FRESENL2
