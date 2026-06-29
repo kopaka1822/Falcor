@@ -137,6 +137,8 @@ private:
     ref<ComputePass> mpPackRadiancePassRelax;
     ref<ComputePass> mpPackRadiancePassReblur;
     ref<ComputePass> mpPackHitDistOcclusionDiffuse;
+
+    uint2 mLastDim;
 };
 
 FALCOR_ENUM_REGISTER(NRDPass::DenoisingMethod);

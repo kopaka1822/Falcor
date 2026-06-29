@@ -281,7 +281,7 @@ RenderPassReflection NRDPass::reflect(const CompileData& compileData)
     reflector.addInput(kInputNormalRoughnessMaterialID, "World normal, roughness, and material ID");
     reflector.addInput(kInputMotionVectors, "Motion vectors");
 
-    mScreenSize = compileData.defaultTexDims;
+    mLastDim = compileData.defaultTexDims;
     auto firstValid = compileData.connectedResources.getField(kInputDiffuseRadianceHitDist);
     if (!firstValid) firstValid = compileData.connectedResources.getField(kInputSpecularRadianceHitDist);
     if (!firstValid) firstValid = compileData.connectedResources.getField(kInputPenumbra);
@@ -291,9 +291,9 @@ RenderPassReflection NRDPass::reflect(const CompileData& compileData)
     if (!firstValid) firstValid = compileData.connectedResources.getField(kInputNormalRoughnessMaterialID);
     if (!firstValid) firstValid = compileData.connectedResources.getField(kInputMotionVectors);
     if (firstValid)
-        mScreenSize = { firstValid->getWidth(), firstValid->getHeight() };
+        mLastDim = { firstValid->getWidth(), firstValid->getHeight() };
 
-    uint2 sz = mScreenSize;
+    uint2 sz = mLastDim;
 
 
     reflector.addOutput(kOutputFilteredDiffuseRadianceHitDist, "(Normal)Diffuse radiance")
@@ -337,7 +337,7 @@ void NRDPass::compile(RenderContext* pRenderContext, const CompileData& compileD
     if (!firstValid) firstValid = compileData.connectedResources.getField(kInputNormalRoughnessMaterialID);
     if (!firstValid) firstValid = compileData.connectedResources.getField(kInputMotionVectors);
     if (!firstValid) throw std::runtime_error("NRDPass: No valid input connected");
-
+    mScreenSize = mLastDim;
     if(mScreenSize.x != firstValid->getWidth() || mScreenSize.y != firstValid->getHeight())
         throw std::runtime_error("NRDPass: Output size mismatch.");
 
