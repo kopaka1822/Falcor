@@ -328,6 +328,19 @@ RenderPassReflection NRDPass::reflect(const CompileData& compileData)
 
 void NRDPass::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
+    auto firstValid = compileData.connectedResources.getField(kInputDiffuseRadianceHitDist);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputSpecularRadianceHitDist);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputPenumbra);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputDiffuseHitDist);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputSpecularHitDist);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputViewZ);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputNormalRoughnessMaterialID);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputMotionVectors);
+    if (!firstValid) throw std::runtime_error("NRDPass: No valid input connected");
+
+    if(mScreenSize.x != firstValid->getWidth() || mScreenSize.y != firstValid->getHeight())
+        throw std::runtime_error("NRDPass: Output size mismatch.");
+
     mFrameIndex = 0;
     reinit();
 }
@@ -1005,7 +1018,8 @@ void NRDPass::executeInternal(RenderContext* pRenderContext, const RenderData& r
     mCommonSettings.frameIndex = mFrameIndex;
     mCommonSettings.isMotionVectorInWorldSpace = mWorldSpaceMotion;
     if (!mWorldSpaceMotion)
-        mCommonSettings.motionVectorScale[2] = 1.f; //Enable 2.5D motion
+        //mCommonSettings.motionVectorScale[2] = 1.f; //Enable 2.5D motion
+        mCommonSettings.motionVectorScale[2] = 0.f; //Enable 2D motion
     mCommonSettings.resourceSize[0] = mScreenSize.x;
     mCommonSettings.resourceSize[1] = mScreenSize.y;
     mCommonSettings.resourceSizePrev[0] = mScreenSize.x;

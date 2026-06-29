@@ -87,6 +87,18 @@ RenderPassReflection ImageEquation::reflect(const CompileData& compileData)
     return reflector;
 }
 
+void ImageEquation::compile(RenderContext* pRenderContext, const CompileData& compileData)
+{
+    auto firstEq = compileData.connectedResources.getField("I0");
+    if (!firstEq) firstEq = compileData.connectedResources.getField("I1");
+    if (!firstEq) firstEq = compileData.connectedResources.getField("I2");
+    if (!firstEq) firstEq = compileData.connectedResources.getField("I3");
+    if (!firstEq) throw std::runtime_error("ImageEquation: No input image connected");
+
+    if(mLastDim.x != firstEq->getWidth() || mLastDim.y != firstEq->getHeight())
+        throw std::runtime_error("ImageEquation: Output size mismatch");
+}
+
 void ImageEquation::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpPass) // reload shaders if dirty

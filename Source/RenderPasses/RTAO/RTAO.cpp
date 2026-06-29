@@ -86,6 +86,12 @@ RenderPassReflection RTAO::reflect(const CompileData& compileData)
 
 void RTAO::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
+    auto vbuffer = compileData.connectedResources.getField(kWPos);
+    if (!vbuffer) throw std::runtime_error("RTAO: POS input not connected");
+
+    if (mLastDim.x != vbuffer->getWidth() || mLastDim.y != vbuffer->getHeight())
+        throw std::runtime_error("RTAO: Output size mismatch");
+
     mRayProgram.reset();
     mDirty = true;
 }
