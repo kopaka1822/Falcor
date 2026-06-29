@@ -62,4 +62,5 @@ private:
     std::string mFormula;
     ResourceFormat mFormat;
     bool mValid = false;
+    uint2 mLastDim;
 };

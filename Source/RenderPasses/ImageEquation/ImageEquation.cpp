@@ -74,7 +74,16 @@ RenderPassReflection ImageEquation::reflect(const CompileData& compileData)
     reflector.addInput("I1", "input image").flags(RenderPassReflection::Field::Flags::Optional).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput("I2", "input image").flags(RenderPassReflection::Field::Flags::Optional).bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput("I3", "input image").flags(RenderPassReflection::Field::Flags::Optional).bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addOutput("out", "output image").format(mFormat).bindFlags(ResourceBindFlags::RenderTarget);
+
+    // get input dim
+    mLastDim = compileData.defaultTexDims;
+    auto firstEq = compileData.connectedResources.getField("I0");
+    if(!firstEq) compileData.connectedResources.getField("I1");
+    if(!firstEq) compileData.connectedResources.getField("I2");
+    if(!firstEq) compileData.connectedResources.getField("I3");
+    if (firstEq)
+        mLastDim = { firstEq->getWidth(), firstEq->getHeight() };
+    reflector.addOutput("out", "output image").format(mFormat).bindFlags(ResourceBindFlags::RenderTarget).texture2D(mLastDim.x, mLastDim.y);
     return reflector;
 }
 
