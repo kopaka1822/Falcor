@@ -119,18 +119,26 @@ void anyHit(inout RayData rayData, BuiltInTriangleIntersectionAttributes attribs
 
     let lod = ExplicitLodTextureSampler(0.0);
 
+    let material = gScene.materials.getMaterial(materialID);
+
     if (isAlphaTested(materialID))
     {
         if (gScene.materials.alphaTest(v, materialID, lod))
             IgnoreHit(); // TODO proper lod
+
+        // assume opaque, but could have transmission
+        float3 transmission = material.evalTransmission(gScene.materials, v.texC, lod);
+        // convert transmission to grayscale alpha and do second roulette test
+        float alpha = 1.0 - dot(transmission, 0.3333);
+        if (!winOpaqueRoulette(alpha, v.posW.zxy))
+            IgnoreHit();
         return;
     }
 
     // not alpha tested => transparent: eval alpha
-    let material = gScene.materials.getMaterial(materialID);
     float alpha = material.evalOpacity(gScene.materials, v, lod);
     if (alpha <= 0.01) IgnoreHit(); // no hit
-    if (alpha >= 1.0) return; // opaque
+    if (alpha >= 1.0) return; // opaque hit
 
     // decide based on white noise russian roulette if it is a hit
     if (!winOpaqueRoulette(alpha, v.posW))
@@ -199,7 +207,7 @@ void rayGen()
 
         TraceRay(
             gScene.rtAccel,
-                 RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES, // | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+                 RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_NON_OPAQUE, // | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
                  kInstanceCameraParticle /* instanceInclusionMask */, 0 /* hitIdx */, 1 /*ray type count*/, 0 /* missIdx */,
             ray, rayData
         );
