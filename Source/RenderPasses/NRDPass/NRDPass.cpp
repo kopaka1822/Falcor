@@ -272,8 +272,6 @@ RenderPassReflection NRDPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
 
-    const uint2 sz = RenderPassHelpers::calculateIOSize(mOutputSizeSelection, mScreenSize, compileData.defaultTexDims);
-
     reflector.addInput(kInputDiffuseRadianceHitDist, "Diffuse radiance and hit distance").flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addInput(kInputSpecularRadianceHitDist, "Specular radiance and hit distance").flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addInput(kInputPenumbra, "Penumbra").flags(RenderPassReflection::Field::Flags::Optional);
@@ -282,7 +280,21 @@ RenderPassReflection NRDPass::reflect(const CompileData& compileData)
     reflector.addInput(kInputViewZ, "View Z");
     reflector.addInput(kInputNormalRoughnessMaterialID, "World normal, roughness, and material ID");
     reflector.addInput(kInputMotionVectors, "Motion vectors");
-   
+
+    mScreenSize = compileData.defaultTexDims;
+    auto firstValid = compileData.connectedResources.getField(kInputDiffuseRadianceHitDist);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputSpecularRadianceHitDist);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputPenumbra);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputDiffuseHitDist);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputSpecularHitDist);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputViewZ);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputNormalRoughnessMaterialID);
+    if (!firstValid) firstValid = compileData.connectedResources.getField(kInputMotionVectors);
+    if (firstValid)
+        mScreenSize = { firstValid->getWidth(), firstValid->getHeight() };
+
+    uint2 sz = mScreenSize;
+
 
     reflector.addOutput(kOutputFilteredDiffuseRadianceHitDist, "(Normal)Diffuse radiance")
         .format(ResourceFormat::RGBA16Float)
@@ -316,9 +328,6 @@ RenderPassReflection NRDPass::reflect(const CompileData& compileData)
 
 void NRDPass::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
-    mScreenSize = RenderPassHelpers::calculateIOSize(mOutputSizeSelection, mScreenSize, compileData.defaultTexDims);
-    if (mScreenSize.x == 0 || mScreenSize.y == 0)
-        mScreenSize = compileData.defaultTexDims;
     mFrameIndex = 0;
     reinit();
 }
