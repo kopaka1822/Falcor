@@ -17,6 +17,34 @@ StructuredBuffer<uint> gTransparencyWhitelist;
 #define TRANSPARENCY_WHITELIST 0
 #endif
 
+// SAMPLE GENERATOR
+import Utils.Sampling.SampleGeneratorInterface;
+import Utils.Sampling.Pseudorandom.Xoshiro;
+import Utils.Sampling.Pseudorandom.SplitMix64;
+import Utils.Math.BitTricks;
+
+struct UniformSampleGenerator : ISampleGenerator
+{
+    __init(uint2 pixel, uint sampleNumber)
+    {
+        SplitMix64 rng = createSplitMix64(interleave_32bit(pixel), sampleNumber);
+        uint64_t s0 = nextRandom64(rng);
+        uint64_t s1 = nextRandom64(rng);
+        uint seed[4] = { uint(s0), uint(s0 >> 32), uint(s1), uint(s1 >> 32) };
+        this.rng = createXoshiro128StarStar(seed);
+    }
+
+    [mutating]
+    uint next()
+    {
+        return nextRandom(rng);
+    }
+
+    Xoshiro128StarStar rng;
+};
+
+// END SAMPLE GENERATOR
+
 bool isAlphaTested(uint materialID)
 {
 #if TRANSPARENCY_WHITELIST == 0
@@ -147,7 +175,7 @@ void rayGen()
     float3 tangent = cross(bitangent, faceNormal);
 
     // Init sample generator
-    SampleGenerator sg = SampleGenerator(svPos, frameIndex);// % 30u);
+    UniformSampleGenerator sg = UniformSampleGenerator(svPos, frameIndex);
 
     RayDesc ray;
     ray.Origin = wPos.xyz;
