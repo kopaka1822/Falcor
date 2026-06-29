@@ -67,4 +67,5 @@ private:
 
     RTAOData mData;
     bool mDirty = true;
+    uint2 mLastDim;
 };

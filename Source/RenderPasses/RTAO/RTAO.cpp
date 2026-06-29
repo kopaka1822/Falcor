@@ -73,7 +73,14 @@ RenderPassReflection RTAO::reflect(const CompileData& compileData)
     reflector.addInput(kWPos, "world position");
     reflector.addInput(kFaceNormal, "world space face normals");
     reflector.addInput(kLastRayDir, "last ray direction").flags(RenderPassReflection::Field::Flags::Optional);
-    reflector.addOutput(kAmbient, "ambient map").format(ResourceFormat::R8Unorm);
+
+    // get input dim
+    mLastDim = compileData.defaultTexDims;
+    auto vbuffer = compileData.connectedResources.getField(kWPos);
+    if (vbuffer)
+        mLastDim = { vbuffer->getWidth(), vbuffer->getHeight() };
+
+    reflector.addOutput(kAmbient, "ambient map").format(ResourceFormat::R8Unorm).texture2D(mLastDim.x, mLastDim.y);
     return reflector;
 }
 
