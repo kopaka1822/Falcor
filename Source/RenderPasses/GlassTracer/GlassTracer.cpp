@@ -38,6 +38,7 @@ namespace
     const std::string kMotionErrorTmp = "mvecErrorTmp"; // intermediate buffer
     const std::string kColorOut = "color";
     const std::string kDepthOut = "depth";
+    const std::string kLinearDepthOut = "linearDepth";
     const std::string kPosDiff = "posDiff";
     // iteration data
     const std::string kLastRayDir = "lastRayDir";
@@ -123,7 +124,8 @@ RenderPassReflection GlassTracer::reflect(const CompileData& compileData)
     reflector.addOutput(kVbuffer, "V-buffer").format(HitInfo::kDefaultFormat).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotion, "Motion vector").format(ResourceFormat::RG32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
     reflector.addOutput(kColorOut, "Final color").format(ResourceFormat::RGBA32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
-    reflector.addOutput(kDepthOut, "Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
+    reflector.addOutput(kDepthOut, "0-1 Non-Linear Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
+    reflector.addOutput(kLinearDepthOut, "0-inf Linear Depth").format(ResourceFormat::R32Float).bindFlags(ResourceBindFlags::AllColorViews).texture2D(dims.x, dims.y);
 
     reflector.addOutput(kMotionBackup, "Backup Motion vector (first hit)").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::RG32Float).texture2D(dims.x, dims.y);
     reflector.addOutput(kMotionErrorMask, "Motion vector error mask").bindFlags(ResourceBindFlags::AllColorViews).format(ResourceFormat::R8Uint).texture2D(dims.x, dims.y);
@@ -179,6 +181,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     auto pMotionErrorTmp = renderData.getTexture(kMotionErrorTmp);
     auto pColor = renderData.getTexture(kColorOut);
     auto pDepth = renderData.getTexture(kDepthOut);
+    auto pLinearDepth = renderData.getTexture(kLinearDepthOut);
     auto pDebug = renderData.getTexture(kDebug);
     auto pPosDiff = renderData.getTexture(kPosDiff);
     auto pLastRayDir = renderData.getTexture(kLastRayDir);
@@ -236,6 +239,7 @@ void GlassTracer::execute(RenderContext* pRenderContext, const RenderData& rende
     var["gBackupMotion"] = pMotionBackup;
     var["gColor"] = pColor;
     var["gDepth"] = pDepth;
+    var["gLinearDepth"] = pLinearDepth;
     var["gPosDiff"] = pPosDiff;
     var["gStack"] = mpStackBuffer;
     var["gTransparencyWhitelist"] = mpTransparencyWhitelist;

@@ -56,7 +56,7 @@ def render_graph_GlassTracerRTAO():
     g.add_edge('UnpackVBuffer.posW', 'RTAO.wPos')
     g.add_edge('UnpackVBuffer.faceNormalW', 'RTAO.faceNormal')
     g.add_edge('RTAO.ambient', 'NRD.diffuseHitDist')
-    g.add_edge('GlassTracer.depth', 'NRD.viewZ')
+    g.add_edge('GlassTracer.linearDepth', 'NRD.viewZ')
     g.add_edge('UnpackVBuffer.normalWRoughnessMaterialID', 'NRD.normWRoughnessMaterialID')
     g.add_edge('GlassTracer.mvec', 'NRD.mvec')
     g.add_edge('NRD.filteredDiffuseOcclusion', 'Ambient.I0')
