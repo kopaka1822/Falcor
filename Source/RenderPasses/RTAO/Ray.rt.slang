@@ -9,6 +9,7 @@ import Utils.Math.MathHelpers;
 
 Texture2D<float4> gWPosTex;
 Texture2D<float3> gFaceNormalTex;
+Texture2D<float3> gLastRayDirTex;
 RWTexture2D<float> ambientOut;
 
 StructuredBuffer<uint> gTransparencyWhitelist;
@@ -165,7 +166,9 @@ void rayGen()
     // view space normal of current pixel
     float3 faceNormal = normalize(gFaceNormalTex[svPos]);
     // face forward
-    if (dot(faceNormal, wPos.xyz - gCamera.data.posW) > 0)
+    float3 lastRayDir = gLastRayDirTex[svPos];
+    if (all(lastRayDir == 0.0)) lastRayDir = wPos.xyz - gCamera.data.posW;
+    if (dot(faceNormal, lastRayDir) > 0)
     {
         faceNormal = -faceNormal;
     }

@@ -62,6 +62,7 @@ def render_graph_GlassTracerRTAO():
     g.add_edge('NRD.filteredDiffuseOcclusion', 'Ambient.I0')
     g.add_edge('NRD.filteredDiffuseOcclusion', 'Diffuse.I0')
     g.add_edge('GlassTracer.color', 'Diffuse.I1')
+    g.add_edge('GlassTracer.lastRayDir', 'RTAO.lastRayDir')
     g.mark_output('ToneMapper.dst')
     g.mark_output('MotionVecVis.color')
     g.mark_output('Ambient.out')

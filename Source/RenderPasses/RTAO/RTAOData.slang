@@ -7,7 +7,7 @@ struct RTAOData
 {
     float radius = 0.1f;
     uint spp = 1;
-    float normalScale = 0.01f;
+    float normalScale = 0.001f;
 
 };
 

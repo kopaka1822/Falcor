@@ -36,6 +36,7 @@ namespace
     //In
     const std::string kWPos = "wPos";
     const std::string kFaceNormal = "faceNormal";
+    const std::string kLastRayDir = "lastRayDir";
 
     //Out
     const std::string kAmbient = "ambient";
@@ -71,6 +72,7 @@ RenderPassReflection RTAO::reflect(const CompileData& compileData)
     RenderPassReflection reflector;
     reflector.addInput(kWPos, "world position");
     reflector.addInput(kFaceNormal, "world space face normals");
+    reflector.addInput(kLastRayDir, "last ray direction").flags(RenderPassReflection::Field::Flags::Optional);
     reflector.addOutput(kAmbient, "ambient map").format(ResourceFormat::R8Unorm);
     return reflector;
 }
@@ -87,6 +89,7 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     auto pWPos = renderData[kWPos]->asTexture();
     auto pFaceNormal = renderData[kFaceNormal]->asTexture();
+    auto pLastRayDir = renderData.getTexture(kLastRayDir);
     auto pAmbient = renderData[kAmbient]->asTexture();
 
     if (!mEnabled)
@@ -139,6 +142,7 @@ void RTAO::execute(RenderContext* pRenderContext, const RenderData& renderData)
     // resources
     vars["gWPosTex"] = pWPos;
     vars["gFaceNormalTex"] = pFaceNormal;
+    vars["gLastRayDirTex"] = pLastRayDir;
     vars["ambientOut"] = pAmbient;
 
     // whitelist
