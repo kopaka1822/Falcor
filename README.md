@@ -1,26 +1,15 @@
 ![](docs/images/teaser.png)
 
-# Real-Time Motion Vectors after Multiple Refractions
+# Fast Pseudo Caustics with Ray Differentials
 
-Demo Video (DLSS):
+Rendering shadows cast by refractive surfaces such as glass is challenging because direct visibility queries between surface points and light sources generally violate the laws of refraction.
+Conventional hard shadows produce visually unappealing results, while semi-transparent fake shadows fail to capture important optical effects.
+In particular, they do not reproduce caustics, the focused light patterns that are characteristic of refractive materials.
+We present a method for approximating refractive caustics from direct light connections using ray differentials.
+Although our approach does not compute physically exact caustics, it achieves visually similar results at orders-of-magnitude lower computational cost than a ground-truth simulation.
+Furthermore, the method is deterministic, temporally stable, and free of Monte Carlo noise, making it well suited for real-time rendering.
 
-[![YouTube](http://i.ytimg.com/vi/gdmPwk14IkQ/hqdefault.jpg)](https://www.youtube.com/watch?v=gdmPwk14IkQ)
-
-Demo with Dancing Robot (DLSS):
-
-[![YouTube](http://i.ytimg.com/vi/hrjtp4m3v3E/hqdefault.jpg)](https://www.youtube.com/watch?v=hrjtp4m3v3E)
-
-Intel XeSS 2.0 and AMD FSR 3.1 variant:
-
-[![YouTube](http://i.ytimg.com/vi/B3dzyhVg_G8/hqdefault.jpg)](https://www.youtube.com/watch?v=B3dzyhVg_G8)
-
-Two additional animated scenes with a dancing character and animated camera (First video is solid glass, second video is thin glass).
-
-[![YouTube](http://i.ytimg.com/vi/BFY3GoUUIRk/hqdefault.jpg)](https://www.youtube.com/watch?v=BFY3GoUUIRk)
-[![YouTube](http://i.ytimg.com/vi/Nh6nudX-afA/hqdefault.jpg)](https://www.youtube.com/watch?v=Nh6nudX-afA)
-
-The video above illustrates the limitations of DLSS: since only a single motion vector can be provided, only the motion of the refraction is captured correctly. 
-Consequently, the motion of the reflections may appear blurred.
+VMV 2026 paper
 
 ## Contents:
 
@@ -33,18 +22,11 @@ Consequently, the motion of the reflections may appear blurred.
 
 This project was implemented in NVIDIAs Falcor rendering framework.
 
-You can download the executable demo from the [Releases Page](https://github.com/kopaka1822/Falcor/releases/tag/Refraction), or build the project by following the instructions in [Building Falcor](#building-falcor).
+You can download the executable demo from the [Releases Page](https://github.com/kopaka1822/Falcor/releases/tag/Caustic), or build the project by following the instructions in [Building Falcor](#building-falcor).
 
 After downloading the demo from the releases page, you can execute it with the RunFalcor.bat file. In the Demo, you can configure the renderer after expanding the **GlassTracer** tab. In the **GlassTracer** tab you can configure the Whitted Ray Tracer:
-* Render Scale: By default, we render the image on 1/3 resolution. Use this dropdown to change the render resolution for DLSS
-* Motion Vector: Technique used for the primary motion vector estimate. You can set this to FirstHit for classical first-hit motion vectors
-* Force Motion Vector Calculation: By default we set motion vectors to zero if nothing moved between frames. Enabling this option will always calculate motion vectors (Note that we use a camera jitter, so the image does jitter from frame to frame)
-* Optical Flow Technique: By default we use our positional Lucas-Kanade algorithm, but you can set this to None to disable any post-processing on the motion vectors
-* Iterations: Iterations for the Lucas-Kanade algorithm
-* Bilateral Blur: Radius in pixels for our bilateral filter. Set this to 0 to disable bilateral filtering.
-Other interesting settings:
-* Pathtracer group: After expanding this group, you can modify the maximum path length of stack size of the whitted ray tracer. You can also enable hits after TIR, or hits from the non-primary path.
-* OutputSwitch: Here you can change the TAA method from DLSS to Intel XeSS or AMD FSR 3.
+* Render Scale: Use this dropdown to change the render resolution for DLSS
+* Shadow Test: Hard Shadows, Fresnel Shadows, McGuire's Methods, Our Pseudo Caustic and Final Gather for the reference image (Go to OutputSwitch->Accumulate to accumulate a reference image).
 
 You can navigate the camera with WASD and dragging the mouse for rotation.
 Hold shift for more camera speed
@@ -56,8 +38,65 @@ Space to pause the animation
 The important files can be found in `Source/RenderPasses/GlassTracer/`:
 * `GlassTracer.cpp/.h`: Whitted Ray Tracer
 * `GlassTracer.rt.slang`: Shader code for the Whitted Ray Tracer
-* `OpticalFlowPos.cs.slang`: Compute Shader for our positional Lucas-Kanade implementation
-* `OpticalFlowBlur.cs.slang`: Compute Shader for our bilateral filter
+* `ShadowRay.slang`: Shader code for the shadow methods
+
+Pseudo Code from the paper:
+```c++
+float shadow(float3 L, float3 Ps, float3 Ns, 
+             float3 dPsdx, Light light) {
+  ray.Origin = L; // ray
+  ray.D = normalize(Ps - L);
+  ray.TMin = 0; 
+  ray.TMax = distance(L, Ps);
+  rd.dPdx = 0; // ray differential
+  rd.dDdx = 0;
+  if (light.type == POINT_LIGHT) 
+    rd.dDdx = focus(Ps, L, dPsdx);
+  if (light.type == DIR_LIGHT)
+    rd.dPdx = ortho(ray.D, dPsdx);
+  
+  float visibility = 1.0;
+  while(visibility > 0.0) {
+    RayQuery q;
+    q.TraceRayInline(ray);
+    if (q.hit_status == NO_HIT) break;
+    
+    float eta = getEta(q.hit);
+    float3 N = getShadingNormal(q.hit);
+    float3 I = ray.D; // incoming
+    if(isExitingMedium(q.hit)) 
+      I = refract(ray.D, N, 1.0 / eta);
+    
+    visibility *= (1 - getFresnel(I, N, eta));
+    // Ige99 Eq. 10, 20, 17:
+    rd.Transfer(I,q.rayT-ray.TMin,N);
+    float3 dNdx = getNormalDiff(q.hit, rd.dPdx);
+    rd.Refraction(I, N, dNdx, eta);
+    
+    ray.TMin = q.rayT; // next ray
+  }
+  
+  // final transfer to Ps
+  rd.Transfer(ray.D, ray.TMax-ray.TMin, Ns);
+  float A_M = length(cross(rd.dPdx, rd.dPdy));
+  float A_D = length(cross(dPsdx, dPsdy));
+  float tau = pow(A_D/A_M, gamma); //gamma=0.25
+  return tau * visibility;
+}
+
+float3 focus(float3 P, float3 L, float3 dPdx) {
+  float3 d = P - L;
+  return (dot(d,d)*dPdx - dot(d,dPdx)*d) 
+         / pow(dot(d, d), 1.5);
+}
+float3 ortho(float3 D, float3 dPdx) {
+  return dPdx - dot(D, dPdx) * D;
+}
+float getFresnel(float3 I, float3 N, float eta){
+  float F0 = pow((1 - eta) / (1 + eta), 2);
+  return F0+(1 - F0)*pow(1-abs(dot(I, N)), 5);
+}
+```
 
 ## Falcor Prerequisites
 - Windows 10 version 20H2 (October 2020 Update) or newer, OS build revision .789 or newer
