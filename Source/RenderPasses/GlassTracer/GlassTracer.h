@@ -73,7 +73,6 @@ public:
         Hard = 0,
         Fresnel = 1,
         Fresnel2 = 2,
-        PosToLight = 3,
         LightToPos = 4,
         FinalGather = 5,
     };
@@ -82,8 +81,7 @@ public:
         {ShadowTest::Hard, "Hard"},
         {ShadowTest::Fresnel, "Fresnel"},
         {ShadowTest::Fresnel2, "Fresnel (McGuire)"},
-        {ShadowTest::PosToLight, "Position to Light"},
-        {ShadowTest::LightToPos, "Light to Position"},
+        {ShadowTest::LightToPos, "Pseudo Caustics"},
         {ShadowTest::FinalGather, "Final Gather"},
     });
 
