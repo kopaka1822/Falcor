@@ -9,7 +9,7 @@ We present a method for approximating refractive caustics from direct light conn
 Although our approach does not compute physically exact caustics, it achieves visually similar results at orders-of-magnitude lower computational cost than a ground-truth simulation.
 Furthermore, the method is deterministic, temporally stable, and free of Monte Carlo noise, making it well suited for real-time rendering.
 
-VMV 2026 paper
+VMV 2026 paper: [https://diglib.eg.org/items/16d5d480-410d-4e27-86bc-4050aff201a5](https://diglib.eg.org/items/16d5d480-410d-4e27-86bc-4050aff201a5)
 
 ## Contents:
 
